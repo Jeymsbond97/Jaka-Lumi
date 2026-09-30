@@ -1,0 +1,199 @@
+<mujoco model="jaka_lumi">
+  <!--
+    JAKA Lumi: AGV baza + lift + bel + bosh + 6 bo'g'imli qo'l (MiniCobo) + Robotiq 2F-85.
+    Manba: github.com/JAKARobotics/JAKA_Lumi -> jaka_lumi_description/urdf/jaka_lumi.urdf
+    Kinematika va massalar URDF'dan olingan. Motorlar, collision, kameralar va gripper qo'lda qo'shilgan.
+
+    Robotning OLDI base_link ning -y tomoni (bosh kamerasi o'sha tomonga qaraydi).
+    Ildiz body 90 gradusga burilgan, shuning uchun dunyoda robot +x ga qarab turadi.
+  -->
+  <compiler angle="radian" meshdir="lumi_description/meshes" autolimits="true"/>
+
+  <option timestep="0.002" integrator="implicitfast" cone="elliptic" impratio="10"/>
+
+  <asset>
+    <material name="lumi_white" rgba="0.92 0.93 0.94 1" specular="0.3" shininess="0.4"/>
+    <material name="lumi_gray" rgba="0.55 0.57 0.62 1"/>
+    <material name="lumi_black" rgba="0.08 0.08 0.09 1"/>
+
+    <mesh name="base_link" file="base_link.STL"/>
+    <mesh name="wheel_r" file="wheel_r.STL"/>
+    <mesh name="wheel_l" file="wheel_l.STL"/>
+    <mesh name="link_1" file="link_1.STL"/>
+    <mesh name="link_2" file="link_2.STL"/>
+    <mesh name="link_3" file="link_3.STL"/>
+    <mesh name="link_4" file="link_4.STL"/>
+    <mesh name="link_a1" file="link_a1.STL"/>
+    <mesh name="link_a2" file="link_a2.STL"/>
+    <mesh name="link_a3" file="link_a3.STL"/>
+    <mesh name="link_a4" file="link_a4.STL"/>
+    <mesh name="link_a5" file="link_a5.STL"/>
+    <mesh name="link_a6" file="link_a6.STL"/>
+
+    <model name="robotiq_2f85" file="robotiq_2f85/2f85.xml"/>
+  </asset>
+
+  <default>
+    <default class="lumi">
+      <joint armature="0.1" damping="1"/>
+      <default class="visual">
+        <geom type="mesh" contype="0" conaffinity="0" group="2" material="lumi_white" density="0"/>
+      </default>
+      <default class="collision">
+        <geom group="3" density="0"/>
+        <default class="caster">
+          <!-- tayanch g'ildirak o'rniga ishqalanishsiz shar -->
+          <geom type="sphere" size="0.03" condim="1" friction="0 0 0" priority="1"/>
+        </default>
+      </default>
+      <default class="wheel">
+        <joint armature="0.05" damping="0.1"/>
+      </default>
+      <!-- Motor sozlamalari (kp, forcerange) TAXMINIY: URDF'da yo'q, haqiqiy robotda o'lchash kerak -->
+      <default class="arm_big">
+        <position kp="1500" dampratio="1" forcerange="-60 60"/>
+      </default>
+      <default class="arm_small">
+        <position kp="400" dampratio="1" forcerange="-20 20"/>
+      </default>
+    </default>
+  </default>
+
+  <worldbody>
+    <!-- g'ildirak pastki nuqtasi base_link dan 0.2911 m pastda -->
+    <body name="base_link" pos="0 0 0.2915" quat="0.7071068 0 0 0.7071068" childclass="lumi">
+      <freejoint name="root"/>
+      <inertial pos="0 0.0437413 0.0707957" quat="0.0181502 0.706778 0.0269694 0.706688" mass="118.42"
+        diaginertia="4.064 3.13403 3.11386"/>
+      <geom class="visual" mesh="base_link"/>
+      <geom class="collision" type="box" pos="0 0.047 -0.04" size="0.268 0.265 0.205"/>
+      <geom class="collision" type="cylinder" pos="0 0 0.365" size="0.068 0.2"/>
+      <geom class="caster" pos="0.19 -0.17 -0.2601"/>
+      <geom class="caster" pos="-0.19 -0.17 -0.2601"/>
+      <geom class="caster" pos="0.19 0.26 -0.2601"/>
+      <geom class="caster" pos="-0.19 0.26 -0.2601"/>
+      <site name="base_center" pos="0 0.05 -0.2071" size="0.01" group="5"/>
+
+      <body name="wheel_r" pos="-0.1793 0.050006 -0.2071" quat="0.707105 0 0.707108 0">
+        <inertial pos="0 0 0" quat="0.5 0.5 -0.5 0.5" mass="0.941043" diaginertia="0.0031113 0.001705 0.001705"/>
+        <joint name="w_r" class="wheel" axis="0 0 1"/>
+        <geom class="visual" mesh="wheel_r" material="lumi_black"/>
+        <geom class="collision" type="cylinder" size="0.084 0.005" friction="1.2 0.005 0.0001"/>
+      </body>
+      <body name="wheel_l" pos="0.1793 0.050006 -0.2071" quat="0.707105 0 0.707108 0">
+        <inertial pos="0 0 0" quat="0.5 0.5 -0.5 0.5" mass="0.941043" diaginertia="0.0031113 0.001705 0.001705"/>
+        <joint name="w_l" class="wheel" axis="0 0 1"/>
+        <geom class="visual" mesh="wheel_l" material="lumi_black"/>
+        <geom class="collision" type="cylinder" size="0.084 0.005" friction="1.2 0.005 0.0001"/>
+      </body>
+
+      <!-- Lift. URDF'da 0..0.4 m, lekin Lumi SDK hujjatida 0..300 mm: haqiqiy chegara olindi -->
+      <body name="link_1" pos="0 0 0.565" gravcomp="1">
+        <inertial pos="0 0 -0.151" mass="14.2348" diaginertia="0.254522 0.254522 0.0264838"/>
+        <joint name="l_1" type="slide" axis="0 0 1" range="0 0.3" damping="200"/>
+        <geom class="visual" mesh="link_1"/>
+
+        <!-- Bel. URDF'da +-160, SDK hujjatida +-140 gradus -->
+        <body name="link_2" pos="0 0 0.0745" gravcomp="1">
+          <inertial pos="-0.00272184 0 0.152636" quat="0.707104 0.00212531 0.00212531 0.707104" mass="4.81096"
+            diaginertia="0.0578685 0.0518115 0.0150335"/>
+          <joint name="l_2" axis="0 0 1" range="-2.4435 2.4435" damping="5"/>
+          <geom class="visual" mesh="link_2"/>
+          <geom class="collision" type="cylinder" pos="0 0 0.173" size="0.062 0.173"/>
+          <geom class="collision" type="box" pos="0.138 0 0.08" size="0.058 0.015 0.08"/>
+          <!-- tutqichdagi kamera -->
+          <camera name="torso_cam" pos="0.17 -0.02 0.06" xyaxes="-1 0 0 0 0 1" fovy="58"/>
+
+          <body name="link_3" pos="0 0 0.3465" gravcomp="1">
+            <inertial pos="-0.00254602 0 0.048708" quat="0.474813 0.523978 0.523978 0.474813" mass="1.268"
+              diaginertia="0.00139294 0.00124135 0.0011326"/>
+            <joint name="l_3" axis="0 0 1" range="-3.1415 3.1415"/>
+            <geom class="visual" mesh="link_3"/>
+
+            <body name="link_4" pos="0 0 0.052" quat="0.707105 0 0.707108 0" gravcomp="1">
+              <inertial pos="-0.0384844 0.000254434 0.000164186" quat="0.997051 -0.0071934 0.0179175 -0.0742736"
+                mass="0.595955" diaginertia="0.00258996 0.00195094 0.00166945"/>
+              <joint name="l_4" axis="0 0 1" range="-0.0872 0.6108"/>
+              <geom class="visual" mesh="link_4"/>
+              <geom class="collision" type="box" pos="-0.024 0.014 0" size="0.065 0.081 0.105"/>
+              <camera name="head_cam" pos="-0.03 -0.07 0" xyaxes="0 0 -1 -1 0 0" fovy="58"/>
+            </body>
+          </body>
+
+          <!-- 6 bo'g'imli qo'l -->
+          <body name="link_a1" pos="-0.104 0 0.069" quat="-2.59734e-06 0.707105 -2.59735e-06 -0.707108" gravcomp="1">
+            <inertial pos="0 0.013408 0.0943686" quat="0.704372 -0.0621344 0.0621344 0.704372" mass="1.35363"
+              diaginertia="0.0055578 0.00550421 0.00155185"/>
+            <joint name="l_a1" axis="0 0 1" range="-6.2831 6.2831"/>
+            <geom class="visual" mesh="link_a1"/>
+            <geom class="collision" type="mesh" mesh="link_a1"/>
+            <body name="link_a2" pos="0 -0.0165 0.156" quat="0.499998 0.5 -0.5 0.500002" gravcomp="1">
+              <inertial pos="0.0906054 0 -0.00609952" quat="0 0.831261 0 0.555882" mass="1.13726"
+                diaginertia="0.00830445 0.0082024 0.00109866"/>
+              <joint name="l_a2" axis="0 0 1" range="-2.1816 2.1816"/>
+              <geom class="visual" mesh="link_a2"/>
+              <geom class="collision" type="mesh" mesh="link_a2"/>
+              <body name="link_a3" pos="0.21 0 -0.029" gravcomp="1">
+                <inertial pos="0.042086 0 0.0309279" quat="0.460562 0.536547 0.536547 0.460562" mass="0.812748"
+                  diaginertia="0.00221944 0.00215697 0.000670534"/>
+                <joint name="l_a3" axis="0 0 1" range="-2.2689 2.2689"/>
+                <geom class="visual" mesh="link_a3"/>
+                <geom class="collision" type="mesh" mesh="link_a3"/>
+                <body name="link_a4" pos="0.1303 0 0.0185" quat="0.499998 -0.5 0.500002 -0.5" gravcomp="1">
+                  <inertial pos="0 -0.0259459 0.0452714" quat="0.694269 0.13413 -0.13413 0.694269" mass="0.308941"
+                    diaginertia="0.000510799 0.000485737 0.00019048"/>
+                  <joint name="l_a4" axis="0 0 1" range="-6.2831 6.2831"/>
+                  <geom class="visual" mesh="link_a4"/>
+                  <geom class="collision" type="mesh" mesh="link_a4"/>
+                  <body name="link_a5" pos="0 -0.01805 0.0802" quat="0.499998 0.5 0.5 -0.500002" gravcomp="1">
+                    <inertial pos="-0.0445528 0 0.0283178" quat="0.535945 0.461262 0.461262 0.535945" mass="0.691486"
+                      diaginertia="0.00167662 0.00163248 0.000510991"/>
+                    <joint name="l_a5" axis="0 0 1" range="-2.0943 2.0943"/>
+                    <geom class="visual" mesh="link_a5"/>
+                    <geom class="collision" type="mesh" mesh="link_a5"/>
+                    <body name="link_a6" pos="-0.1233 0 0.01805" quat="0.499998 0.5 -0.500002 -0.5" gravcomp="1">
+                      <inertial pos="3.24059e-05 -2.59129e-05 0.0157071" quat="0.5 0.5 -0.5 0.5" mass="0.147762"
+                        diaginertia="0.00010506 6.82807e-05 6.73994e-05"/>
+                      <joint name="l_a6" axis="0 0 1" range="-6.2831 6.2831"/>
+                      <geom class="visual" mesh="link_a6" material="lumi_gray"/>
+                      <geom class="collision" type="mesh" mesh="link_a6"/>
+                      <!-- asbob flanetsi (URDF'dagi link_at). Gripper shu yerga ulanadi -->
+                      <body name="link_at" pos="0 0 0.036">
+                        <site name="flange" size="0.005" group="5"/>
+                        <attach model="robotiq_2f85" body="base_mount" prefix="g_"/>
+                      </body>
+                    </body>
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <contact>
+    <exclude body1="link_2" body2="link_4"/>
+    <exclude body1="base_link" body2="link_2"/>
+  </contact>
+
+  <actuator>
+    <!-- baza: g'ildirak tezligi (rad/s). 12 rad/s ~ 1 m/s -->
+    <velocity name="wheel_l" joint="w_l" kv="200" ctrlrange="-12 12" forcerange="-60 60"/>
+    <velocity name="wheel_r" joint="w_r" kv="200" ctrlrange="-12 12" forcerange="-60 60"/>
+    <!-- tana: lift (m), bel, bosh burilishi, bosh egilishi (rad) -->
+    <position name="lift" joint="l_1" kp="40000" dampratio="1" ctrlrange="0 0.3" forcerange="-2000 2000"/>
+    <position name="waist" joint="l_2" kp="2000" dampratio="1" ctrlrange="-2.4435 2.4435" forcerange="-200 200"/>
+    <position name="head_yaw" joint="l_3" kp="100" dampratio="1" ctrlrange="-3.1415 3.1415" forcerange="-20 20"/>
+    <position name="head_pitch" joint="l_4" kp="100" dampratio="1" ctrlrange="-0.0872 0.6108" forcerange="-20 20"/>
+    <!-- qo'l -->
+    <position name="a1" joint="l_a1" class="arm_big" ctrlrange="-6.2831 6.2831"/>
+    <position name="a2" joint="l_a2" class="arm_big" ctrlrange="-2.1816 2.1816"/>
+    <position name="a3" joint="l_a3" class="arm_big" ctrlrange="-2.2689 2.2689"/>
+    <position name="a4" joint="l_a4" class="arm_small" ctrlrange="-6.2831 6.2831"/>
+    <position name="a5" joint="l_a5" class="arm_small" ctrlrange="-2.0943 2.0943"/>
+    <position name="a6" joint="l_a6" class="arm_small" ctrlrange="-6.2831 6.2831"/>
+    <!-- gripper: g_fingers_actuator (0 = ochiq, 255 = yopiq) 2f85.xml dan keladi -->
+  </actuator>
+</mujoco>

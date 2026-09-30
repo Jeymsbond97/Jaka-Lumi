@@ -1,0 +1,60 @@
+<mujoco model="lumi_scene">
+  <!-- Sinov dunyosi: pol, stol, ushlanadigan buyumlar va "odam" (mocap maneken) -->
+  <include file="lumi.xml"/>
+
+  <statistic center="0.4 0 0.7" extent="2.2"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.35 0.35 0.35" specular="0 0 0"/>
+    <global azimuth="140" elevation="-20" offwidth="1280" offheight="960"/>
+    <quality shadowsize="4096"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.75 0.82 0.9" rgb2="0.95 0.95 0.95" width="512" height="3072"/>
+    <texture type="2d" name="floor" builtin="checker" mark="edge" rgb1="0.85 0.85 0.82" rgb2="0.78 0.78 0.75"
+      markrgb="0.6 0.6 0.6" width="300" height="300"/>
+    <material name="floor" texture="floor" texuniform="true" texrepeat="2 2" reflectance="0.05"/>
+    <material name="wood" rgba="0.72 0.55 0.36 1"/>
+    <material name="skin" rgba="0.87 0.68 0.55 1"/>
+    <material name="shirt" rgba="0.15 0.3 0.6 1"/>
+    <material name="pants" rgba="0.2 0.2 0.22 1"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0.5 0 3" dir="0 0 -1" directional="true" diffuse="0.5 0.5 0.5"/>
+    <geom name="floor" type="plane" size="0 0 0.05" material="floor"/>
+
+    <!-- stol: robot oldida, usti 0.75 m balandlikda -->
+    <body name="table" pos="0.7 0 0">
+      <geom name="table_top" type="box" pos="0 0 0.73" size="0.3 0.5 0.02" material="wood"/>
+      <geom type="box" pos="0.26 0.46 0.355" size="0.02 0.02 0.355" material="wood"/>
+      <geom type="box" pos="0.26 -0.46 0.355" size="0.02 0.02 0.355" material="wood"/>
+      <geom type="box" pos="-0.26 0.46 0.355" size="0.02 0.02 0.355" material="wood"/>
+      <geom type="box" pos="-0.26 -0.46 0.355" size="0.02 0.02 0.355" material="wood"/>
+    </body>
+
+    <body name="red_cube" pos="0.5 -0.15 0.775">
+      <freejoint/>
+      <geom name="red_cube" type="box" size="0.02 0.02 0.02" rgba="0.85 0.1 0.1 1" mass="0.05"/>
+    </body>
+    <body name="blue_cube" pos="0.52 0.15 0.775">
+      <freejoint/>
+      <geom name="blue_cube" type="box" size="0.02 0.02 0.02" rgba="0.1 0.25 0.85 1" mass="0.05"/>
+    </body>
+    <body name="green_can" pos="0.58 0 0.81">
+      <freejoint/>
+      <geom name="green_can" type="cylinder" size="0.028 0.06" rgba="0.1 0.7 0.25 1" mass="0.08"/>
+    </body>
+
+    <!-- "odam": mocap body, koddan data.mocap_pos orqali suriladi. Boshida uzoqda turadi -->
+    <body name="person" mocap="true" pos="4 3 0">
+      <geom type="capsule" fromto="-0.0 0.09 0.05 0 0.09 0.85" size="0.07" material="pants"/>
+      <geom type="capsule" fromto="-0.0 -0.09 0.05 0 -0.09 0.85" size="0.07" material="pants"/>
+      <geom type="capsule" fromto="0 0 0.95 0 0 1.4" size="0.16" material="shirt"/>
+      <geom type="capsule" fromto="0 0.23 1.38 0 0.26 0.9" size="0.045" material="shirt"/>
+      <geom type="capsule" fromto="0 -0.23 1.38 0 -0.26 0.9" size="0.045" material="shirt"/>
+      <geom type="sphere" pos="0 0 1.62" size="0.11" material="skin"/>
+    </body>
+  </worldbody>
+</mujoco>

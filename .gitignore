@@ -1,0 +1,29 @@
+# Secrets: API keys, tokens, robot credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets.*
+credentials.*
+config.local.*
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Tools and OS
+.claude/
+.vscode/
+.idea/
+.DS_Store
+MUJOCO_LOG.TXT
+
+# Large local outputs
+*.mp4
+*.mov
+
+# Real-robot photos stay local
+Jaka_lumi.jpg
