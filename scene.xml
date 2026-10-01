@@ -48,14 +48,18 @@
       <geom name="green_can" type="cylinder" size="0.028 0.06" rgba="0.1 0.7 0.25 1" mass="0.08"/>
     </body>
 
-    <!-- "odam": mocap body, koddan data.mocap_pos orqali suriladi. Boshida stolning robot qo'li tomonida (viewerda chapda), stolga qarab turadi -->
-    <body name="person" mocap="true" pos="0.7 -0.85 0" quat="0.7071 0 0 0.7071">
+    <!-- "odam": mocap body, koddan data.mocap_pos orqali suriladi. Boshida stolning robot qo'li tomonida (viewerda chapda), yuzi robot tomonga (-x) qaragan -->
+    <body name="person" mocap="true" pos="0.7 -0.85 0" quat="0 0 0 1">
       <geom type="capsule" fromto="-0.0 0.09 0.05 0 0.09 0.85" size="0.07" material="pants"/>
       <geom type="capsule" fromto="-0.0 -0.09 0.05 0 -0.09 0.85" size="0.07" material="pants"/>
       <geom type="capsule" fromto="0 0 0.95 0 0 1.4" size="0.16" material="shirt"/>
       <geom type="capsule" fromto="0 0.23 1.38 0 0.26 0.9" size="0.045" material="shirt"/>
       <geom type="capsule" fromto="0 -0.23 1.38 0 -0.26 0.9" size="0.045" material="shirt"/>
       <geom type="sphere" pos="0 0 1.62" size="0.11" material="skin"/>
+      <!-- yuz: odam qayoqqa qarab turgani ko'rinsin (old tomoni body ichida +x) -->
+      <geom type="sphere" pos="0.1 0.04 1.65" size="0.018" rgba="0.1 0.1 0.1 1" contype="0" conaffinity="0"/>
+      <geom type="sphere" pos="0.1 -0.04 1.65" size="0.018" rgba="0.1 0.1 0.1 1" contype="0" conaffinity="0"/>
+      <geom type="sphere" pos="0.11 0 1.6" size="0.022" material="skin" contype="0" conaffinity="0"/>
     </body>
   </worldbody>
 </mujoco>
