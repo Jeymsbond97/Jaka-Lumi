@@ -110,6 +110,8 @@ The LLM layer will only ever call these methods. On the real robot a `LumiReal` 
 | `demo.py` | Headless check of body, pick-and-place, base and waving |
 | `lumi_description/` | Robot description and meshes |
 | `robotiq_2f85/` | Gripper model |
+| `assets/` | Arm "JAKA" labels: texture and curved meshes |
+| `tools/make_decals.py` | Rebuilds the files in `assets/` (`python3 tools/make_decals.py`, needs Pillow) |
 | `PLAN.md` | Project plan and daily log |
 
 ## Simulation versus the real robot
