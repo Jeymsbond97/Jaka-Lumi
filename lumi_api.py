@@ -293,7 +293,7 @@ class LumiSim:
         self.arm_joint_move(ARM_HOME)
 
     def set_person(self, x, y):
-        """Simulation only: put the mannequin at world (x, y). Far away (the default 4, 3) = nobody there."""
+        """Simulation only: put the mannequin at world (x, y). Far away (e.g. 4, 3) = nobody there."""
         self.data.mocap_pos[self.model.body("person").mocapid[0]] = [x, y, 0]
         self.step(0.02)
 

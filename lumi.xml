@@ -1,11 +1,11 @@
 <mujoco model="jaka_lumi">
   <!--
-    JAKA Lumi: AGV baza + lift + bel + bosh + 6 bo'g'imli qo'l (MiniCobo) + Robotiq 2F-85.
-    Manba: github.com/JAKARobotics/JAKA_Lumi -> jaka_lumi_description/urdf/jaka_lumi.urdf
-    Kinematika va massalar URDF'dan olingan. Motorlar, collision, kameralar va gripper qo'lda qo'shilgan.
+    JAKA Lumi: AGV base + lift + waist + head + 6-joint arm (MiniCobo) + Robotiq 2F-85.
+    Source: github.com/JAKARobotics/JAKA_Lumi -> jaka_lumi_description/urdf/jaka_lumi.urdf
+    Kinematics and masses come from the URDF. Motors, collision, cameras and the gripper were added by hand.
 
-    Robotning OLDI base_link ning -y tomoni (bosh kamerasi o'sha tomonga qaraydi).
-    Ildiz body 90 gradusga burilgan, shuning uchun dunyoda robot +x ga qarab turadi.
+    The robot's FRONT is the -y side of base_link (the head camera looks that way).
+    The root body is turned 90 degrees, so in the world the robot faces +x.
   -->
   <compiler angle="radian" meshdir="lumi_description/meshes" autolimits="true"/>
 
@@ -15,11 +15,11 @@
     <material name="lumi_white" rgba="0.92 0.93 0.94 1" specular="0.3" shininess="0.4"/>
     <material name="lumi_gray" rgba="0.55 0.57 0.62 1"/>
     <material name="lumi_black" rgba="0.08 0.08 0.09 1"/>
-    <!-- kamera oynasi (qora, yaltiroq), linzalar va lift chizig'i: haqiqiy robot rasmidagidek (Jaka_lumi.jpg) -->
+    <!-- camera window (black, glossy), lenses and the lift seam: as in the photo of the real robot (Jaka_lumi.jpg) -->
     <material name="sensor_glass" rgba="0.03 0.03 0.035 1" specular="0.8" shininess="0.9"/>
     <material name="lens" rgba="0.18 0.2 0.24 1" specular="1" shininess="1"/>
     <material name="lumi_red" rgba="0.78 0.06 0.12 1"/>
-    <!-- qo'ldagi "JAKA" yozuvi: tools/make_decals.py yasaydi -->
+    <!-- the "JAKA" label on the arm: built by tools/make_decals.py -->
     <texture name="jaka_logo" type="2d" file="assets/jaka_logo.png"/>
     <material name="jaka_logo" texture="jaka_logo"/>
 
@@ -47,7 +47,7 @@
       <joint armature="0.1" damping="1"/>
       <default class="visual">
         <geom type="mesh" contype="0" conaffinity="0" group="2" material="lumi_white" density="0"/>
-        <!-- qo'shimcha bezaklar: to'qnashmaydi, massasi yo'q -->
+        <!-- extra decorations: no collision, no mass -->
         <default class="decor">
           <geom type="box" mass="0"/>
         </default>
@@ -55,14 +55,14 @@
       <default class="collision">
         <geom group="3" density="0"/>
         <default class="caster">
-          <!-- tayanch g'ildirak o'rniga ishqalanishsiz shar -->
+          <!-- frictionless ball in place of the caster wheel -->
           <geom type="sphere" size="0.03" condim="1" friction="0 0 0" priority="1"/>
         </default>
       </default>
       <default class="wheel">
         <joint armature="0.05" damping="0.1"/>
       </default>
-      <!-- Motor sozlamalari (kp, forcerange) TAXMINIY: URDF'da yo'q, haqiqiy robotda o'lchash kerak -->
+      <!-- Motor settings (kp, forcerange) are ESTIMATES: not in the URDF, they need measuring on the real robot -->
       <default class="arm_big">
         <position kp="1500" dampratio="1" forcerange="-60 60"/>
       </default>
@@ -73,7 +73,7 @@
   </default>
 
   <worldbody>
-    <!-- g'ildirak pastki nuqtasi base_link dan 0.2911 m pastda -->
+    <!-- the bottom of the wheel is 0.2911 m below base_link -->
     <body name="base_link" pos="0 0 0.2915" quat="0.7071068 0 0 0.7071068" childclass="lumi">
       <freejoint name="root"/>
       <inertial pos="0 0.0437413 0.0707957" quat="0.0181502 0.706778 0.0269694 0.706688" mass="118.42"
@@ -86,7 +86,7 @@
       <geom class="caster" pos="0.19 0.26 -0.2601"/>
       <geom class="caster" pos="-0.19 0.26 -0.2601"/>
       <site name="base_center" pos="0 0.05 -0.2071" size="0.01" group="5"/>
-      <!-- lift chizig'i: qo'zg'almas ustun (r 0.065) shu yerda tugaydi, yuqorisi ko'tariladigan qism -->
+      <!-- lift seam: the fixed column (r 0.065) ends here, above it is the moving part -->
       <geom class="decor" type="cylinder" pos="0 0 0.559" size="0.0675 0.006" material="lumi_red"/>
 
       <body name="wheel_r" pos="-0.1793 0.050006 -0.2071" quat="0.707105 0 0.707108 0">
@@ -102,13 +102,13 @@
         <geom class="collision" type="cylinder" size="0.084 0.005" friction="1.2 0.005 0.0001"/>
       </body>
 
-      <!-- Lift. URDF'da 0..0.4 m, lekin Lumi SDK hujjatida 0..300 mm: haqiqiy chegara olindi -->
+      <!-- Lift. 0..0.4 m in the URDF, but 0..300 mm in the Lumi SDK docs: the real limit is used -->
       <body name="link_1" pos="0 0 0.565" gravcomp="1">
         <inertial pos="0 0 -0.151" mass="14.2348" diaginertia="0.254522 0.254522 0.0264838"/>
         <joint name="l_1" type="slide" axis="0 0 1" range="0 0.3" damping="200"/>
         <geom class="visual" mesh="link_1"/>
 
-        <!-- Bel. URDF'da +-160, SDK hujjatida +-140 gradus -->
+        <!-- Waist. +-160 in the URDF, +-140 degrees in the SDK docs -->
         <body name="link_2" pos="0 0 0.0745" gravcomp="1">
           <inertial pos="-0.00272184 0 0.152636" quat="0.707104 0.00212531 0.00212531 0.707104" mass="4.81096"
             diaginertia="0.0578685 0.0518115 0.0150335"/>
@@ -116,9 +116,9 @@
           <geom class="visual" mesh="link_2"/>
           <geom class="collision" type="cylinder" pos="0 0 0.173" size="0.062 0.173"/>
           <geom class="collision" type="box" pos="0.138 0 0.08" size="0.058 0.015 0.08"/>
-          <!-- tutqichdagi kamera -->
+          <!-- camera on the handle -->
           <camera name="torso_cam" pos="0.158 -0.019 0.023" xyaxes="-1 0 0 0 0 1" fovy="58"/>
-          <!-- tutqich ostidagi kamera korpusi: qora oyna va ikki linza -->
+          <!-- camera housing under the handle: black window and two lenses -->
           <geom class="decor" pos="0.158 -0.0165 0.023" size="0.036 0.0015 0.013" material="sensor_glass"/>
           <geom class="decor" type="cylinder" fromto="0.138 -0.0175 0.023 0.138 -0.0185 0.023" size="0.006" material="lens"/>
           <geom class="decor" type="cylinder" fromto="0.178 -0.0175 0.023 0.178 -0.0185 0.023" size="0.006" material="lens"/>
@@ -136,7 +136,7 @@
               <geom class="visual" mesh="link_4"/>
               <geom class="collision" type="box" pos="-0.024 0.014 0" size="0.065 0.081 0.105"/>
               <camera name="head_cam" pos="-0.043 -0.07 0" xyaxes="0 0 -1 -1 0 0" fovy="58"/>
-              <!-- bosh old yuzidagi qora kamera oynasi va uch linza (bu bodyda -x yuqori, z yon tomon) -->
+              <!-- black camera window and three lenses on the front of the head (in this body -x is up, z is sideways) -->
               <geom class="decor" pos="-0.043 -0.06825 0" size="0.021 0.00125 0.066" material="sensor_glass"/>
               <geom class="decor" type="cylinder" fromto="-0.043 -0.069 0.042 -0.043 -0.0698 0.042" size="0.008" material="lens"/>
               <geom class="decor" type="cylinder" fromto="-0.043 -0.069 0 -0.043 -0.0698 0" size="0.006" material="lens"/>
@@ -144,7 +144,7 @@
             </body>
           </body>
 
-          <!-- 6 bo'g'imli qo'l -->
+          <!-- 6-joint arm -->
           <body name="link_a1" pos="-0.104 0 0.069" quat="-2.59734e-06 0.707105 -2.59735e-06 -0.707108" gravcomp="1">
             <inertial pos="0 0.013408 0.0943686" quat="0.704372 -0.0621344 0.0621344 0.704372" mass="1.35363"
               diaginertia="0.0055578 0.00550421 0.00155185"/>
@@ -183,7 +183,7 @@
                       <joint name="l_a6" axis="0 0 1" range="-6.2831 6.2831"/>
                       <geom class="visual" mesh="link_a6" material="lumi_gray"/>
                       <geom class="collision" type="mesh" mesh="link_a6"/>
-                      <!-- asbob flanetsi (URDF'dagi link_at). Gripper shu yerga ulanadi -->
+                      <!-- tool flange (link_at in the URDF). The gripper mounts here -->
                       <body name="link_at" pos="0 0 0.036">
                         <site name="flange" size="0.005" group="5"/>
                         <attach model="robotiq_2f85" body="base_mount" prefix="g_"/>
@@ -205,21 +205,21 @@
   </contact>
 
   <actuator>
-    <!-- baza: g'ildirak tezligi (rad/s). 12 rad/s ~ 1 m/s -->
+    <!-- base: wheel speed (rad/s). 12 rad/s ~ 1 m/s -->
     <velocity name="wheel_l" joint="w_l" kv="200" ctrlrange="-12 12" forcerange="-60 60"/>
     <velocity name="wheel_r" joint="w_r" kv="200" ctrlrange="-12 12" forcerange="-60 60"/>
-    <!-- tana: lift (m), bel, bosh burilishi, bosh egilishi (rad) -->
+    <!-- body: lift (m), waist, head yaw, head pitch (rad) -->
     <position name="lift" joint="l_1" kp="40000" dampratio="1" ctrlrange="0 0.3" forcerange="-2000 2000"/>
     <position name="waist" joint="l_2" kp="2000" dampratio="1" ctrlrange="-2.4435 2.4435" forcerange="-200 200"/>
     <position name="head_yaw" joint="l_3" kp="100" dampratio="1" ctrlrange="-3.1415 3.1415" forcerange="-20 20"/>
     <position name="head_pitch" joint="l_4" kp="100" dampratio="1" ctrlrange="-0.0872 0.6108" forcerange="-20 20"/>
-    <!-- qo'l -->
+    <!-- arm -->
     <position name="a1" joint="l_a1" class="arm_big" ctrlrange="-6.2831 6.2831"/>
     <position name="a2" joint="l_a2" class="arm_big" ctrlrange="-2.1816 2.1816"/>
     <position name="a3" joint="l_a3" class="arm_big" ctrlrange="-2.2689 2.2689"/>
     <position name="a4" joint="l_a4" class="arm_small" ctrlrange="-6.2831 6.2831"/>
     <position name="a5" joint="l_a5" class="arm_small" ctrlrange="-2.0943 2.0943"/>
     <position name="a6" joint="l_a6" class="arm_small" ctrlrange="-6.2831 6.2831"/>
-    <!-- gripper: g_fingers_actuator (0 = ochiq, 255 = yopiq) 2f85.xml dan keladi -->
+    <!-- gripper: g_fingers_actuator (0 = open, 255 = closed) comes from 2f85.xml -->
   </actuator>
 </mujoco>
