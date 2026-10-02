@@ -39,10 +39,15 @@ Har kuni shu fayldan navbatdagi belgilanmagan qadamni olaman. Tugagach `[x]` qo'
 
 ## 3-bosqich: O'z ko'zim bilan tekshirish (keyingi qadam)
 
-- [ ] `mjpython demo.py --viewer` ni ishga tushirib, harakatlarni oynada ko'rish (hali sinalmagan)
+- [x] `mjpython demo.py --viewer` ni ishga tushirib, harakatlarni oynada ko'rish (2026-10-02, qo'l pozalaridagi muammo shu yerda topildi)
 - [ ] `scene.xml` ni MuJoCo.app'ga tashlab, har bir motorni slayder bilan qimirlatib ko'rish
 - [ ] `lumi.xml` ni o'qib chiqish: tushunmagan teglarni XML Reference'dan qarash (`attach`, `gravcomp`, `dampratio`)
 - [ ] `ARM_HOME` va `ARM_WAVE` pozalari haqiqiy robotdagiga o'xshaydimi, solishtirish
+- [x] Qo'l chegaraga yopishib, chalkash harakatlanardi: IK'ga 15° zaxira (`JOINT_MARGIN`) va eng yaqin yechimni tanlash qo'shildi, `ARM_HOME` va `ARM_WAVE` ushlash pozalari bilan bir "oila"dan tanlandi (harakatlar orasida bo'g'imlar ≤ 38° buriladi, oldin 133–166°)
+- [x] Robotni rasmdagi haqiqiy robotga o'xshatish: qora kamera oynalari va linzalar, lift chizig'ida qizil halqa, qo'lda "JAKA" yozuvlari (`assets/`, `tools/make_decals.py`)
+- [ ] Rasmdagi qolgan belgilar: bel ustidagi ikkinchi qizil halqa, yelka bo'g'imidagi yashil halqa (ixtiyoriy)
+- [x] Odamni stol yoniga, qo'l tomoniga qo'yish va robotga qaratish, ko'z va burun qo'shish
+- [ ] Loyihani tushunish uchun savol-javob: `scene.xml` tugadi, keyingisi `lumi.xml` (qo'llanmalar pastda)
 - [ ] Qisqa demo video yozish (`media/demo.mp4` yoki GIF), README'ga qo'yish
 
 ## 4-bosqich: Ko'rish (vision), LLM'siz
@@ -96,6 +101,13 @@ Har kuni shu fayldan navbatdagi belgilanmagan qadamni olaman. Tugagach `[x]` qo'
 | Sana | Nima qilindi |
 |---|---|
 | 2026-09-30 | 1- va 2-bosqich tugadi: `lumi.xml`, `scene.xml`, `lumi_api.py`, `demo.py`. Oynasiz sinov o'tdi. Reja va README yozildi, GitHub'ga yuklandi. |
+| 2026-10-01 | Robot ko'rinishi haqiqiyga yaqinlashtirildi: qora kameralar, lift chizig'i, "JAKA" yozuvlari. Kameralar oynalar markaziga siljitildi (bosh 1.3 sm, tutqich ~4 sm). Odam stol yoniga ko'chirildi va robotga qaratildi, qizil kub 4 × 6 × 4 sm, 60 g bo'ldi. Izohlar inglizchaga o'girildi. `demo.py` natijalari o'zgarmadi. Loyihani tushuntiruvchi ikki qo'llanma yozildi. Global agentlar o'rnatildi (`~/.claude/agents/`). |
+| 2026-10-02 | Demo oynada birinchi marta ko'rildi. Qo'l bo'g'imlari chegaraga 0–2° yaqin kelayotgani topildi va tuzatildi: IK chegaradan 15° ichkarida ishlaydi va hozirgi pozaga eng yaqin yechimni tanlaydi, yangi `ARM_HOME` o'ng yondagi "tayyor" holat, stolga borish asosan bel burilishi bilan. Demo davomida eng kichik zaxira 28°, bir harakatdagi eng katta aylanish 38°, kub maqsaddan 3 mm uzoqda. |
+
+## Qo'llanmalar
+
+- Butun loyiha: https://claude.ai/artifact/2FQCeYgSrXRYYWwNWhCPmX
+- `scene.xml` qatorma-qator: https://claude.ai/artifact/7QaR4iTLaGR7TVwWb5Lgdx
 
 ## Ochiq savollar
 
