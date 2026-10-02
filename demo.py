@@ -11,7 +11,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from lumi_api import LumiSim
+from lumi_api import ARM_HOME, LumiSim
 
 MEDIA = Path(__file__).parent / "media"
 
@@ -36,7 +36,7 @@ def main():
     print("   cube height after pick: %.3f m (table top is 0.750)" % robot.object_position("red_cube")[2])
     goal = cube + [0, -0.12, 0]
     robot.place(goal)
-    robot.arm_joint_move([3, 43, 128, -60, 94, -54])
+    robot.arm_joint_move(ARM_HOME)
     robot.body_moveto([0, 0, 0, 30])
     print("   cube is %.3f m from the goal" % np.linalg.norm(robot.object_position("red_cube") - goal))
     save(robot, "after_place.png")

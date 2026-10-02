@@ -32,9 +32,14 @@ BODY_ACTUATORS = ["lift", "waist", "head_yaw", "head_pitch"]
 GRIPPER_OPEN = 0
 GRIPPER_CLOSED = 255
 
-# Arm poses in degrees (found with solve_ik, then rounded)
-ARM_HOME = [3, 43, 128, -60, 94, -54]          # gripper in front of the chest, pointing forward and down
-ARM_WAVE = [136, -123, 99, -134, 73, -47]      # gripper raised to head height, pointing up
+# Arm poses in degrees, at least 30 deg inside every joint limit. HOME sits in the same joint
+# configuration as the table grasps, so going to the table is mostly a waist turn, not an arm flip
+ARM_HOME = [178, -91, 77, 28, 89, 135]   # ready pose on the right side: elbow up, gripper forward and down
+ARM_WAVE = [206, -95, 39, 65, 52, 136]   # hand raised above the head; every joint within 40 deg of ARM_HOME
+
+# IK keeps every joint at least this far (deg) inside its limit. The real controller stops with a
+# soft-limit error before the hard limit, so poses right at the edge are not usable there.
+JOINT_MARGIN = 15.0
 
 BODY_SPEED = [100.0, 60.0, 90.0, 60.0]   # mm/s, deg/s, deg/s, deg/s at vel=100
 ARM_SPEED = 90.0                          # deg/s at vel=100
@@ -56,6 +61,7 @@ class LumiSim:
         self._ik_qpos = [self.model.joint("l_2").qposadr[0]] + self._arm_qpos
         self._ik_dof = [self.model.joint("l_2").dofadr[0]] + self._arm_dof
         self._ik_range = np.vstack([self.model.joint("l_2").range, self._arm_range])
+        self._ik_safe = self._ik_range + np.deg2rad(JOINT_MARGIN) * np.array([1, -1])
         # every body from the waist up (arm and gripper included), for the IK collision check
         waist = self.model.body("link_2").id
         self._upper_bodies = [b for b in range(self.model.nbody) if self._has_ancestor(b, waist)]
@@ -138,26 +144,30 @@ class LumiSim:
         """Point between the gripper fingers, in the robot frame (m)."""
         return self.world_to_robot(self.data.site_xpos[self._pinch])
 
-    def solve_ik(self, xyz, approach=(0, 0, -1), use_waist=True, restarts=40):
+    def solve_ik(self, xyz, approach=(0, 0, -1), use_waist=True, restarts=40, keep=6):
         """Waist angle and arm joint angles (degrees) that put the fingertip point at `xyz` (robot frame, m)
         with the gripper pointing along `approach` (robot frame; default straight down). Rotation around
         the approach axis is left free. The arm is short and mounted on the robot's right side, so most
         points in front are only reachable after turning the waist; use_waist=False keeps the waist still.
 
         Damped least squares on a scratch copy of the state (the simulation is not disturbed), started
-        from the current pose and then from random poses. Solutions where the robot would be in collision
-        are rejected. Raises ValueError if nothing is found."""
+        from the current pose and then from random poses. Joints stay JOINT_MARGIN inside their limits and
+        solutions where the robot would be in collision are rejected. Up to `keep` solutions are collected
+        and the one closest to the current pose wins, so the arm takes the shortest, least contorted move.
+        Raises ValueError if nothing is found."""
         target = self.robot_to_world(xyz)
         axis = self._base_rotation() @ (np.asarray(approach, dtype=float) / np.linalg.norm(approach))
         qpos = self._ik_qpos if use_waist else self._ik_qpos[1:]
         dof = self._ik_dof if use_waist else self._ik_dof[1:]
-        limits = self._ik_range if use_waist else self._ik_range[1:]
+        limits = self._ik_safe if use_waist else self._ik_safe[1:]
         d = self._ik_data
         jacp = np.zeros((3, self.model.nv))
         jacr = np.zeros((3, self.model.nv))
         rng = np.random.default_rng(0)
+        solutions = []
         for attempt in range(restarts):
             d.qpos[:] = self.data.qpos
+            d.qpos[qpos] = np.clip(d.qpos[qpos], limits[:, 0], limits[:, 1])
             if attempt > 0:
                 d.qpos[qpos] = rng.uniform(np.maximum(limits[:, 0], -np.pi), np.minimum(limits[:, 1], np.pi))
             for _ in range(200):
@@ -177,12 +187,21 @@ class LumiSim:
                 d.qpos[qpos] = np.clip(d.qpos[qpos] + np.clip(dq, -0.2, 0.2), limits[:, 0], limits[:, 1])
             else:
                 continue                                           # did not converge from this start
-            # a1, a4, a6 can turn +-360: take the turn nearest to where the joint is now
-            for adr in (self._arm_qpos[0], self._arm_qpos[3], self._arm_qpos[5]):
-                d.qpos[adr] = self.data.qpos[adr] + (d.qpos[adr] - self.data.qpos[adr] + np.pi) % (2 * np.pi) - np.pi
-            if not self._in_collision(d):
-                return np.rad2deg(d.qpos[self._ik_qpos[0]]), np.rad2deg(d.qpos[self._arm_qpos])
-        raise ValueError(f"no IK solution for {np.round(xyz, 3)} (out of reach?)")
+            # a1, a4, a6 can turn +-360: take the turn nearest to where the joint is now, if it stays in range
+            for i, adr in ((1, self._arm_qpos[0]), (4, self._arm_qpos[3]), (6, self._arm_qpos[5])):
+                near = self.data.qpos[adr] + (d.qpos[adr] - self.data.qpos[adr] + np.pi) % (2 * np.pi) - np.pi
+                if self._ik_safe[i, 0] <= near <= self._ik_safe[i, 1]:
+                    d.qpos[adr] = near
+            if self._in_collision(d):
+                continue
+            q = d.qpos[self._ik_qpos].copy()
+            solutions.append((np.sum(np.abs(q - self.data.qpos[self._ik_qpos])), q))
+            if len(solutions) >= keep:
+                break
+        if not solutions:
+            raise ValueError(f"no IK solution for {np.round(xyz, 3)} (out of reach?)")
+        q = min(solutions, key=lambda s: s[0])[1]
+        return np.rad2deg(q[0]), np.rad2deg(q[1:])
 
     def _in_collision(self, d):
         """True if, in state `d`, any robot part above the base touches the robot or the fixed world.
