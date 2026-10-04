@@ -113,6 +113,8 @@ The LLM layer will only ever call these methods. On the real robot a `LumiReal` 
 | `assets/` | Arm "JAKA" labels: texture and curved meshes |
 | `tools/make_decals.py` | Rebuilds the files in `assets/` (`python3 tools/make_decals.py`, needs Pillow) |
 | `PLAN.md` | Project plan and daily log |
+| `docs/` | Real-robot documentation (start with `docs/00_START_HERE.md`): hardware, network, body/arm/base APIs, cameras, voice, Jetson Thor, ROS 2, gripper, safety, sources |
+| `docs/SIMULATION.md` | Simulation reference: model, actuators, `LumiSim` API, what is estimated, updates from the real-robot docs |
 
 ## Simulation versus the real robot
 

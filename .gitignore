@@ -27,3 +27,9 @@ MUJOCO_LOG.TXT
 
 # Real-robot photos stay local
 Jaka_lumi.jpg
+
+# Company-internal access data and screenshots stay local (repo is public)
+docs/private/
+
+# JAKA SDK binaries (download them, see docs/04_ARM.md)
+jaka_sdk/

@@ -103,6 +103,8 @@ Har kuni shu fayldan navbatdagi belgilanmagan qadamni olaman. Tugagach `[x]` qo'
 | 2026-09-30 | 1- va 2-bosqich tugadi: `lumi.xml`, `scene.xml`, `lumi_api.py`, `demo.py`. Oynasiz sinov o'tdi. Reja va README yozildi, GitHub'ga yuklandi. |
 | 2026-10-01 | Robot ko'rinishi haqiqiyga yaqinlashtirildi: qora kameralar, lift chizig'i, "JAKA" yozuvlari. Kameralar oynalar markaziga siljitildi (bosh 1.3 sm, tutqich ~4 sm). Odam stol yoniga ko'chirildi va robotga qaratildi, qizil kub 4 × 6 × 4 sm, 60 g bo'ldi. Izohlar inglizchaga o'girildi. `demo.py` natijalari o'zgarmadi. Loyihani tushuntiruvchi ikki qo'llanma yozildi. Global agentlar o'rnatildi (`~/.claude/agents/`). |
 | 2026-10-02 | Demo oynada birinchi marta ko'rildi. Qo'l bo'g'imlari chegaraga 0–2° yaqin kelayotgani topildi va tuzatildi: IK chegaradan 15° ichkarida ishlaydi va hozirgi pozaga eng yaqin yechimni tanlaydi, yangi `ARM_HOME` o'ng yondagi "tayyor" holat, stolga borish asosan bel burilishi bilan. Demo davomida eng kichik zaxira 28°, bir harakatdagi eng katta aylanish 38°, kub maqsaddan 3 mm uzoqda. |
+| 2026-10-04 | Haqiqiy robotga o'tishga tayyorgarlik: rasmiy JAKA_Lumi repo (barcha branch'lar), jaka-robot-demos, JAKA SDK 2.2.7, Python SDK qo'llanmasi, JAKA App, Mini 2, AGV qo'llanmalari va kompaniya Notion ma'lumotlari o'qildi. `docs/` papkasida mavzular bo'yicha 13 ta inglizcha hujjat yozildi (`docs/00_START_HERE.md` dan boshlanadi). Parollar va ichki ma'lumotlar `docs/private/` da (git'ga kirmaydi). Topildi: qo'l IP 192.168.10.90, qo'l MiniCobo2 = Mini 2, URDF va SDK bo'g'im burchaklari bir xil (vendor ROS kodi va haqiqiy poza bilan tekshirildi). |
+| 2026-10-05 | Notion'dagi qo'shimcha ma'lumotlar (AGV API sahifasi, haqiqiy javoblar, markerlar) va AGV API PDF to'liq kiritildi. `docs/13_TO_VERIFY_ON_ROBOT.md` (robotda aniqlanadigan 11 ta narsa va usullari) yozildi. Haqiqiy robot hujjatlaridan sim qiymatlari olib tashlandi. Kompaniya ichki qismlari `docs/private/` ga ko'chirildi (git'ga kirmaydi, repo public qoladi). Keyingi qadam: robotga ulanish (Lumi Wi-Fi), 13-hujjat bo'yicha tekshiruvlar, keyin `real/` kutubxonasi (agv.py, body.py, arm.py). |
 
 ## Qo'llanmalar
 
@@ -111,6 +113,8 @@ Har kuni shu fayldan navbatdagi belgilanmagan qadamni olaman. Tugagach `[x]` qo'
 
 ## Ochiq savollar
 
-- Haqiqiy robotga qaysi gripper o'rnatiladi? (hozir simda Robotiq 2F-85)
-- Qaysi LLM ishlatiladi?
-- Haqiqiy robotning boshida va tutqichida aynan qaysi Orbbec kamera modeli turibdi?
+- Haqiqiy robotga qaysi gripper o'rnatiladi? (JAKA'ning Lumi to'plamida DH-PGEA-50; variantlar `docs/10_GRIPPER.md` da)
+- Qaysi LLM ishlatiladi? (kompaniya Jetson Thor'da Qwen3-Omni ishlatyapti, `docs/08_NVIDIA_THOR.md`)
+- Qo'l controller versiyasi 1.7 mi yoki 3.2 mi? (SDK login va servo rejimi shunga bog'liq)
+- Mikrofon massividan ovoz yo'nalishini qanday o'qish mumkin? (`docs/07_VOICE_AND_AUDIO.md`)
+- Robotda tekshiriladigan qolgan narsalar: `docs/00_START_HERE.md` 9-bo'lim
