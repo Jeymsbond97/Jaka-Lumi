@@ -33,3 +33,10 @@ docs/private/
 
 # JAKA SDK binaries (download them, see docs/04_ARM.md)
 jaka_sdk/
+
+# Thor-side model weights and camera snapshots (downloaded / generated)
+real/thor/models/*.onnx
+real/thor/*.jpg
+real/thor/knowledge/jaka_zh/
+real/thor/knowledge/index.npz
+real/thor/*.log
