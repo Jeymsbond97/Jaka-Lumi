@@ -121,7 +121,8 @@ Kod: `real/thor/` (Mac'da), ishlaydigan nusxasi Thor'da `~/Dev/lumi-wave` (venv 
 - [x] `agv.py`: holat, markerlar, markerga borish, bekor qilish
 - [x] `lumi.py` v2: odamlarni kuzatish (har kimga ID), har yangi odam bir marta salomlashadi, 12 s indamasa o'zi so'raydi (ko'pi bilan 2 marta), odam ketsa gap to'xtaydi, qaytib kelsa yana salomlashadi. Qo'l kamerani to'sib qolishi tuzatildi (tasdiqlandi).
 - [x] Patrol rejimi: `lumi.py --patrol aisle_a,aisle_b` markerlar orasida aylanadi va oldida turgan odam uchun to'xtaydi. Batareya **5 %** dan pastga tushsa dockka qaytadi (oldin 20 % edi), 60 % da yana chiqadi.
-- [ ] Patrolni oxirigacha sinash (birinchi urinishda batareya 13 % edi va 20 % chegarasi sabab robot uyga ketdi; chegara 5 % ga tushirildi)
+- [x] Patrol ishga tushdi, lekin hech kimga salom bermay ikki nuqta orasida yuraverdi (zona 1.2 m edi). 2.0 m qilinganda esa uzoqdagi va o'tirgan odamlar uchun ham to'xtadi.
+- [ ] Patrolning yangi qoidalarini robotda sinash: faqat **1 m dan yaqin** va robot **yo'lidagi** (har tomonga 0.4 m koridor) odam uchun to'xtaydi, yonda o'tirganlarni hisobga olmaydi, salomdan keyin **8 s** indamasa davom etadi. Terminaldagi `see` qatorlari kimni ko'rayotganini ko'rsatadi (`side` = yo'ldan tashqarida).
 - [ ] `HEAD_SIGN` va `LOOK` ishoralarini tekshirish (+yaw robotning chapimi, +pitch pastmi): `python head.py 10`, `python head.py 0 10`
 - [ ] Haqiqiy mehmon bilan to'liq suhbat sinovi
 - [ ] Kamera 1 uchun USB 3 kabel

@@ -65,7 +65,7 @@ python lumi.py --patrol aisle_a,aisle_b   # assistant + drive between markers in
 ```
 
 Always run with the venv (`source .venv/bin/activate` or `.venv/bin/python`); the system `python` has no cv2.
-Patrol: below 5 % battery Lumi drives to the dock (`home`) and patrols again from 60 % (`LOW_BATTERY`, `RESUME_BATTERY` in `lumi.py`).
+Patrol: only people in the robot's path (0.4 m to each side) closer than 1.0 m stop it; people sitting beside the aisle are ignored (`see` log marks them `side`). With no answer for 8 s the patrol goes on. Below 5 % battery Lumi drives to the dock (`home`) and patrols again from 60 % (`LOW_BATTERY`, `RESUME_BATTERY` in `lumi.py`).
 
 Voice setup (2026-10-07, all downloaded on the Mac and copied): wheels `supertonic faster-whisper soundfile` (into `~/voice_pkgs`), model `models/supertonic3/` (Supertone/supertonic-3, 385 MB), `models/whisper-small/` (faster-whisper, CPU fallback, ~4 s — too slow), `models/ggml-large-v3-turbo-q5_0.bin` (574 MB) and `whisper.cpp/` v1.9.5 built on the Thor:
 `cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=110 -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 12 --target whisper-server whisper-cli` (PATH must include /usr/local/cuda/bin).

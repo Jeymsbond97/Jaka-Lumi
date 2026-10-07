@@ -14,13 +14,16 @@ Behaviour
 - When the person disappears from the camera (LOST_S), listening and speaking stop at once.
   Someone who comes back later is a new visit and is greeted again.
 - Voice commands (English / Korean): go to <marker>, go home, look left/right/up/down/center, wave, stop.
-- Patrol (--patrol): drive marker to marker in a loop. A person standing in front (within PATH_ANGLE) makes
-  Lumi stop and greet; when the talk is over (goodbye, no answer, or the person left) the patrol goes on.
+- Patrol (--patrol): drive marker to marker in a loop. Only a person in the robot's path (PATH_HALF_WIDTH to
+  each side) closer than PATROL_NEAR_MAX makes Lumi stop and greet; people sitting beside the path are ignored.
+  If the person says nothing for PATROL_WAIT_S, or the talk is over, or the person left, the patrol goes on
+  (the base drives around a person who still stands in the way).
   Below LOW_BATTERY % Lumi drives home to charge and continues at RESUME_BATTERY %.
 """
 import argparse
 import collections
 import itertools
+import math
 import os
 import threading
 import time
@@ -34,7 +37,8 @@ import speak
 from brain import Brain
 
 NEAR_MIN, NEAR_MAX = 0.5, 1.2      # m, greeting zone
-STAY_MAX = 2.0                     # m, a greeted person farther than this counts as gone
+PATROL_NEAR_MAX = 1.0              # m, on patrol: only people this close stop the robot
+STAY_MAX = 2.5                     # m, a greeted person farther than this counts as gone
 HOLD_S = 0.7                       # s in the zone before a greeting
 LOST_S = 2.0                       # s not seen -> the person is gone (detections can miss a few frames)
 PROMPT_S = 12.0                    # s of silence before "How can I help you?"
@@ -49,7 +53,9 @@ HEAD_SIGN = 1.0                    # +image angle -> +head yaw. VERIFY on the ro
 LOOK = {"left": (40, None), "right": (-40, None), "center": (0, 0), "up": (None, 0), "down": (None, 20)}
 # ^ yaw/pitch in degrees for "look" commands. VERIFY the signs: +yaw = robot's left?, +pitch = down?
 PROMPT = {"en": "How can I help you?", "ko": "무엇을 도와드릴까요?"}
-PATH_ANGLE = 25.0                  # deg; on patrol only people roughly in front are greeted (not people at desks)
+PATH_HALF_WIDTH = 0.4              # m to each side of the robot's centre line; on patrol only people in this
+                                   # corridor are greeted (not people sitting at desks beside the aisle)
+PATROL_WAIT_S = 8.0                # s; on patrol, after the greeting or the last answer, wait this long for speech
 LOW_BATTERY, RESUME_BATTERY = 5, 60    # %
 PAUSE_AT_END = 3.0                 # s to wait at each patrol point
 
@@ -78,21 +84,23 @@ class Track:
         self.zone_since = None
         self.greeted = False
 
-    def update(self, p, now, arm_moving=False):
+    def update(self, p, now, arm_moving=False, near_max=NEAR_MAX):
         self.angle, self.last_seen = p["angle_deg"], now
         d = p["distance_m"]
         if not (arm_moving and self.history and d < self.distance - OCCLUSION_DROP):
             self.history.append(d)
             self.distance = sorted(self.history)[len(self.history) // 2]
-        in_zone = NEAR_MIN <= self.distance <= NEAR_MAX
+        in_zone = NEAR_MIN <= self.distance <= near_max
         self.zone_since = (self.zone_since or now) if in_zone else None
 
 
 class Vision(threading.Thread):
     """Person detection + simple tracking (nearest match by angle and distance)."""
 
-    def __init__(self, camera):
+    def __init__(self, camera, near_max=NEAR_MAX, corridor=None):
         super().__init__(daemon=True)
+        self.near_max, self.corridor = near_max, corridor     # corridor: half width in m, None = everyone
+        self.last_report = 0.0
         from person import PersonDetector
         self.det = PersonDetector(camera)
         self.tracks = []
@@ -111,13 +119,18 @@ class Vision(threading.Thread):
                 for p in sorted(people, key=lambda p: p["distance_m"]):
                     best = min(free, default=None, key=lambda t: abs(t.angle - p["angle_deg"]))
                     if best and abs(best.angle - p["angle_deg"]) < MATCH_DEG:
-                        best.update(p, now, self.arm_watch)
+                        best.update(p, now, self.arm_watch, self.near_max)
                         free.remove(best)
                     else:
                         t = Track(p, now)
-                        t.update(p, now)
+                        t.update(p, now, near_max=self.near_max)
                         self.tracks.append(t)
                 self.tracks = [t for t in self.tracks if now - t.last_seen < LOST_S]
+                if self.tracks and now - self.last_report > 3.0:      # what the camera sees, for checking on the robot
+                    self.last_report = now
+                    log("see " + ", ".join(f"#{t.id} {t.distance:.2f} m {t.angle:+.0f} deg" + (" greeted" if t.greeted else "")
+                                           + ("" if self.in_path(t) else " side")
+                                           for t in self.tracks))
             # safety: really close = small depth AND a box that fills the frame (the arm in front of a person
             # changes the depth but not the size of the person's box)
             h = color.shape[0]
@@ -133,12 +146,15 @@ class Vision(threading.Thread):
         with self.lock:
             return track in self.tracks and track.distance <= STAY_MAX
 
-    def to_greet(self, max_angle=180.0):
-        """Nearest person waiting in the zone (within max_angle of straight ahead) not greeted yet."""
+    def in_path(self, t):
+        return self.corridor is None or abs(t.distance * math.sin(math.radians(t.angle))) <= self.corridor
+
+    def to_greet(self):
+        """Nearest person waiting in the zone (and in the robot's path on patrol) not greeted yet."""
         now = time.time()
         with self.lock:
             ready = [t for t in self.tracks if not t.greeted and t.zone_since and now - t.zone_since >= HOLD_S
-                     and abs(t.angle) <= max_angle]
+                     and self.in_path(t)]
         return min(ready, key=lambda t: t.distance, default=None)
 
     def nearest_greeted(self):
@@ -226,7 +242,12 @@ class Lumi:
             if unknown:
                 raise SystemExit(f"unknown markers {unknown}; markers on the map: {self.markers}")
             self.patrol = Patrol(route)
-        self.vision = None if args.no_camera else Vision(args.camera)
+        if args.no_camera:
+            self.vision = None
+        elif args.patrol:
+            self.vision = Vision(args.camera, PATROL_NEAR_MAX, PATH_HALF_WIDTH)
+        else:
+            self.vision = Vision(args.camera)
         log(f"markers: {self.markers}")
 
     # ---------- actions ----------
@@ -321,7 +342,7 @@ class Lumi:
 
     def step(self):
         """One pass of the camera behaviour (see the module docstring)."""
-        new = self.vision.to_greet(PATH_ANGLE if self.patrol else 180.0)
+        new = self.vision.to_greet()
         if new:                                            # a new visitor (first or second person)
             if self.patrol:
                 self.patrol.pause()
@@ -348,8 +369,8 @@ class Lumi:
             time.sleep(0.1)
             return
 
-        if self.patrol and self.prompts >= MAX_PROMPTS and time.time() - self.last_activity > PROMPT_S:
-            log("no answer - continue patrol")
+        if self.patrol and time.time() - self.last_activity > PATROL_WAIT_S:
+            log(f"no answer for {PATROL_WAIT_S:.0f} s - continue patrol")
             self.current = None
             self.turn_head(0, 0)
             return
