@@ -26,11 +26,12 @@ STT_URL = "http://127.0.0.1:8096"
 WHISPER_SERVER = HERE / "whisper.cpp/build/bin/whisper-server"
 WHISPER_MODEL = HERE / "models/ggml-large-v3-turbo-q5_0.bin"
 
-START_FACTOR = 3.0               # speech = louder than START_FACTOR x background noise
+START_FACTOR = 2.5               # speech = louder than START_FACTOR x background noise
 MIN_LEVEL = 400                  # ... and at least this RMS
 START_FRAMES = 4                 # 120 ms of speech to start
 END_SILENCE = 0.9                # s of silence that ends the utterance
 MAX_UTTERANCE = 12.0             # s
+last = {}                        # levels of the last record() call, for the log: noise, threshold, peak
 
 
 def ensure_stt_server():
@@ -59,6 +60,7 @@ def record(wait_s=8.0, on_start=None, abort=None):
                              "-t", "raw"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     nbytes = FRAME * CHANNELS * 2
     noise, frames, voiced, silent = [], [], 0, 0
+    threshold, peak = 0.0, 0.0
     t0 = time.time()
     started = False
     try:
@@ -68,6 +70,7 @@ def record(wait_s=8.0, on_start=None, abort=None):
                 return None
             x = np.frombuffer(raw, np.int16).reshape(-1, CHANNELS)[:, MIC_CHANNELS].mean(1).astype(np.int16)
             level = float(np.sqrt(np.mean(x.astype(np.float32) ** 2)))
+            peak = max(peak, level)
             if not started:
                 if len(noise) < 15:                       # first 0.45 s: measure background noise
                     noise.append(level)
@@ -91,6 +94,8 @@ def record(wait_s=8.0, on_start=None, abort=None):
                     return np.concatenate(frames)
     finally:
         proc.kill()
+        last.update(noise=round(float(np.median(noise))) if noise else 0, threshold=round(threshold),
+                    peak=round(peak))
 
 
 def transcribe(audio):

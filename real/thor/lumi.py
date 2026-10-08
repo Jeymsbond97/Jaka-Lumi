@@ -3,7 +3,8 @@
     python lumi.py                 # full: camera, greetings, conversation, commands
     python lumi.py --no-camera     # no camera: press Enter to start a conversation (desk testing)
     python lumi.py --no-arm --no-drive     # no waving, no base driving
-    python lumi.py --patrol aisle_a,aisle_b   # walk between markers; stop for people in the way, talk, go on
+    python lumi.py --patrol a,b    # walk between markers in a loop; stop for people in the way, talk, go on
+    python lumi.py --patrol p1,p2,final,p10,home --once --pause 0.5   # drive the route once, end at the dock
 
 Behaviour
 - Every person the camera sees gets a track (an ID followed from frame to frame).
@@ -25,8 +26,16 @@ import collections
 import itertools
 import math
 import os
+import subprocess
+import sys
 import threading
 import time
+
+# Started with the system python (no cv2 there)? Restart with the project's venv.
+VENV = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv")
+VENV_PY = os.path.join(VENV, "bin", "python")
+if os.path.exists(VENV_PY) and os.path.realpath(sys.prefix) != os.path.realpath(VENV):
+    os.execv(VENV_PY, [VENV_PY, os.path.abspath(__file__)] + sys.argv[1:])
 
 import agv
 import arm
@@ -55,13 +64,25 @@ LOOK = {"left": (40, None), "right": (-40, None), "center": (0, 0), "up": (None,
 PROMPT = {"en": "How can I help you?", "ko": "무엇을 도와드릴까요?"}
 PATH_HALF_WIDTH = 0.4              # m to each side of the robot's centre line; on patrol only people in this
                                    # corridor are greeted (not people sitting at desks beside the aisle)
+CAMERA_STALL_S = 3.0               # s without a camera frame -> reopen the camera
+HEALTH_S = 30.0                    # s between "camera ok" lines in the log
 PATROL_WAIT_S = 8.0                # s; on patrol, after the greeting or the last answer, wait this long for speech
 LOW_BATTERY, RESUME_BATTERY = 5, 60    # %
+SPEAKER_VOLUME = 90                # % of the USB speaker's mixer (it was 50 %: too quiet)
 PAUSE_AT_END = 3.0                 # s to wait at each patrol point
 
 
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lumi.log")
+
+
 def log(msg):
-    print(time.strftime("%H:%M:%S"), msg, flush=True)
+    line = f"{time.strftime('%H:%M:%S')} {msg}"
+    print(line, flush=True)
+    try:
+        with open(LOG_FILE, "a") as f:          # also kept in lumi.log, to read it over SSH
+            f.write(line + "\n")
+    except OSError:
+        pass
 
 
 def safe(fn, *args, default=None):
@@ -101,6 +122,7 @@ class Vision(threading.Thread):
         super().__init__(daemon=True)
         self.near_max, self.corridor = near_max, corridor     # corridor: half width in m, None = everyone
         self.last_report = 0.0
+        self.camera = camera
         from person import PersonDetector
         self.det = PersonDetector(camera)
         self.tracks = []
@@ -108,11 +130,25 @@ class Vision(threading.Thread):
         self.arm_watch = False
 
     def run(self):
+        last_frame = last_health = time.time()
+        frames = 0
         while True:
-            color, people = self.det.read()
-            if color is None:
-                continue
+            try:
+                color, people = self.det.read()
+            except Exception as e:
+                log(f"camera error: {e!r}")
+                color, people = None, []
             now = time.time()
+            if color is None:
+                if now - last_frame > CAMERA_STALL_S:         # no frames: reopen the camera
+                    log(f"camera: no frames for {now - last_frame:.0f} s - reopening")
+                    self.reopen()
+                    last_frame = time.time()
+                continue
+            last_frame, frames = now, frames + 1
+            if now - last_health > HEALTH_S:                  # proves the camera is alive even with nobody around
+                log(f"camera ok: {frames / (now - last_health):.1f} fps, {len(people)} people in view")
+                last_health, frames = now, 0
             people = [p for p in people if p["distance_m"] is not None]
             with self.lock:
                 free = list(self.tracks)
@@ -141,6 +177,18 @@ class Vision(threading.Thread):
                 safe(arm.stop)
                 self.arm_watch = False
 
+    def reopen(self):
+        try:
+            self.det.close()
+        except Exception:
+            pass
+        try:
+            from person import PersonDetector
+            self.det = PersonDetector(self.camera)
+        except Exception as e:
+            log(f"camera reopen failed: {e!r}")
+            time.sleep(2)
+
     def present(self, track):
         """Is this person still here (seen recently and not far away)?"""
         with self.lock:
@@ -164,11 +212,12 @@ class Vision(threading.Thread):
 
 
 class Patrol:
-    """Drive between markers in a loop; pause for people; go home to charge when the battery is low."""
+    """Drive between markers in a loop (or once); pause for people; go home to charge when the battery is low."""
 
-    def __init__(self, route):
+    def __init__(self, route, once=False, pause_s=PAUSE_AT_END):
         self.route, self.i = route, 0
-        self.mode = "patrol"             # patrol | going_home | charging
+        self.once, self.pause_s = once, pause_s
+        self.mode = "patrol"             # patrol | going_home | charging | done
         self.moving = False              # a move that we started is running
         self.wait_until = 0.0
         self.last_poll = 0.0
@@ -190,6 +239,8 @@ class Patrol:
             return
         battery, ms = st.get("power_percent", 100), st.get("move_status")
 
+        if self.mode == "done":
+            return
         if self.mode == "charging":
             if battery >= RESUME_BATTERY:
                 log(f"battery {battery} % - patrol again")
@@ -211,8 +262,13 @@ class Patrol:
                 log("docked, charging" if self.mode == "charging" else f"could not dock ({ms})")
                 return
             if ms == "succeeded":
+                log(f"patrol at {self.route[self.i]}")
+                if self.once and self.i == len(self.route) - 1:
+                    self.mode = "done"
+                    log("route finished")
+                    return
                 self.i = (self.i + 1) % len(self.route)
-                self.wait_until = now + PAUSE_AT_END
+                self.wait_until = now + self.pause_s
             else:
                 log(f"patrol move {ms} - retry in 5 s")
                 self.wait_until = now + 5
@@ -241,7 +297,7 @@ class Lumi:
             unknown = [m for m in route if m not in self.markers]
             if unknown:
                 raise SystemExit(f"unknown markers {unknown}; markers on the map: {self.markers}")
-            self.patrol = Patrol(route)
+            self.patrol = Patrol(route, args.once, args.pause)
         if args.no_camera:
             self.vision = None
         elif args.patrol:
@@ -318,6 +374,9 @@ class Lumi:
         """Listen once; answer if something was said. Returns True if the visitor spoke."""
         text = ears.listen(wait_s=4.0, on_start=lambda: log("  hearing speech"), abort=self.interrupted)
         if not text or self.interrupted():
+            if not self.interrupted():
+                log(f"  heard nothing (mic noise {ears.last.get('noise')}, threshold {ears.last.get('threshold')}, "
+                    f"loudest {ears.last.get('peak')})")
             return False
         self.lang = mouth.lang_of(text)
         log(f"visitor #{self.current.id if self.current else '-'}: {text}")
@@ -400,6 +459,7 @@ class Lumi:
                         mouth.say(PROMPT[self.lang])
 
     def run(self):
+        subprocess.run(["amixer", "-q", "-c", "Device", "sset", "Speaker", f"{SPEAKER_VOLUME}%"], check=False)
         log("loading speech models...")
         ears.ensure_stt_server()
         mouth.warm_up()
@@ -415,7 +475,9 @@ if __name__ == "__main__":
     ap.add_argument("--no-arm", action="store_true")
     ap.add_argument("--no-drive", action="store_true")
     ap.add_argument("--camera", type=int, default=0)
-    ap.add_argument("--patrol", help="comma-separated markers to drive between, e.g. aisle_a,aisle_b")
+    ap.add_argument("--patrol", help="comma-separated markers to drive between, e.g. a,b")
+    ap.add_argument("--once", action="store_true", help="drive the --patrol route once instead of looping")
+    ap.add_argument("--pause", type=float, default=PAUSE_AT_END, help="seconds to wait at each marker")
     try:
         Lumi(ap.parse_args()).run()
     except KeyboardInterrupt:

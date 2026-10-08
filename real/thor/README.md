@@ -18,6 +18,7 @@ When a person stands 0.5–1.2 m in front of the robot, Lumi waves (Cobo π prog
 | `agv.py` | Base: status, markers (dock = "home"), go to marker, cancel | `192.168.10.10:31001` |
 | `brain.py` `respond()` | Same RAG + gemma4, JSON output `{action, target, say}`; actions go_to / look / wave / stop / end / none | |
 | `lumi.py` | **Voice assistant**: camera → greet (wave + voice + head) → listen → answer / act → … until goodbye, silence or the visitor leaves. `--no-camera`, `--no-arm`, `--no-drive` | all |
+| `api.py` | **Robot API + Swagger** on :8100 (`/docs`): status, markers, drive, head, wave, say, ask, start/stop `lumi.py`, log. Starts at boot (crontab `@reboot`) | all |
 | `greeter.py` | Puts it together; `--dry-run`, `--no-arm`, `--no-head`, `--camera N` | all of the above |
 | `sounds/hello.wav` | Made on a Mac: `say -v Samantha -r 165 -o hello.aiff "Hello, I am Lumi Robot Assistant. How can I help you?"` + `afconvert -f WAVE -d LEI16@22050 -c 1` | |
 | `models/yolov8n.onnx` | Not in git. Made on a Mac: `pip install ultralytics onnx onnxslim`, `YOLO("yolov8n.pt").export(format="onnx", imgsz=640, opset=12, simplify=True)` | |
@@ -61,7 +62,8 @@ python ears.py                   # say something, see the text
 python mouth.py "Hello"          # Lumi says it
 python lumi.py --no-camera --no-drive   # voice assistant, Enter starts a conversation
 python lumi.py                   # full assistant
-python lumi.py --patrol aisle_a,aisle_b   # assistant + drive between markers in a loop
+python lumi.py --patrol a,b      # assistant + drive between markers in a loop
+python lumi.py --patrol p1,p2,p3,p4,p5,p6,p7,p8,final,p9,p10,home --once --pause 1   # drive a route once, end on the dock
 ```
 
 Always run with the venv (`source .venv/bin/activate` or `.venv/bin/python`); the system `python` has no cv2.
@@ -71,10 +73,25 @@ Voice setup (2026-10-07, all downloaded on the Mac and copied): wheels `superton
 `cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=110 -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 12 --target whisper-server whisper-cli` (PATH must include /usr/local/cuda/bin).
 The Thor gives this user 14 CPU cores (`nproc`), so speech models run on the GPU where possible.
 
+## Robot API (api.py)
+
+Open `http://192.168.10.240:8100/docs` from a computer on the robot Wi-Fi and use "Try it out".
+- `GET /status`, `GET /agv/markers`, `GET /assistant/log` only read.
+- `POST /agv/go`, `/head/turn`, `/arm/wave`, `/say`, `/ask` move or speak. While `lumi.py` runs they answer 409; stop it with `POST /assistant/stop`.
+- `POST /assistant/start` `{"patrol": "p1,...,home", "once": true, "pause": 1}` starts the assistant without a terminal; its errors go to `lumi_console.log`.
+- Autostart: crontab line `@reboot sleep 20 && cd /home/cutshion/Dev/lumi-wave && .venv/bin/python api.py >> api.log 2>&1` (`crontab -e` to remove). Manual start: `setsid nohup .venv/bin/python api.py >> api.log 2>&1 &`.
+- Packages: `fastapi uvicorn` wheels downloaded on the Mac (`pip download ... --platform manylinux2014_aarch64`) and installed offline.
+- Only on the local networks; not exposed through the Cloudflare tunnel.
+
 ## Notes
 
 - Camera 0 = SN CPA9B520037 (USB 3). Camera 1 = SN CPA9B52007A is on a USB 2 extension and drops out; it needs a USB 3 cable.
 - `HEAD_SIGN` in `greeter.py` / `lumi.py` and `LOOK` in `lumi.py`: whether +head yaw is the robot's left and +pitch is down. Not verified yet; check with `python head.py 10` and `python head.py 0 10`.
-- Navigation needs a map of the room the robot is in. Current map: `cutshion_708_B_block` with markers `home_dock` (type 11, the dock, called `home` in code), `aisle_a`, `aisle_b`.
+- Navigation needs a map of the room the robot is in. Map `cutshion_708_B_block` (extended 2026-10-08 with "continue scan" to the corridor and a second room): dock marker `Home` (type 11; `home` in code finds any type-11 marker), aisle `a`, `b`, route `p1`–`p10`, `final`.
+- Glass doors are invisible to the lidar: draw a no-go line (panel "add line") over closed glass leaves. One open leaf leaves ~0.7 m, too narrow for the 0.54 m base (+ the arm); open both leaves.
+- `/api/make_plan` returns the straight-line distance, not a real path check: test a route by driving it.
+- The arm sticks out ~11 cm to the right of the base (hit a door frame). Planned: Cobo π program `arm_tuck.jks` (sim suggestion J1 178, J2 -88, J3 -12, J4 -16, J5 -14, J6 -123, ~5 cm left out) run before every drive.
+- `lumi.py` logs `camera ok: N fps` every 30 s and reopens the camera after 3 s without frames.
+- Restarting the API over SSH: `pkill -f "bin/python api.py"` also matches the SSH shell's own command line if it contains that text; start it in a separate SSH call.
 - The camera is mounted on the waist link, the head yaw is relative to the waist, so the image angle is used directly as head yaw while the waist stays still.
 - Detection runs at about 14 fps on the Thor CPU.

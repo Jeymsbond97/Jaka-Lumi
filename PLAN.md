@@ -122,11 +122,22 @@ Kod: `real/thor/` (Mac'da), ishlaydigan nusxasi Thor'da `~/Dev/lumi-wave` (venv 
 - [x] `lumi.py` v2: odamlarni kuzatish (har kimga ID), har yangi odam bir marta salomlashadi, 12 s indamasa o'zi so'raydi (ko'pi bilan 2 marta), odam ketsa gap to'xtaydi, qaytib kelsa yana salomlashadi. Qo'l kamerani to'sib qolishi tuzatildi (tasdiqlandi).
 - [x] Patrol rejimi: `lumi.py --patrol aisle_a,aisle_b` markerlar orasida aylanadi va oldida turgan odam uchun to'xtaydi. Batareya **5 %** dan pastga tushsa dockka qaytadi (oldin 20 % edi), 60 % da yana chiqadi.
 - [x] Patrol ishga tushdi, lekin hech kimga salom bermay ikki nuqta orasida yuraverdi (zona 1.2 m edi). 2.0 m qilinganda esa uzoqdagi va o'tirgan odamlar uchun ham to'xtadi.
-- [ ] Patrolning yangi qoidalarini robotda sinash: faqat **1 m dan yaqin** va robot **yo'lidagi** (har tomonga 0.4 m koridor) odam uchun to'xtaydi, yonda o'tirganlarni hisobga olmaydi, salomdan keyin **8 s** indamasa davom etadi. Terminaldagi `see` qatorlari kimni ko'rayotganini ko'rsatadi (`side` = yo'ldan tashqarida).
+- [x] Patrolning yangi qoidalari (2026-10-08 ertalab): salomlashish ishladi (`GREET` 0.5–0.9 m da), lekin ko'p odamni **eshitmadi** → karnay 50 % → 90 %, mikrofon chegarasi 3.0 → 2.5 marta shovqin, `heard nothing (noise, threshold, loudest)` logi qo'shildi
+- [ ] Eshitishni qayta sinash: salomdan keyin gapirilganda javob beradimi (`heard nothing` raqamlariga qarab chegarani moslash)
+- [ ] (eski) Patrol qoidalari: faqat **1 m dan yaqin** va robot **yo'lidagi** (har tomonga 0.4 m koridor) odam uchun to'xtaydi, yonda o'tirganlarni hisobga olmaydi, salomdan keyin **8 s** indamasa davom etadi. Terminaldagi `see` qatorlari kimni ko'rayotganini ko'rsatadi (`side` = yo'ldan tashqarida).
 - [ ] `HEAD_SIGN` va `LOOK` ishoralarini tekshirish (+yaw robotning chapimi, +pitch pastmi): `python head.py 10`, `python head.py 0 10`
 - [ ] Haqiqiy mehmon bilan to'liq suhbat sinovi
 - [ ] Kamera 1 uchun USB 3 kabel
-- [ ] Boshqaruv sahifasi (Thor :8099, Start / Stop / batareya / log) yoki systemd bilan avtomatik ishga tushirish (qaysi biri ekani hal qilinmagan)
+- [x] **Robot API + Swagger** (`api.py`, FastAPI, `http://192.168.10.240:8100/docs`): status, markerlar, markerga borish, to'xtatish, bosh, lift/bel (`/body/move`), qo'l silkitish, gapirish, savol berish, `lumi.py` ni start/stop, log. Thor yoqilganda o'zi ishga tushadi (crontab `@reboot`). `lumi.py` ishlayotganda harakat buyruqlari 409 qaytaradi
+- [x] `lumi.py` tizim `python` bilan ochilsa o'zini venv'ga o'tkazadi; `lumi.log` fayliga yozadi (SSH orqali o'qish uchun)
+- [x] Bir martalik marshrut: `--once`, `--pause` (API'da `once`, `pause`)
+- [x] Xarita kengaytirildi ("continue scan"): koridor va ikkinchi xona qo'shildi; dock markeri `Home` (type 11), `a`, `b`, `p1`–`p10`, `final`. Dockdagi poza noto'g'ri bo'lib qolganda `position_adjust_by_pose` (−1.2437, 0.054, 0) bilan tuzatildi
+- [x] Kamera nazorati: har 30 s `camera ok: N fps`, 3 s kadr kelmasa kamera qayta ulanadi
+- [ ] **Shisha eshik:** lidar shishani ko'rmaydi → yopiq tavaqa ustiga no-go line chizildi; lekin bitta ochiq tavaqa ~0.7 m, robot 0.54 m + qo'l → AGV o'tmayapti. **Ikkala tavaqani ochish** va chiziqni olib tashlash yoki qisqartirish (panel: add line → Move point → chiziqqa double-click → uchini surish → o'ng tugma → finish)
+- [ ] p1 ni eshik o'rtasiga, ostonadan ~1 m ichkariga ko'chirish; eshikning narigi tomoniga ham marker
+- [ ] **Qo'l eshik romiga urildi** (asosdan ~11 cm chiqib turadi): Cobo π'da `arm_tuck.jks` yozish (sim taklifi J1 178, J2 −88, J3 −12, J4 −16, J5 −14, J6 −123 → ~5 cm; bel −60° bilan ~0) va uni har yurishdan oldin avtomatik ishlatish
+- [ ] Marshrutni (`p1,…,final,p9,p10,home --once`) eshik muammosi hal bo'lgach qaytadan sinash; yo'lda qarshidan chiqqan odam bilan salomlashishni tekshirish (`camera ok` / `see` qatorlari)
+- [ ] "Borib olib kelish" vazifasi (`/mission/fetch`), gripper kelgach ArUco bilan aniq joylashish
 
 ## 8-bosqich: Portfolio
 
@@ -146,14 +157,15 @@ Kod: `real/thor/` (Mac'da), ishlaydigan nusxasi Thor'da `~/Dev/lumi-wave` (venv 
 | 2026-10-04 | Haqiqiy robotga o'tishga tayyorgarlik: rasmiy JAKA_Lumi repo (barcha branch'lar), jaka-robot-demos, JAKA SDK 2.2.7, Python SDK qo'llanmasi, JAKA App, Mini 2, AGV qo'llanmalari va kompaniya Notion ma'lumotlari o'qildi. `docs/` papkasida mavzular bo'yicha 13 ta inglizcha hujjat yozildi (`docs/00_START_HERE.md` dan boshlanadi). Parollar va ichki ma'lumotlar `docs/private/` da (git'ga kirmaydi). Topildi: qo'l IP 192.168.10.90, qo'l MiniCobo2 = Mini 2, URDF va SDK bo'g'im burchaklari bir xil (vendor ROS kodi va haqiqiy poza bilan tekshirildi). |
 | 2026-10-05 | Notion'dagi qo'shimcha ma'lumotlar (AGV API sahifasi, haqiqiy javoblar, markerlar) va AGV API PDF to'liq kiritildi. `docs/13_TO_VERIFY_ON_ROBOT.md` (robotda aniqlanadigan 11 ta narsa va usullari) yozildi. Haqiqiy robot hujjatlaridan sim qiymatlari olib tashlandi. Kompaniya ichki qismlari `docs/private/` ga ko'chirildi (git'ga kirmaydi, repo public qoladi). Keyingi qadam: robotga ulanish (Lumi Wi-Fi), 13-hujjat bo'yicha tekshiruvlar, keyin `real/` kutubxonasi (agv.py, body.py, arm.py). |
 | 2026-10-07 | **Haqiqiy robotda birinchi kun.** Robot Wi-Fi'siga ulandim, hamma qurilma topildi (Thor 192.168.10.240), controller versiyasi 3.3.8 → `login(1)`. AGV panel va skript bilan yurdi. Yangi xarita `cutshion_708_B_block` qurildi, markerlar `home_dock`, `aisle_a`, `aisle_b` qo'yildi. Cobo π'da `hand_shaking.jks` yozildi va TCP 10001 orqali ishga tushirildi. Thor'da `~/Dev/lumi-wave` papkasi bor: odamni ko'rish (YOLOv8n), salomlashish (bosh + qo'l + ovoz), RAG bilim bazasi, gemma4 bilan EN/KO javob, whisper.cpp bilan eshitish, Supertonic bilan gapirish, `lumi.py` (kuzatish, suhbat, ovozli buyruqlar, patrol). Salomlashish va qo'l to'siq tuzatishi tasdiqlandi. Patrol birinchi urinishda batareya past (13 %) bo'lgani uchun uyga ketdi, chegara 20 % → 5 % qilindi. Hammasi 7a-bosqichda batafsil yozilgan. |
+| 2026-10-08 | Patrolda salomlashish ishladi, lekin eshitish zaif edi → karnay 90 %, mikrofon chegarasi pasaytirildi. **Robot API + Swagger** (`api.py`, :8100/docs) qurildi va avtomatik ishga tushadigan qilindi (lift ham boshqariladi). Hamkasbning `lumi_edu` (Colab + o'qituvchi dashboardi, cloudflared) loyihasi o'rganildi: u dars platformasi, biznikidan alohida. Xarita "continue scan" bilan koridor va ikkinchi xonaga kengaytirildi, `p1`–`p10`, `final` markerlari qo'yildi, bir martalik marshrut (`--once`) qo'shildi. Muammolar: qo'l eshik romiga urildi (arm_tuck kerak), shisha eshik lidarda ko'rinmaydi (no-go line), bitta ochiq tavaqa robot uchun tor. Kameraga nazorat qo'shildi. `make_plan` haqiqiy yo'lni tekshirmasligi aniqlandi. |
 
-## Ertaga (2026-10-08) shu yerdan davom etamiz
+## Ertaga (2026-10-09) shu yerdan davom etamiz
 
-1. Robotni zaryadlash (batareya 13 % edi). Mac'ni `Lumi10000013-5G` ga ulash (IP 192.168.10.200).
-2. Thor'da: `cd ~/Dev/lumi-wave && .venv/bin/python lumi.py --patrol aisle_a,aisle_b` (**venv bilan**, oddiy `python` da cv2 yo'q). Eski jarayon ishlayotgan bo'lsa, avval Ctrl+C.
-3. Patrolni kuzatish: markerlar orasida yuradimi, oldidagi odam uchun to'xtaydimi, suhbatdan keyin davom etadimi.
-4. `HEAD_SIGN` va `LOOK` ishoralarini tekshirish, haqiqiy mehmon bilan suhbat.
-5. Boshqaruv sahifasi yoki avtomatik ishga tushirishni tanlash va qilish.
+1. Mac'ni `Lumi10000013-5G` ga ulash (IP 192.168.10.200). Swagger: `http://192.168.10.240:8100/docs`, `GET /status` bilan batareya va joylashuvni tekshirish.
+2. **Shisha eshik:** ikkala tavaqani ochish, no-go line'ni olib tashlash yoki faqat yopiq tavaqa ustida qoldirish; p1 ni eshik o'rtasiga ko'chirish va eshikning narigi tomoniga marker qo'yish. `POST /agv/go` `{"marker": "p1"}` bilan sinash.
+3. **Qo'l:** Cobo π'da `arm_tuck.jks` ni yozish (J1 178, J2 −88, J3 −12, J4 −16, J5 −14, J6 −123, sekin va ko'z bilan tekshirib) → kodga ulash (har yurishdan oldin).
+4. Marshrut: `python lumi.py --patrol p1,p2,p3,p4,p5,p6,p7,p8,final,p9,p10,home --once --pause 1` (yoki Swagger `/assistant/start`). Yo'lda robot qarshisida 1 m ichida turib, salomlashish va eshitishni sinash; `camera ok`, `see`, `heard nothing` qatorlarini yuborish.
+5. Keyin: "borib olib kelish" vazifasi.
 
 ## Qo'llanmalar
 
