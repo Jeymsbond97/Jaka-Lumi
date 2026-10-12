@@ -742,8 +742,7 @@ class Lumi:
         robot_angle = HEAD_SIGN * yaw + ang
         log(f"WAKE {text!r}: voice at {robot_angle:+.0f} deg (confidence {conf:.2f}, "
             f"{'calibrated' if cal['fitted'] else 'NOT calibrated'})")
-        if self.patrol:
-            self.patrol.pause()
+        moving = self.traveling()                        # on the way: keep driving and answer while driving
         self.quiet_until = 0.0
         target = None
         if self.vision:
@@ -755,7 +754,7 @@ class Lumi:
             target.greeted = True
             self.current = target
             self.turn_head(HEAD_SIGN * target.angle)
-        elif cal["fitted"] and conf >= DOA_MIN_CONF:
+        elif cal["fitted"] and conf >= DOA_MIN_CONF and not moving:
             self.look_toward(robot_angle)
         self.brain.reset()
         command = rest if len(rest) > 2 else ""

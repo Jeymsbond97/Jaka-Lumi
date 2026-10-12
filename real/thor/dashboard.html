@@ -758,7 +758,7 @@ async function refreshLog() {
     $("errBox").innerHTML = st.errors.length ? `<div class="errs">${esc(st.errors.slice(-8).join("\n"))}</div>` : "";
     const all = $("logAll").checked, el = $("log"), end = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
     const lines = lg.lumi_log.filter(l => all || !/ see #| camera ok /.test(l)).map(l => {
-      const c = /error|Error|failed|STUCK|refused|cannot/.test(l) ? "e" : /heard nothing|skipped|left - stop|could not/.test(l) ? "w"
+      const c = /\b(error|failed|stuck|refused|cannot|traceback)\b/i.test(l) ? "e" : /heard nothing|skipped|left - stop|could not/.test(l) ? "w"
         : /GREET|WAKE|visitor|^\d\d:\d\d:\d\d lumi |calibrated|arrived/.test(l) ? "g" : "";
       return `<div class="${c}">${esc(l)}</div>`;
     });

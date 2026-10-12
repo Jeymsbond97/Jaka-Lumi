@@ -10,6 +10,7 @@ While the assistant (lumi.py) is running it owns the robot: motion and speech en
 import json
 import math
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -696,7 +697,8 @@ def _calib_active():
 def assistant_status():
     pids = assistant_pids()
     lines = tail(LUMI_LOG, 400)
-    errors = [l for l in lines if any(w in l for w in ("error", "Error", "failed", "STUCK", "refused", "cannot"))]
+    errors = [l for l in lines if re.search(r"\b(error|failed|stuck|refused|cannot|traceback)\b", l, re.I)]
+    # (whole words only: "median_error_deg" in a calibration line is not an error)
     last = lines[-1] if lines else ""
     age = None
     if pids:
