@@ -167,7 +167,18 @@ Kod: `real/thor/` (Mac'da), ishlaydigan nusxasi Thor'da `~/Dev/lumi-wave` (venv 
 | 2026-10-07 | **Haqiqiy robotda birinchi kun.** Robot Wi-Fi'siga ulandim, hamma qurilma topildi (Thor 192.168.10.240), controller versiyasi 3.3.8 → `login(1)`. AGV panel va skript bilan yurdi. Yangi xarita `cutshion_708_B_block` qurildi, markerlar `home_dock`, `aisle_a`, `aisle_b` qo'yildi. Cobo π'da `hand_shaking.jks` yozildi va TCP 10001 orqali ishga tushirildi. Thor'da `~/Dev/lumi-wave` papkasi bor: odamni ko'rish (YOLOv8n), salomlashish (bosh + qo'l + ovoz), RAG bilim bazasi, gemma4 bilan EN/KO javob, whisper.cpp bilan eshitish, Supertonic bilan gapirish, `lumi.py` (kuzatish, suhbat, ovozli buyruqlar, patrol). Salomlashish va qo'l to'siq tuzatishi tasdiqlandi. Patrol birinchi urinishda batareya past (13 %) bo'lgani uchun uyga ketdi, chegara 20 % → 5 % qilindi. Hammasi 7a-bosqichda batafsil yozilgan. |
 | 2026-10-08 | Patrolda salomlashish ishladi, lekin eshitish zaif edi → karnay 90 %, mikrofon chegarasi pasaytirildi. **Robot API + Swagger** (`api.py`, :8100/docs) qurildi va avtomatik ishga tushadigan qilindi (lift ham boshqariladi). Hamkasbning `lumi_edu` (Colab + o'qituvchi dashboardi, cloudflared) loyihasi o'rganildi: u dars platformasi, biznikidan alohida. Xarita "continue scan" bilan koridor va ikkinchi xonaga kengaytirildi, `p1`–`p10`, `final` markerlari qo'yildi, bir martalik marshrut (`--once`) qo'shildi. Muammolar: qo'l eshik romiga urildi (arm_tuck kerak), shisha eshik lidarda ko'rinmaydi (no-go line), bitta ochiq tavaqa robot uchun tor. Kameraga nazorat qo'shildi. `make_plan` haqiqiy yo'lni tekshirmasligi aniqlandi. |
 | 2026-10-12 | Bosh kamerasi USB 2 hub ortida ekani aniqlandi (kabel aybdor emas). USB 2 ga mos rejim tanlandi (15 fps, buzuq kadr yo'q), kamera nomi bo'yicha tanlanadi, bosh burilishi burchakka qo'shiladi. `camera_fps.py` sinov skripti qo'shildi. Dashboard, kamera xizmati, bosib-turib boshqarish, xarita, 2-bosqich (uyg'otish so'zi, ovoz yo'nalishi, come here, oqim javob) yozildi; bosh kamerasi uzilishlari sababi topildi (ikki dastur / chuqurlik + karnay). |
-## Ertaga (2026-10-09) shu yerdan davom etamiz
+## Ertaga (2026-10-13) shu yerdan davom etamiz
+
+Holat (2026-10-12 oxiri, `40e36fe`): dashboard `http://192.168.10.240:8100/view` (kameralar, xarita, boshqaruv, Greeter/Patrol, Logs, Voice), kamera xizmati, DJI mikrofon (USB-A adapter orqali), Thor'ning o'z Wi-Fi'si orqali internet (`CUTSHION_5G`), ob-havo / Wikipedia / Google News, qisqa javoblar, "stop/okay" bilan to'xtash, ovoz yo'nalishi kalibrovkalangan.
+
+1. **Shisha eshik:** robot eshik oldida (x −1.03, y 0.92) "running" bo'lib turib qoldi, "go home" bajarilmadi (yo'l yo'q). Robotni ochiq joyga surib qayta sinash; eshikning ikkala tavaqasi / no-go chiziqni AGV panelida (:9001) tuzatish. Endi 20 s qimirlamasa yurish bekor bo'ladi va Lumi aytadi.
+2. **DJI TX joyi:** boshga yopishtirilgan TX robotning o'z ovozini eshitib, gapni bo'lardi. TX gapiradigan odamda tursin; qayta sinash: "stop", "okay, thanks", yangi savol bilan bo'lish.
+3. Jonli sinovlar: yo'lda "Hi Lumi" (yurish to'xtamasligi kerak), "come to me" (ba'zan yurmadi: odam ko'rinmaganmi?), istalgan savollar.
+4. Qaror: umumiy qidiruv uchun API kaliti (Brave Search / Tavily) yoki Claude API (internet bor).
+5. Bosh kamerasi: karnay gapirganda USB'dan uziladi (bosh hub'i) → JAKA bilan apparatni tekshirish.
+6. Keyin: qo'lni yig'ish (`arm_tuck`), "borib olib kelish" vazifasi.
+
+## (o'tgan) Ertaga (2026-10-09)
 
 1. Mac'ni `Lumi10000013-5G` ga ulash (IP 192.168.10.200). Swagger: `http://192.168.10.240:8100/docs`, `GET /status` bilan batareya va joylashuvni tekshirish.
 2. **Shisha eshik:** ikkala tavaqani ochish, no-go line'ni olib tashlash yoki faqat yopiq tavaqa ustida qoldirish; p1 ni eshik o'rtasiga ko'chirish va eshikning narigi tomoniga marker qo'yish. `POST /agv/go` `{"marker": "p1"}` bilan sinash.
