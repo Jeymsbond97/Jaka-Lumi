@@ -26,7 +26,11 @@ HISTORY_TURNS = 4              # previous question/answer pairs kept for follow-
 SYSTEM = """You are Lumi, a friendly mobile robot assistant made by JAKA Robotics, standing in front of a visitor.
 Rules:
 - Answer in the same language as the visitor's last message (English or Korean). Never answer in Chinese.
-- Speak naturally, like a person talking: 1 to 3 short sentences, no lists, no markdown, no emojis.
+- Speak naturally, like a person talking: short and exact, usually 1 or 2 sentences, no lists, no markdown,
+  no emojis. Only when the visitor asks for more ("tell me more", "why", "details", "자세히") give more about
+  that same topic, using the conversation so far.
+- If you do not know a fact about the world (people, places, events, products, prices, definitions, sports,
+  anything after your training), do not guess: choose the action "search" so it is looked up on the internet.
 - For facts about yourself, JAKA or its products use ONLY the reference notes. They may be written in Chinese;
   translate what you need. Only if the notes do not contain the answer, say you are not sure and suggest asking
   a staff member; otherwise do not mention staff.
@@ -159,6 +163,25 @@ def intent(text, markers=()):
     return None
 
 
+UNSURE = re.compile(r"\b(not sure|don't know|do not know|don't have (any )?(information|details|data)|"
+                    r"do not have (any )?(information|details|data)|no information|can't (tell|say|find)|cannot (tell|say|find)|"
+                    r"unable to|ask a staff|i'm afraid i|my knowledge|would you like me to (search|look))\b|"
+                    r"모르|알 수 없|알지 못|정보(가|는|를)? ?(없|가지고 있지 않)|가지고 있지 않|확실하지|드릴 수 없", re.I)
+FOLLOW_UP = re.compile(r"\b(more|why|how come|details?|explain|elaborate|and then|what else|tell me more)\b|자세히|더 알려|왜|그리고", re.I)
+_CLOSE_WORD = (r"(ok(ay)?|okay then|thanks?( you)?( very much)?( a lot)?|thank you( so much)?|got it|alright|all right|"
+               r"fine|good|great|cool|nice|perfect|stop|enough|that'?s (it|all|enough|fine)|so|sure|i see|understood|"
+               r"no thanks|nothing|never ?mind|lumi|루미|고마워요?|감사합니다|감사해요|알겠어요?|알았어요?|오케이|됐어요?|그만|좋아요?)")
+CLOSING = re.compile(rf"^(\s*{_CLOSE_WORD}[\s,.!]*)+$", re.I)   # one or several: "okay, thanks", "got it, thank you"
+
+
+WAKE_WORD_RE = re.compile(r"\b(lumi|loomi|rumi)\b|루미", re.I)
+
+
+def is_closing(text):
+    """'okay', 'thanks', 'got it', 'stop'...: the visitor is done with this answer."""
+    return bool(CLOSING.match(text or ""))
+
+
 def warm_up():
     """Load the model into the GPU now, so the first answer is fast."""
     _chat([{"role": "user", "content": "Hi"}])
@@ -172,6 +195,7 @@ def language(text):
 class Brain:
     def __init__(self):
         self.history = []                 # [(question, answer)]
+        self.last_lookup = None           # the last question answered from the internet
 
     def answer(self, question):
         hits = [h for h in knowledge.search(question, k=4) if h[0] >= MIN_SCORE]
@@ -250,9 +274,13 @@ class Brain:
     def respond_from(self, question, facts):
         """Spoken answer built from looked-up facts (weather, web results); yields sentences."""
         messages = [{"role": "system", "content": SYSTEM + f"\nNow it is {tools.now_text()}."}]
-        messages.append({"role": "user", "content": f"Facts found just now:\n{facts}\n\nVisitor: {question}\n\n"
-                                                    f"Answer from the facts in {language(question)}, 1 to 3 short "
-                                                    f"spoken sentences, no lists, no links."})
+        for q, a in self.history[-HISTORY_TURNS:]:
+            messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
+        messages.append({"role": "user", "content": f"Facts found just now on the internet:\n{facts}\n\nVisitor: {question}\n\n"
+                                                    f"Answer the visitor directly in {language(question)}: short and exact, "
+                                                    f"1 or 2 spoken sentences (more only if they asked for more), no lists, "
+                                                    f"no links. Use the facts, and your own general knowledge where the facts "
+                                                    f"are incomplete. Do not talk about the facts or the search themselves."})
         buf, full = "", ""
         for piece in _stream(messages):
             full += piece
@@ -265,6 +293,29 @@ class Brain:
         if buf.strip():
             yield buf.strip()
         self.history.append((question, full.strip()))
+        self.last_lookup = question                        # a "tell me more" next is looked up again
+
+    def search_terms(self, text):
+        """A short English web-search query for the visitor's question (also for Korean questions)."""
+        context = f"Earlier question: {self.history[-1][0]}\n" if self.history and FOLLOW_UP.search(text) else ""
+        try:
+            q = _chat([{"role": "user", "content": f"{context}Question: {text}\n\nWrite the best short English web search "
+                                                    f"query (3 to 8 words) to answer it. Only the query."}])
+            q = q.strip().strip('"').splitlines()[0][:120]
+            return q or text
+        except Exception:
+            return text
+
+    def search_query(self, text):
+        """What to look up: a follow-up ("tell me more") is about the previous question."""
+        if FOLLOW_UP.search(text) and self.history:
+            return f"{self.last_lookup or self.history[-1][0]} {text}"
+        return text
+
+    def is_lookup_follow_up(self, text):
+        """'Tell me more' right after an answer from the internet: look it up again with that topic."""
+        return bool(self.last_lookup and FOLLOW_UP.search(text) and self.history
+                    and self.history[-1][0] == self.last_lookup)
 
     @staticmethod
     def _action(line, text, markers):
@@ -294,6 +345,7 @@ class Brain:
 
     def reset(self):
         self.history = []
+        self.last_lookup = None
 
 
 if __name__ == "__main__":

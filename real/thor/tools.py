@@ -81,14 +81,35 @@ def weather(place=DEFAULT_PLACE):
         return None
 
 
+STOP = {"the", "a", "an", "of", "in", "on", "at", "to", "for", "and", "or", "is", "are", "was", "how", "what", "who",
+        "when", "where", "which", "height", "tall", "meters", "metres", "current", "latest", "now", "today", "name",
+        "date", "year", "founded", "founding", "company", "age", "old", "big", "size", "long", "length", "far",
+        "distance", "population", "price", "cost", "number", "many", "much", "there"}
+
+
 def _wikipedia(query, lang):
-    """Summary of the best-matching Wikipedia article, or ''."""
+    """Best-matching Wikipedia article summary + the matching snippets of the top results, or ''."""
     api = f"https://{lang}.wikipedia.org"
-    found = json.loads(_get(f"{api}/w/api.php?action=opensearch&limit=1&format=json&search=" + urllib.parse.quote(query)))
-    if not found[1]:
+    words = [w for w in re.findall(r"\w+", query.lower()) if w not in STOP]
+    if "jaka" in words and "robotics" not in words:     # our own maker, not the people called Jaka
+        words.append("robotics")
+    hits = []
+    for q in (" ".join(words), query):                   # the names alone first: "height in metres" misleads search
+        if not q:
+            continue
+        found = json.loads(_get(f"{api}/w/api.php?action=query&list=search&srlimit=3&srprop=snippet&format=json&srsearch="
+                                + urllib.parse.quote(q)))   # full-text search, not just title prefixes
+        hits = found.get("query", {}).get("search", [])
+        if hits:
+            break
+    if not hits:
         return ""
-    page = json.loads(_get(f"{api}/api/rest_v1/page/summary/" + urllib.parse.quote(found[1][0].replace(" ", "_"))))
-    return f"Wikipedia, {page.get('title', '')}: {page.get('extract', '')[:700]}"
+    words = set(words)
+    best = max(hits, key=lambda h: len(words & set(re.findall(r"\w+", h["title"].lower()))))   # title that fits the question
+    page = json.loads(_get(f"{api}/api/rest_v1/page/summary/" + urllib.parse.quote(best["title"].replace(" ", "_"))))
+    clean = lambda t: html.unescape(re.sub(r"<[^>]+>", "", t)).strip()
+    snippets = "; ".join(f"{h['title']}: {clean(h['snippet'])}" for h in hits)
+    return f"Wikipedia, {page.get('title', '')}: {page.get('extract', '')[:700]}\nMatching text: {snippets}"
 
 
 def _news(query, lang, n=4):
@@ -105,7 +126,8 @@ def search(query, n=4):
     """Facts for a question: a Wikipedia summary + the latest news headlines, or None without internet.
     (DuckDuckGo answers the robot with a bot check; Bing returns unrelated pages to scripts.)"""
     lang = "ko" if re.search(r"[가-힣]", query) else "en"
-    q = re.sub(r"\b(what|who|is|are|the|a|an|about|tell me|please|latest|news|today'?s?|any)\b|\?", " ", query, flags=re.I)
+    q = re.sub(r"\b(what|who|whom|is|are|was|were|the|a|an|about|tell me|more|please|latest|news|today'?s?|any|how|"
+               r"do|does|did|you|know|can|could|of|lumi)\b|[?,.!]", " ", query, flags=re.I)
     q = re.sub(r"\s+", " ", q).strip() or query
     parts = []
     for fn in (lambda: _wikipedia(q, lang), lambda: _news(q, lang, n)):

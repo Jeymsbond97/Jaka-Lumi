@@ -9,8 +9,9 @@ six-mic audio of the same time span is taken from a ring buffer. Choose with mic
 An ALSA device can be opened only once, so everything that listens goes through here. An energy detector
 cuts utterances: speech starts when the level stays above START_FACTOR x the background noise for
 START_FRAMES frames and ends after END_SILENCE of quiet.
-While Lumi itself speaks (mouth.py calls speaking()), nothing is recorded: the speaker is ~25x louder than a
-voice in the head mics.
+While Lumi itself speaks (mouth.py calls speaking()), the head array records nothing (the speaker is ~25x
+louder than a voice there). The clip mic keeps listening (BARGE_IN): its utterances are marked during_speech, so
+lumi.py can stop talking when the visitor says "stop" / "thanks" or asks something new.
 
     python mic.py        # print every utterance: source, length, level and the direction
 """
@@ -39,14 +40,16 @@ END_SILENCE = 0.6                # s of quiet that ends an utterance
 MAX_UTTERANCE = 12.0             # s
 PRE_ROLL = 10                    # frames kept before the start (300 ms)
 AFTER_SPEAKING = 0.4             # s still ignored after Lumi stopped talking (room echo)
+BARGE_IN = True                  # clip mic: keep listening while Lumi talks (interruptions)
 RING_S = 20.0                    # s of head-array audio kept for the sound direction of clip-mic utterances
 
 
 class Utterance:
-    def __init__(self, mics, mono, t_start, t_end, peak, source):
+    def __init__(self, mics, mono, t_start, t_end, peak, source, during_speech=False):
         self.mics = mics                                         # int16 (n, 6) head array (for doa), may be empty
         self.mono = mono                                         # int16 mono (for speech-to-text)
         self.t_start, self.t_end, self.peak, self.source = t_start, t_end, peak, source
+        self.during_speech = during_speech                       # recorded while Lumi was talking (clip mic only)
 
     @property
     def seconds(self):
@@ -231,6 +234,7 @@ class Mic(threading.Thread):
         proc = subprocess.Popen(["arecord", "-q", "-D", dev, "-f", "S16_LE", "-r", str(RATE), "-c", "1", "-t", "raw"],
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         nbytes = FRAME * 2
+        talking_since = None                                     # Lumi started talking at (for during_speech)
         try:
             while True:
                 raw = proc.stdout.read(nbytes)
@@ -239,13 +243,18 @@ class Mic(threading.Thread):
                 x = np.frombuffer(raw, np.int16)
                 now = time.time()
                 if self.muted():
-                    self.clip_seg.reset()
-                    continue
+                    if not BARGE_IN:
+                        self.clip_seg.reset()
+                        continue
+                    talking_since = talking_since or now
+                elif talking_since and not self.clip_seg.in_speech:
+                    talking_since = None
                 level = float(np.sqrt(np.mean(x.astype(np.float32) ** 2)))
                 done = self.clip_seg.feed(x, level, now)
                 if done:
                     frames, t0, t1, peak = done
-                    self._put(Utterance(self.head_audio(t0, t1), np.concatenate(frames), t0, t1, peak, "clip"))
+                    during = talking_since is not None and t1 >= talking_since
+                    self._put(Utterance(self.head_audio(t0, t1), np.concatenate(frames), t0, t1, peak, "clip", during))
         finally:
             proc.kill()
 

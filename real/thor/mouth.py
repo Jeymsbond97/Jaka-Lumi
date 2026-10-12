@@ -39,6 +39,13 @@ _tts = None
 _style = None
 _cache = {}
 _volume_set = False
+_recent = []                                  # (time, sentence) Lumi said lately: to tell its own echo from a visitor
+
+
+def recent_speech(seconds=8.0):
+    """What Lumi said in the last seconds (lumi.py ignores its own voice picked up by the clip mic)."""
+    now = time.time()
+    return " ".join(t for when, t in _recent if now - when < seconds)
 
 
 VOLUME_FILE = HERE / "volume.txt"             # set from the dashboard (api.py /volume); overrides VOLUME
@@ -133,12 +140,15 @@ def say_stream(pieces, lang=None, abort=None):
             for piece in pieces:
                 for s in sentences(piece):
                     spoken.append(s)
-                    q.put(_synth(s, lang or lang_of(s)))
+                    q.put((s, _synth(s, lang or lang_of(s))))
         finally:
             q.put(None)
 
     threading.Thread(target=synth, daemon=True).start()
-    while (wav := q.get()) is not None:
+    while (item := q.get()) is not None:
+        text, wav = item
+        _recent.append((time.time(), text))
+        del _recent[:-12]
         if not _play(wav, rate, abort):
             break
     return " ".join(spoken)

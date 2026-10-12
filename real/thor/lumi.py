@@ -381,6 +381,7 @@ class Lumi:
         self.voice_until = 0.0           # a conversation started by voice with nobody in view lasts until then
         self.quiet_until = 0.0           # after "be quiet": no greetings until then
         self._yaw, self._yaw_time = 0.0, 0.0
+        self.pending_text = None         # a question the visitor asked while Lumi was talking (barge-in)
         self.lang = "en"
         self.mic = mic.get()
         self.modes = Modes(args)
@@ -515,6 +516,36 @@ class Lumi:
             + (f" -> calibrated {c}" if c else ""))
         self.write_calib("calibrated" if c else "collecting", c)
 
+    # ---------- interrupting Lumi while it talks (clip mic only) ----------
+    def speak_abort(self):
+        """Stop talking: the person left, someone new arrived, or the visitor interrupted ("stop", a new question)."""
+        return self.interrupted() or self.barge_in()
+
+    def barge_in(self):
+        u = self.mic.next(0.0)
+        if u is None:
+            return False
+        if not getattr(u, "during_speech", False) or u.seconds < 0.25:
+            return False
+        text = (ears.transcribe(u.mono) or "").strip()
+        if not text or self.own_echo(text):
+            return False
+        if brain_mod.is_closing(text):
+            log(f"  interrupted: {text!r} - stop talking, listen")
+            return True
+        if len(text.split()) >= 2 or brain_mod.WAKE_WORD_RE.search(text):
+            log(f"  interrupted by a new question: {text!r}")
+            self.pending_text = text
+            return True
+        return False
+
+    @staticmethod
+    def own_echo(text):
+        """The clip mic also hears Lumi: ignore what overlaps with what it just said."""
+        said = set(re.findall(r"\w+", mouth.recent_speech().lower()))
+        words = re.findall(r"\w+", text.lower())
+        return bool(words) and sum(w in said for w in words) / len(words) >= 0.6
+
     # ---------- interrupts ----------
     def interrupted(self):
         """Stop listening/speaking: the person left, or a new person is waiting to be greeted."""
@@ -536,6 +567,10 @@ class Lumi:
 
     def talk_turn(self):
         """Listen once; answer if something was said. Returns True if the visitor spoke."""
+        if self.pending_text:                              # asked while Lumi was talking
+            text, self.pending_text = self.pending_text, None
+            self.answer(text)
+            return True
         text, u = ears.listen(wait_s=4.0, on_start=lambda: log("  hearing speech"), abort=self.interrupted, full=True)
         if not text or self.interrupted():
             if not self.interrupted():
@@ -580,6 +615,21 @@ class Lumi:
                 self._yaw, self._yaw_time = st[2], now
         return self._yaw
 
+    def look_up(self, text, action, target, t0=None):
+        """Weather or web facts -> short spoken answer (interruptible)."""
+        en = self.lang == "en"
+        mouth.say("Let me check." if en else "확인해 볼게요.")
+        facts = tools.weather(target) if action == "weather" else tools.search(target)
+        log(f"  {action} {target!r}: {(facts or 'NO INTERNET')[:120]}")
+        if facts is None:
+            mouth.say("Sorry, I'm not connected to the internet right now, so I can't look that up."
+                      if en else "죄송해요, 지금은 인터넷에 연결되어 있지 않아서 찾아볼 수 없어요.")
+        else:
+            said = mouth.say_stream(self.brain.respond_from(text, facts), abort=self.speak_abort)
+            log(f"lumi ({time.time() - (t0 or time.time()):.1f} s): {said}")
+        if self.current is None:
+            self.voice_until = time.time() + VOICE_SESSION_S
+
     def quick_command(self, text):
         """A command the keyword rules recognise for sure: confirm with a ready phrase and act, no LLM wait."""
         rule = brain_mod.intent(text, self.markers)
@@ -589,17 +639,7 @@ class Lumi:
         en = self.lang == "en"
         log(f"  action {action} {target} (keyword rule)")
         if action in ("weather", "search"):                    # look it up at once, one LLM call for the answer
-            mouth.say("Let me check." if en else "확인해 볼게요.")
-            facts = tools.weather(target) if action == "weather" else tools.search(target)
-            log(f"  {action} {target!r}: {(facts or 'NO INTERNET')[:120]}")
-            if facts is None:
-                mouth.say("Sorry, I'm not connected to the internet right now, so I can't look that up."
-                          if en else "죄송해요, 지금은 인터넷에 연결되어 있지 않아서 찾아볼 수 없어요.")
-            else:
-                said = mouth.say_stream(self.brain.respond_from(text, facts), abort=self.interrupted)
-                log(f"lumi: {said}")
-            if self.current is None:
-                self.voice_until = time.time() + VOICE_SESSION_S
+            self.look_up(text, action, target if action == "weather" else self.brain.search_query(target))
             return True
         self.brain.history.append((text, f"ACTION: {action} {target or '-'}"))
         if action == "quiet":
@@ -627,8 +667,16 @@ class Lumi:
         self.lang = mouth.lang_of(text)
         log(f"visitor #{self.current.id if self.current else 'voice'}: {text}")
         t = time.time()
+        if brain_mod.is_closing(text):                     # "okay", "thanks", "got it": no reply, keep listening
+            log("  closing words - no reply, listening")
+            if self.current is None:
+                self.voice_until = time.time() + VOICE_SESSION_S
+            return
         if self.quick_command(text):
             log(f"  done at once ({time.time() - t:.1f} s)")
+            return
+        if self.brain.is_lookup_follow_up(text):           # "tell me more" about something looked up just now
+            self.look_up(text, "search", self.brain.search_query(text), t)
             return
         gen = self.brain.respond_stream(text, self.markers)
         head_ = next(gen)
@@ -640,17 +688,8 @@ class Lumi:
             return
         if head_["action"] in ("weather", "search"):
             gen.close()
-            mouth.say("Let me check." if self.lang == "en" else "확인해 볼게요.")
-            facts = tools.weather(head_["target"]) if head_["action"] == "weather" else tools.search(head_["target"])
-            log(f"  {head_['action']} {head_['target']!r}: {(facts or 'NO INTERNET')[:120]}")
-            if facts is None:
-                mouth.say("Sorry, I'm not connected to the internet right now, so I can't look that up."
-                          if self.lang == "en" else "죄송해요, 지금은 인터넷에 연결되어 있지 않아서 찾아볼 수 없어요.")
-            else:
-                said = mouth.say_stream(self.brain.respond_from(text, facts), abort=self.interrupted)
-                log(f"lumi ({time.time() - t:.1f} s): {said}")
-            if self.current is None:
-                self.voice_until = time.time() + VOICE_SESSION_S
+            target = head_["target"] if head_["action"] == "weather" else self.brain.search_query(head_["target"])
+            self.look_up(text, head_["action"], target, t)
             return
         if head_["action"] == "quiet":
             gen.close()
@@ -670,7 +709,13 @@ class Lumi:
                     log(f"  first sentence after {time.time() - t:.1f} s")
                     first[0] = False
                 yield sentence
-        said = mouth.say_stream(timed(), abort=self.interrupted)
+        first = next(gen, None)
+        if first and brain_mod.UNSURE.search(first) and head_["action"] in ("none", "sing"):
+            gen.close()                                    # the model does not know: look it up instead
+            log(f"  not sure ({first[:60]!r}) - looking it up")
+            self.look_up(text, "search", self.brain.search_terms(text), t)
+            return
+        said = mouth.say_stream(itertools.chain([first] if first else [], timed()), abort=self.speak_abort)
         log(f"lumi ({time.time() - t:.1f} s): {said}")
         if head_["action"] in ("end", "go_to"):
             self.current, self.voice_until = None, 0.0     # stay quiet with this person until a new visit
@@ -681,7 +726,7 @@ class Lumi:
     def check_wake(self):
         """Idle: is someone calling "Hi Lumi"? Handles it and returns True."""
         u = self.mic.next(0.0)
-        if u is None or not (0.3 <= u.seconds <= WAKE_MAX_S):
+        if u is None or not (0.3 <= u.seconds <= WAKE_MAX_S) or getattr(u, "during_speech", False):
             return False
         text = ears.transcribe(u.mono)
         m = WAKE.search(text or "")
