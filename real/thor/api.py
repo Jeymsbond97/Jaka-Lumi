@@ -1,17 +1,21 @@
 """Lumi robot API: HTTP endpoints for the base, head, arm, voice and the lumi.py assistant, with Swagger at /docs.
 
     python api.py                 # http://<thor>:8100/docs  (robot network: http://192.168.10.240:8100/docs)
+                                  # live cameras: http://192.168.10.240:8100/view
 
 Started at boot by a crontab @reboot line (see README.md), so nothing has to be run by hand.
 While the assistant (lumi.py) is running it owns the robot: motion and speech endpoints answer 409.
 /status, /agv/markers and the log always work.
 """
+import json
+import math
 import os
 import signal
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -21,11 +25,14 @@ if VENV_PY.exists() and Path(sys.prefix).resolve() != (HERE / ".venv").resolve()
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 import agv
 import arm
+import camview
 import head
+from control import jogger
 
 PORT = 8100
 LUMI_LOG = HERE / "lumi.log"                 # written by lumi.py itself
@@ -36,6 +43,8 @@ app = FastAPI(title="Lumi robot API", version="0.1.0",
                           "Motion endpoints really move the robot.")
 _brain = None
 _voice_lock = threading.Lock()
+CAMERA_NAMES = ("head", "torso")
+DASHBOARD = HERE / "dashboard.html"
 
 
 # ---------- helpers ----------
@@ -43,6 +52,38 @@ def assistant_pids():
     """PIDs of running lumi.py processes (started from here or from a terminal)."""
     out = subprocess.run(["pgrep", "-f", f"{HERE}/lumi.py|python3? lumi.py"], capture_output=True, text=True).stdout
     return [int(p) for p in out.split() if int(p) != os.getpid()]
+
+
+# ---------- the assistant's live modes and commands (see lumi.py) ----------
+MODES_FILE = Path("/dev/shm/lumi_modes.json")
+CMD_FILE = Path("/dev/shm/lumi_cmd.json")
+CALIB_FILE = Path("/dev/shm/lumi_calib.json")
+DEFAULT_MODES = {"greeter": False, "patrol": False, "wave": True, "drive": True}
+
+
+def read_modes():
+    try:
+        return {**DEFAULT_MODES, **json.loads(MODES_FILE.read_text())}
+    except (FileNotFoundError, ValueError):
+        return dict(DEFAULT_MODES)
+
+
+def send_to_assistant(cmd, **args):
+    """lumi.py runs and owns the robot: it drives (and stops for people with patrol mode on)."""
+    tmp = CMD_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"id": time.time_ns(), "time": time.time(), "cmd": cmd, **args}))
+    os.replace(tmp, CMD_FILE)
+
+
+def start_assistant(no_arm=False, no_drive=False):
+    if assistant_pids():
+        return None
+    args = [str(VENV_PY), str(HERE / "lumi.py")] + ["--no-arm"] * no_arm + ["--no-drive"] * no_drive
+    log = open(CONSOLE_LOG, "a")
+    log.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} start: {' '.join(args[1:])}\n")
+    log.flush()
+    return subprocess.Popen(args, cwd=HERE, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                            start_new_session=True).pid
 
 
 def robot_free():
@@ -129,10 +170,12 @@ def markers():
 
 @app.post("/agv/go", tags=["base"], summary="Drive to a marker (returns at once; watch /status move_status)")
 def go(body: GoBody):
-    robot_free()
     names = agv.markers()
     if body.marker not in names:
         raise HTTPException(400, f"unknown marker {body.marker!r}; markers: {names}")
+    if assistant_pids():
+        send_to_assistant("go", marker=body.marker)
+        return {"ok": True, "marker": body.marker, "by": "assistant"}
     ok, msg = agv.go(body.marker)
     if not ok:
         raise HTTPException(502, f"AGV refused: {msg}")
@@ -141,6 +184,8 @@ def go(body: GoBody):
 
 @app.post("/agv/cancel", tags=["base"], summary="Stop the current drive")
 def cancel():
+    if assistant_pids():
+        send_to_assistant("cancel")
     return {"status": agv.cancel()}
 
 
@@ -245,10 +290,354 @@ def assistant_log(lines: int = 50):
     return {"lumi_log": tail(LUMI_LOG, lines), "console": tail(CONSOLE_LOG, 15)}
 
 
+# ---------- live cameras and the dashboard ----------
+class ViewSettings(BaseModel):
+    box_color: str | None = Field(None, pattern=r"^#[0-9a-fA-F]{6}$", examples=["#22c55e"])
+    thickness: int | None = Field(None, ge=1, le=6)
+    boxes: bool | None = None
+    labels: bool | None = None
+
+
+def _camera_name(name):
+    if name not in CAMERA_NAMES:
+        raise HTTPException(404, f"camera must be one of {CAMERA_NAMES}")
+    return name
+
+
+@app.get("/", include_in_schema=False)
+@app.get("/view", tags=["cameras"], summary="Dashboard: both cameras live + robot controls (open in a browser)",
+         response_class=HTMLResponse)
+def view():
+    return DASHBOARD.read_text()
+
+
+@app.get("/camera/{name}.mjpg", tags=["cameras"], summary="Live MJPEG stream of one camera (head / torso)")
+def camera_stream(name: str):
+    name = _camera_name(name)
+
+    def frames():
+        last = 0.0
+        while True:
+            camview.want(name)                           # full speed while someone watches
+            path = camview.frame_path(name)
+            try:
+                mtime = path.stat().st_mtime
+                if mtime != last:
+                    last = mtime
+                    yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + path.read_bytes() + b"\r\n"
+            except FileNotFoundError:
+                pass
+            time.sleep(0.05)
+
+    return StreamingResponse(frames(), media_type="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.get("/camera/{name}/latest.jpg", tags=["cameras"], summary="Latest picture right away (the dashboard polls this)")
+def camera_latest(name: str):
+    name = _camera_name(name)
+    camview.want(name)                                   # full speed while someone watches
+    camview.ensure_running()
+    try:
+        return Response(camview.frame_path(name).read_bytes(), media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+    except FileNotFoundError:
+        raise HTTPException(404, "no picture yet")
+
+
+@app.get("/camera/{name}.jpg", tags=["cameras"], summary="Latest picture of one camera")
+def camera_snapshot(name: str):
+    name = _camera_name(name)
+    camview.ensure_running()
+    for _ in range(50):                                  # up to 5 s for a fresh picture
+        camview.want(name)
+        age = camview.picture_age(name)
+        if age is not None and age < camview.FRESH_S:
+            return Response(camview.frame_path(name).read_bytes(), media_type="image/jpeg")
+        time.sleep(0.1)
+    raise HTTPException(503, _camera_error(name) or "no picture from this camera yet")
+
+
+@app.get("/camera/{name}/info", tags=["cameras"], summary="Who has the camera and the people it sees")
+def camera_info(name: str):
+    name = _camera_name(name)
+    try:
+        info = json.loads(camview.info_path(name).read_text())
+    except (FileNotFoundError, ValueError):
+        info = {"time": 0, "source": None, "people": []}
+    info["age_s"] = round(time.time() - info["time"], 1) if info["time"] else None
+    info["error"] = _camera_error(name)
+    return info
+
+
+def _camera_error(name):
+    if not camview.service_pid():
+        return "camera service not running"
+    st = camview.status().get("cameras", {}).get(name)
+    return None if st in (None, "ok") else st
+
+
+@app.get("/view/settings", tags=["cameras"], summary="How person boxes are drawn")
+def view_settings():
+    return camview.settings()
+
+
+@app.post("/view/settings", tags=["cameras"], summary="Change box colour / thickness, show boxes / labels")
+def view_settings_set(body: ViewSettings):
+    return camview.save_settings(body.model_dump())
+
+
+class VolumeBody(BaseModel):
+    percent: int = Field(55, ge=0, le=100)
+
+
+@app.get("/volume", tags=["voice"], summary="Speaker volume (%)")
+def volume_get():
+    import mouth
+    return {"percent": mouth.volume()}
+
+
+@app.post("/volume", tags=["voice"], summary="Set the speaker volume (%); kept for every program")
+def volume_set(body: VolumeBody):
+    import mouth
+    mouth.set_volume(body.percent)
+    return {"percent": mouth.volume()}
+
+@app.post("/stop", tags=["status"], summary="STOP everything: base drive, arm program and the assistant")
+def stop_all():
+    jogger.stop()
+    stopped = assistant_stop()
+    return {"assistant": stopped["stopped"], "agv": part(agv.cancel), "arm": part(arm.stop)}
+
+# ---------- hold-to-move, map, arm (dashboard) ----------
+AGV_WEB = "http://192.168.10.10:9001"
+ARM_TUCK = [179.3, -88.6, -13.9, -15.8, -14.5, -121.3]   # deg, arm folded beside the column (fits doorways)
+
+
+class JogBody(BaseModel):
+    axis: str = Field(examples=["head_yaw"], description="base_drive, base_turn, lift, waist, head_yaw, head_pitch, j1..j6")
+    direction: int = Field(1, description="+1 or -1")
+    speed: float = Field(0.5, ge=0.05, le=1.0, description="0..1 of the axis' top speed")
+
+
+class PointBody(BaseModel):
+    x: float
+    y: float
+    theta: float = Field(0.0, description="rad, map frame")
+
+
+class MapBody(BaseModel):
+    map_name: str
+    floor: int = 1
+
+
+class OnBody(BaseModel):
+    on: bool
+
+
+class ProgramBody(BaseModel):
+    program: str = Field(examples=["hand_shaking.jks"])
+
+
+@app.post("/jog", tags=["control"], summary="Hold-to-move: call every ~150 ms while a button is held")
+def jog(body: JogBody):
+    robot_free()
+    try:
+        jogger.hold(body.axis, body.direction, body.speed)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "error": jogger.last_error}
+
+
+@app.post("/jog/stop", tags=["control"], summary="Stop every hold-to-move axis now")
+def jog_stop():
+    jogger.stop()
+    return {"ok": True}
+
+
+@app.get("/map/info", tags=["map"], summary="Current map, its geometry, the markers with poses and all maps")
+def map_info():
+    cur = agv.request("/api/map/get_current_map")["results"]
+    marks = agv.request("/api/markers/query_list")["results"]
+    maps = agv.request("/api/map/list")["results"]
+    markers = [{"name": n, "type": m.get("key"), "x": m["pose"]["position"]["x"], "y": m["pose"]["position"]["y"],
+                "theta": 2 * math.atan2(m["pose"]["orientation"]["z"], m["pose"]["orientation"]["w"])}
+               for n, m in marks.items() if m.get("floor", 1) == cur["floor"]]
+    return {"map_name": cur["map_name"], "floor": cur["floor"], **cur["info"], "markers": markers,
+            "maps": [{"name": n, "floors": f} for n, f in sorted(maps.items())]}
+
+
+@app.get("/map/image", tags=["map"], summary="Map picture (PNG) from the base; default the current map")
+def map_image(map_name: str | None = None, floor: int | None = None):
+    if map_name is None:
+        cur = agv.request("/api/map/get_current_map")["results"]
+        map_name, floor = cur["map_name"], cur["floor"]
+    url = f"{AGV_WEB}/maps/{urllib.request.quote(map_name)}/{floor or 1}/map.png"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as r:
+            return Response(r.read(), media_type="image/png", headers={"Cache-Control": "max-age=60"})
+    except Exception as e:
+        raise HTTPException(502, f"map picture not available: {e}")
+
+
+@app.post("/map/switch", tags=["map"], summary="Use another map (the base service restarts; relocalise after)")
+def map_switch(body: MapBody):
+    robot_free()
+    try:
+        r = agv.request(f"/api/map/set_current_map?map_name={body.map_name}&floor={body.floor}", timeout=10)
+    except Exception as e:                       # the base restarts and may not answer
+        r = {"note": f"no reply ({e}); the base is restarting"}
+    return {"ok": True, "reply": r}
+
+
+@app.post("/agv/go_point", tags=["base"], summary="Drive to a point on the map (x, y in m, theta in rad)")
+def go_point(body: PointBody):
+    if assistant_pids():
+        send_to_assistant("go_point", point=[body.x, body.y, body.theta])
+        return {"ok": True, "by": "assistant"}
+    r = agv.request(f"/api/move?location={body.x:.3f},{body.y:.3f},{body.theta:.3f}")
+    if r.get("status") != "OK":
+        raise HTTPException(502, f"AGV refused: {r.get('error_message') or r}")
+    return {"ok": True}
+
+
+@app.get("/arm/state", tags=["arm"], summary="Joints (deg), TCP (mm, deg), power, enable, program")
+def arm_state():
+    d = arm.cmd("get_data")
+    st = arm.cmd("get_robot_state")
+    return {"joints": [round(v, 2) for v in d.get("joint_actual_position", [])],
+            "tcp": [round(v, 1) for v in d.get("actual_position", [])],
+            "power": bool(st.get("power")), "enable": bool(st.get("enable")),
+            "program": arm.program_state(), "loaded": arm.cmd("get_loaded_program").get("programName")}
+
+
+@app.post("/arm/power", tags=["arm"], summary="Arm power on / off")
+def arm_power(body: OnBody):
+    robot_free()
+    return arm.cmd("power_on" if body.on else "power_off")
+
+
+@app.post("/arm/enable", tags=["arm"], summary="Arm servo enable / disable")
+def arm_enable(body: OnBody):
+    robot_free()
+    return arm.cmd("enable_robot" if body.on else "disable_robot")
+
+
+@app.post("/arm/run", tags=["arm"], summary="Run a Cobo π program (.jks) once; returns at once")
+def arm_run(body: ProgramBody):
+    robot_free()
+    if not arm.ready():
+        raise HTTPException(409, "arm not ready: power/enable off, or a program is running")
+    try:
+        arm.start(body.program)
+    except RuntimeError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "program": body.program}
+
+
+@app.post("/arm/tuck", tags=["arm"], summary="Fold the arm beside the column (slow), e.g. before driving")
+def arm_tuck():
+    robot_free()
+    r = arm.cmd("joint_move", relFlag=0, jointPosition=ARM_TUCK, speed=15, accel=30)
+    if r.get("errorCode") != "0":
+        raise HTTPException(502, r.get("errorMsg") or str(r))
+    return {"ok": True, "target": ARM_TUCK}
+
+class ModesBody(BaseModel):
+    greeter: bool | None = Field(None, description="standing: greet people who come close, talk, wake word")
+    patrol: bool | None = Field(None, description="driving anywhere: stop for people in the way, talk, drive on")
+    wave: bool | None = Field(None, description="wave when greeting")
+    drive: bool | None = Field(None, description='allow "come here" and voice "go to"')
+
+
+@app.get("/assistant/modes", tags=["assistant"], summary="Greeter / patrol / wave / drive switches")
+def modes_get():
+    return {**read_modes(), "running": bool(assistant_pids())}
+
+
+@app.post("/assistant/modes", tags=["assistant"],
+          summary="Switch greeter / patrol (lumi.py starts when one is on and stops when both are off)")
+def modes_set(body: ModesBody):
+    m = {**read_modes(), **{k: v for k, v in body.model_dump().items() if v is not None}}
+    tmp = MODES_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(m))
+    os.replace(tmp, MODES_FILE)
+    calibrating = _calib_active()
+    if (m["greeter"] or m["patrol"]) and not assistant_pids():
+        start_assistant()
+    elif not (m["greeter"] or m["patrol"]) and assistant_pids() and not calibrating:
+        assistant_stop()
+    return {**m, "running": bool(assistant_pids())}
+
+
+def _calib_active():
+    try:
+        c = json.loads(CALIB_FILE.read_text())
+        return c.get("state") == "collecting" and c.get("until", 0) > time.time()
+    except (FileNotFoundError, ValueError):
+        return False
+
+
+@app.get("/assistant/status", tags=["assistant"], summary="Is the assistant running, stuck, failing? (Settings > Logs)")
+def assistant_status():
+    pids = assistant_pids()
+    lines = tail(LUMI_LOG, 400)
+    errors = [l for l in lines if any(w in l for w in ("error", "Error", "failed", "STUCK", "refused", "cannot"))]
+    last = lines[-1] if lines else ""
+    age = None
+    if pids:
+        try:
+            age = round(time.time() - LUMI_LOG.stat().st_mtime, 1)
+        except FileNotFoundError:
+            pass
+    started = None
+    if pids:
+        try:
+            started = round(time.time() - Path(f"/proc/{pids[0]}").stat().st_mtime)
+        except FileNotFoundError:
+            pass
+    stuck = any("MAIN LOOP STUCK" in l for l in lines[-30:])
+    return {"running": bool(pids), "pids": pids, "uptime_s": started, "log_age_s": age, "stuck": stuck,
+            "modes": read_modes(), "cameras": camview.status().get("cameras"), "camera_service": camview.service_pid(),
+            "errors": errors[-15:], "last_line": last, "console_tail": tail(CONSOLE_LOG, 25)}
+
+
+class CalibBody(BaseModel):
+    on: bool = True
+
+
+@app.post("/doa/calibrate", tags=["voice"], summary="Start / stop a 2-minute calibration of the voice direction")
+def doa_calibrate(body: CalibBody):
+    if body.on and not assistant_pids():
+        start_assistant()
+        time.sleep(1.0)
+    CALIB_FILE.write_text(json.dumps({"state": "starting" if body.on else "stopped", "samples": 0,
+                                      "until": time.time() + 120 if body.on else 0, "time": time.time()}))
+    send_to_assistant("calibrate", on=body.on)
+    return {"ok": True}
+
+
+@app.get("/doa/status", tags=["voice"], summary="Calibration progress and the current calibration")
+def doa_status():
+    import doa
+    try:
+        prog = json.loads(CALIB_FILE.read_text())
+    except (FileNotFoundError, ValueError):
+        prog = {"state": "idle", "samples": 0}
+    return {"progress": prog, "calibration": doa.load_calib()}
+
+
+@app.post("/doa/reset", tags=["voice"], summary="Forget the voice-direction calibration and its samples")
+def doa_reset():
+    import doa
+    for f in (doa.CALIB, doa.SAMPLES):
+        f.unlink(missing_ok=True)
+    return {"ok": True}
+
 @app.get("/health", tags=["status"])
 def health():
     return {"ok": True}
 
 
 if __name__ == "__main__":
+    camview.ensure_running()                             # the camera service owns both cameras
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")

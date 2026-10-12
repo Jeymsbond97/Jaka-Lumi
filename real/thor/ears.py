@@ -1,11 +1,10 @@
-"""Listening: record one utterance from the head microphone array and turn it into text.
+"""Listening: one utterance from the head microphone array (via mic.py) turned into text.
 
     python ears.py            # listen once, print what was said (English or Korean)
 
-Microphone: AIUI-USB-MC gives 8 channels at 16 kHz; channels 0-5 are the six mics (6-7 are silent).
-They are averaged. A simple energy detector finds where speech starts and ends.
-Speech-to-text: whisper.cpp (GPU) server with large-v3-turbo on 127.0.0.1:8096, started when needed.
-Never listen while Lumi itself is speaking: the speaker is ~25x louder than a voice in the mics.
+Recording, speech detection and "do not listen while Lumi talks" are in mic.py (one always-on recording that
+lumi.py also uses for the wake word). Speech-to-text: whisper.cpp (GPU) server with large-v3-turbo on
+127.0.0.1:8096, started when needed.
 """
 import io
 import json
@@ -16,22 +15,15 @@ import urllib.request
 import uuid
 import wave
 
-import numpy as np
+import mic
 
 HERE = pathlib.Path(__file__).resolve().parent
-MIC = "hw:CARD=AIUIUSBMC"
-RATE, CHANNELS, MIC_CHANNELS = 16000, 8, slice(0, 6)
-FRAME = 480                      # 30 ms
+RATE = mic.RATE
 STT_URL = "http://127.0.0.1:8096"
 WHISPER_SERVER = HERE / "whisper.cpp/build/bin/whisper-server"
 WHISPER_MODEL = HERE / "models/ggml-large-v3-turbo-q5_0.bin"
-
-START_FACTOR = 2.5               # speech = louder than START_FACTOR x background noise
-MIN_LEVEL = 400                  # ... and at least this RMS
-START_FRAMES = 4                 # 120 ms of speech to start
-END_SILENCE = 0.9                # s of silence that ends the utterance
-MAX_UTTERANCE = 12.0             # s
-last = {}                        # levels of the last record() call, for the log: noise, threshold, peak
+PROMPT = "Hi Lumi. Hey Lumi. 루미야."   # helps whisper spell the robot's name
+last = {}                        # levels of the last listen() call, for the log: noise, threshold, peak
 
 
 def ensure_stt_server():
@@ -54,51 +46,29 @@ def ensure_stt_server():
 
 
 def record(wait_s=8.0, on_start=None, abort=None):
-    """Wait up to wait_s for speech, record until silence. Returns int16 mono audio or None.
+    """Wait up to wait_s for speech to start, then until it ends. Returns a mic.Utterance or None.
     abort: optional function checked every 30 ms; when it returns True, stop and return None."""
-    proc = subprocess.Popen(["arecord", "-q", "-D", MIC, "-f", "S16_LE", "-r", str(RATE), "-c", str(CHANNELS),
-                             "-t", "raw"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    nbytes = FRAME * CHANNELS * 2
-    noise, frames, voiced, silent = [], [], 0, 0
-    threshold, peak = 0.0, 0.0
-    t0 = time.time()
-    started = False
+    m = mic.get()
+    m.clear()                                    # only speech that starts from now on
+    t0, started = time.time(), False
     try:
         while True:
-            raw = proc.stdout.read(nbytes)
-            if len(raw) < nbytes or (abort and abort()):
+            if abort and abort():
                 return None
-            x = np.frombuffer(raw, np.int16).reshape(-1, CHANNELS)[:, MIC_CHANNELS].mean(1).astype(np.int16)
-            level = float(np.sqrt(np.mean(x.astype(np.float32) ** 2)))
-            peak = max(peak, level)
-            if not started:
-                if len(noise) < 15:                       # first 0.45 s: measure background noise
-                    noise.append(level)
-                    continue
-                threshold = max(MIN_LEVEL, START_FACTOR * float(np.median(noise)))
-                frames = (frames + [x])[-10:]             # keep 300 ms before the start
-                voiced = voiced + 1 if level > threshold else 0
-                if voiced >= START_FRAMES:
-                    started, silent = True, 0
-                    t_start = time.time()
-                    if on_start:
-                        on_start()
-                elif time.time() - t0 > wait_s:
-                    return None
-                else:
-                    noise = (noise + [level])[-100:]      # follow slow changes in background noise
-            else:
-                frames.append(x)
-                silent = silent + 1 if level < threshold * 0.7 else 0
-                if silent * FRAME / RATE >= END_SILENCE or time.time() - t_start > MAX_UTTERANCE:
-                    return np.concatenate(frames)
+            u = m.next(0.03)
+            if u is not None and u.t_end > t0:
+                return u
+            if m.in_speech and not started:
+                started = True
+                if on_start:
+                    on_start()
+            if not m.in_speech and not started and time.time() - t0 > wait_s:
+                return None
     finally:
-        proc.kill()
-        last.update(noise=round(float(np.median(noise))) if noise else 0, threshold=round(threshold),
-                    peak=round(peak))
+        last.update(noise=round(m.noise), threshold=round(m.threshold))
 
 
-def transcribe(audio):
+def transcribe(audio, prompt=PROMPT):
     """int16 mono 16 kHz -> text (empty string if nothing understood)."""
     ensure_stt_server()
     buf = io.BytesIO()
@@ -109,6 +79,7 @@ def transcribe(audio):
         w.writeframes(audio.tobytes())
     boundary = uuid.uuid4().hex
     body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\njson\r\n"
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\n{prompt}\r\n"
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\n"
             f"Content-Type: audio/wav\r\n\r\n").encode() + buf.getvalue() + f"\r\n--{boundary}--\r\n".encode()
     req = urllib.request.Request(f"{STT_URL}/inference", body,
@@ -119,21 +90,24 @@ def transcribe(audio):
     return "" if (text.startswith("[") or text.startswith("(")) else text
 
 
-def listen(wait_s=8.0, on_start=None, abort=None):
-    """Record one utterance and transcribe it. Returns text or None (nobody spoke, or aborted)."""
-    audio = record(wait_s, on_start, abort)
-    if audio is None or len(audio) < RATE * 0.4:
-        return None
-    return transcribe(audio) or None
+def listen(wait_s=8.0, on_start=None, abort=None, full=False):
+    """Record one utterance and transcribe it. Returns text or None (nobody spoke, or aborted).
+    full=True: returns (text, mic.Utterance) instead, for the sound direction."""
+    u = record(wait_s, on_start, abort)
+    if u is not None:
+        last["peak"] = round(u.peak)
+    if u is None or u.seconds < 0.4:
+        return (None, u) if full else None
+    text = transcribe(u.mono) or None
+    return (text, u) if full else text
 
 
 if __name__ == "__main__":
     ensure_stt_server()
     print("Say something (English or Korean)...")
-    t = time.time()
-    audio = record(10, on_start=lambda: print("  (hearing you)"))
-    if audio is None:
+    u = record(10, on_start=lambda: print("  (hearing you)"))
+    if u is None:
         print("nothing heard")
     else:
         t = time.time()
-        print(f"you said: {transcribe(audio)!r}   ({len(audio) / RATE:.1f} s audio, STT {time.time() - t:.2f} s)")
+        print(f"you said: {transcribe(u.mono)!r}   ({u.seconds:.1f} s audio, STT {time.time() - t:.2f} s)")

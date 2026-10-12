@@ -13,6 +13,12 @@ import cv2
 import numpy as np
 from pyorbbecsdk import Config, Context, OBLogLevel, OBSensorType, Pipeline
 
+import camview
+
+if camview.service_pid():
+    sys.exit("The camera service (camview.py) has the cameras. Stop it first: python camview.py --stop (and --start afterwards) "
+             "(api.py / lumi.py start it again when needed).")
+
 cam_id = int(sys.argv[1]) if len(sys.argv) > 1 else 0
 
 ctx = Context()                                       # keep the context alive while devices are used

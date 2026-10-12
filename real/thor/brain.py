@@ -5,6 +5,9 @@
     python brain.py --act                 # also decide robot actions (go_to / look / wave / stop / end)
 
 The answer comes back in the language of the question and is kept short, because Lumi speaks it aloud.
+respond_stream() streams the reply: the first line names the action, then the spoken sentences come one by
+one while the LLM is still writing, so Lumi can start talking after the first sentence (about 1 s).
+The model is kept loaded (keep_alive -1): a cold start costs ~6 s.
 """
 import json
 import re
@@ -57,12 +60,58 @@ RESPONSE_SCHEMA = {
 
 def _chat(messages, fmt=None):
     body = {"model": MODEL, "messages": messages, "stream": False, "think": False,
-            "keep_alive": "30m", "options": {"temperature": 0.3, "num_predict": 200}}
+            "keep_alive": -1, "options": {"temperature": 0.3, "num_predict": 200}}
     if fmt:
         body["format"] = fmt
     req = urllib.request.Request(OLLAMA, json.dumps(body).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=120) as r:
         return json.loads(r.read())["message"]["content"].strip()
+
+
+ACTIONS_STREAM = """
+You can also move. Decide if the visitor asks you to do something:
+- go_to <marker>: drive to a place. Marker names: {markers}. "home", "charger", "charging station" and
+  "go back" mean home. Map spoken names to the closest marker name (e.g. "point one" -> p1).
+- come: come to the visitor ("come here", "come to me", "come closer", "이리 와", "여기로 와").
+- look <left|right|center|up|down>: turn your head.
+- wave: wave your hand.
+- stop: stop moving.
+- end: the visitor says goodbye or ends the conversation.
+- none: only talk.
+Reply format: the first line is the action, then on the next line the words you say aloud
+(1 to 3 short sentences; for an action briefly confirm it). Examples:
+ACTION: none -
+I can answer questions and guide you to places in this office.
+
+ACTION: go_to p2
+Okay, I'm going to point two.
+
+ACTION: come -
+Okay, I'm coming to you."""
+
+ACTION_NAMES = {"go_to", "come", "look", "wave", "stop", "end", "none"}
+LOOK_TARGETS = {"left", "right", "center", "up", "down"}
+SENTENCE_END = re.compile(r"(?<=[.!?。！？])\s+")
+
+
+def _stream(messages):
+    """Yield text pieces from Ollama as they are generated."""
+    body = {"model": MODEL, "messages": messages, "stream": True, "think": False,
+            "keep_alive": -1, "options": {"temperature": 0.3, "num_predict": 200}}
+    req = urllib.request.Request(OLLAMA, json.dumps(body).encode(), {"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        for line in r:
+            d = json.loads(line)
+            piece = d.get("message", {}).get("content", "")
+            if piece:
+                yield piece
+            if d.get("done"):
+                return
+
+
+def warm_up():
+    """Load the model into the GPU now, so the first answer is fast."""
+    _chat([{"role": "user", "content": "Hi"}])
 
 
 def language(text):
@@ -106,6 +155,66 @@ class Brain:
             out["action"] = "end"
         self.history.append((text, json.dumps(out, ensure_ascii=False)))
         return out
+
+    def respond_stream(self, text, markers=()):
+        """Generator: first {"action", "target"}, then the spoken reply sentence by sentence."""
+        hits = [h for h in knowledge.search(text, k=4) if h[0] >= MIN_SCORE]
+        notes = "\n\n".join(f"[{src}]\n{t}" for _, src, t in hits) or "(no matching notes)"
+        system = SYSTEM + "\n" + ACTIONS_STREAM.format(markers=", ".join(markers) or "(none)")
+        messages = [{"role": "system", "content": system}]
+        for q, a in self.history[-HISTORY_TURNS:]:
+            messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
+        messages.append({"role": "user", "content": f"Reference notes:\n{notes}\n\nVisitor: {text}\n\n"
+                                                    f"(Reply in {language(text)}.)"})
+        buf, full, header = "", "", None
+        try:
+            for piece in _stream(messages):
+                full += piece
+                buf += piece
+                if header is None:
+                    if "\n" not in buf:
+                        continue
+                    first, buf = buf.split("\n", 1)
+                    header = self._action(first, text, markers)
+                    if header is None:                     # the model skipped the ACTION line
+                        header, buf = {"action": "none", "target": ""}, first + " " + buf
+                    yield header
+                parts = SENTENCE_END.split(buf)
+                for sentence in parts[:-1]:
+                    if sentence.strip():
+                        yield sentence.strip()
+                buf = parts[-1]
+        except Exception:
+            if header is None:
+                yield {"action": "none", "target": ""}
+                header = {}
+            buf += " Sorry, could you say that again?"
+        if header is None:                                 # very short reply on a single line
+            header = self._action(buf, text, markers)
+            yield header or {"action": "none", "target": ""}
+            buf = "" if header else buf
+        if buf.strip():
+            yield buf.strip()
+        self.history.append((text, full.strip()))
+
+    @staticmethod
+    def _action(line, text, markers):
+        m = re.match(r"\s*\**ACTION\**\s*:\s*(\w+)\s*(\S*)", line, re.I)
+        if not m:
+            return None
+        action, target = m.group(1).lower(), m.group(2).strip("-.,").strip()
+        if action not in ACTION_NAMES:
+            action = "none"
+        if action == "go_to":
+            target = next((mk for mk in markers if mk.lower() == target.lower()), None)
+            action = "go_to" if target else "none"
+        if action == "look" and target not in LOOK_TARGETS:
+            action = "none"
+        if action not in ("go_to", "look"):
+            target = ""
+        if re.search(r"\b(bye|goodbye|see you)\b|안녕히|잘 ?가|다음에 봐", text, re.I):
+            action = "end"
+        return {"action": action, "target": target or ""}
 
     def reset(self):
         self.history = []

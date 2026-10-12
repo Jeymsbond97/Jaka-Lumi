@@ -3,7 +3,7 @@
     python greeter.py --dry-run          # camera + detection only, prints what it WOULD do (nothing moves)
     python greeter.py --no-arm           # head + voice, no arm
     python greeter.py                    # everything
-    options: --camera 0
+    options: --camera head|torso
 
 Trigger: the nearest person is between NEAR_MIN and NEAR_MAX metres for HOLD_S seconds.
 Wave, voice and head turn start together (voice delayed by AUDIO_DELAY to match the arm's start-up).
@@ -16,8 +16,8 @@ import time
 
 import arm
 import head
-import speak
-from person import PersonDetector
+import mouth
+from camview import CAMERAS, RemoteDetector
 
 NEAR_MIN, NEAR_MAX = 0.5, 1.2      # m, greeting zone: someone who walks up to about 1 m
 TOO_CLOSE = 0.45                   # m, the wave is stopped if anyone comes this close
@@ -25,6 +25,7 @@ HOLD_S = 0.7                       # s the person must stay in the zone
 AUDIO_DELAY = 0.3                  # s after play_program before the voice starts (arm start-up lag); tune
 COOLDOWN_S = 15.0                  # s between greetings
 RETURN_S = 5.0                     # s without anyone near before the head returns to 0
+GREETING = "Hi, I'm Lumi, the assistant robot. How can I help you?"
 HEAD_SIGN = 1.0                    # +angle (person on the image's left) -> +head yaw. VERIFY on the robot
 
 
@@ -69,13 +70,14 @@ class Greeter:
             else:
                 self.log("arm not ready (power/enable off or a program is running) - no wave")
         if not self.dry:
-            threading.Timer(delay, speak.play, args=("sounds/hello.wav",)).start()
+            threading.Timer(delay, mouth.say, args=(GREETING,)).start()   # the same voice as lumi.py
         self.turn_head(HEAD_SIGN * person["angle_deg"])
         self.head_turned = True
 
     def run(self, camera):
-        det = PersonDetector(camera)
-        self.log(f"camera {camera} (SN {det.serial}) running. Zone {NEAR_MIN}-{NEAR_MAX} m. Ctrl+C to stop.")
+        mouth.warm_up()                         # the greeting is synthesised once and cached
+        det = RemoteDetector(camera, HEAD_SIGN)   # the camera service owns the cameras
+        self.log(f"{det.name} camera (SN {det.serial}) running. Zone {NEAR_MIN}-{NEAR_MAX} m. Ctrl+C to stop.")
         in_zone_since, last_greet, last_near = None, 0.0, 0.0
         try:
             while True:
@@ -125,6 +127,6 @@ if __name__ == "__main__":
     ap.add_argument("--dry-run", action="store_true", help="nothing moves, nothing plays")
     ap.add_argument("--no-arm", action="store_true")
     ap.add_argument("--no-head", action="store_true")
-    ap.add_argument("--camera", type=int, default=0)
+    ap.add_argument("--camera", default="head", choices=CAMERAS)
     a = ap.parse_args()
     Greeter(a.dry_run, not a.no_arm, not a.no_head).run(a.camera)

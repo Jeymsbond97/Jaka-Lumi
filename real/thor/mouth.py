@@ -4,7 +4,10 @@
     python mouth.py "안녕하세요, 저는 루미예요."
 
 Long answers are split into sentences: the next sentence is synthesised while the current one plays,
-so Lumi starts talking after the first sentence is ready (about 1 s).
+so Lumi starts talking after the first sentence is ready (about 1 s). say_stream() takes sentences while
+they are still being written by the LLM, so speech starts before the whole answer exists.
+Fixed phrases (greetings) are synthesised once and kept (CACHED), so they play at once.
+While Lumi talks the microphone is muted (mic.speaking), so it never hears itself.
 """
 import pathlib
 import queue
@@ -16,18 +19,51 @@ import time
 
 import numpy as np
 
+import mic
+
 HERE = pathlib.Path(__file__).resolve().parent
 DEVICE = "plughw:CARD=Device,DEV=0"          # "USB Audio Device"
 VOICE = "F1"                                  # F1-F5 female, M1-M5 male
-STEPS = 5                                     # quality/speed: 4 fast ... 8 best
-SPEED = 1.05
+STEPS = 4                                     # quality/speed: 4 fast ... 8 best
+SPEED = 0.92                                  # < 1 = slower; 1.05 sounded rushed
+VOLUME = 55                                   # % of the USB speaker mixer (100 % disturbed people in the office)
+CACHED = ["Hi, I'm Lumi, the assistant robot. How can I help you?", "안녕하세요, 저는 루미예요. 무엇을 도와드릴까요?",
+          "Yes?", "네?", "Okay, I'm coming.", "네, 갈게요.", "I'm right here.",
+          "Sorry, I can't get closer from here.", "How can I help you?", "무엇을 도와드릴까요?"]
 
 _tts = None
 _style = None
+_cache = {}
+_volume_set = False
+
+
+VOLUME_FILE = HERE / "volume.txt"             # set from the dashboard (api.py /volume); overrides VOLUME
+
+
+def volume():
+    try:
+        return max(0, min(100, int(VOLUME_FILE.read_text().strip())))
+    except (FileNotFoundError, ValueError):
+        return VOLUME
+
+
+def set_volume(percent=None):
+    """Apply (and with percent: store) the speaker volume."""
+    if percent is not None:
+        VOLUME_FILE.write_text(str(int(max(0, min(100, percent)))))
+    subprocess.run(["amixer", "-q", "-c", "Device", "sset", "Speaker", f"{volume()}%"], check=False)
+
+
+def _set_volume():
+    global _volume_set
+    if not _volume_set:
+        set_volume()
+        _volume_set = True
 
 
 def _load():
     global _tts, _style
+    _set_volume()
     if _tts is None:
         from supertonic import TTS
         _tts = TTS(model="supertonic-3", model_dir=HERE / "models/supertonic3", auto_download=False,
@@ -48,6 +84,14 @@ def sentences(text):
 def _play(wav, rate, abort=None):
     """Play; returns False if aborted."""
     pcm = (np.clip(wav, -1, 1) * 32767).astype(np.int16).tobytes()
+    mic.speaking(True)
+    try:
+        return _play_pcm(pcm, rate, abort)
+    finally:
+        mic.speaking(False)
+
+
+def _play_pcm(pcm, rate, abort):
     p = subprocess.Popen(["aplay", "-q", "-D", DEVICE, "-f", "S16_LE", "-r", str(rate), "-c", "1", "-t", "raw"],
                          stdin=subprocess.PIPE)
     def feed():
@@ -65,29 +109,48 @@ def _play(wav, rate, abort=None):
     return True
 
 
-def say(text, lang=None, abort=None):
-    """Speak text and return when finished (or when abort() becomes True)."""
+def _synth(text, lang):
+    if text in _cache:
+        return _cache[text]
+    wav, _ = _tts.synthesize(text, voice_style=_style, lang=lang, total_steps=STEPS, speed=SPEED)
+    return np.asarray(wav).reshape(-1)
+
+
+def say_stream(pieces, lang=None, abort=None):
+    """Speak text that arrives in pieces (e.g. sentences from a streaming LLM); returns the full text.
+    Synthesis of the next sentence runs while the current one plays."""
     tts = _load()
-    lang = lang or lang_of(text)
     rate = tts.sample_rate
     q = queue.Queue()                           # unbounded: the synth thread always finishes
+    spoken = []
 
     def synth():
-        for s in sentences(text):
-            wav, _ = tts.synthesize(s, voice_style=_style, lang=lang, total_steps=STEPS, speed=SPEED)
-            q.put(np.asarray(wav).reshape(-1))
-        q.put(None)
+        try:
+            for piece in pieces:
+                for s in sentences(piece):
+                    spoken.append(s)
+                    q.put(_synth(s, lang or lang_of(s)))
+        finally:
+            q.put(None)
 
     threading.Thread(target=synth, daemon=True).start()
     while (wav := q.get()) is not None:
         if not _play(wav, rate, abort):
             break
+    return " ".join(spoken)
+
+
+def say(text, lang=None, abort=None):
+    """Speak text and return when finished (or when abort() becomes True)."""
+    say_stream([text], lang, abort)
 
 
 def warm_up():
-    """Load the model and run it once so the first real sentence is fast."""
+    """Load the model, run it once so the first real sentence is fast, and prepare the fixed phrases."""
     tts = _load()
     tts.synthesize("Hi.", voice_style=_style, lang="en", total_steps=2)
+    for text in CACHED:
+        _cache[text] = _synth(text, lang_of(text))
 
 
 if __name__ == "__main__":

@@ -20,7 +20,10 @@ def request(command, timeout=3.0):
     with socket.create_connection(AGV, timeout=timeout) as s:
         s.sendall(command.encode())
         while True:
-            buf += s.recv(65536).decode()
+            chunk = s.recv(65536)
+            if not chunk:                            # the base closed the connection: never loop forever
+                raise ConnectionError(f"AGV closed the connection ({command.split('?')[0]})")
+            buf += chunk.decode()
             while buf.strip():
                 try:
                     msg, end = dec.raw_decode(buf.lstrip())
@@ -57,6 +60,26 @@ def go(marker):
         request("/api/move/cancel")
     r = request(f"/api/move?marker={marker}")
     return r.get("status") == "OK", r.get("error_message") or r.get("status")
+
+
+def go_point(x, y, theta):
+    """Start driving to a map point (m, rad). Returns (ok, message)."""
+    if status().get("move_status") == "running":
+        request("/api/move/cancel")
+    r = request(f"/api/move?location={x:.3f},{y:.3f},{theta:.3f}")
+    return r.get("status") == "OK", r.get("error_message") or r.get("status")
+
+
+def pose():
+    """(x, y, theta) of the base on the map."""
+    p = status()["current_pose"]
+    return p["x"], p["y"], p["theta"]
+
+
+def turn_by(angle_rad):
+    """Turn in place by angle_rad (+ = left); the base plans it like a normal move."""
+    x, y, th = pose()
+    return go_point(x, y, (th + angle_rad + 3.14159265) % 6.2831853 - 3.14159265)
 
 
 def cancel():

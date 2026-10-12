@@ -18,7 +18,10 @@ def cmd(name, **args):
         s.sendall(json.dumps({"cmdName": name, **args}).encode())
         buf = ""
         while True:
-            buf += s.recv(65536).decode()
+            chunk = s.recv(65536)
+            if not chunk:                            # the controller closed the connection: never loop forever
+                raise ConnectionError(f"arm controller closed the connection ({name})")
+            buf += chunk.decode()
             try:
                 return json.loads(buf)
             except json.JSONDecodeError:
