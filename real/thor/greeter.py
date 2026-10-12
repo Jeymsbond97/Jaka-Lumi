@@ -127,6 +127,6 @@ if __name__ == "__main__":
     ap.add_argument("--dry-run", action="store_true", help="nothing moves, nothing plays")
     ap.add_argument("--no-arm", action="store_true")
     ap.add_argument("--no-head", action="store_true")
-    ap.add_argument("--camera", default="head", choices=CAMERAS)
+    ap.add_argument("--camera", default="torso", choices=CAMERAS)   # the head camera drops out while the speaker plays
     a = ap.parse_args()
     Greeter(a.dry_run, not a.no_arm, not a.no_head).run(a.camera)

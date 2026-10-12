@@ -42,6 +42,8 @@ NEAR_RED = 1.2               # m; nearest person this close is drawn red even wh
 STALL_S = 2.0                # s without a full frame -> reopen the camera
 REBOOT_IF_STUCK_AGAIN_S = 15.0   # s; stuck again this soon after a reopen -> reboot the device
 REBOOT_WAIT_S = 6.0          # s for a rebooted camera to come back on USB
+MAX_REBOOTS_10MIN = 3        # more than this -> the camera rests UNSTABLE_PAUSE_S before trying again
+UNSTABLE_PAUSE_S = 60.0
 HEAD_POLL_S = 0.2            # s between head yaw reads (head camera only)
 
 
@@ -101,6 +103,32 @@ class PersonDetector:
             threading.Thread(target=self._follow_head, daemon=True).start()
         self.align = AlignFilter(align_to_stream=OBStreamType.COLOR_STREAM)   # depth pixels -> colour pixels
         self.net = cv2.dnn.readNetFromONNX(str(MODEL))
+        # frames are grabbed at the camera's rate in their own thread (live video: on_raw gets every JPEG);
+        # read() detects people on the newest frame only, at whatever speed YOLO manages
+        self.on_raw = None                          # f(name, jpeg bytes), set by the camera service
+        self._latest, self._new = None, threading.Event()
+        threading.Thread(target=self._grab, daemon=True).start()
+
+    def _grab(self):
+        while self.running:
+            try:
+                frames = self.pipeline.wait_for_frames(200)
+            except Exception:
+                time.sleep(0.05)
+                continue
+            if frames is None:
+                continue
+            if self.on_raw is not None:
+                c = frames.get_color_frame()
+                if c is not None and str(c.get_format()).endswith("MJPG"):
+                    data = np.asanyarray(c.get_data())
+                    if _jpeg_complete(data):
+                        try:
+                            self.on_raw(self.name, data.tobytes())
+                        except Exception:
+                            pass
+            self._latest = frames
+            self._new.set()
 
     def _open(self):
         for attempt in range(OPEN_TRIES):           # the live view in api.py may still be letting it go
@@ -124,7 +152,20 @@ class PersonDetector:
         reboot = now - self.last_reopen < REBOOT_IF_STUCK_AGAIN_S
         self.last_reopen = now
         old = self.pipeline
+        self.reboot_times = [t for t in getattr(self, "reboot_times", []) if now - t < 600]
+        if reboot and len(self.reboot_times) >= MAX_REBOOTS_10MIN:
+            # it keeps failing (the head camera's USB 2 hub): rest instead of resetting the hub again and again,
+            # which also disturbs the microphone and the speaker on the same hub
+            print(f"{self.name} camera: unstable ({len(self.reboot_times)} reboots in 10 min) - pausing "
+                  f"{UNSTABLE_PAUSE_S:.0f} s", flush=True)
+            t = threading.Thread(target=old.stop, daemon=True)
+            t.start()
+            t.join(2.0)
+            time.sleep(UNSTABLE_PAUSE_S)
+            self.reboot_times = self.reboot_times[-1:]
+            reboot = False
         if reboot:
+            self.reboot_times.append(now)
             try:
                 dev = old.get_device()
                 t = threading.Thread(target=dev.reboot, daemon=True)
@@ -135,7 +176,7 @@ class PersonDetector:
             except Exception as e:
                 print(f"{self.name} camera: reboot failed: {e}", flush=True)
             time.sleep(REBOOT_WAIT_S)                       # the camera leaves the USB bus and comes back
-        else:
+        elif not self.reboot_times or self.reboot_times[-1] != now:
             t = threading.Thread(target=old.stop, daemon=True)     # stop() can hang on a stuck device
             t.start()
             t.join(2.0)
@@ -162,7 +203,10 @@ class PersonDetector:
 
     def _frames(self):
         """(colour BGR image, depth in mm aligned to it) or (None, None)."""
-        frames = self.pipeline.wait_for_frames(200)
+        if not self._new.wait(0.2):
+            return None, None
+        self._new.clear()
+        frames = self._latest
         if frames is None:
             return None, None
         if not self.use_depth:

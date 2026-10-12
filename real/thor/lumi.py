@@ -70,6 +70,7 @@ import head
 import mic
 import mouth
 import nav
+import tools
 from brain import Brain
 
 NEAR_MIN, NEAR_MAX = 0.5, 1.2      # m, greeting zone
@@ -90,7 +91,7 @@ LOOK = {"left": (40, None), "right": (-40, None), "center": (0, 0), "up": (None,
 # ^ yaw/pitch in degrees for "look" commands: +yaw = left, +pitch = up (checked on the dashboard 2026-10-12)
 WAKE = re.compile(r"\b(hi|hey|hello|okay|ok|hai|high)?[\s,.!]*(lumi|loomi|lumie|lumy|lummy|looney|lu-mi|rumi|roomie)\b"
                   r"|루미|누미", re.I)
-WAKE_REPLY = {"en": "Hi, I'm Lumi, the assistant robot. How can I help you?", "ko": "안녕하세요, 저는 루미예요. 무엇을 도와드릴까요?"}
+WAKE_REPLY = {"en": "Yes? How can I help?", "ko": "네? 무엇을 도와드릴까요?"}
 WAKE_MAX_S = 6.0                   # s; longer utterances are not checked for the wake word
 VOICE_SESSION_S = 15.0             # s a conversation started by voice (nobody in view) waits for the next words
 SPEAKER_MATCH_DEG = 25.0           # a voice direction belongs to the visible person within this angle
@@ -103,6 +104,7 @@ CALIB_FILE = "/dev/shm/lumi_calib.json"   # progress of a calibration session, f
 CALIB_S = 120.0                    # s a calibration session lasts
 CALIB_NEAR = 2.0                   # m; the speaker for a calibration sample is the nearest person within this
 CALIB_ALONE_DEG = 30.0             # ... with nobody else within this angle (closer than 4 m)
+QUIET_S = 600.0                    # s Lumi greets nobody after "be quiet" (the wake word still works)
 STUCK_S = 90.0                     # s without a main-loop pass -> stacks of all threads into the log
 GREETING = "Hi, I'm Lumi, the assistant robot. How can I help you?"   # same voice as every other answer
 PROMPT = {"en": "How can I help you?", "ko": "무엇을 도와드릴까요?"}
@@ -377,6 +379,8 @@ class Lumi:
         self.markers = agv.markers()
         self.current = None              # the track we are talking with
         self.voice_until = 0.0           # a conversation started by voice with nobody in view lasts until then
+        self.quiet_until = 0.0           # after "be quiet": no greetings until then
+        self._yaw, self._yaw_time = 0.0, 0.0
         self.lang = "en"
         self.mic = mic.get()
         self.modes = Modes(args)
@@ -432,12 +436,15 @@ class Lumi:
         if action == "look" and target in LOOK:
             self.turn_head(*LOOK[target])
         elif action == "wave":
-            self.wave()
+            threading.Thread(target=self.wave, daemon=True).start()   # while the reply is spoken
         elif action == "stop":
             safe(agv.cancel)
             safe(arm.stop)
-        elif action == "go_to" and self.modes.drive:
-            self.start_trip(target)
+        elif action == "go_to":
+            if self.modes.drive:
+                self.start_trip(target)
+            else:
+                log("  driving by voice is switched off (dashboard: Come when called)")
 
     # ---------- dashboard commands, trips ----------
     def poll_commands(self):
@@ -524,8 +531,7 @@ class Lumi:
         self.current = track
         log(f"GREET person #{track.id} at {track.distance} m, {track.angle:+.0f} deg")
         self.turn_head(HEAD_SIGN * track.angle)
-        delay = AUDIO_DELAY if self.wave() else 0.0
-        time.sleep(delay)
+        threading.Thread(target=self.wave, daemon=True).start()   # wave and talk at the same time
         mouth.say(GREETING)                              # cached at start: plays at once
 
     def talk_turn(self):
@@ -566,13 +572,51 @@ class Lumi:
             self.turn_head(HEAD_SIGN * t.angle)
 
     def det_yaw(self):
-        return self.vision.det.head_yaw if self.vision else 0.0
+        """Current head yaw (deg), read from the body every 0.3 s (the torso camera does not know it)."""
+        now = time.time()
+        if now - self._yaw_time > 0.3:
+            st = safe(head.status)
+            if st:
+                self._yaw, self._yaw_time = st[2], now
+        return self._yaw
+
+    def quick_command(self, text):
+        """A command the keyword rules recognise for sure: confirm with a ready phrase and act, no LLM wait."""
+        rule = brain_mod.intent(text, self.markers)
+        if not rule or rule[0] not in ("go_to", "come", "quiet"):
+            return False
+        action, target = rule
+        en = self.lang == "en"
+        self.brain.history.append((text, f"ACTION: {action} {target or '-'}"))
+        log(f"  action {action} {target} (keyword rule)")
+        if action == "quiet":
+            mouth.say("Okay, I'll be quiet." if en else "네, 조용히 할게요.")
+            self.quiet_until = time.time() + QUIET_S
+            self.current, self.voice_until = None, 0.0
+            self.turn_head(0, 0)
+            return True
+        if not self.modes.drive:
+            mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
+            return True
+        if action == "come":
+            mouth.say("Okay, I'm coming." if en else "네, 갈게요.")
+            self.come_to(self.current)
+            return True
+        self.start_trip(target)                           # go_to: start driving, then say so
+        name = "my charging dock" if target == "home" else target
+        mouth.say(f"Okay, I'm going to {name}." if en else ("네, 충전소로 갈게요." if target == "home" else f"네, {target}로 갈게요."))
+        self.current, self.voice_until = None, 0.0
+        return True
 
     def answer(self, text):
-        """Stream the LLM reply: act on the action line, speak sentence by sentence."""
+        """Stream the LLM reply: act on the action line, speak sentence by sentence.
+        Clear commands (go home, go to p1, come here, be quiet...) are done at once without the LLM."""
         self.lang = mouth.lang_of(text)
         log(f"visitor #{self.current.id if self.current else 'voice'}: {text}")
         t = time.time()
+        if self.quick_command(text):
+            log(f"  done at once ({time.time() - t:.1f} s)")
+            return
         gen = self.brain.respond_stream(text, self.markers)
         head_ = next(gen)
         log(f"  action {head_['action']} {head_['target']} ({time.time() - t:.1f} s)")
@@ -580,6 +624,28 @@ class Lumi:
             gen.close()
             mouth.say("Okay, I'm coming." if self.lang == "en" else "네, 갈게요.")
             self.come_to(self.current)
+            return
+        if head_["action"] in ("weather", "search"):
+            gen.close()
+            mouth.say("Let me check." if self.lang == "en" else "확인해 볼게요.")
+            facts = tools.weather(head_["target"]) if head_["action"] == "weather" else tools.search(head_["target"])
+            log(f"  {head_['action']} {head_['target']!r}: {(facts or 'NO INTERNET')[:120]}")
+            if facts is None:
+                mouth.say("Sorry, I'm not connected to the internet right now, so I can't look that up."
+                          if self.lang == "en" else "죄송해요, 지금은 인터넷에 연결되어 있지 않아서 찾아볼 수 없어요.")
+            else:
+                said = mouth.say_stream(self.brain.respond_from(text, facts), abort=self.interrupted)
+                log(f"lumi ({time.time() - t:.1f} s): {said}")
+            if self.current is None:
+                self.voice_until = time.time() + VOICE_SESSION_S
+            return
+        if head_["action"] == "quiet":
+            gen.close()
+            mouth.say("Okay, I'll be quiet." if self.lang == "en" else "네, 조용히 할게요.")
+            log(f"  quiet for {QUIET_S / 60:.0f} min (no greetings; \"Hi Lumi\" still works)")
+            self.quiet_until = time.time() + QUIET_S
+            self.current, self.voice_until = None, 0.0
+            self.turn_head(0, 0)
             return
         if head_["action"] not in ("none", "end"):
             self.act(head_["action"], head_["target"])
@@ -607,6 +673,8 @@ class Lumi:
         text = ears.transcribe(u.mono)
         m = WAKE.search(text or "")
         if not m:
+            if text:
+                log(f"  heard {text!r} (no wake word)")
             return False
         rest = text[m.end():].strip(" ,.!?")
         lang = "ko" if re.search(r"[가-힣]", text) else "en"
@@ -618,6 +686,7 @@ class Lumi:
             f"{'calibrated' if cal['fitted'] else 'NOT calibrated'})")
         if self.patrol:
             self.patrol.pause()
+        self.quiet_until = 0.0
         target = None
         if self.vision:
             if cal["fitted"] and conf >= DOA_MIN_CONF:
@@ -631,16 +700,18 @@ class Lumi:
         elif cal["fitted"] and conf >= DOA_MIN_CONF:
             self.look_toward(robot_angle)
         self.brain.reset()
-        mouth.say(WAKE_REPLY[lang])
+        command = rest if len(rest) > 2 else ""
+        if not command:                                       # just "Hi Lumi": a short answer, then listen
+            mouth.say(WAKE_REPLY[lang])
         self.voice_until = time.time() + VOICE_SESSION_S
         self.last_activity, self.prompts = time.time(), 0
-        if target is None and self.vision:                    # we turned toward the voice: who is there now?
-            time.sleep(1.0)
+        if target is None and self.vision and not command:    # we turned toward the voice: who is there now?
+            time.sleep(0.5)
             self.current = self.vision.near_angle(0.0 + HEAD_SIGN * self.det_yaw(), 35) or self.vision.only_person()
             if self.current:
                 self.current.greeted = True
-        if rest and len(rest) > 2:
-            self.answer(rest)
+        if command:                                           # "Hi Lumi, go home": do it at once, no greeting
+            self.answer(command)
         return True
 
     def look_toward(self, robot_angle):
@@ -735,7 +806,7 @@ class Lumi:
         if self.calib_until:
             self.calib_until = 0.0
             self.write_calib("finished")
-        greet_now = self.modes.patrol if moving else self.modes.greeter
+        greet_now = (self.modes.patrol if moving else self.modes.greeter) and time.time() > self.quiet_until
         candidate = self.vision.to_greet() if greet_now else None
         focus = self.current or candidate
         self.vision.det.focus_angle = focus.angle if focus else None    # drawn red in the dashboard
@@ -770,10 +841,8 @@ class Lumi:
                 self.voice_until = 0.0
                 self.turn_head(0, 0)
                 self.brain.reset()
-            if self.modes.greeter and self.check_wake():
+            if self.check_wake():                          # "Hi Lumi" works in every mode
                 return
-            if not self.modes.greeter:
-                self.mic.clear()                           # nobody listens: do not pile up old speech
             if self.patrol:
                 self.patrol.tick()
             time.sleep(0.05)
@@ -843,7 +912,8 @@ if __name__ == "__main__":
     ap.add_argument("--no-camera", action="store_true")
     ap.add_argument("--no-arm", action="store_true")
     ap.add_argument("--no-drive", action="store_true")
-    ap.add_argument("--camera", default="head", choices=camview.CAMERAS)
+    # torso camera by default: the head camera shares a USB 2 hub with the speaker and drops out while Lumi talks
+    ap.add_argument("--camera", default="torso", choices=camview.CAMERAS)
     ap.add_argument("--patrol", help="comma-separated markers to drive between, e.g. a,b")
     ap.add_argument("--once", action="store_true", help="drive the --patrol route once instead of looping")
     ap.add_argument("--pause", type=float, default=PAUSE_AT_END, help="seconds to wait at each marker")

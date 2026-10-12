@@ -68,9 +68,20 @@ def record(wait_s=8.0, on_start=None, abort=None):
         last.update(noise=round(m.noise), threshold=round(m.threshold))
 
 
+def louder(audio, target=0.7):
+    """Quiet speech from far away: raise the peak to `target` of full scale (at most 12x) for speech-to-text."""
+    import numpy as np
+    peak = float(np.abs(audio).max()) if len(audio) else 0.0
+    if peak < 1:
+        return audio
+    gain = min(12.0, target * 32767 / peak)
+    return np.clip(audio.astype(np.float32) * gain, -32767, 32767).astype(np.int16) if gain > 1.05 else audio
+
+
 def transcribe(audio, prompt=PROMPT):
     """int16 mono 16 kHz -> text (empty string if nothing understood)."""
     ensure_stt_server()
+    audio = louder(audio)
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
         w.setnchannels(1)

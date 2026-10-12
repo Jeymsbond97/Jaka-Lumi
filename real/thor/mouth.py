@@ -29,7 +29,11 @@ SPEED = 0.92                                  # < 1 = slower; 1.05 sounded rushe
 VOLUME = 55                                   # % of the USB speaker mixer (100 % disturbed people in the office)
 CACHED = ["Hi, I'm Lumi, the assistant robot. How can I help you?", "안녕하세요, 저는 루미예요. 무엇을 도와드릴까요?",
           "Yes?", "네?", "Okay, I'm coming.", "네, 갈게요.", "I'm right here.",
-          "Sorry, I can't get closer from here.", "How can I help you?", "무엇을 도와드릴까요?"]
+          "Sorry, I can't get closer from here.", "How can I help you?", "무엇을 도와드릴까요?",
+          "Let me check.", "확인해 볼게요.", "Okay, I'll be quiet.", "네, 조용히 할게요.",
+          "Sorry, I'm not connected to the internet right now, so I can't look that up.",
+          "Yes? How can I help?", "네? 무엇을 도와드릴까요?", "Okay, I'm going to my charging dock.", "네, 충전소로 갈게요.",
+          "Sorry, driving is switched off."] + [f"Okay, I'm going to p{i}." for i in range(1, 11)]
 
 _tts = None
 _style = None

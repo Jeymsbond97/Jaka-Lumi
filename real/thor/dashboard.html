@@ -37,7 +37,7 @@ main{height:calc(100% - var(--hdr));display:grid;grid-template-columns:minmax(0,
 .icon{background:transparent;border:1px solid var(--line);border-radius:7px;padding:2px 8px;cursor:pointer;color:var(--muted);text-decoration:none;font-size:12px}
 .icon:hover{color:var(--text);border-color:var(--accent)}
 .frame{position:relative;background:#04060a;aspect-ratio:16/9;max-height:calc((100vh - var(--hdr)) * .42)}
-.frame img{width:100%;height:100%;object-fit:contain;display:block}
+.frame img,.frame canvas{width:100%;height:100%;object-fit:contain;display:block}
 .frame .empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);text-shadow:0 1px 3px #000}
 .frame .empty[hidden]{display:none}
 .frame .count{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.62);padding:3px 9px;border-radius:999px;font-size:12px}
@@ -326,18 +326,70 @@ for (const [name, title] of [["head", "Head camera"], ["torso", "Torso camera"]]
   $("cams").insertAdjacentHTML("beforeend", `<div class="card">
     <div class="ch"><h2>${title}</h2><span class="tag" id="${name}Tag">–</span><span class="sp"></span>
       <a class="icon" href="/camera/${name}.jpg" target="_blank" title="Photo">⤓</a><button class="icon" data-full="${name}" title="Full screen">⛶</button></div>
-    <div class="frame" id="${name}Frame"><img id="${name}Img" alt=""><div class="empty" id="${name}Empty">Waiting for the camera…</div>
+    <div class="frame" id="${name}Frame"><canvas id="${name}Img"></canvas><div class="empty" id="${name}Empty">Waiting for the camera…</div>
       <span class="count" id="${name}Count" hidden></span></div>
     <div class="people" id="${name}People"></div></div>`);
-  pollPicture(name);
 }
-function pollPicture(name) {               // fetch the newest picture ~6 times a second (no long-lived stream)
-  const img = $(name + "Img"), next = new Image();
-  const again = ms => setTimeout(() => pollPicture(name), ms);
-  next.onload = () => { img.src = next.src; again(document.hidden ? 1000 : 150); };
-  next.onerror = () => again(1000);
-  next.src = `/camera/${name}/latest.jpg?t=${Date.now()}`;
+/* live video: ONE streamed connection carries both cameras' JPEGs (full rate) and their detections;
+   the boxes are drawn here on top of the video, so detection speed does not slow the video down */
+const CAMS = ["head", "torso"], dets = {head: null, torso: null}, lastFrame = {head: 0, torso: 0};
+function hexToRgb(h) { const n = parseInt((h || "#22c55e").slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+function drawFrame(name, bmp) {
+  const cv = $(name + "Img"), g = cv.getContext("2d");
+  if (cv.width !== bmp.width) { cv.width = bmp.width; cv.height = bmp.height; }
+  g.drawImage(bmp, 0, 0); bmp.close && bmp.close();
+  lastFrame[name] = Date.now();
+  const d = dets[name], set = viewSet || {};
+  if (!d || Date.now() - d.time > 1500) return;
+  const sx = cv.width / d.w, sy = cv.height / d.h, base = set.box_color || "#22c55e";
+  g.font = `600 ${Math.round(cv.height / 24)}px system-ui`; g.textBaseline = "bottom";
+  for (const p of d.people) {
+    const [x1, y1, x2, y2] = p.box, red = p.focus || p.near, col = red ? "#ef4444" : base;
+    if (set.boxes !== false) {
+      g.strokeStyle = col; g.lineWidth = (set.thickness || 2) * cv.width / 640 + (red ? 1 : 0);
+      g.strokeRect(x1 * sx, y1 * sy, (x2 - x1) * sx, (y2 - y1) * sy);
+    }
+    if (set.labels !== false) {
+      const t = (p.focus ? "TALKING  " : "") + `${p.distance_m ?? "?"} m  ${p.angle_deg > 0 ? "+" : ""}${Math.round(p.angle_deg)}°`;
+      const w = g.measureText(t).width + 14, h = cv.height / 19, y = Math.max(h, y1 * sy);
+      g.fillStyle = col; g.fillRect(x1 * sx, y - h, w, h);
+      g.fillStyle = "#111"; g.fillText(t, x1 * sx + 6, y - h * 0.18);
+    }
+  }
 }
+async function liveStream() {
+  try {
+    const r = await fetch("/camera/stream?max_fps=15", {cache: "no-store"});
+    if (!r.ok || !r.body) throw new Error("no stream");
+    const reader = r.body.getReader();
+    let buf = new Uint8Array(0);
+    for (;;) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      const nb = new Uint8Array(buf.length + value.length); nb.set(buf); nb.set(value, buf.length); buf = nb;
+      while (buf.length >= 6) {
+        const len = (buf[2] << 24 | buf[3] << 16 | buf[4] << 8 | buf[5]) >>> 0;
+        if (buf.length < 6 + len) break;
+        const name = CAMS[buf[0]], kind = buf[1], payload = buf.slice(6, 6 + len);
+        buf = buf.slice(6 + len);
+        if (kind === 1) { try { dets[name] = {...JSON.parse(new TextDecoder().decode(payload)), time: Date.now()}; } catch (e) {} }
+        else if (!document.hidden) createImageBitmap(new Blob([payload], {type: "image/jpeg"})).then(b => drawFrame(name, b)).catch(() => {});
+      }
+    }
+  } catch (e) {}
+  CAMS.forEach(n => { if (Date.now() - lastFrame[n] > 3000) pollPicture(n, true); });   // fallback while reconnecting
+  setTimeout(liveStream, 1500);
+}
+function pollPicture(name, once) {         // fallback: the annotated picture, when the stream is down
+  const img = new Image();
+  img.onload = () => {
+    const cv = $(name + "Img"), g = cv.getContext("2d");
+    if (cv.width !== img.width) { cv.width = img.width; cv.height = img.height; }
+    g.drawImage(img, 0, 0);
+  };
+  img.src = `/camera/${name}/latest.jpg?t=${Date.now()}`;
+}
+liveStream();
 document.addEventListener("click", e => {
   const f = e.target.closest("[data-full]");
   if (f) { $(f.dataset.full + "Frame").classList.toggle("full"); return; }

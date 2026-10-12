@@ -400,6 +400,52 @@ def camera_stream(name: str):
     return StreamingResponse(frames(), media_type="multipart/x-mixed-replace; boundary=frame")
 
 
+@app.get("/camera/stream", tags=["cameras"],
+         summary="Live video of both cameras in ONE connection: camera JPEGs at full rate + detections")
+def camera_stream_all(max_fps: float = 15.0):
+    """Binary records: 1 byte camera (0 head, 1 torso), 1 byte kind (0 JPEG, 1 detections JSON),
+    4 bytes length (big endian), payload. The dashboard draws the boxes itself, so the video is not slowed
+    down by person detection."""
+    import struct
+    names = list(CAMERA_NAMES)
+    camview.ensure_running()
+
+    def records():
+        seen, last_want, gap = {}, 0.0, 1.0 / max(1.0, max_fps)
+        sent = {n: 0.0 for n in names}
+        while True:
+            now = time.time()
+            if now - last_want > 1.0:
+                last_want = now
+                for n in names:
+                    camview.want(n)
+            for i, n in enumerate(names):
+                for kind, path in ((0, camview.raw_path(n)), (1, camview.det_path(n))):
+                    try:
+                        m = path.stat().st_mtime
+                    except FileNotFoundError:
+                        continue
+                    if seen.get((n, kind)) == m or (kind == 0 and now - sent[n] < gap):
+                        continue
+                    seen[(n, kind)] = m
+                    data = path.read_bytes()
+                    if kind == 1:                        # only what the dashboard draws
+                        try:
+                            d = json.loads(data)
+                            data = json.dumps({"w": d["width"], "h": d["height"], "people": [
+                                {k: p.get(k) for k in ("box", "distance_m", "angle_deg", "focus", "near")}
+                                for p in d["people"]]}).encode()
+                        except (ValueError, KeyError):
+                            continue
+                    else:
+                        sent[n] = now
+                    yield struct.pack(">BBI", i, kind, len(data)) + data
+            time.sleep(0.01)
+
+    return StreamingResponse(records(), media_type="application/octet-stream",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
 @app.get("/camera/{name}/latest.jpg", tags=["cameras"], summary="Latest picture right away (the dashboard polls this)")
 def camera_latest(name: str):
     name = _camera_name(name)

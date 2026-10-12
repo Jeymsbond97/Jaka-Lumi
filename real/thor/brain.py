@@ -16,10 +16,11 @@ import time
 import urllib.request
 
 import knowledge
+import tools
 
 OLLAMA = "http://127.0.0.1:11434/api/chat"
 MODEL = "gemma4:e4b"
-MIN_SCORE = 0.35               # chunks below this similarity are not given to the LLM
+MIN_SCORE = 0.42               # chunks below this similarity are not given to the LLM (fewer = faster)
 HISTORY_TURNS = 4              # previous question/answer pairs kept for follow-up questions
 
 SYSTEM = """You are Lumi, a friendly mobile robot assistant made by JAKA Robotics, standing in front of a visitor.
@@ -31,7 +32,13 @@ Rules:
   a staff member; otherwise do not mention staff.
 - Small talk (greetings, how are you, thanks, goodbye) does not need the notes: reply briefly and warmly,
   for a goodbye just say goodbye. Do not introduce yourself again after the first greeting.
-- Never invent numbers, prices or dates."""
+- Never invent numbers, prices or dates.
+
+What you can do (say this when asked what you can do): talk in English and Korean and answer questions;
+tell the date and time; check the weather and look things up on the internet when it is connected; drive to the
+places on your map (and back to your charging dock); come to the person who calls you; look left, right, up or
+down; wave; sing a short song; stop and stay quiet when asked. You greet people who come close and you wake up
+when someone says "Hi Lumi"."""
 
 
 ACTIONS = """
@@ -77,7 +84,13 @@ You can also move. Decide if the visitor asks you to do something:
 - wave: wave your hand.
 - stop: stop moving.
 - end: the visitor says goodbye or ends the conversation.
+- quiet: the visitor wants silence ("be quiet", "stop talking", "shut up", "조용히 해", "그만 말해").
+- sing: the visitor asks for a song. Then your words ARE the song: 4 to 8 short, cheerful, original lines.
+- weather <place>: the visitor asks about the weather (place in English; - means here, Seoul).
+- search <query>: you need facts from the internet you do not know (news, prices, opening hours, people...).
+  Do not use search for things in the reference notes, the date or the time.
 - none: only talk.
+For weather and search only write the action line; the answer is made after the lookup.
 Reply format: the first line is the action, then on the next line the words you say aloud
 (1 to 3 short sentences; for an action briefly confirm it). Examples:
 ACTION: none -
@@ -89,7 +102,7 @@ Okay, I'm going to point two.
 ACTION: come -
 Okay, I'm coming to you."""
 
-ACTION_NAMES = {"go_to", "come", "look", "wave", "stop", "end", "none"}
+ACTION_NAMES = {"go_to", "come", "look", "wave", "stop", "end", "quiet", "sing", "weather", "search", "none"}
 LOOK_TARGETS = {"left", "right", "center", "up", "down"}
 SENTENCE_END = re.compile(r"(?<=[.!?。！？])\s+")
 
@@ -107,6 +120,43 @@ def _stream(messages):
                 yield piece
             if d.get("done"):
                 return
+
+
+NUMBER_WORDS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7",
+                "eight": "8", "nine": "9", "ten": "10", "일": "1", "이": "2", "삼": "3", "사": "4", "오": "5"}
+INTENTS = [   # (action, pattern) checked in order on what the visitor said
+    ("quiet", r"\b(be quiet|keep quiet|quiet please|stop talking|shut up|silence|be silent)\b|조용히|그만 말|시끄러워|말하지 마"),
+    ("come", r"\bcome (here|to me|closer|over here|over)\b|\bcome\b.*\bme\b|이리 ?와|여기로 ?와|가까이 ?와|나한테 ?와"),
+    ("go_home", r"\bgo (back )?(home|to (the |your )?(dock|charger|charging))|\bgo charge|충전하러|집에 ?가|충전기로"),
+    ("go_point", r"\b(?:go|drive|move) to (?:the )?(point|marker|p)\s*(\d+)|포인트\s*(\d+)|(\d+)\s*번\s*(?:으로|포인트)"),
+    ("sing", r"\bsing\b|\ba song\b|노래"),
+    ("weather", r"\bweather\b|\bforecast\b|\b(will it|is it going to) rain\b|\btemperature (outside|today)\b|날씨|비 ?와|기온"),
+    ("search", r"\b(news|latest|headlines|who won|score of|price of|exchange rate|stock)\b|뉴스|환율|주가"),
+]
+
+
+def intent(text, markers=()):
+    """(action, target) for clear requests, or None. Backs up the LLM's ACTION line."""
+    t = text.lower()
+    for word, digit in NUMBER_WORDS.items():                # "point five" -> "point 5"
+        t = re.sub(rf"\b{word}\b", digit, t)
+    for action, pat in INTENTS:
+        m = re.search(pat, t, re.I)
+        if not m:
+            continue
+        if action == "go_home":
+            return ("go_to", "home") if "home" in markers else None
+        if action == "go_point":
+            n = next(g for g in m.groups()[1:] if g)
+            name = next((mk for mk in markers if mk.lower() == f"p{n}"), None)
+            return ("go_to", name) if name else None
+        if action == "weather":
+            place = re.search(r"\bin ([A-Za-z][A-Za-z ]+?)(\?|$|\.| today| tomorrow)", text)
+            return ("weather", place.group(1).strip() if place else "")
+        if action == "search":
+            return ("search", text)
+        return (action, "")
+    return None
 
 
 def warm_up():
@@ -137,7 +187,7 @@ class Brain:
 
     def respond(self, text, markers=()):
         """Spoken reply + optional action: {"action", "target", "say"} (see ACTIONS)."""
-        hits = [h for h in knowledge.search(text, k=4) if h[0] >= MIN_SCORE]
+        hits = [h for h in knowledge.search(text, k=2) if h[0] >= MIN_SCORE]
         notes = "\n\n".join(f"[{src}]\n{t}" for _, src, t in hits) or "(no matching notes)"
         system = SYSTEM + "\n" + ACTIONS.format(markers=", ".join(markers) or "(none)")
         messages = [{"role": "system", "content": system}]
@@ -158,9 +208,9 @@ class Brain:
 
     def respond_stream(self, text, markers=()):
         """Generator: first {"action", "target"}, then the spoken reply sentence by sentence."""
-        hits = [h for h in knowledge.search(text, k=4) if h[0] >= MIN_SCORE]
+        hits = [h for h in knowledge.search(text, k=2) if h[0] >= MIN_SCORE]
         notes = "\n\n".join(f"[{src}]\n{t}" for _, src, t in hits) or "(no matching notes)"
-        system = SYSTEM + "\n" + ACTIONS_STREAM.format(markers=", ".join(markers) or "(none)")
+        system = SYSTEM + f"\nNow it is {tools.now_text()}." + "\n" + ACTIONS_STREAM.format(markers=", ".join(markers) or "(none)")
         messages = [{"role": "system", "content": system}]
         for q, a in self.history[-HISTORY_TURNS:]:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
@@ -197,12 +247,33 @@ class Brain:
             yield buf.strip()
         self.history.append((text, full.strip()))
 
+    def respond_from(self, question, facts):
+        """Spoken answer built from looked-up facts (weather, web results); yields sentences."""
+        messages = [{"role": "system", "content": SYSTEM + f"\nNow it is {tools.now_text()}."}]
+        messages.append({"role": "user", "content": f"Facts found just now:\n{facts}\n\nVisitor: {question}\n\n"
+                                                    f"Answer from the facts in {language(question)}, 1 to 3 short "
+                                                    f"spoken sentences, no lists, no links."})
+        buf, full = "", ""
+        for piece in _stream(messages):
+            full += piece
+            buf += piece
+            parts = SENTENCE_END.split(buf)
+            for sentence in parts[:-1]:
+                if sentence.strip():
+                    yield sentence.strip()
+            buf = parts[-1]
+        if buf.strip():
+            yield buf.strip()
+        self.history.append((question, full.strip()))
+
     @staticmethod
     def _action(line, text, markers):
-        m = re.match(r"\s*\**ACTION\**\s*:\s*(\w+)\s*(\S*)", line, re.I)
+        m = re.match(r"\s*\**ACTION\**\s*:\s*(\w+)\s*(.*)", line, re.I)
         if not m:
             return None
-        action, target = m.group(1).lower(), m.group(2).strip("-.,").strip()
+        action, target = m.group(1).lower(), m.group(2).strip().strip("-.,\"'").strip()
+        if action not in ("weather", "search"):
+            target = target.split()[0] if target.split() else ""
         if action not in ACTION_NAMES:
             action = "none"
         if action == "go_to":
@@ -210,10 +281,15 @@ class Brain:
             action = "go_to" if target else "none"
         if action == "look" and target not in LOOK_TARGETS:
             action = "none"
-        if action not in ("go_to", "look"):
+        if action not in ("go_to", "look", "weather", "search"):
             target = ""
+        if action == "search" and not target:
+            target = text
         if re.search(r"\b(bye|goodbye|see you)\b|안녕히|잘 ?가|다음에 봐", text, re.I):
             action = "end"
+        rule = intent(text, markers)                       # clear wordings win over the small model's guess
+        if rule and not (rule[0] == "search" and action in ("go_to", "come", "look", "weather", "sing")):
+            action, target = rule
         return {"action": action, "target": target or ""}
 
     def reset(self):

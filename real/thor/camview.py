@@ -56,6 +56,11 @@ def info_path(name):
     return SHM / f"lumi_cam_{name}.json"
 
 
+def raw_path(name):
+    """The camera's own JPEG of the newest frame (no boxes): the dashboard's live video."""
+    return SHM / f"lumi_raw_{name}.jpg"
+
+
 def det_path(name):
     return SHM / f"lumi_det_{name}.json"
 
@@ -213,6 +218,9 @@ def _serve():
 
     latest = {}                                   # name -> (time, people): the torso's depth helps the head
 
+    def write_raw(name, jpeg):
+        _write(raw_path(name), jpeg)
+
     def torso_distance(angle):
         """Distance of the torso camera's person at about this angle (both angles are waist-frame)."""
         t, people = latest.get("torso", (0, []))
@@ -229,6 +237,7 @@ def _serve():
                 try:
                     # head camera without depth: depth + the speaker on the head's USB 2 hub make it disconnect
                     det = PersonDetector(name, head_sign=1.0, depth=(name != "head" or HEAD_DEPTH))
+                    det.on_raw = write_raw                 # every camera frame, for the live video
                     if name == "head" and not HEAD_DEPTH:
                         det.distance_hint = torso_distance
                     state[name] = "ok"
@@ -299,7 +308,8 @@ class RemoteDetector:
         angle = None if angle is None else round(float(angle), 1)
         if angle != self._focus or time.time() - self._focus_written > 1.0:   # heartbeat: see FOCUS_FRESH_S
             self._focus, self._focus_written = angle, time.time()
-            _write(focus_path(self.name), json.dumps({"angle": angle}).encode())
+            for name in CAMERAS:                  # waist-frame angle: the same person in both cameras
+                _write(focus_path(name), json.dumps({"angle": angle}).encode())
 
     def read(self, timeout=0.3):
         """(frame stand-in with .shape, people) for a new detection frame, or (None, []) if none came."""
