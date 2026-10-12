@@ -100,6 +100,10 @@ input:focus,select:focus{border-color:var(--accent)}
 .dd-item .ic{width:8px;height:8px;border-radius:50%;background:#f59e0b;flex:none}
 .dd-item.dock .ic{background:var(--ok)}
 .dd-item .ck{margin-left:auto;color:var(--accent);visibility:hidden}.dd-item.sel .ck{visibility:visible}
+.dd-head{display:flex;justify-content:space-between;align-items:center;padding:6px 10px 8px;font-size:11.5px;color:var(--muted)}
+.dd-head a{color:var(--accent);text-decoration:none}
+.dd-item .no{margin-left:auto;min-width:20px;height:20px;border-radius:10px;background:var(--accent);color:#04111b;font-size:11.5px;font-weight:700;display:none;place-items:center}
+.dd-item.sel .no{display:grid}
 .dd-sep{height:1px;background:var(--line);margin:4px 2px}
 .opts{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px}.opts .toggle{font-size:12px}
 .mode{display:flex;align-items:center;gap:12px;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);margin-bottom:7px;cursor:pointer;transition:border-color .15s,background .15s}
@@ -174,7 +178,7 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
         <span class="muted" style="font-size:12px">scroll = zoom · drag = move</span><label class="toggle" title="Click on the map to send the robot there"><input type="checkbox" id="clickGo"> Click to drive</label>
         <button class="icon" id="mapFit">Fit</button></div>
       <div class="mapwrap"><canvas id="map"></canvas>
-        <div class="legend"><span><i style="background:var(--accent)"></i>Lumi</span><span><i style="background:#f59e0b"></i>Marker</span><span><i style="background:var(--ok)"></i>Dock</span></div></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>Lumi</span><span><i style="background:#f59e0b"></i>Marker (arrow = facing)</span><span><i style="background:var(--ok)"></i>Dock</span></div></div>
     </div>
   </div>
 
@@ -472,9 +476,16 @@ function drawMap() {
   ctx.drawImage(mapLayer, -view.x0 * view.s, -view.y0 * view.s, mapLayer.width * view.s, mapLayer.height * view.s);
   ctx.font = "600 11px system-ui"; ctx.textBaseline = "middle";
   for (const m of mapInfo.markers) {
-    const [px, py] = toScreen(m.x, m.y), dock = m.type === 11;
-    ctx.fillStyle = dock ? "#22c55e" : "#f59e0b";
+    const [px, py] = toScreen(m.x, m.y), dock = m.type === 11, col = dock ? "#22c55e" : "#f59e0b";
+    const len = Math.max(11, Math.min(22, 0.35 / mapInfo.resolution * view.s));   // heading arrow: where the robot faces here
+    ctx.save(); ctx.translate(px, py); ctx.rotate(-(m.theta || 0));
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2; ctx.lineCap = "round";
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(len, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(len + 4, 0); ctx.lineTo(len - 3, 4); ctx.lineTo(len - 3, -4); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = col;
     ctx.beginPath(); ctx.arc(px, py, dock ? 6 : 4.5, 0, 7); ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = "rgba(10,14,19,.9)"; ctx.stroke();
     ctx.lineWidth = 3; ctx.strokeStyle = "rgba(10,14,19,.9)"; ctx.strokeText(m.name, px + 8, py);
     ctx.fillStyle = "#e2e8f0"; ctx.fillText(m.name, px + 8, py);
   }
@@ -534,27 +545,32 @@ $("maplist").onclick = e => {
 loadMap();
 
 /* ---------- actions ---------- */
-function Dropdown(el, placeholder, onPick, compact) {      // styled dropdown: Dock first, then the markers
+function Dropdown(el, placeholder) {      // styled multi-select: click stops in the order to visit them
   el.innerHTML = `<button class="dd-btn" type="button"><span class="dd-val ph">${placeholder}</span><span class="chev">▼</span></button>`;
   const btn = el.querySelector(".dd-btn"), val = el.querySelector(".dd-val");
   const menu = document.createElement("div"); menu.className = "dd-menu"; document.body.appendChild(menu);
-  const self = {value: null, items: []};
-  const label = n => n === "home" ? "Dock (charger)" : n;
+  const self = {values: [], items: []};
+  const label = n => n === "home" ? "Dock" : n;
+  const row = (v, text, cls) => `<div class="dd-item ${cls}" data-v="${v}"><span class="ic"></span>${text}<span class="no"></span></div>`;
   self.setItems = names => {
     self.items = names;
-    menu.innerHTML = `<div class="dd-item dock" data-v="home"><span class="ic"></span>Dock (charger)<span class="ck">✓</span></div><div class="dd-sep"></div>` +
-      names.map(n => `<div class="dd-item" data-v="${n}"><span class="ic"></span>${n}<span class="ck">✓</span></div>`).join("");
-    self.set(self.value);
+    menu.innerHTML = `<div class="dd-head"><span>Click the stops in order</span><a href="#" class="dd-clear">Clear</a></div>` +
+      row("home", "Dock (charger)", "dock") + `<div class="dd-sep"></div>` + names.map(n => row(n, n, "")).join("");
+    self.paint();
   };
-  self.set = v => {
-    self.value = v;
-    val.textContent = v ? label(v) : placeholder; val.classList.toggle("ph", !v);
-    menu.querySelectorAll(".dd-item").forEach(i => i.classList.toggle("sel", i.dataset.v === v));
+  self.paint = () => {
+    const v = self.values;
+    val.textContent = v.length ? v.map(label).join("  →  ") : placeholder; val.classList.toggle("ph", !v.length);
+    btn.title = v.length ? v.map(label).join(" → ") : "";
+    menu.querySelectorAll(".dd-item").forEach(i => {
+      const k = v.indexOf(i.dataset.v);
+      i.classList.toggle("sel", k >= 0); i.querySelector(".no").textContent = k >= 0 ? k + 1 : "";
+    });
   };
+  self.set = v => { self.values = v ? [v] : []; self.paint(); };
   const close = () => { menu.classList.remove("open"); el.classList.remove("open"); };
   const place = () => {                      // below the button, or above it when there is no room
-    const r = btn.getBoundingClientRect(), h = Math.min(340, menu.scrollHeight + 2);
-    const w = Math.max(r.width, 190);
+    const r = btn.getBoundingClientRect(), h = Math.min(380, menu.scrollHeight + 2), w = Math.max(r.width, 220);
     menu.style.width = w + "px"; menu.style.left = Math.min(r.left, innerWidth - w - 8) + "px";
     menu.style.top = (innerHeight - r.bottom > h + 12 ? r.bottom + 6 : Math.max(8, r.top - h - 6)) + "px";
   };
@@ -562,14 +578,15 @@ function Dropdown(el, placeholder, onPick, compact) {      // styled dropdown: D
     e.stopPropagation();
     const opening = !menu.classList.contains("open");
     document.querySelectorAll(".dd-menu.open").forEach(m => m.classList.remove("open"));
-    document.querySelectorAll(".dd.open").forEach(d => d.classList.remove("open"));
-    if (opening) { menu.classList.add("open"); el.classList.add("open"); place(); }
+    if (opening) { menu.classList.add("open"); el.classList.add("open"); place(); } else close();
   };
   menu.onclick = e => {
+    e.stopPropagation();
+    if (e.target.closest(".dd-clear")) { e.preventDefault(); self.values = []; self.paint(); return; }
     const i = e.target.closest(".dd-item"); if (!i) return;
-    close();
-    if (compact) { onPick(i.dataset.v); return; }
-    self.set(i.dataset.v); onPick && onPick(i.dataset.v);
+    const k = self.values.indexOf(i.dataset.v);
+    if (k >= 0) self.values.splice(k, 1); else self.values.push(i.dataset.v);
+    self.paint();                            // stays open: pick the next stop
   };
   document.addEventListener("click", e => { if (!el.contains(e.target) && !menu.contains(e.target)) close(); });
   window.addEventListener("resize", close);
@@ -578,11 +595,13 @@ function Dropdown(el, placeholder, onPick, compact) {      // styled dropdown: D
   return self;
 }
 let markerNames = [];
-const destDD = Dropdown($("destDD"), "Choose a place…");
+const destDD = Dropdown($("destDD"), "Choose one or more places…");
 function selectDest(name) { destDD.set(name); }
 $("goBtn").onclick = e => {
-  if (!destDD.value) return toast("Choose a place first", "err");
-  act(e.target, "Driving to " + (destDD.value === "home" ? "the dock" : destDD.value), () => api("/agv/go", {marker: destDD.value}));
+  const stops = destDD.values, name = n => n === "home" ? "the dock" : n;
+  if (!stops.length) return toast("Choose a place first", "err");
+  if (stops.length === 1) return act(e.target, "Driving to " + name(stops[0]), () => api("/agv/go", {marker: stops[0]}));
+  act(e.target, `Route: ${stops.map(name).join(" → ")}`, () => api("/agv/route", {markers: stops, pause: +$("pause").value || 0}));
 };
 $("dockBtn").onclick = e => act(e.target, "Driving to the dock", () => api("/agv/go", {marker: "home"}));
 $("cancelBtn").onclick = e => act(e.target, "Drive cancelled", () => api("/agv/cancel", {}));

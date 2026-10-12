@@ -39,7 +39,9 @@ FY_720 = 610.0               # px, colour focal length at 1280x720 (JAKA calibra
 PERSON_H, PERSON_W = 1.70, 0.50   # m, typical person height and width for a distance from the box size
 OPEN_TRIES = 5               # 1 s apart
 NEAR_RED = 1.2               # m; nearest person this close is drawn red even when lumi.py is not running
-STALL_S = 3.0                # s without a full frame -> reopen the camera
+STALL_S = 2.0                # s without a full frame -> reopen the camera
+REBOOT_IF_STUCK_AGAIN_S = 15.0   # s; stuck again this soon after a reopen -> reboot the device
+REBOOT_WAIT_S = 6.0          # s for a rebooted camera to come back on USB
 HEAD_POLL_S = 0.2            # s between head yaw reads (head camera only)
 
 
@@ -90,7 +92,7 @@ class PersonDetector:
         self.distance_hint = None                   # optional f(angle_deg) -> metres from another camera
         self._open()
         self.last_frame = time.time()
-        self.reopens = 0
+        self.reopens, self.reboots, self.last_reopen = 0, 0, 0.0
         self.head_sign, self.head_yaw = head_sign, 0.0
         self.focus_angle = None                     # set by lumi.py: the person it talks to is drawn red
         self.bad_jpeg = 0                           # colour frames dropped because they arrived incomplete
@@ -116,11 +118,27 @@ class PersonDetector:
                 time.sleep(1.0)
 
     def _reopen(self):
-        """The camera stopped sending (seen on the head camera's USB 2 hub): close it and open it again."""
+        """The camera stopped sending. Seen on the head camera: sometimes it streams for ~1 s and then stops,
+        and opening it again does not help; a device reboot does. So: reopen first; stuck again soon -> reboot."""
+        now = time.time()
+        reboot = now - self.last_reopen < REBOOT_IF_STUCK_AGAIN_S
+        self.last_reopen = now
         old = self.pipeline
-        t = threading.Thread(target=old.stop, daemon=True)     # stop() can hang on a stuck device
-        t.start()
-        t.join(2.0)
+        if reboot:
+            try:
+                dev = old.get_device()
+                t = threading.Thread(target=dev.reboot, daemon=True)
+                t.start()
+                t.join(3.0)
+                print(f"{self.name} camera: stuck again - device rebooted", flush=True)
+                self.reboots += 1
+            except Exception as e:
+                print(f"{self.name} camera: reboot failed: {e}", flush=True)
+            time.sleep(REBOOT_WAIT_S)                       # the camera leaves the USB bus and comes back
+        else:
+            t = threading.Thread(target=old.stop, daemon=True)     # stop() can hang on a stuck device
+            t.start()
+            t.join(2.0)
         try:
             self._open()
             self.reopens += 1

@@ -170,6 +170,7 @@ def markers():
 
 @app.post("/agv/go", tags=["base"], summary="Drive to a marker (returns at once; watch /status move_status)")
 def go(body: GoBody):
+    _route.stop()
     names = agv.markers()
     if body.marker not in names:
         raise HTTPException(400, f"unknown marker {body.marker!r}; markers: {names}")
@@ -182,8 +183,75 @@ def go(body: GoBody):
     return {"ok": True, "marker": body.marker}
 
 
+# ---------- several markers in a row ----------
+class RouteBody(BaseModel):
+    markers: list[str] = Field(examples=[["p1", "p3", "home"]], min_length=1)
+    pause: float = Field(1.0, ge=0, le=60, description="seconds to wait at each marker")
+
+
+class RouteRunner:
+    """Drives marker after marker when the assistant is not running (it does this itself when it runs)."""
+
+    def __init__(self):
+        self.thread, self.stop_flag, self.state = None, threading.Event(), {}
+
+    def start(self, markers, pause):
+        self.stop()
+        self.stop_flag = threading.Event()
+        self.state = {"route": markers, "index": 0, "status": "starting"}
+        self.thread = threading.Thread(target=self._run, args=(markers, pause, self.stop_flag), daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.stop_flag.set()
+
+    def _run(self, markers, pause, stop):
+        for i, m in enumerate(markers):
+            if stop.is_set():
+                break
+            self.state.update(index=i, status=f"driving to {m}")
+            ok, msg = agv.go(m)
+            if not ok:
+                self.state["status"] = f"{m}: AGV refused ({msg})"
+                return
+            time.sleep(1.0)
+            while not stop.is_set():
+                ms = (part(agv.status) or {}).get("move_status")
+                if ms != "running":
+                    break
+                time.sleep(0.5)
+            if stop.is_set():
+                break
+            if ms != "succeeded":
+                self.state["status"] = f"{m}: {ms}"
+                return
+            stop.wait(pause)
+        self.state["status"] = "cancelled" if stop.is_set() else "done"
+
+
+_route = RouteRunner()
+
+
+@app.post("/agv/route", tags=["base"], summary="Drive through several markers in order (once)")
+def go_route(body: RouteBody):
+    names = agv.markers()
+    unknown = [m for m in body.markers if m not in names]
+    if unknown:
+        raise HTTPException(400, f"unknown markers {unknown}; markers: {names}")
+    if assistant_pids():
+        send_to_assistant("route", markers=body.markers, pause=body.pause)
+        return {"ok": True, "route": body.markers, "by": "assistant"}
+    _route.start(body.markers, body.pause)
+    return {"ok": True, "route": body.markers, "by": "api"}
+
+
+@app.get("/agv/route", tags=["base"], summary="Progress of the last route driven by the API")
+def route_state():
+    return _route.state
+
 @app.post("/agv/cancel", tags=["base"], summary="Stop the current drive")
 def cancel():
+    _route.stop()
     if assistant_pids():
         send_to_assistant("cancel")
     return {"status": agv.cancel()}
@@ -405,6 +473,7 @@ def volume_set(body: VolumeBody):
 @app.post("/stop", tags=["status"], summary="STOP everything: base drive, arm program and the assistant")
 def stop_all():
     jogger.stop()
+    _route.stop()
     stopped = assistant_stop()
     return {"assistant": stopped["stopped"], "agv": part(agv.cancel), "arm": part(arm.stop)}
 
@@ -632,6 +701,28 @@ def doa_reset():
     for f in (doa.CALIB, doa.SAMPLES):
         f.unlink(missing_ok=True)
     return {"ok": True}
+
+def _supervise():
+    """Keep lumi.py running while greeter or patrol is switched on (it can crash or be killed);
+    wait longer after each quick failure so a broken start does not loop."""
+    wait, last_start = 5.0, 0.0
+    while True:
+        time.sleep(5.0)
+        try:
+            m = read_modes()
+            if not (m["greeter"] or m["patrol"]) or assistant_pids() or time.time() - last_start < wait:
+                if assistant_pids() and time.time() - last_start > 120:
+                    wait = 5.0                                   # it has been running fine: reset the back-off
+                continue
+            with open(CONSOLE_LOG, "a") as f:
+                f.write(f"\n{time.strftime('%H:%M:%S')} supervisor: greeter/patrol is on but lumi.py is not running - starting it\n")
+            start_assistant()
+            last_start, wait = time.time(), min(wait * 2, 120.0)
+        except Exception:
+            pass
+
+
+threading.Thread(target=_supervise, daemon=True).start()
 
 @app.get("/health", tags=["status"])
 def health():

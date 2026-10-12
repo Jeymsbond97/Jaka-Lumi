@@ -452,11 +452,13 @@ class Lumi:
         if first and time.time() - d.get("time", 0) > 5:      # an old command from before this start
             return
         cmd = d.get("cmd")
-        log(f"dashboard: {cmd} {d.get('marker') or d.get('point') or ''}")
+        log(f"dashboard: {cmd} {d.get('marker') or d.get('point') or d.get('markers') or ''}")
         if cmd == "go":
             self.start_trip(d["marker"])
         elif cmd == "go_point":
             self.start_trip(tuple(d["point"]))
+        elif cmd == "route":
+            self.start_trip(d["markers"], d.get("pause", 1.0))
         elif cmd == "cancel":
             if self.patrol:
                 self.patrol.pause()
@@ -467,11 +469,12 @@ class Lumi:
             self.calib_n = 0
             self.write_calib("collecting" if self.calib_until else "stopped")
 
-    def start_trip(self, target):
-        """Drive to a marker or a map point; with patrol mode on, people in the way are greeted on the way."""
+    def start_trip(self, target, pause_s=0.0):
+        """Drive to a marker, a map point or a list of markers in order; with patrol mode on, people in the
+        way are greeted on the way."""
         if self.patrol:
             self.patrol.pause()
-        self.patrol = Patrol([target], once=True, pause_s=0.0)
+        self.patrol = Patrol(list(target) if isinstance(target, list) else [target], once=True, pause_s=pause_s)
         self.patrol.tick(force=True)
 
     def traveling(self):

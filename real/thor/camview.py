@@ -261,7 +261,7 @@ def _serve():
                 latest[name] = (time.time(), people)
                 _write(det_path(name), json.dumps({
                     "time": time.time(), "serial": det.serial, "height": color.shape[0], "width": color.shape[1],
-                    "head_yaw": det.head_yaw, "bad_jpeg": det.bad_jpeg, "reopens": det.reopens,
+                    "head_yaw": det.head_yaw, "bad_jpeg": det.bad_jpeg, "reopens": det.reopens, "reboots": det.reboots,
                     "people": people}).encode())
             try:
                 idle = time.time() - want_path(name).stat().st_mtime > IDLE_S
