@@ -98,6 +98,7 @@ SPEAKER_MATCH_DEG = 25.0           # a voice direction belongs to the visible pe
 DOA_MIN_CONF = 0.12                # below this the sound direction is not trusted
 COME_STOP = 1.1                    # m; driving to a person stops when the camera sees them this close
 COME_TIMEOUT = 60.0                # s
+STUCK_DRIVE_S = 20.0               # s "running" without moving -> the drive is cancelled and Lumi says so
 MODES_FILE = "/dev/shm/lumi_modes.json"   # written by api.py: {"greeter", "patrol", "wave", "drive"}
 CMD_FILE = "/dev/shm/lumi_cmd.json"       # written by api.py: {"id", "cmd": go | go_point | cancel | calibrate}
 CALIB_FILE = "/dev/shm/lumi_calib.json"   # progress of a calibration session, for the dashboard
@@ -274,6 +275,8 @@ class Patrol:
         self.once, self.pause_s = once, pause_s
         self.mode = "patrol"             # patrol | going_home | charging | done
         self.moving = False              # a move that we started is running
+        self.progress = None             # (pose, time) of the last movement, to notice a stuck drive
+        self.stuck = None                # target of a drive that could not get anywhere (Lumi says so)
         self.wait_until = 0.0
         self.last_poll = 0.0
 
@@ -311,8 +314,25 @@ class Patrol:
 
         if self.moving:
             if ms == "running":
+                pose = st.get("current_pose") or {}
+                xy = (pose.get("x", 0.0), pose.get("y", 0.0), pose.get("theta", 0.0))
+                if self.progress is None or math.hypot(xy[0] - self.progress[0][0], xy[1] - self.progress[0][1]) > 0.05 \
+                        or abs(xy[2] - self.progress[0][2]) > 0.1:
+                    self.progress = (xy, now)                   # it moves
+                elif now - self.progress[1] > STUCK_DRIVE_S:   # "running" but standing still: no way through
+                    target = self.route[self.i]
+                    log(f"drive to {target} STUCK: the base has not moved for {STUCK_DRIVE_S:.0f} s "
+                        f"(no free path? glass door, people, no-go line) - cancelled")
+                    safe(agv.cancel)
+                    self.moving, self.progress = False, None
+                    self.stuck = target
+                    if self.once:
+                        self.mode = "done"
+                    else:
+                        self.i = (self.i + 1) % len(self.route)
+                        self.wait_until = now + 5
                 return
-            self.moving = False
+            self.moving, self.progress = False, None
             if self.mode == "going_home":
                 self.mode = "charging" if st.get("charge_state") else "patrol"
                 log("docked, charging" if self.mode == "charging" else f"could not dock ({ms})")
@@ -902,6 +922,10 @@ class Lumi:
                 return
             if self.patrol:
                 self.patrol.tick()
+                if self.patrol and self.patrol.stuck:
+                    target, self.patrol.stuck = self.patrol.stuck, None
+                    name = "my charging dock" if target == "home" else target
+                    mouth.say(f"Sorry, I can't find a way to {name}. Something may be blocking the path.")
             time.sleep(0.05)
             return
 

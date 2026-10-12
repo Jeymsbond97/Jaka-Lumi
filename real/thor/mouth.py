@@ -42,8 +42,9 @@ _volume_set = False
 _recent = []                                  # (time, sentence) Lumi said lately: to tell its own echo from a visitor
 
 
-def recent_speech(seconds=8.0):
-    """What Lumi said in the last seconds (lumi.py ignores its own voice picked up by the clip mic)."""
+def recent_speech(seconds=30.0):
+    """What Lumi said in the last seconds (lumi.py ignores its own voice picked up by the clip mic).
+    Long sentences take 15 s and more to say, so the window is long."""
     now = time.time()
     return " ".join(t for when, t in _recent if now - when < seconds)
 
