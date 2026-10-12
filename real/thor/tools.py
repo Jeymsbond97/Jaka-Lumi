@@ -81,17 +81,45 @@ def weather(place=DEFAULT_PLACE):
         return None
 
 
+def _wikipedia(query, lang):
+    """Summary of the best-matching Wikipedia article, or ''."""
+    api = f"https://{lang}.wikipedia.org"
+    found = json.loads(_get(f"{api}/w/api.php?action=opensearch&limit=1&format=json&search=" + urllib.parse.quote(query)))
+    if not found[1]:
+        return ""
+    page = json.loads(_get(f"{api}/api/rest_v1/page/summary/" + urllib.parse.quote(found[1][0].replace(" ", "_"))))
+    return f"Wikipedia, {page.get('title', '')}: {page.get('extract', '')[:700]}"
+
+
+def _news(query, lang, n=4):
+    """Latest headlines from Google News for the query, or ''."""
+    hl = "ko" if lang == "ko" else "en-US"
+    gl = "KR" if lang == "ko" else "US"
+    rss = _get(f"https://news.google.com/rss/search?hl={hl}&gl={gl}&ceid={gl}:{hl.split('-')[0]}&q="
+               + urllib.parse.quote(query))
+    items = re.findall(r"<item>.*?<title>(.*?)</title>.*?<pubDate>(.*?)</pubDate>", rss, re.S)[:n]
+    return "\n".join(f"- {html.unescape(t)} ({d[:16]})" for t, d in items)
+
+
 def search(query, n=4):
-    """A few web results (title + snippet) as text, or None without internet."""
-    try:
-        page = _get("https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(query))
-    except Exception:
+    """Facts for a question: a Wikipedia summary + the latest news headlines, or None without internet.
+    (DuckDuckGo answers the robot with a bot check; Bing returns unrelated pages to scripts.)"""
+    lang = "ko" if re.search(r"[가-힣]", query) else "en"
+    q = re.sub(r"\b(what|who|is|are|the|a|an|about|tell me|please|latest|news|today'?s?|any)\b|\?", " ", query, flags=re.I)
+    q = re.sub(r"\s+", " ", q).strip() or query
+    parts = []
+    for fn in (lambda: _wikipedia(q, lang), lambda: _news(q, lang, n)):
+        try:
+            text = fn()
+        except Exception:
+            text = None
+        if text is None:
+            continue
+        if text:
+            parts.append(text)
+    if not parts and not online():
         return None
-    titles = re.findall(r'class="result__a"[^>]*>(.*?)</a>', page, re.S)
-    snippets = re.findall(r'class="result__snippet"[^>]*>(.*?)</a>', page, re.S)
-    clean = lambda t: html.unescape(re.sub(r"<[^>]+>", "", t)).strip()
-    out = [f"- {clean(t)}: {clean(s)}" for t, s in zip(titles, snippets)][:n]
-    return "\n".join(out) if out else "No results."
+    return "\n".join(parts) if parts else "No results."
 
 
 if __name__ == "__main__":

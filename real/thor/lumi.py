@@ -583,12 +583,25 @@ class Lumi:
     def quick_command(self, text):
         """A command the keyword rules recognise for sure: confirm with a ready phrase and act, no LLM wait."""
         rule = brain_mod.intent(text, self.markers)
-        if not rule or rule[0] not in ("go_to", "come", "quiet"):
+        if not rule or rule[0] not in ("go_to", "come", "quiet", "weather", "search"):
             return False
         action, target = rule
         en = self.lang == "en"
-        self.brain.history.append((text, f"ACTION: {action} {target or '-'}"))
         log(f"  action {action} {target} (keyword rule)")
+        if action in ("weather", "search"):                    # look it up at once, one LLM call for the answer
+            mouth.say("Let me check." if en else "확인해 볼게요.")
+            facts = tools.weather(target) if action == "weather" else tools.search(target)
+            log(f"  {action} {target!r}: {(facts or 'NO INTERNET')[:120]}")
+            if facts is None:
+                mouth.say("Sorry, I'm not connected to the internet right now, so I can't look that up."
+                          if en else "죄송해요, 지금은 인터넷에 연결되어 있지 않아서 찾아볼 수 없어요.")
+            else:
+                said = mouth.say_stream(self.brain.respond_from(text, facts), abort=self.interrupted)
+                log(f"lumi: {said}")
+            if self.current is None:
+                self.voice_until = time.time() + VOICE_SESSION_S
+            return True
+        self.brain.history.append((text, f"ACTION: {action} {target or '-'}"))
         if action == "quiet":
             mouth.say("Okay, I'll be quiet." if en else "네, 조용히 할게요.")
             self.quiet_until = time.time() + QUIET_S
