@@ -1,7 +1,7 @@
 """Facts Lumi can look up while talking: date and time (always), weather and web search (needs internet).
 
-The Thor has no internet on the robot network. When it gets some (a LAN cable on the Thor, internet on the
-robot's router, or a proxy: set HTTPS_PROXY in proxy.txt next to this file), weather and search work at once.
+The robot network has no internet; the Thor reaches it through its own Wi-Fi. A proxy can be set instead
+(one line such as http://192.168.10.200:8888 in proxy.txt next to this file, or HTTPS_PROXY).
 
     python tools.py                  # date/time + is the internet reachable?
     python tools.py weather Seoul
@@ -22,6 +22,9 @@ PROXY_FILE = HERE / "proxy.txt"          # e.g. http://192.168.10.200:8888 (one 
 DEFAULT_PLACE = "Seoul"
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux aarch64) LumiRobot/1.0"}
 _online = {"time": 0.0, "ok": False}
+PLACES = {"seoul": {"name": "Seoul", "latitude": 37.57, "longitude": 126.98}}   # known places: no geocoding request
+WEATHER_TTL = 600                        # s a weather answer is reused (each web request takes ~2 s on the Wi-Fi)
+_weather = {}                            # place -> (time, text)
 
 
 def _opener():
@@ -63,22 +66,41 @@ WEATHER_CODES = {0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "over
 def weather(place=DEFAULT_PLACE):
     """Current weather and today's range as a short English text, or None without internet."""
     place = (place or DEFAULT_PLACE).strip() or DEFAULT_PLACE
+    key = place.lower()
+    if key in _weather and time.time() - _weather[key][0] < WEATHER_TTL:
+        return _weather[key][1]
     try:
-        g = json.loads(_get("https://geocoding-api.open-meteo.com/v1/search?count=1&name=" + urllib.parse.quote(place)))
-        if not g.get("results"):
-            return f"I could not find a place called {place}."
-        loc = g["results"][0]
+        loc = PLACES.get(key)
+        if not loc:
+            g = json.loads(_get("https://geocoding-api.open-meteo.com/v1/search?count=1&name=" + urllib.parse.quote(place)))
+            if not g.get("results"):
+                return f"I could not find a place called {place}."
+            loc = PLACES[key] = g["results"][0]
         w = json.loads(_get(
             f"https://api.open-meteo.com/v1/forecast?latitude={loc['latitude']}&longitude={loc['longitude']}"
             "&current=temperature_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,"
             "precipitation_probability_max&timezone=auto&forecast_days=1"))
         c, d = w["current"], w["daily"]
-        return (f"Weather in {loc['name']}: {WEATHER_CODES.get(c['weather_code'], 'unknown')}, "
+        text = (f"Weather in {loc['name']}: {WEATHER_CODES.get(c['weather_code'], 'unknown')}, "
                 f"{c['temperature_2m']:.0f} degrees now, today {d['temperature_2m_min'][0]:.0f} to "
                 f"{d['temperature_2m_max'][0]:.0f} degrees, chance of rain {d['precipitation_probability_max'][0]} percent, "
                 f"wind {c['wind_speed_10m']:.0f} km/h.")
+        _weather[key] = (time.time(), text)
+        return text
     except Exception:
         return None
+
+
+def keep_weather_fresh(place=DEFAULT_PLACE):
+    """Background thread: refresh the weather before the cache runs out, so a question gets it at once."""
+    import threading
+
+    def loop():
+        while True:
+            _weather.pop(place.lower(), None)
+            weather(place)
+            time.sleep(WEATHER_TTL - 60)
+    threading.Thread(target=loop, daemon=True).start()
 
 
 STOP = {"the", "a", "an", "of", "in", "on", "at", "to", "for", "and", "or", "is", "are", "was", "how", "what", "who",

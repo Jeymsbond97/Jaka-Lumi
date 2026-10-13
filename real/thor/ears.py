@@ -8,6 +8,7 @@ lumi.py also uses for the wake word). Speech-to-text: whisper.cpp (GPU) server w
 """
 import io
 import json
+import re
 import pathlib
 import subprocess
 import time
@@ -78,8 +79,13 @@ def louder(audio, target=0.7):
     return np.clip(audio.astype(np.float32) * gain, -32767, 32767).astype(np.int16) if gain > 1.05 else audio
 
 
+LANGS = {"english": "en", "korean": "ko"}
+MIN_LOGPROB = -1.0               # below this average token log-probability whisper was guessing
+last_stt = {}                    # language / confidence of the last transcription (see understood())
+
+
 def transcribe(audio, prompt=PROMPT):
-    """int16 mono 16 kHz -> text (empty string if nothing understood)."""
+    """int16 mono 16 kHz -> text (empty string if nothing understood). Also fills last_stt."""
     ensure_stt_server()
     audio = louder(audio)
     buf = io.BytesIO()
@@ -89,16 +95,37 @@ def transcribe(audio, prompt=PROMPT):
         w.setframerate(RATE)
         w.writeframes(audio.tobytes())
     boundary = uuid.uuid4().hex
-    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\njson\r\n"
+    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\nverbose_json\r\n"
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\n{prompt}\r\n"
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\n"
             f"Content-Type: audio/wav\r\n\r\n").encode() + buf.getvalue() + f"\r\n--{boundary}--\r\n".encode()
     req = urllib.request.Request(f"{STT_URL}/inference", body,
                                  {"Content-Type": f"multipart/form-data; boundary={boundary}"})
     with urllib.request.urlopen(req, timeout=30) as r:
-        text = json.loads(r.read()).get("text", "").strip()
+        out = json.loads(r.read())
+    text = out.get("text", "").strip()
+    segs = out.get("segments") or []
+    logprob = sum(s.get("avg_logprob", 0.0) for s in segs) / len(segs) if segs else 0.0
+    last_stt.clear()
+    last_stt.update(text=text, language=out.get("language") or out.get("detected_language"),
+                    lang_prob=out.get("detected_language_probability"), logprob=round(logprob, 2))
     # whisper writes things like "[BLANK_AUDIO]" or "(music)" for non-speech
     return "" if (text.startswith("[") or text.startswith("(")) else text
+
+
+def understood(min_logprob=MIN_LOGPROB):
+    """Was the last transcription clear English or Korean? (else Lumi asks the visitor to say it again)
+    The text must also be written in that language: Whisper turns noise or Lumi's own Korean voice into
+    English sentences tagged 'korean' ("I'll see you next time.", 2026-10-13)."""
+    lang, text = last_stt.get("language"), last_stt.get("text", "")
+    if lang not in LANGS or last_stt.get("logprob", 0.0) < min_logprob:
+        return False
+    return bool(re.search(r"[가-힣]", text)) == (lang == "korean")
+
+
+def heard_lang(default="en"):
+    """'en' or 'ko': the language of the last transcription."""
+    return LANGS.get(last_stt.get("language"), default)
 
 
 def listen(wait_s=8.0, on_start=None, abort=None, full=False):

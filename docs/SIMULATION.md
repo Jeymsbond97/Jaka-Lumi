@@ -20,10 +20,11 @@ LLM / vision / scripts ──> LumiAPI methods ──┬─> LumiSim   (MuJoCo, 
 
 ## 2. Running it
 
-Python environment: the existing venv at `/Users/tokhirbek/Documents/PROJECTS/RobotSimulation/venv` (MuJoCo 3.14). The system `python3` has no MuJoCo. Requirements: `mujoco>=3.14`, `numpy>=2.0`, `opencv-python>=4.10`.
+All simulation files are in `sim/`; run the commands from there. Requirements (`sim/requirements.txt`): `mujoco>=3.14`, `numpy>=2.0`, `opencv-python>=4.10`.
 
 ```bash
-source /Users/tokhirbek/Documents/PROJECTS/RobotSimulation/venv/bin/activate
+cd sim
+python -m venv venv && source venv/bin/activate && pip install -r requirements.txt
 python demo.py               # headless: prints the checks, writes pictures to media/
 mjpython demo.py --viewer    # window; on macOS the viewer needs mjpython
 ```
@@ -43,6 +44,8 @@ mjpython
 
 ## 3. Files
 
+All paths are relative to `sim/`.
+
 | File | Contents |
 |---|---|
 | `lumi.xml` | Robot model: bodies, joints, actuators, collision shapes, cameras, gripper attachment |
@@ -52,8 +55,8 @@ mjpython
 | `lumi_description/` | Official URDF `jaka_lumi.urdf` and STL meshes (JAKA_Lumi repo, Apache-2.0) |
 | `robotiq_2f85/` | Robotiq 2F-85 gripper model (MuJoCo Menagerie) |
 | `assets/`, `tools/make_decals.py` | "JAKA" arm labels (texture and curved meshes); rebuild with `python3 tools/make_decals.py` (needs Pillow) |
+| `requirements.txt` | Python packages for the simulation |
 | `media/` | Pictures written by `demo.py` |
-| `PLAN.md` | Plan and daily log (Uzbek) |
 
 ---
 

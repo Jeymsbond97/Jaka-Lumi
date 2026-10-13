@@ -25,17 +25,19 @@ HISTORY_TURNS = 4              # previous question/answer pairs kept for follow-
 
 SYSTEM = """You are Lumi, a friendly mobile robot assistant made by JAKA Robotics, standing in front of a visitor.
 Rules:
-- Answer in the same language as the visitor's last message (English or Korean). Never answer in Chinese.
-- Speak naturally, like a person talking: short and exact, usually 1 or 2 sentences, no lists, no markdown,
-  no emojis. Only when the visitor asks for more ("tell me more", "why", "details", "자세히") give more about
-  that same topic, using the conversation so far.
+- Answer in the language given at the end of the visitor's message (English or Korean); switch at once when the
+  visitor switches. Never answer in Chinese.
+- Answer exactly what was asked, nothing else: short and exact, usually 1 or 2 sentences, no lists, no markdown,
+  no emojis. Do not introduce yourself or list what you can do unless you are asked. Only when the visitor asks
+  for more ("tell me more", "why", "details", "자세히") give more about that same topic.
+- If the visitor's words are unclear, cut off or do not make sense, do NOT guess what they meant: choose the
+  action "unclear" and politely ask them to say it again (e.g. "Sorry, I didn't catch that. Could you say it again?").
 - If you do not know a fact about the world (people, places, events, products, prices, definitions, sports,
   anything after your training), do not guess: choose the action "search" so it is looked up on the internet.
 - For facts about yourself, JAKA or its products use ONLY the reference notes. They may be written in Chinese;
-  translate what you need. Only if the notes do not contain the answer, say you are not sure and suggest asking
-  a staff member; otherwise do not mention staff.
-- Small talk (greetings, how are you, thanks, goodbye) does not need the notes: reply briefly and warmly,
-  for a goodbye just say goodbye. Do not introduce yourself again after the first greeting.
+  translate what you need. Only if the notes do not contain the answer, say you are not sure.
+- Small talk (greetings, how are you, thanks) does not need the notes: reply briefly, warmly and naturally,
+  like a person would, fitting what was said in this conversation; do not repeat the same phrases.
 - Never invent numbers, prices or dates.
 
 What you can do (say this when asked what you can do): talk in English and Korean and answer questions;
@@ -84,8 +86,13 @@ You can also move. Decide if the visitor asks you to do something:
 - go_to <marker>: drive to a place. Marker names: {markers}. "home", "charger", "charging station" and
   "go back" mean home. Map spoken names to the closest marker name (e.g. "point one" -> p1).
 - come: come to the visitor ("come here", "come to me", "come closer", "이리 와", "여기로 와").
-- look <left|right|center|up|down>: turn your head.
-- wave: wave your hand.
+- look <left|right|center|up|down|me>: turn your head ("look at me" -> me).
+- move <forward|back|left|right> <metres>: drive a short distance ("come one metre forward" -> move forward 1,
+  "go back a little" -> move back 0.5, "move left two metres" -> move left 2). At most 3 metres.
+- turn <left|right|around> <degrees>: turn the whole body ("turn around" -> turn around 180,
+  "turn left" -> turn left 90).
+- arm <reach|fold>: stretch your arm forward ("reach out your hand") or fold it back.
+- wave: wave your hand ("wave", "shake your hand", "say hi with your hand").
 - stop: stop moving.
 - end: the visitor says goodbye or ends the conversation.
 - quiet: the visitor wants silence ("be quiet", "stop talking", "shut up", "조용히 해", "그만 말해").
@@ -93,6 +100,7 @@ You can also move. Decide if the visitor asks you to do something:
 - weather <place>: the visitor asks about the weather (place in English; - means here, Seoul).
 - search <query>: you need facts from the internet you do not know (news, prices, opening hours, people...).
   Do not use search for things in the reference notes, the date or the time.
+- unclear: you did not understand what the visitor said or wants: ask them to repeat.
 - none: only talk.
 For weather and search only write the action line; the answer is made after the lookup.
 Reply format: the first line is the action, then on the next line the words you say aloud
@@ -106,8 +114,9 @@ Okay, I'm going to point two.
 ACTION: come -
 Okay, I'm coming to you."""
 
-ACTION_NAMES = {"go_to", "come", "look", "wave", "stop", "end", "quiet", "sing", "weather", "search", "none"}
-LOOK_TARGETS = {"left", "right", "center", "up", "down"}
+ACTION_NAMES = {"go_to", "come", "look", "wave", "stop", "end", "quiet", "sing", "weather", "search", "move", "turn",
+                "arm", "unclear", "none"}
+LOOK_TARGETS = {"left", "right", "center", "up", "down", "me"}
 SENTENCE_END = re.compile(r"(?<=[.!?。！？])\s+")
 
 
@@ -134,6 +143,12 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
     ("go_home", r"\bgo (back )?(home|to (the |your )?(dock|charger|charging))|\bgo charge|충전하러|집에 ?가|충전기로"),
     ("go_point", r"\b(?:go|drive|move) to (?:the )?(point|marker|p)\s*(\d+)|포인트\s*(\d+)|(\d+)\s*번\s*(?:으로|포인트)"),
     ("sing", r"\bsing\b|\ba song\b|노래"),
+    ("turn", r"\bturn (a)?round\b|\bturn (left|right)\b|뒤로 ?돌|돌아 ?봐|왼쪽으로 ?돌|오른쪽으로 ?돌"),
+    ("move", r"\b(?:move|go|come|drive|step)\s+(?:a little\s+|a bit\s+)?(forward|ahead|back(?:ward)?|left|right)\b"
+             r"(?:\s+(\d+(?:\.\d+)?|half)\s*(?:m|meters?|metres?)?)?|"
+             r"\b(?:move|go|come)\s+(\d+(?:\.\d+)?)\s*(?:m|meters?|metres?)\s+(forward|ahead|back(?:ward)?|left|right)\b|"
+             r"(앞으로|뒤로|왼쪽으로|오른쪽으로)\s*(\d+(?:\.\d+)?)?\s*(?:미터|m)?\s*(?:가|와|이동|움직)"),
+    ("arm", r"\b(reach out|stretch (out )?your (arm|hand)|put your (arm|hand) (out|forward)|hand forward)\b|팔을? ?(뻗|내밀)"),
     ("weather", r"\bweather\b|\bforecast\b|\b(will it|is it going to) rain\b|\btemperature (outside|today)\b|날씨|비 ?와|기온"),
     ("search", r"\b(news|latest|headlines|who won|score of|price of|exchange rate|stock)\b|뉴스|환율|주가"),
 ]
@@ -159,6 +174,21 @@ def intent(text, markers=()):
             return ("weather", place.group(1).strip() if place else "")
         if action == "search":
             return ("search", text)
+        if action == "turn":
+            if re.search(r"around|뒤로|돌아", t):
+                return ("turn", "around 180")
+            return ("turn", ("left" if re.search(r"left|왼쪽", t) else "right") + " 90")
+        if action == "move":
+            g = [x for x in m.groups() if x]
+            dirs = {"ahead": "forward", "backward": "back", "앞으로": "forward", "뒤로": "back", "왼쪽으로": "left",
+                    "오른쪽으로": "right"}
+            d = next((dirs.get(x, x) for x in g if not re.match(r"[\d.]+$|half$", x)), "forward")
+            n = next((0.5 if x == "half" else float(x) for x in g if re.match(r"[\d.]+$|half$", x)), 1.0)
+            if re.search(r"a little|a bit|조금", t):
+                n = min(n, 0.5)
+            return ("move", f"{d} {min(n, 3.0):g}")
+        if action == "arm":
+            return ("arm", "reach")
         return (action, "")
     return None
 
@@ -187,8 +217,14 @@ def warm_up():
     _chat([{"role": "user", "content": "Hi"}])
 
 
+FORCED_LANG = {}                   # {"lang": "en"|"ko"} set by lumi.py from the speech recogniser
+
+
 def language(text):
-    """'Korean' if the text contains Hangul, else 'English'."""
+    """'Korean' or 'English': what the speech recogniser heard, else Hangul in the text."""
+    lang = FORCED_LANG.get("lang")
+    if lang:
+        return "Korean" if lang == "ko" else "English"
     return "Korean" if re.search(r"[\uac00-\ud7a3]", text) else "English"
 
 
@@ -295,6 +331,20 @@ class Brain:
         self.history.append((question, full.strip()))
         self.last_lookup = question                        # a "tell me more" next is looked up again
 
+    def farewell(self, text, lang="en"):
+        """A short natural goodbye that fits the conversation (what the visitor just said, or their silence)."""
+        said = f'The visitor just said: "{text}".' if text else "The visitor has stopped talking."
+        messages = [{"role": "system", "content": SYSTEM + f"\nNow it is {tools.now_text()}."}]
+        for q, a in self.history[-HISTORY_TURNS:]:
+            messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
+        messages.append({"role": "user", "content": f"{said} The conversation is over. Say one short, warm, natural "
+                                                    f"goodbye that fits this conversation (thank them back if they thanked "
+                                                    f"you), in {'Korean' if lang == 'ko' else 'English'}. Only the words."})
+        try:
+            return _chat(messages).strip().strip('"')
+        except Exception:
+            return "See you next time!" if lang == "en" else "다음에 또 봐요!"
+
     def search_terms(self, text):
         """A short English web-search query for the visitor's question (also for Korean questions)."""
         context = f"Earlier question: {self.history[-1][0]}\n" if self.history and FOLLOW_UP.search(text) else ""
@@ -323,7 +373,9 @@ class Brain:
         if not m:
             return None
         action, target = m.group(1).lower(), m.group(2).strip().strip("-.,\"'").strip()
-        if action not in ("weather", "search"):
+        if action in ("move", "turn"):
+            target = " ".join(target.split()[:2])
+        elif action not in ("weather", "search"):
             target = target.split()[0] if target.split() else ""
         if action not in ACTION_NAMES:
             action = "none"
@@ -332,7 +384,9 @@ class Brain:
             action = "go_to" if target else "none"
         if action == "look" and target not in LOOK_TARGETS:
             action = "none"
-        if action not in ("go_to", "look", "weather", "search"):
+        if action == "arm" and target not in ("reach", "fold"):
+            action = "none"
+        if action not in ("go_to", "look", "weather", "search", "move", "turn", "arm"):
             target = ""
         if action == "search" and not target:
             target = text

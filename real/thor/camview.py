@@ -3,14 +3,14 @@
 Two programs opening Orbbec cameras at the same time make the SDK reset the devices: the head camera then
 disconnects every ~2.5 s (seen 2026-10-12). So one service owns both cameras:
 
-    python camview.py --serve     # started by api.py at boot (and by lumi.py / greeter.py if it is not running)
+    python camview.py --serve     # started by api.py at boot (and by lumi.py if it is not running)
     python camview.py --stop      # free the cameras, e.g. for camera_fps.py / camera_test.py; it stays off
                                   # (nothing restarts it) until `python camview.py --serve` or --start
 
 For each camera it runs person detection (person.py) and writes to /dev/shm:
 - lumi_cam_<name>.jpg / .json   picture with boxes (PUBLISH_HZ) + people, for the dashboard (api.py /view)
 - lumi_det_<name>.json          every detection frame: people with boxes, frame size, head yaw (RemoteDetector)
-Programs that need people (lumi.py, greeter.py) use RemoteDetector, which has the same read() as
+Programs that need people (lumi.py, api.py) use RemoteDetector, which has the same read() as
 person.PersonDetector. They tell the service whom to draw red (focus) through lumi_focus_<name>.json.
 Nobody reading for IDLE_S (no viewer, no lumi.py): detection drops to 1 frame a second.
 """

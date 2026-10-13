@@ -1,6 +1,6 @@
 # JAKA Lumi documentation
 
-Everything needed to connect to, test and develop on the real JAKA Lumi. Documents 00–12 contain real-robot information only; the MuJoCo simulation is described separately in SIMULATION.md. Start with **[00_START_HERE.md](00_START_HERE.md)**.
+Everything needed to connect to, test and develop on the real JAKA Lumi. Documents 00–13 contain real-robot information only; the MuJoCo simulation is described separately in SIMULATION.md. Start with **[00_START_HERE.md](00_START_HERE.md)**.
 
 | # | Document | Read it when |
 |---|---|---|
@@ -14,10 +14,13 @@ Everything needed to connect to, test and develop on the real JAKA Lumi. Documen
 | 07 | [Voice and audio](07_VOICE_AND_AUDIO.md) | Microphone, sound direction, voice assistant |
 | 08 | [NVIDIA Jetson Thor](08_NVIDIA_THOR.md) | The AI computer, Docker, voice services |
 | 09 | [ROS 2, teleop, learning, simulators](09_ROS2_TELEOP_AND_SIM.md) | MoveIt 2, Isaac Sim, VR teleoperation, ACT |
-| 10 | [Gripper](10_GRIPPER.md) | Choosing, wiring and programming a gripper (none mounted yet) |
+| 10 | [Gripper](10_GRIPPER.md) | The mounted Zimmer gripper: signals, PNP setting, measurements, `gripper.py` |
 | 11 | [Safety](11_SAFETY.md) | Before any motion |
 | 12 | [Sources and downloads](12_SOURCES.md) | Where each fact came from; download links |
 | 13 | [To verify on the robot](13_TO_VERIFY_ON_ROBOT.md) | First session: unknown facts and how to find each one |
+| 14 | [Voice assistant](14_VOICE_ASSISTANT.md) | How Lumi must behave in a conversation; what is implemented and tested |
+| 15 | [Pick and place](15_PICK_AND_PLACE.md) | Design and stages for fetching objects by voice |
+| — | [Roadmap](ROADMAP.md) | Current state, next steps, log |
 | — | [Simulation](SIMULATION.md) | Our MuJoCo model and `LumiSim` API |
 | — | [private/](private/) | **Local only, git-ignored:** `ACCESS.md` (passwords, IPs, NAS), `THOR_COMPANY_SETUP.md`, `COMPANY_VOICE_ASSISTANT.md`, `AGV_ON_OUR_ROBOT.md` (real replies, our markers), `NOTION_STRUCTURE.md`, `AGV API手册.pdf`, `images/` (78 screenshots) |
 
