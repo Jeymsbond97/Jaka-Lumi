@@ -41,6 +41,8 @@ On the Thor this folder is `~/Dev/lumi-wave`, with the real-robot documentation 
 | `volume.txt` | api.py `/volume` | mouth.py | speaker volume % |
 | `doa_calib.json`, `doa_samples.npz` | doa.py | doa.py | voice-direction calibration |
 | `mic_source.txt` (optional) | you | mic.py | `auto` / `head` / `clip` |
+| `/dev/shm/lumi_raw_<cam>.jpg`, `lumi_intr_<cam>.json` | camview.py | calib.py, objects | full-size camera JPEG; colour intrinsics |
+| `camera_extrinsics.json`, `calib_samples/` | calib.py | objects, motion | camera pose in the arm base frame; calibration samples |
 
 ---
 
@@ -66,6 +68,7 @@ On the Thor this folder is `~/Dev/lumi-wave`, with the real-robot documentation 
 | `head.py` | Head yaw / pitch through the body API | `192.168.10.90:5000` |
 | `arm.py` | Arm controller JSON commands, Cobo π programs (load / play / stop) | `192.168.10.90:10001` |
 | `gripper.py` | Zimmer gripper: open / close / state (DO_1, DO_2, AI_1, DI_1), see [docs/10_GRIPPER.md](../../docs/10_GRIPPER.md) | tool I/O via the arm controller |
+| `calib.py` | Torso camera → arm base calibration with the ArUco marker on the gripper (`collect`, `solve`, `check`); result `camera_extrinsics.json`, see [docs/15_PICK_AND_PLACE.md §8](../../docs/15_PICK_AND_PLACE.md) | camera service, arm controller |
 | `camera_test.py`, `camera_fps.py` | Diagnostics: list cameras and save a frame; count full frames per second (USB 2 vs 3) | stop the camera service first |
 | `knowledge/` | `lumi_about_en.md` (visitor facts, in git); `jaka_zh/` and `index.npz` are local | |
 
