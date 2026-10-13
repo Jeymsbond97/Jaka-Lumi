@@ -35,7 +35,8 @@ MARKER_MM = 50.0                  # black square side, checked with a ruler on t
 STILL_S = 1.5                     # s the joints must not move before a sample is taken
 STILL_DEG = 0.05                  # max joint change while "still"
 MIN_MOVE_MM, MIN_TURN_DEG = 30.0, 8.0   # a new sample must differ this much from every saved one
-MAX_SAMPLES = 20
+MAX_SAMPLES = 30
+OUTLIER_FACTOR, OUTLIER_MIN_MM = 3.0, 8.0   # samples off by more than this x the median (and 8 mm) are left out
 POLL_S = 0.2
 
 DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
@@ -188,6 +189,37 @@ def solve_ax_xb(As, Bs):
     return matrix(R, t)
 
 
+def refine(flange, marker, T_base_cam, T_flange_marker, iterations=50):
+    """Levenberg-Marquardt on the marker centre: camera pose (6) and marker offset on the flange (3) that make
+    the camera's and the arm's marker positions agree best. AX = XB weighs rotations, this weighs millimetres."""
+    def unpack(p):
+        return matrix(cv2.Rodrigues(p[:3])[0], p[3:6]), p[6:9]
+
+    def residuals(p):
+        X, offset = unpack(p)
+        return np.concatenate([(X @ M)[:3, 3] - (F[:3, :3] @ offset + F[:3, 3]) for F, M in zip(flange, marker)])
+
+    p = np.concatenate([rotation_log(T_base_cam[:3, :3]), T_base_cam[:3, 3], T_flange_marker[:3, 3]])
+    lam = 1e-3
+    r = residuals(p)
+    for _ in range(iterations):
+        J = np.empty((r.size, p.size))
+        for k in range(p.size):                         # numeric Jacobian: radians and millimetres
+            dp = np.zeros(p.size)
+            dp[k] = 1e-6 if k < 3 else 1e-3
+            J[:, k] = (residuals(p + dp) - r) / dp[k]
+        step = np.linalg.solve(J.T @ J + lam * np.diag(np.diag(J.T @ J)), -J.T @ r)
+        r_new = residuals(p + step)
+        if r_new @ r_new < r @ r:
+            p, r, lam = p + step, r_new, lam / 3
+            if np.linalg.norm(step) < 1e-6:
+                break
+        else:
+            lam *= 5
+    X, offset = unpack(p)
+    return X, matrix(T_flange_marker[:3, :3], offset)
+
+
 def solve(samples, order=EULER[0]):
     """Camera pose in the arm base frame and marker pose on the flange, with the error of each sample.
 
@@ -207,6 +239,7 @@ def solve(samples, order=EULER[0]):
     T_flange_marker = solve_ax_xb(As, Bs)
     Xs = [F @ T_flange_marker @ np.linalg.inv(M) for F, M in zip(flange, marker)]
     T_base_cam = matrix(mean_rotation([X[:3, :3] for X in Xs]), np.mean([X[:3, 3] for X in Xs], axis=0))
+    T_base_cam, T_flange_marker = refine(flange, marker, T_base_cam, T_flange_marker)
     errors = []
     for F, M in zip(flange, marker):
         seen = (T_base_cam @ M)[:3, 3]                     # marker centre in the base frame, from the camera
@@ -224,6 +257,12 @@ def run_solve():
     for o, r in results.items():
         print(f"  angles as {o}: median error {np.median(r[2]):.1f} mm")
     T_base_cam, T_flange_marker, errors = results[order]
+    limit = max(OUTLIER_FACTOR * float(np.median(errors)), OUTLIER_MIN_MM)
+    bad = [i for i, e in enumerate(errors) if e > limit]
+    if bad and len(samples) - len(bad) >= 6:              # an arm still moving, a blurred or steep marker
+        print(f"  left out (error > {limit:.1f} mm): samples {[i + 1 for i in bad]}")
+        samples = [s for i, s in enumerate(samples) if i not in bad]
+        T_base_cam, T_flange_marker, errors = solve(samples, order)
     for i, e in enumerate(errors, 1):
         print(f"  sample {i:2d}: {e:5.1f} mm")
     print(f"error: median {np.median(errors):.1f} mm, max {max(errors):.1f} mm")

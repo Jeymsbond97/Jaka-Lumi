@@ -181,15 +181,17 @@ Each stage ends with a test on the robot; the next starts only when it passes.
 
 ## 8. Camera calibration (P3) results
 
-Method: ArUco DICT_4X4_50 id 0, 50 mm, glued on the flat black face of the gripper body (the face with two holes). The arm is moved by hand in Cobo π; `calib.py collect` saves a sample whenever the joints are still for 1.5 s, the marker is in view and the pose differs from earlier samples (Lumi says "Saved, N"). `calib.py solve` fits camera-in-base and marker-on-flange and reports, for each sample, how far apart the marker is when seen by the camera and when placed by the arm.
+Method: ArUco DICT_4X4_50 id 0, 50 mm, glued on the flat black face of the gripper body (the face with two holes). The arm is moved by hand in Cobo π; `calib.py collect` saves a sample whenever the joints are still for 1.5 s, the marker is in view and the pose differs from earlier samples (Lumi says "Saved, N"). `calib.py solve` fits camera-in-base and marker-on-flange (Park & Martin AX = XB, then Levenberg-Marquardt on the marker centre, then once more without samples off by more than 3× the median) and reports, for each sample, how far apart the marker is when seen by the camera and when placed by the arm.
 
 Findings:
-- The controller's `actual_position` angles are fixed X-Y-Z roll-pitch-yaw in degrees (R = Rz·Ry·Rx): median error 4.1 mm, against 97 mm for the other order.
+- The controller's `actual_position` angles are fixed X-Y-Z roll-pitch-yaw in degrees (R = Rz·Ry·Rx): median error 4.1 mm, against 97 mm for the other order (before refinement).
+- The arm does not reach farther than ~48 cm from the camera with the marker facing it, so that is the far end of the samples. Error by distance (refined, before leaving out): 3.9 mm under 40 cm, 4.3 mm at 40–48 cm.
 - Torso colour intrinsics at 1280×720 (factory): fx 608.3, fy 608.4, cx 636.9, cy 363.2, 8 distortion coefficients (rational model). Written by the camera service to `/dev/shm/lumi_intr_torso.json`.
 - The camera service may start before a camera re-enumerates after `--stop`; it then reports `camera 'torso' not found`. Start it again.
 
 | Date | Samples | Marker distance | Median / max error | Camera in arm base (mm) | Marker on flange (mm) |
 |---|---|---|---|---|---|
-| 2026-10-13 | 20 | 215–355 mm | 4.1 / 10.9 mm | (−242.8, 4.5, −40.0) | (−16.5, 4.0, 40.4) |
+| 2026-10-13 (first) | 20 | 215–355 mm | 4.1 / 10.9 mm | (−242.8, 4.5, −40.0) | (−16.5, 4.0, 40.4) |
+| **2026-10-13 (in use)** | 30, 2 left out | 215–484 mm | **3.3 / 7.5 mm** | (−257.7, 13.7, −41.4) | (−20.0, −6.9, 44.6) |
 
 Lift and waist were not moved during the session. Whether the result holds at other lift / waist positions is still to check (the camera sits on the waist link; the arm base is expected to move with it).
