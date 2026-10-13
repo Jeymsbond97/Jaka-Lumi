@@ -2,7 +2,7 @@
 
 A Zimmer electric parallel gripper has been mounted on the arm flange since 2026-10-13. It is driven by the two digital outputs of the arm's tool connector and reports its finger position on an analog input. An optical sensor on one finger tells whether something is in front of the fingers.
 
-Everything in sections 1–5 was measured on our robot. Section 6 lists the vendor's other gripper options for reference.
+Everything in sections 1–6 was measured or set on our robot. Section 7 lists the vendor's other gripper options for reference.
 
 ---
 
@@ -10,12 +10,12 @@ Everything in sections 1–5 was measured on our robot. Section 6 lists the vend
 
 | Part | What it is |
 |---|---|
-| Gripper | Zimmer (zimmer-group.com) electric two-finger parallel gripper, probably GEP2000 series (the exact model is still to read from the label). Rotary switch "Funct" 1–4 on the housing; green LED = powered |
-| Fingers | Long stainless-steel fingers with curved tips, about 15 cm, made for cups and glasses |
-| Finger sensor | Small optical (photoelectric) sensor with a yellow/black housing, mounted on one finger and looking forward. The red light is its emitter and is always on. The indicator LED on its back turns red when something is in front of it and blue when nothing is |
+| Gripper | **Zimmer GEP2013IO-05-B** (label on the housing, serial 01-00061615): electric 2-jaw parallel gripper, digital I/O version. Datasheet values for the GEP2013 family: **13 mm stroke per jaw**, **gripping force 90–360 N** in four levels, **mass about 0.54 kg** without fingers. Rotary switch "Funct" 1–4 = force level (level 4 = 360 N); it is on **1**. Green LED = powered |
+| Fingers | Long stainless-steel fingers with curved tips on L-shaped brackets, made for cups and glasses. Fingertips are about 265 mm from the flange face; the fingers sit beside the flange axis, not on it (about 8 cm off, estimated from photos) |
+| Finger sensor | **MISUMI** optical (photoelectric) sensor, yellow/black housing, mounted on one finger and looking forward. The red light is its emitter and is always on. The indicator LED on its back turns red when something is in front of it and blue when nothing is |
 | Cable | Gripper and sensor are both wired to the arm's M8 tool connector (TIO), see [04_ARM.md §8](04_ARM.md#8-tool-io-connector-m8-8-pin-tio-v3) |
 
-The rotary switch selects the gripper's operating function. Its exact meaning (grip force or mode) is in the Zimmer manual for the model; it was left at the position it was delivered in.
+The rotary switch sets the gripping force. Even level 1 (~90 N) is far more than a plastic cup needs: the software must not close on objects that cannot take it (see [15_PICK_AND_PLACE.md](15_PICK_AND_PLACE.md) §3.5).
 
 ---
 
@@ -98,18 +98,34 @@ The raw command is `{"cmdName": "set_digital_output", "type": 1, "index": <0|1>,
 
 ---
 
-## 5. Still to do
+## 5. Payload in Cobo π
+
+Set 2026-10-13 in Settings → Payload, slot **`zimmer_gripper`**, selected as the active payload:
+
+| Field | Value | Basis |
+|---|---|---|
+| Load | **1.000 kg** | estimate: gripper 0.54 kg (datasheet) + steel fingers and brackets |
+| Centre of mass | **X 30, Y 0, Z 80 mm** | estimate from photos: fingers on the +X side of the flange, heavy body close to the flange |
+
+"One-click Auto Identification" refuses with error `0x0F0088` "Payload identification only be supported in floor-mounting": the Lumi arm is side-mounted (Mounting Orientation Y 90°, do not change it), so the payload has to be entered by hand.
+
+The collision limits shown with it are still the loose defaults (force 100 %, TCP speed 5000 mm/s, momentum 10 kg·m/s, power 600 W, stop distance 4000 mm). Tighten them before the arm works near people, in small steps, checking that normal motions still pass.
+
+---
+
+## 6. Still to do
 
 | Item | Why |
 |---|---|
-| Read the model number from the label and download its manual | Stroke, grip force, the "Funct" switch, the meaning of the AI_1 output |
-| Weigh the gripper and fingers, set **payload** and **TCP** in Cobo π | The arm's collision detection and dynamics need the real tool mass. TCP = the point between the fingertips |
+| Download the GEP2013IO-05-B operating manual | Confirm stroke, force per switch level and the AI_1 output scaling |
+| Weigh the complete tool (gripper, fingers, brackets, plate, sensor) and correct the payload | The payload is set from an estimate, see below |
+| TCP offset | Kept in our code, not in Cobo π, and measured during the camera calibration (the fingers are off the flange axis, a tape measure is not accurate enough) |
 | Calibrate AI_1 against finger opening in mm | So that the vision system can check whether an object fits (see [15_PICK_AND_PLACE.md](15_PICK_AND_PLACE.md)) |
 | Teach the finger sensor's range | It decides when the gripper is close enough to an object to close |
 
 ---
 
-## 6. Other gripper options on Lumi (vendor material)
+## 7. Other gripper options on Lumi (vendor material)
 
 JAKA's education kit uses a **DH Robotics DH-PGEA-50** with 3D-printed fingers, driven over **Modbus RTU (RS485)**. The tool connector's DO pins can be switched to RS485 channel 1 for this (Cobo π → I/O → Tool → DO_1 → "Reuse as RS485 channel 1"). Settings in the vendor code: slave 1, 115200 baud, 8N1. Registers: `0x0100` initialise, `0x0101` force %, `0x0103` target position (0 closed … 1000 open), `0x0200` init state, `0x0201` grip state, `0x0202` position. The vendor demos also use a USB-RS485 adapter on the host (`/dev/DH_hand`) and DH AG-95 grippers through `pyDHgripper`. Sources: jaka-robot-demos `LUMI_DEMO-v3/.../dh_gripper.py`, JAKA_Lumi `LUMI_DEMO_BMW/LumiAgent/utilfs/python_open_gripper.py` (see [12_SOURCES.md](12_SOURCES.md)).
 

@@ -135,7 +135,8 @@ class PersonDetector:
             try:
                 self.pipeline, self.serial, self.name = open_camera(self.camera)
                 config = Config()
-                config.enable_stream(_profile(self.pipeline, OBSensorType.COLOR_SENSOR, COLOR_MODE))
+                self.color_profile = _profile(self.pipeline, OBSensorType.COLOR_SENSOR, COLOR_MODE)
+                config.enable_stream(self.color_profile)
                 if self.use_depth:
                     config.enable_stream(_profile(self.pipeline, OBSensorType.DEPTH_SENSOR, DEPTH_MODE))
                 self.pipeline.start(config)
@@ -144,6 +145,12 @@ class PersonDetector:
                 if attempt == OPEN_TRIES - 1:
                     raise
                 time.sleep(1.0)
+
+    def intrinsics(self):
+        """Colour camera matrix and distortion of the open mode (factory calibration), as a JSON-ready dict."""
+        i, d = self.color_profile.get_intrinsic(), self.color_profile.get_distortion()
+        return {"width": i.width, "height": i.height, "fx": i.fx, "fy": i.fy, "cx": i.cx, "cy": i.cy,
+                "dist": [d.k1, d.k2, d.p1, d.p2, d.k3, d.k4, d.k5, d.k6]}       # OpenCV order
 
     def _reopen(self):
         """The camera stopped sending. Seen on the head camera: sometimes it streams for ~1 s and then stops,

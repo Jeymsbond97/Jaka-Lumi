@@ -10,6 +10,8 @@ disconnects every ~2.5 s (seen 2026-10-12). So one service owns both cameras:
 For each camera it runs person detection (person.py) and writes to /dev/shm:
 - lumi_cam_<name>.jpg / .json   picture with boxes (PUBLISH_HZ) + people, for the dashboard (api.py /view)
 - lumi_det_<name>.json          every detection frame: people with boxes, frame size, head yaw (RemoteDetector)
+- lumi_raw_<name>.jpg           the camera's own full-size JPEG of every frame (live video, calib.py)
+- lumi_intr_<name>.json         colour intrinsics of the running mode (calib.py, objects)
 Programs that need people (lumi.py, api.py) use RemoteDetector, which has the same read() as
 person.PersonDetector. They tell the service whom to draw red (focus) through lumi_focus_<name>.json.
 Nobody reading for IDLE_S (no viewer, no lumi.py): detection drops to 1 frame a second.
@@ -59,6 +61,19 @@ def info_path(name):
 def raw_path(name):
     """The camera's own JPEG of the newest frame (no boxes): the dashboard's live video."""
     return SHM / f"lumi_raw_{name}.jpg"
+
+
+def intrinsics_path(name):
+    """Colour camera matrix and distortion of the running mode, written when the camera opens."""
+    return SHM / f"lumi_intr_{name}.json"
+
+
+def intrinsics(name):
+    """{width, height, fx, fy, cx, cy, dist} of a camera opened by the service, or None."""
+    try:
+        return json.loads(intrinsics_path(name).read_text())
+    except (FileNotFoundError, ValueError):
+        return None
 
 
 def det_path(name):
@@ -240,6 +255,10 @@ def _serve():
                     det.on_raw = write_raw                 # every camera frame, for the live video
                     if name == "head" and not HEAD_DEPTH:
                         det.distance_hint = torso_distance
+                    try:
+                        _write(intrinsics_path(name), json.dumps(det.intrinsics()).encode())
+                    except Exception as e:
+                        print(f"{name}: no intrinsics: {e}", flush=True)
                     state[name] = "ok"
                 except Exception as e:
                     state[name] = f"cannot open: {e}"

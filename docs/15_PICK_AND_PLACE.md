@@ -127,7 +127,7 @@ New modules in `real/thor/` (same style as the existing ones: one job each, runn
 |---|---|
 | `gripper.py` | open / close / state (done) |
 | `objects.py` | detect objects in the torso camera, colour, choose one (rules / LLM on the image), 3D position and size from depth |
-| `calib.py` | camera → arm-base extrinsics (ArUco on the gripper, several arm poses, SVD fit), saved to `camera_extrinsics.json` |
+| `calib.py` | camera → arm-base extrinsics (ArUco on the gripper, still arm poses moved by hand in Cobo π, Park & Martin AX = XB), saved to `camera_extrinsics.json` (done, see §8) |
 | `reach.py` | planning model: loads the MuJoCo model from `sim/`, IK with joint margins, collision check, chooses lift / waist / base for a target |
 | `motion.py` | sends checked joint and linear moves to the arm (controller TCP 10001, or the SDK on the Thor), slow presets, stop |
 | `skills.py` | `pick(description)`, `place(where)`, `give()`, `fetch(...)`: the sequences above, each step logged and stoppable |
@@ -176,3 +176,20 @@ Each stage ends with a test on the robot; the next starts only when it passes.
 | Torso camera → arm base transform | `calib.py` | object position |
 | Finger sensor range | move a cup toward it, note DI_1 switching distance | "close now" condition |
 | Arm base position vs. lift / waist | from the URDF; verify with a few poses | reach planning |
+
+---
+
+## 8. Camera calibration (P3) results
+
+Method: ArUco DICT_4X4_50 id 0, 50 mm, glued on the flat black face of the gripper body (the face with two holes). The arm is moved by hand in Cobo π; `calib.py collect` saves a sample whenever the joints are still for 1.5 s, the marker is in view and the pose differs from earlier samples (Lumi says "Saved, N"). `calib.py solve` fits camera-in-base and marker-on-flange and reports, for each sample, how far apart the marker is when seen by the camera and when placed by the arm.
+
+Findings:
+- The controller's `actual_position` angles are fixed X-Y-Z roll-pitch-yaw in degrees (R = Rz·Ry·Rx): median error 4.1 mm, against 97 mm for the other order.
+- Torso colour intrinsics at 1280×720 (factory): fx 608.3, fy 608.4, cx 636.9, cy 363.2, 8 distortion coefficients (rational model). Written by the camera service to `/dev/shm/lumi_intr_torso.json`.
+- The camera service may start before a camera re-enumerates after `--stop`; it then reports `camera 'torso' not found`. Start it again.
+
+| Date | Samples | Marker distance | Median / max error | Camera in arm base (mm) | Marker on flange (mm) |
+|---|---|---|---|---|---|
+| 2026-10-13 | 20 | 215–355 mm | 4.1 / 10.9 mm | (−242.8, 4.5, −40.0) | (−16.5, 4.0, 40.4) |
+
+Lift and waist were not moved during the session. Whether the result holds at other lift / waist positions is still to check (the camera sits on the waist link; the arm base is expected to move with it).

@@ -48,3 +48,5 @@ real/thor/doa_samples.npz
 real/thor/volume.txt
 real/thor/mic_source.txt
 real/thor/proxy.txt
+real/thor/calib_samples/
+real/thor/camera_extrinsics.json
