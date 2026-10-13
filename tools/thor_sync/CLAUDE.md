@@ -6,7 +6,7 @@ This folder (`~/Dev/lumi-wave`) is the software of our JAKA Lumi robot and runs 
 
 1. [docs/ROADMAP.md](docs/ROADMAP.md): current state, the **Next** list, the log. Resume from "Next".
 2. [docs/15_PICK_AND_PLACE.md](docs/15_PICK_AND_PLACE.md): the current milestone, picking and placing objects by voice. Stage **P0** (gripper from voice, API and dashboard) is next.
-3. [docs/10_GRIPPER.md](docs/10_GRIPPER.md): the mounted Zimmer gripper. All tool I/O on PNP; DO_1 close, DO_2 open; AI_1 finger position (~160 open, 4100–4200 closed empty, lower when holding); DI_1 finger sensor. `gripper.py` is written; its open/close have not been run from code yet.
+3. [docs/10_GRIPPER.md](docs/10_GRIPPER.md): the mounted Zimmer gripper. All tool I/O on PNP; DO_1 close, DO_2 open; AI_1 finger position (~160 open, 4100–4200 closed empty, lower when holding); DI_1 finger sensor. `gripper.py` opens / closes it (run from code 2026-10-13); API `/gripper/*`, dashboard Arm tab, voice "open / close your hand".
 4. [docs/14_VOICE_ASSISTANT.md](docs/14_VOICE_ASSISTANT.md): how Lumi must behave in conversations. Items marked 🟡 are implemented but not yet tested live.
 5. [README.md](README.md): architecture of the code in this folder, how to run and deploy.
 

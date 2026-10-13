@@ -15,7 +15,7 @@ Where the project stands, what comes next, and a short log. Update it at the end
 | Voice | wake word, caller direction, streamed answers, web lookups, barge-in, language switching, motion commands; requirements and test status in [14_VOICE_ASSISTANT.md](14_VOICE_ASSISTANT.md) |
 | Base | map `cutshion_708_B_block` with dock `Home`, `a`, `b`, `p1`–`p10`, `final`; routes from the dashboard; stuck drives cancelled after 20 s |
 | Arm | Cobo π programs over TCP 10001 (`hand_shaking.jks`), relative joint jogging, tuck pose |
-| Gripper | Zimmer gripper mounted and tested (PNP, DO_1 close / DO_2 open, AI_1 position, DI_1 finger sensor), see [10_GRIPPER.md](10_GRIPPER.md). `gripper.py` written, open/close not yet run from code |
+| Gripper | Zimmer gripper mounted and tested (PNP, DO_1 close / DO_2 open, AI_1 position, DI_1 finger sensor), see [10_GRIPPER.md](10_GRIPPER.md). open / close run from code; API `/gripper/*`, dashboard buttons; voice command written, not tested live |
 | Internet | Thor's own Wi-Fi to the company network (`CUTSHION_5G`); the robot LAN has none |
 
 Uncommitted / untested work from 2026-10-13: caller detection outside the camera view, motion commands (turn / move / arm), "answer only what was asked", unclear-speech handling, wake-word-only stops while driving with route resume, varied goodbyes, weather cache, own-voice filter for interruptions.
@@ -25,7 +25,7 @@ Uncommitted / untested work from 2026-10-13: caller detection outside the camera
 ## Next
 
 1. **Live test** of the 2026-10-13 voice changes (all 🟡 items in [14_VOICE_ASSISTANT.md](14_VOICE_ASSISTANT.md)).
-2. **Pick and place, stage P0**: gripper from code, API and dashboard buttons, voice "open / close your hand" ([15_PICK_AND_PLACE.md](15_PICK_AND_PLACE.md)).
+2. **Pick and place, stage P0**: live test of the voice "open / close your hand" (code, API and dashboard done) ([15_PICK_AND_PLACE.md](15_PICK_AND_PLACE.md)).
 3. Then P1–P9 in order.
 4. Glass door: the base stood "running" at the door (x −1.03, y 0.92) without a free path past the no-go line. Open both leaves or shorten the line in the AGV panel (:9001), move `p1` to the middle of the doorway.
 5. Record `arm_tuck.jks` / `arm_reach.jks` in Cobo π. Tuck before every drive (the arm hit a door frame once).
@@ -86,4 +86,4 @@ Uncommitted / untested work from 2026-10-13: caller detection outside the camera
 | 2026-10-07 | First day on the robot: network, controller version, AGV driving and a new map, `hand_shaking.jks`, Thor software (detection, greeting, RAG, gemma4, whisper.cpp, Supertonic, `lumi.py`, patrol). |
 | 2026-10-08 | Robot API + Swagger, map extended to the corridor and a second room, route markers, one-time routes. Found: glass door invisible to the lidar, the arm sticks out and hit a door frame. |
 | 2026-10-12 | Head camera found behind a USB 2 hub in the head; camera service; dashboard; wake word, voice direction, "come here", streamed answers; DJI clip mic; Thor internet over Wi-Fi; web lookups; stuck-drive detection. |
-| 2026-10-13 | Voice behaviour reworked (section 7 of the voice doc); weather cache; own-voice filter. Zimmer gripper mounted and measured (PNP, DO_1 / DO_2, AI_1, DI_1); `gripper.py`. Repository reorganised (`sim/`, docs in English, onboarding for the Thor). Pick-and-place plan written. |
+| 2026-10-13 | Voice behaviour reworked (section 7 of the voice doc); weather cache; own-voice filter. Zimmer gripper mounted and measured (PNP, DO_1 / DO_2, AI_1, DI_1); `gripper.py`. Repository reorganised (`sim/`, docs in English, onboarding for the Thor). Pick-and-place plan written. P0: gripper opened / closed from the Thor, `/gripper/state|open|close` in the API, dashboard buttons, voice intents (not tested live). |

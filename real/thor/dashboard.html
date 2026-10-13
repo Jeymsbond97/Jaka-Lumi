@@ -269,6 +269,10 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
     <div class="sec"><h4>Programs</h4>
       <div class="row"><input type="text" id="prog" class="grow" value="hand_shaking.jks"><button class="btn primary" id="progRun">Run</button><button class="btn danger" id="progStop">Stop</button></div>
       <div class="row"><button class="btn grow" id="armTuck2">Fold arm (drive pose)</button></div></div>
+    <div class="sec"><h4>Gripper</h4>
+      <div class="row"><span class="tag" id="gripSt">–</span><span class="tag" id="gripEye">sensor –</span></div>
+      <div class="row"><button class="btn grow" id="gripOpen">Open</button><button class="btn grow" id="gripClose">Close</button></div>
+      <div class="note">Keep hands away from the fingers.</div></div>
   </div>
 
   <div class="pane" id="pane-maps">
@@ -733,6 +737,10 @@ async function refreshArm() {
     $("armPow").textContent = "power " + (a.power ? "on" : "off"); $("armPow").className = "tag " + (a.power ? "live" : "");
     $("armEn").textContent = a.enable ? "enabled" : "disabled"; $("armEn").className = "tag " + (a.enable ? "live" : "");
     $("armProg").textContent = `${a.program} · ${a.loaded || "–"}`;
+    const g = await api("/gripper/state");
+    $("gripSt").textContent = (g.holding ? "holding" : g.closed ? "closed" : "open") + " · " + g.ai[0];
+    $("gripSt").className = "tag " + (g.holding ? "live" : "");
+    $("gripEye").textContent = "sensor " + (g.object_in_front ? "object" : "clear");
   } catch (e) {}
 }
 setInterval(refreshArm, 500);
@@ -740,6 +748,8 @@ $("armPowerOn").onclick = e => act(e.target, "Arm power on", () => api("/arm/pow
 $("armEnable").onclick = e => act(e.target, "Arm enabled", () => api("/arm/enable", {on: true}));
 $("armDisable").onclick = e => { if (confirm("Disable the arm servos? The arm holds by its brakes.")) act(e.target, "Arm disabled", () => api("/arm/enable", {on: false})); };
 $("progRun").onclick = e => act(e.target, "Program started", () => api("/arm/run", {program: $("prog").value.trim()}));
+$("gripOpen").onclick = e => act(e.target, "Gripper open", () => api("/gripper/open", {}));
+$("gripClose").onclick = e => { if (confirm("Close the gripper? Hands away from the fingers.")) act(e.target, "Gripper closed", () => api("/gripper/close", {})); };
 $("progStop").onclick = e => act(e.target, "Program stopped", () => api("/arm/stop", {}));
 
 const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");

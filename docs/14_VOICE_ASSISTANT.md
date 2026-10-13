@@ -69,6 +69,7 @@ Keep the clip mic's transmitter on the visitor, not on the robot: taped near the
 | "Move forward / back / left / right N metres" | short base move, at most 3 m | 🟡 |
 | "Reach out your hand" / "fold your arm" | Cobo π program `arm_reach.jks` (to record) / tuck pose | 🟡 / ⬜ |
 | "Wave" | Cobo π program `hand_shaking.jks` | ✅ |
+| "Open your hand" / "close your hand", "grab it", "let go", 손을 펴 / 잡아 | gripper open / close, confirmed aloud | 🟡 |
 | "Stop" | base, arm and speech stop | ✅ |
 | "Open / close your hand", "take the red cup", "put it here" | gripper and pick-and-place, see [15_PICK_AND_PLACE.md](15_PICK_AND_PLACE.md) | ⬜ |
 

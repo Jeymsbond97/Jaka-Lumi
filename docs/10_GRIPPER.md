@@ -94,7 +94,7 @@ gripper.open_()
 
 The raw command is `{"cmdName": "set_digital_output", "type": 1, "index": <0|1>, "value": <0|1>}` (type 1 = tool I/O). The state comes from `get_data` (`tio_dout`, `tio_din`, `tio_ain`).
 
-`open` / `close` in `gripper.py` have not been run yet: so far the outputs were only switched from Cobo π. The first run should be watched, with nobody's hands near the fingers.
+`open` / `close` in `gripper.py` were first run from the Thor on 2026-10-13: open read AI_1 162 with DO `[0, 1]`, close read AI_1 4116 (empty) with DO `[1, 0]`. The API exposes them as `GET /gripper/state`, `POST /gripper/open`, `POST /gripper/close` (refused with 409 while `lumi.py` runs); the dashboard has Open / Close buttons and a live state in the Arm tab.
 
 ---
 

@@ -65,6 +65,7 @@ import arm
 import brain as brain_mod
 import camview
 import doa
+import gripper
 import ears
 import head
 import mic
@@ -513,7 +514,12 @@ class Lumi:
         return True
 
     def arm_pose(self, target):
-        """'reach': the Cobo π program ARM_REACH_PROGRAM (record it once); 'fold': the folded drive pose."""
+        """'reach': the Cobo π program ARM_REACH_PROGRAM (record it once); 'fold': the folded drive pose;
+        'open' / 'close': the gripper."""
+        if target in ("open", "close"):
+            st = safe(gripper.open_ if target == "open" else gripper.close)
+            log(f"  gripper {target}: {st}")
+            return st is not None
         if target == "fold":
             r = safe(lambda: arm.cmd("joint_move", relFlag=0, jointPosition=ARM_TUCK, speed=15, accel=30))
             return bool(r) and r.get("errorCode") == "0"
@@ -769,8 +775,12 @@ class Lumi:
                 mouth.say(say_en if en else say_ko)
             return True
         if action == "arm":
+            done = {"open": ("Okay, opening my hand.", "네, 손을 펼게요."), "close": ("Okay, closing my hand.", "네, 손을 쥘게요.")}
+            if target in done:
+                mouth.say(done[target][0] if en else done[target][1])
             if self.arm_pose(target):
-                mouth.say("Here you go." if en else "여기요.")
+                if target not in done:
+                    mouth.say("Here you go." if en else "여기요.")
             else:
                 mouth.say("Sorry, I haven't learned that arm movement yet." if en else "죄송해요, 그 팔 동작은 아직 못 배웠어요.")
             return True

@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field
 import agv
 import arm
 import camview
+import gripper
 import head
 from control import jogger
 
@@ -657,6 +658,24 @@ def arm_tuck():
     if r.get("errorCode") != "0":
         raise HTTPException(502, r.get("errorMsg") or str(r))
     return {"ok": True, "target": ARM_TUCK}
+
+
+@app.get("/gripper/state", tags=["gripper"], summary="Open / closed / holding, finger sensor, raw tool I/O")
+def gripper_state():
+    return gripper.state()
+
+
+@app.post("/gripper/open", tags=["gripper"], summary="Open the gripper; returns the state after the stroke (~1.5 s)")
+def gripper_open():
+    robot_free()
+    return gripper.open_()
+
+
+@app.post("/gripper/close", tags=["gripper"], summary="Close the gripper (keep hands away); returns the state after")
+def gripper_close():
+    robot_free()
+    return gripper.close()
+
 
 class ModesBody(BaseModel):
     greeter: bool | None = Field(None, description="standing: greet people who come close, talk, wake word")

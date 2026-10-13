@@ -91,7 +91,8 @@ You can also move. Decide if the visitor asks you to do something:
   "go back a little" -> move back 0.5, "move left two metres" -> move left 2). At most 3 metres.
 - turn <left|right|around> <degrees>: turn the whole body ("turn around" -> turn around 180,
   "turn left" -> turn left 90).
-- arm <reach|fold>: stretch your arm forward ("reach out your hand") or fold it back.
+- arm <reach|fold|open|close>: stretch your arm forward ("reach out your hand"), fold it back, or open / close
+  your hand (the gripper: "open your hand", "grab it", "let go").
 - wave: wave your hand ("wave", "shake your hand", "say hi with your hand").
 - stop: stop moving.
 - end: the visitor says goodbye or ends the conversation.
@@ -148,6 +149,9 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
              r"(?:\s+(\d+(?:\.\d+)?|half)\s*(?:m|meters?|metres?)?)?|"
              r"\b(?:move|go|come)\s+(\d+(?:\.\d+)?)\s*(?:m|meters?|metres?)\s+(forward|ahead|back(?:ward)?|left|right)\b|"
              r"(앞으로|뒤로|왼쪽으로|오른쪽으로)\s*(\d+(?:\.\d+)?)?\s*(?:미터|m)?\s*(?:가|와|이동|움직)"),
+    ("grip_open", r"\b(open (your )?(hand|gripper|fingers)|let (it )?go|drop it)\b|손을? ?(펴|벌려|열어)|놓아"),
+    ("grip_close", r"\b(close (your )?(hand|gripper|fingers)|grab (it|this)|grip (it|this))\b"
+                   r"|손을? ?(쥐|오므려|닫아)|잡아"),
     ("arm", r"\b(reach out|stretch (out )?your (arm|hand)|put your (arm|hand) (out|forward)|hand forward)\b|팔을? ?(뻗|내밀)"),
     ("weather", r"\bweather\b|\bforecast\b|\b(will it|is it going to) rain\b|\btemperature (outside|today)\b|날씨|비 ?와|기온"),
     ("search", r"\b(news|latest|headlines|who won|score of|price of|exchange rate|stock)\b|뉴스|환율|주가"),
@@ -189,6 +193,8 @@ def intent(text, markers=()):
             return ("move", f"{d} {min(n, 3.0):g}")
         if action == "arm":
             return ("arm", "reach")
+        if action in ("grip_open", "grip_close"):
+            return ("arm", action[5:])
         return (action, "")
     return None
 
@@ -384,7 +390,7 @@ class Brain:
             action = "go_to" if target else "none"
         if action == "look" and target not in LOOK_TARGETS:
             action = "none"
-        if action == "arm" and target not in ("reach", "fold"):
+        if action == "arm" and target not in ("reach", "fold", "open", "close"):
             action = "none"
         if action not in ("go_to", "look", "weather", "search", "move", "turn", "arm"):
             target = ""
