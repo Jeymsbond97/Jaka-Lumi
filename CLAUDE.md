@@ -9,7 +9,7 @@ A JAKA Lumi mobile manipulator in our office, made into an autonomous assistant.
 - `real/thor/`: the software that runs on the robot's Jetson Thor. Start with its [README](real/thor/README.md).
 - `docs/`: real-robot reference (00–13), voice-assistant requirements (14), pick-and-place plan (15), [ROADMAP.md](docs/ROADMAP.md) (status, next steps, log).
 - `sim/`: MuJoCo model of the robot; used as the planning model for arm motion.
-- `tools/`: laptop-side scripts for the base and arm (`robot_check.py` is read-only).
+- `tools/`: laptop-side scripts for the base and arm (`robot_check.py` is read-only); `tools/thor_sync/` copies code and docs to the Thor (its `CLAUDE.md` becomes the Thor's).
 
 **Where to resume:** the "Next" list in [docs/ROADMAP.md](docs/ROADMAP.md). How the assistant must behave is in [docs/14_VOICE_ASSISTANT.md](docs/14_VOICE_ASSISTANT.md); keep the code and that page in step.
 
@@ -17,7 +17,7 @@ A JAKA Lumi mobile manipulator in our office, made into an autonomous assistant.
 
 | Device | Address | Access |
 |---|---|---|
-| Jetson Thor | 192.168.10.240 | user `cutshion`; this repo at `~/Dev/JakaLumi_simulation`, `~/Dev/lumi-wave` → `real/thor` |
+| Jetson Thor | 192.168.10.240 | user `cutshion`; `real/thor/` is deployed to `~/Dev/lumi-wave` together with the docs (`tools/thor_sync/sync.sh`) |
 | Arm / body controller | 192.168.10.90 | Cobo π `https://192.168.10.90`, body API `:5000`, arm JSON `:10001` |
 | AGV base | 192.168.10.10 | API `:31001`, panel `:9001` |
 | Robot API + dashboard | 192.168.10.240:8100 | `/docs`, `/view` |
@@ -43,7 +43,8 @@ Robot Wi-Fi `Lumi10000013-5G` (a laptop needs a manual IP such as 192.168.10.200
 
 ## On the Thor
 
-- Run Python with `real/thor/.venv/bin/python` (system Python lacks OpenCV).
-- Logs are in `real/thor/*.log`; `lumi.log` is the assistant.
+- The Thor has no git checkout: `~/Dev/lumi-wave` is the code from `real/thor/` plus `docs/` (including `docs/private/`), `tools/` and its own `CLAUDE.md`. Changes made on the Thor must be copied back here.
+- Run Python with `~/Dev/lumi-wave/.venv/bin/python` (system Python lacks OpenCV).
+- Logs are in `~/Dev/lumi-wave/*.log`; `lumi.log` is the assistant.
 - After editing a module, restart only what uses it (see "Deploying a change" in the Thor README).
-- The Thor reaches the internet through its own Wi-Fi; GitHub pushes need the owner's credentials (`gh auth login`) on first use.
+- The Thor reaches the internet through its own Wi-Fi.

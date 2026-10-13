@@ -2,7 +2,7 @@
 
 Everything that runs on the robot's NVIDIA Jetson Thor (`192.168.10.240`). It covers the robot API with Swagger and the web dashboard, the camera service with person detection, and the voice assistant (`lumi.py`), which greets visitors, talks with them in English and Korean and drives where it is told. It also holds the device drivers for the base, body, arm and gripper.
 
-On the Thor this folder is `~/Dev/JakaLumi_simulation/real/thor`; `~/Dev/lumi-wave` is a symlink to it (the boot crontab and the venv use that path).
+On the Thor this folder is `~/Dev/lumi-wave`, with the real-robot documentation copied next to the code (`docs/`, `tools/`, `CLAUDE.md`). `tools/thor_sync/sync.sh` on the Mac refreshes it.
 
 ---
 
