@@ -66,6 +66,27 @@ The controller's `get_data` was polled every 0.3 s while the outputs were switch
 
 ---
 
+### Finger opening (measured with a ruler, 2026-10-13, fully open, AI_1 162)
+
+The fingers are curved inward, so the gap is widest in the middle:
+
+| Where | Gap |
+|---|---|
+| Entry at the fingertips | 88–89 mm |
+| Middle (widest) | 100 mm |
+| Innermost, near the brackets | 66 mm |
+
+With 13 mm stroke per jaw, closing narrows each place by about 26 mm (middle ~74 mm), so a cup of 75–95 mm sits best in the middle of the fingers. An 82 mm cup passes the 88 mm entry with only ~3 mm per side: approach on the measured centre line.
+
+### Grasp point (taught 2026-10-13)
+
+The fingers were placed around a cup by hand (FREE button), the cup measured by the torso camera after lifting the arm
+straight up. The point between the fingers where a cup's axis sits, 4 cm below the rim, is at **(106.4, −86.5, 230.5) mm
+in the flange frame** (268 mm from the flange, 137 mm off its axis). Stored in `grasp_teach.json` with the flange pose.
+First pick with it: the 82 mm LS metal cup moved 16 mm, the arm went 10 cm above, straight down, closed (AI_1 2189),
+lifted 30 mm (AI_1 2270–2310, stable), put it back within 1 mm. The finger sensor DI_1 stayed 0 the whole time:
+it does not see a cup held at this point (to check where it looks).
+
 ## 4. Software
 
 `real/thor/gripper.py` drives the gripper through the arm controller's TCP command port (192.168.10.90:10001, JSON, no SDK):

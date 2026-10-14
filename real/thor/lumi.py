@@ -69,6 +69,7 @@ import gripper
 import ears
 import head
 import mic
+import motion
 import mouth
 import nav
 import tools
@@ -107,7 +108,6 @@ COME_STOP = 1.1                    # m; driving to a person stops when the camer
 COME_TIMEOUT = 60.0                # s
 MAX_MOVE_M = 3.0                   # m; "move forward N metres" is limited to this
 ARM_REACH_PROGRAM = "arm_reach.jks"   # Cobo π program for "reach out your hand" (to be recorded on the robot)
-ARM_TUCK = [179.3, -88.6, -13.9, -15.8, -14.5, -121.3]   # deg, folded drive pose (same as api.py)
 STUCK_DRIVE_S = 20.0               # s "running" without moving -> the drive is cancelled and Lumi says so
 MODES_FILE = "/dev/shm/lumi_modes.json"   # written by api.py: {"greeter", "patrol", "wave", "drive"}
 CMD_FILE = "/dev/shm/lumi_cmd.json"       # written by api.py: {"id", "cmd": go | go_point | cancel | calibrate}
@@ -521,8 +521,7 @@ class Lumi:
             log(f"  gripper {target}: {st}")
             return st is not None
         if target == "fold":
-            r = safe(lambda: arm.cmd("joint_move", relFlag=0, jointPosition=ARM_TUCK, speed=15, accel=30))
-            return bool(r) and r.get("errorCode") == "0"
+            return safe(lambda: motion.go("tuck", wait=False)) is not None
         try:
             arm.start(ARM_REACH_PROGRAM)
             return True
@@ -658,6 +657,9 @@ class Lumi:
             self.answer(text)
             return True
         text, u = ears.listen(wait_s=4.0, on_start=lambda: log("  hearing speech"), abort=self.interrupted, full=True)
+        if text and self.own_echo(text):                   # the clip mic heard Lumi's own greeting / reply
+            log(f"  ignored own voice: {text!r}")
+            text = None
         if not text and self.closing_pending and time.time() - self.closing_pending > CLOSING_WAIT_S:
             log("  silence after a closing word - conversation over")
             self.end_conversation("okay")
@@ -1051,8 +1053,10 @@ class Lumi:
             if self.current:
                 self.turn_head(HEAD_SIGN * self.current.angle)
             else:
+                # often still there, out of the frame (beside the arm): keep listening without the wake word
+                # for a while, like a conversation started by voice
                 self.turn_head(0, 0)
-                self.brain.reset()
+                self.voice_until = time.time() + VOICE_SESSION_S
             self.last_activity, self.prompts = time.time(), 0
             return
 

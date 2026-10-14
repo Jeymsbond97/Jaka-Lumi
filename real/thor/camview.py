@@ -9,7 +9,8 @@ disconnects every ~2.5 s (seen 2026-10-12). So one service owns both cameras:
 
 For each camera it runs person detection (person.py) and writes to /dev/shm:
 - lumi_cam_<name>.jpg / .json   picture with boxes (PUBLISH_HZ) + people, for the dashboard (api.py /view)
-- lumi_det_<name>.json          every detection frame: people with boxes, frame size, head yaw (RemoteDetector)
+- lumi_det_<name>.json          every detection frame: people with boxes, frame size, head yaw (RemoteDetector);
+                                for the torso also objects (cups, bottles...) measured by objects.py
 - lumi_raw_<name>.jpg           the camera's own full-size JPEG of every frame (live video, calib.py)
 - lumi_intr_<name>.json         colour intrinsics of the running mode (calib.py, objects)
 Programs that need people (lumi.py, api.py) use RemoteDetector, which has the same read() as
@@ -226,6 +227,7 @@ def _serve():
     signal.signal(signal.SIGTERM, lambda *_: os._exit(0))   # exit at once: pipeline.stop() can hang
     cv2.setNumThreads(8)                          # two YOLOs share these (the Thor has 14 cores)
     from person import PersonDetector
+    import objects
     state = {name: "starting" for name in CAMERAS}
 
     def write_status():
@@ -287,10 +289,16 @@ def _serve():
                 continue
             if color is not None:
                 latest[name] = (time.time(), people)
+                found = []
+                if name == "torso" and det.objects:
+                    try:
+                        found = objects.measure_all(color, det.depth, det.objects)
+                    except Exception as e:
+                        print(f"objects: {e}", flush=True)
                 _write(det_path(name), json.dumps({
                     "time": time.time(), "serial": det.serial, "height": color.shape[0], "width": color.shape[1],
                     "head_yaw": det.head_yaw, "bad_jpeg": det.bad_jpeg, "reopens": det.reopens, "reboots": det.reboots,
-                    "people": people}).encode())
+                    "people": people, "objects": found}).encode())
             try:
                 idle = time.time() - want_path(name).stat().st_mtime > IDLE_S
             except FileNotFoundError:

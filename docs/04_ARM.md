@@ -303,3 +303,18 @@ RS485 channel 1 (on the DO pins, high speed): Modbus RTU grippers, JAKA torque s
 4. For each joint: `joint_move` INCR +5° at 0.2 rad/s, read `get_joint_position`, check that the joint turned in the positive direction of its URDF axis (and as Cobo π's 3D view shows); move back −5°.
 5. Go to the factory pose `[0, 120, -120, 0, -90, 0]°` slowly; compare the arm shape with Cobo π's 3D view and with the URDF at the same angles (e.g. in RViz: `ros2 launch jaka_lumi_description lumi_description.launch.py`).
 6. Only then run your own poses and short trajectories; servo mode only if the controller supports it.
+
+---
+
+## 10. Motion over TCP 10001: measured 2026-10-13
+
+| Fact | Detail |
+|---|---|
+| `kine_forward`, `kine_inverse` | work (`jointPosition` deg, `cartPosition` mm / deg); `kine_inverse` answers `errorCode` −4 when there is no solution |
+| `moveL` | works: `relFlag` 0, `cartPosition`, `speed` mm/s, `accel`; 30 mm up and down from `ready` ended within 0.1 mm, orientation unchanged |
+| Stop | `stop_program` stops a `joint_move` / `moveL` sent over TCP (J6 at 10 "deg/s" stopped ~8° after 0.7 s). Once the controller stopped the arm and closed the connection without a reply. `motion_abort`, `get_motion_status`, `is_in_pos` do not exist on this port ("function call failed") |
+| Speed | `joint_move` with `speed` 10 moved 157° of J6 in ~37 s (~4.3°/s): large moves run well below the given speed. Short moves (20°) run at about the given speed |
+| `get_data` | now and then answers with no state fields: a poll must be retried, not trusted |
+| Wrapped joints | J1 / J4 / J6 can stand a full turn away from a stored value (`ready` has J1 −284°, `tuck` 179°); `motion.py` picks target ± 360 nearest to the current angle |
+| Reach | from `tuck`, IK has no solution for any move up; straight moves start from `ready` |
+| Poses | `tuck` `[179.3, -88.6, -13.9, -15.8, -14.5, -121.3]`; `ready` `[-284.35, -75.43, -52.45, -136.99, 26.46, -278.46]` (flange (−19, 447, −70) mm, gripper level, pointing forward-left over the table) |

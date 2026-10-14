@@ -33,6 +33,8 @@ import agv
 import arm
 import camview
 import gripper
+import motion
+import objects
 import head
 from control import jogger
 
@@ -290,7 +292,7 @@ def arm_wave():
 
 @app.post("/arm/stop", tags=["arm"], summary="Stop the running arm program")
 def arm_stop():
-    return arm.stop()
+    return motion.stop()
 
 
 # ---------- voice ----------
@@ -436,7 +438,9 @@ def camera_stream_all(max_fps: float = 15.0):
                             d = json.loads(data)
                             data = json.dumps({"w": d["width"], "h": d["height"], "people": [
                                 {k: p.get(k) for k in ("box", "distance_m", "angle_deg", "focus", "near")}
-                                for p in d["people"]]}).encode()
+                                for p in d["people"]], "objects": [
+                                {k: o.get(k) for k in ("box", "name", "colour", "width_mm", "position_mm")}
+                                for o in d.get("objects", [])]}).encode()
                         except (ValueError, KeyError):
                             continue
                     else:
@@ -523,11 +527,10 @@ def stop_all():
     jogger.stop()
     _route.stop()
     stopped = assistant_stop()
-    return {"assistant": stopped["stopped"], "agv": part(agv.cancel), "arm": part(arm.stop)}
+    return {"assistant": stopped["stopped"], "agv": part(agv.cancel), "arm": part(motion.stop)}
 
 # ---------- hold-to-move, map, arm (dashboard) ----------
 AGV_WEB = "http://192.168.10.10:9001"
-ARM_TUCK = [179.3, -88.6, -13.9, -15.8, -14.5, -121.3]   # deg, arm folded beside the column (fits doorways)
 
 
 class JogBody(BaseModel):
@@ -653,11 +656,63 @@ def arm_run(body: ProgramBody):
 
 @app.post("/arm/tuck", tags=["arm"], summary="Fold the arm beside the column (slow), e.g. before driving")
 def arm_tuck():
+    return arm_pose(PoseBody(name="tuck", wait=False))
+
+
+class PoseBody(BaseModel):
+    name: str = Field(examples=["ready"], description="tuck or a pose taught with /arm/teach")
+    speed: str = Field("slow", description="slow / normal")
+    wait: bool = Field(True, description="return when the arm is there (STOP ends the wait)")
+
+
+class LineBody(BaseModel):
+    dx: float = 0.0
+    dy: float = 0.0
+    dz: float = Field(0.0, examples=[30.0], description="mm, arm base frame (z up); orientation is kept")
+    speed: str = "slow"
+
+
+class NameBody(BaseModel):
+    name: str = Field(examples=["ready"])
+
+
+def _motion(fn, *args, **kw):
     robot_free()
-    r = arm.cmd("joint_move", relFlag=0, jointPosition=ARM_TUCK, speed=15, accel=30)
-    if r.get("errorCode") != "0":
-        raise HTTPException(502, r.get("errorMsg") or str(r))
-    return {"ok": True, "target": ARM_TUCK}
+    try:
+        return {"ok": True, "joints": fn(*args, **kw)}
+    except motion.MotionError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.get("/arm/poses", tags=["arm"], summary="Named arm poses (deg): tuck + taught ones")
+def arm_poses():
+    return motion.poses()
+
+
+@app.post("/arm/pose", tags=["arm"], summary="Move to a named pose (checked joint move, slow by default)")
+def arm_pose(body: PoseBody):
+    if body.speed not in motion.JOINT_SPEED:
+        raise HTTPException(400, f"speed: {', '.join(motion.JOINT_SPEED)}")
+    return _motion(motion.go, body.name, body.speed, body.wait)
+
+
+@app.post("/arm/line", tags=["arm"], summary="Straight TCP move by dx / dy / dz mm (IK-checked first)")
+def arm_line(body: LineBody):
+    if body.speed not in motion.LINEAR_SPEED:
+        raise HTTPException(400, f"speed: {', '.join(motion.LINEAR_SPEED)}")
+    return _motion(motion.move_linear, delta=[body.dx, body.dy, body.dz], speed=body.speed)
+
+
+@app.post("/arm/teach", tags=["arm"], summary="Save the arm's current joints as a named pose")
+def arm_teach(body: NameBody):
+    return _motion(motion.teach, body.name)
+
+
+@app.get("/objects", tags=["objects"],
+         summary="Objects the torso camera sees: class, colour, centre / top / width / height in the arm base frame (mm)")
+def objects_seen():
+    camview.want(objects.CAMERA)
+    return objects.latest()
 
 
 @app.get("/gripper/state", tags=["gripper"], summary="Open / closed / holding, finger sensor, raw tool I/O")

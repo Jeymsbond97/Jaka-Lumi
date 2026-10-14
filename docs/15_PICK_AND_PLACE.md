@@ -126,11 +126,11 @@ New modules in `real/thor/` (same style as the existing ones: one job each, runn
 | Module | Job |
 |---|---|
 | `gripper.py` | open / close / state (done) |
-| `objects.py` | detect objects in the torso camera, colour, choose one (rules / LLM on the image), 3D position and size from depth |
+| `objects.py` | (written, live check in progress) detect objects in the torso camera, colour, choose one (rules / LLM on the image), 3D position and size from depth |
 | `calib.py` | camera → arm-base extrinsics (ArUco on the gripper, still arm poses moved by hand in Cobo π, Park & Martin AX = XB), saved to `camera_extrinsics.json` (done, see §8) |
 | `reach.py` | planning model: loads the MuJoCo model from `sim/`, IK with joint margins, collision check, chooses lift / waist / base for a target |
-| `motion.py` | sends checked joint and linear moves to the arm (controller TCP 10001, or the SDK on the Thor), slow presets, stop |
-| `skills.py` | `pick(description)`, `place(where)`, `give()`, `fetch(...)`: the sequences above, each step logged and stoppable |
+| `motion.py` | sends checked joint and linear moves to the arm (controller TCP 10001), slow presets, stop (done, see [04_ARM.md §10](04_ARM.md)) |
+| `skills.py` | (pick / place / move of one named object done 2026-10-13: `python skills.py plan|pick|move cup [--to X Y]`) `pick(description)`, `place(where)`, `give()`, `fetch(...)`: the sequences above, each step logged and stoppable |
 
 `lumi.py` gets the new actions and speaks the results. `api.py` gets `/gripper/*`, `/objects` (what the camera sees, with sizes), `/pick`, `/place`, `/give`. The dashboard gets gripper buttons and an object overlay on the torso camera.
 
@@ -142,11 +142,11 @@ Each stage ends with a test on the robot; the next starts only when it passes.
 
 | # | Stage | Done when |
 |---|---|---|
-| P0 | **Gripper basics**: `gripper.py` run from the Thor; `/gripper/open|close|state` in the API; dashboard buttons; voice "open / close your hand" | The gripper opens and closes from voice and the dashboard; state shown live |
+| P0 ✅ | **Gripper basics**: `gripper.py` run from the Thor; `/gripper/open|close|state` in the API; dashboard buttons; voice "open / close your hand" | The gripper opens and closes from voice and the dashboard; state shown live |
 | P1 | **Gripper measurements**: model number and manual, mass → payload and TCP in Cobo π, AI_1 vs finger opening (mm) table, minimum holdable width | Opening in mm from AI_1 within ±3 mm |
-| P2 | **Arm motion from code**: checked joint and linear moves (`motion.py`), tuck / ready / reach poses, speed presets, stop | Arm moves to named poses from the API and stops on STOP |
-| P3 | **Camera extrinsics**: ArUco on the gripper, `calib.py` | A point seen by the camera maps to the arm base frame within ±10 mm |
-| P4 | **Objects**: `objects.py` detects, colours, measures; `/objects` and a dashboard overlay | Cup / apple / bottle on a table: position ±1 cm, width ±5 mm |
+| P2 ✅ | **Arm motion from code**: checked joint and linear moves (`motion.py`), tuck / ready / reach poses, speed presets, stop | Arm moves to named poses from the API and stops on STOP |
+| P3 ✅ | **Camera extrinsics**: ArUco on the gripper, `calib.py` | A point seen by the camera maps to the arm base frame within ±10 mm |
+| P4 ✅ | **Objects**: `objects.py` detects, colours, measures; `/objects` and a dashboard overlay | Cup / apple / bottle on a table: position ±1 cm, width ±5 mm |
 | P5 | **Reach planning**: `reach.py` with the MuJoCo model, lift / waist / base choice, clearance checks | For objects on the table, the plan says reachable or not reachable and why, and agrees with the real arm in 10 test placements |
 | P6 | **Pick**: `skills.pick` with sensor and AI_1 checks, failure handling | 8 of 10 picks of a cup at different positions; every failure detected and reported |
 | P7 | **Place and give**: free-space search, hand-over | Objects placed upright within ±2 cm; hand-over works with a person |

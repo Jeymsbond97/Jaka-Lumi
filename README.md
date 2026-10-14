@@ -23,7 +23,7 @@ Software that turns a **JAKA Lumi** mobile manipulator into an assistant. It gre
 - **Greeting and patrol**: greets people who come close, waves; drives routes and stops for people in its path.
 - **Commands by voice**: come here, go to a place, go home, look, turn, move, wave, stop, be quiet.
 - **Dashboard and API**: live cameras with person tracking, live map with click-to-drive and routes, hold-to-move control of the base, head, lift, waist and arm, assistant switches, logs, volume, STOP. Every function is also a REST endpoint with Swagger docs.
-- **Gripper**: mounted, wired and measured; voice-driven pick and place is the next milestone ([plan](docs/15_PICK_AND_PLACE.md)).
+- **Pick and place**: the torso camera finds a cup and measures it in the arm's frame (camera calibrated to ~3 mm), the arm plans every pose with the controller's IK, grips with the Zimmer gripper, checks the grip and puts the cup down elsewhere, in one command. Voice and dashboard control of it is next ([plan](docs/15_PICK_AND_PLACE.md)).
 
 Status and next steps: [docs/ROADMAP.md](docs/ROADMAP.md).
 

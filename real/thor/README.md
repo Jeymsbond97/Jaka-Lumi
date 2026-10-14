@@ -42,7 +42,9 @@ On the Thor this folder is `~/Dev/lumi-wave`, with the real-robot documentation 
 | `doa_calib.json`, `doa_samples.npz` | doa.py | doa.py | voice-direction calibration |
 | `mic_source.txt` (optional) | you | mic.py | `auto` / `head` / `clip` |
 | `/dev/shm/lumi_raw_<cam>.jpg`, `lumi_intr_<cam>.json` | camview.py | calib.py, objects | full-size camera JPEG; colour intrinsics |
-| `camera_extrinsics.json`, `calib_samples/` | calib.py | objects, motion | camera pose in the arm base frame; calibration samples |
+| `camera_extrinsics.json`, `calib_samples/` | calib.py | objects, skills | camera pose in the arm base frame; calibration samples (local, not in git) |
+| `arm_poses.json` | motion.py `teach` | motion.py | taught joint poses (in git) |
+| `grasp_teach.json` | taught by hand | skills.py | flange orientation and finger point around a cup (in git) |
 
 ---
 
@@ -67,6 +69,10 @@ On the Thor this folder is `~/Dev/lumi-wave`, with the real-robot documentation 
 | `nav.py` | Where to stop in front of a person: free, reachable spot on the map | AGV map |
 | `head.py` | Head yaw / pitch through the body API | `192.168.10.90:5000` |
 | `arm.py` | Arm controller JSON commands, Cobo π programs (load / play / stop) | `192.168.10.90:10001` |
+| `motion.py` | Checked arm motion: named poses (`tuck`, taught `ready` in `arm_poses.json`), joint moves with limits and ±360° unwrapping, IK-checked straight moves, stop | arm controller `kine_inverse`, `joint_move`, `moveL` |
+| `objects.py` | Objects in the torso camera (YOLO COCO classes): colour, centre / top / width / height in the arm base frame from depth + `camera_extrinsics.json`; called by the camera service, served as `/objects` | camera service |
+| `skills.py` | Pick and place: `plan` (dry run with IK for every waypoint), `pick`, `move` an object to a spot or a free place; the grasp taught in `grasp_teach.json`; refuses objects of the wrong width and unreachable plans with a spoken-style reason | motion, gripper, objects |
+| `test_objects.py`, `test_skills.py` | Self-checks without the robot (synthetic cup; pick / place geometry) | |
 | `gripper.py` | Zimmer gripper: open / close / state (DO_1, DO_2, AI_1, DI_1), see [docs/10_GRIPPER.md](../../docs/10_GRIPPER.md) | tool I/O via the arm controller |
 | `calib.py` | Torso camera → arm base calibration with the ArUco marker on the gripper (`collect`, `solve`, `check`); result `camera_extrinsics.json`, see [docs/15_PICK_AND_PLACE.md §8](../../docs/15_PICK_AND_PLACE.md) | camera service, arm controller |
 | `camera_test.py`, `camera_fps.py` | Diagnostics: list cameras and save a frame; count full frames per second (USB 2 vs 3) | stop the camera service first |
@@ -87,6 +93,9 @@ cd ~/Dev/lumi-wave
 .venv/bin/python ears.py                    # speak, see the text
 .venv/bin/python mouth.py "Hello"           # Lumi says it
 .venv/bin/python gripper.py                 # gripper state
+.venv/bin/python motion.py                  # joints, TCP, named poses; motion.py go ready
+.venv/bin/python objects.py --watch         # what the torso camera sees, in mm
+.venv/bin/python skills.py plan cup         # dry run of a pick and place (nothing moves)
 .venv/bin/python tools.py weather Seoul
 .venv/bin/python knowledge.py build         # after changing knowledge/
 .venv/bin/python camview.py --stop          # free the cameras for camera_test.py / camera_fps.py

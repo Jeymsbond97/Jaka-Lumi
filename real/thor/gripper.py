@@ -19,7 +19,8 @@ import arm
 
 TOOL = 1                     # set_digital_output type: 0 cabinet, 1 tool (TIO), 2 extended
 CLOSE_DO, OPEN_DO = 0, 1     # DO_1, DO_2 (0-based)
-CLOSED_AI = 2000             # AI_1 above this = closed
+CLOSED_AI = 400              # AI_1 above this = closed on something (open reads 130-165; an 82 mm metal cup
+                             # held in the cup fingers reads ~2200-2300, 2026-10-13)
 EMPTY_AI = 3900              # closed above this = nothing between the fingers (empty reads 4100-4200, noise +-50)
 MOVE_S = 1.5                 # s a full stroke takes (measured ~1 s)
 SENSOR_DI = 0                # DI_1

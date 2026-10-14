@@ -347,6 +347,17 @@ function drawFrame(name, bmp) {
   if (!d || Date.now() - d.time > 1500) return;
   const sx = cv.width / d.w, sy = cv.height / d.h, base = set.box_color || "#22c55e";
   g.font = `600 ${Math.round(cv.height / 24)}px system-ui`; g.textBaseline = "bottom";
+  for (const o of d.objects || []) {           // cups, bottles... (torso camera, objects.py)
+    const [x1, y1, x2, y2] = o.box;
+    g.strokeStyle = "#f59e0b"; g.lineWidth = 2 * cv.width / 640;
+    g.strokeRect(x1 * sx, y1 * sy, (x2 - x1) * sx, (y2 - y1) * sy);
+    if (set.labels !== false) {
+      const t = `${o.colour || ""} ${o.name}` + (o.width_mm != null ? ` ${o.width_mm} mm` : "");
+      const w = g.measureText(t).width + 14, h = cv.height / 19, y = Math.max(h, y1 * sy);
+      g.fillStyle = "#f59e0b"; g.fillRect(x1 * sx, y - h, w, h);
+      g.fillStyle = "#111"; g.fillText(t, x1 * sx + 6, y - h * 0.18);
+    }
+  }
   for (const p of d.people) {
     const [x1, y1, x2, y2] = p.box, red = p.focus || p.near, col = red ? "#ef4444" : base;
     if (set.boxes !== false) {
