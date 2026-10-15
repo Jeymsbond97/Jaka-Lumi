@@ -1,0 +1,27 @@
+# Starts the robot API at boot and restarts it if it dies (a user service: no sudo; works without a login
+# because linger is on for cutshion).
+# api/server.py in turn starts the camera service, whisper, the embedding server and loads the LLM.
+# Install (once):
+#   mkdir -p ~/.config/systemd/user && cp ~/Dev/lumi-wave/lumi-api.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now lumi-api
+# Use: systemctl --user status|restart|stop lumi-api; output goes to logs/api.log.
+
+[Unit]
+Description=Lumi robot API and dashboard (:8100)
+
+[Service]
+WorkingDirectory=/home/cutshion/Dev/lumi-wave
+# the cameras, the robot LAN and Ollama need a moment after boot
+ExecStartPre=/bin/sleep 20
+ExecStart=/home/cutshion/Dev/lumi-wave/.venv/bin/python api/server.py
+Restart=always
+RestartSec=5
+# only the API is stopped on restart; the camera service, whisper and a running assistant keep going
+KillMode=process
+# an open camera stream can hold the old process; kill it after 5 s
+TimeoutStopSec=5
+StandardOutput=append:/home/cutshion/Dev/lumi-wave/logs/api.log
+StandardError=inherit
+
+[Install]
+WantedBy=default.target

@@ -12,7 +12,7 @@ This page is the agreed plan. Work through the stages in order; each ends with a
 2. **Check before moving.** Every motion is checked against reach, joint limits and the known obstacles (column, base, table, head) before it is sent. A task that fails a check is refused with a spoken reason.
 3. **Measure, then trust.** Every number the planner uses comes from a measurement on this robot: camera extrinsics, gripper opening, table height, finger-sensor range. Section 7 lists them.
 4. **Slow and stoppable.** Arm speeds stay low near objects and people. The dashboard STOP and the voice "stop" interrupt any stage. The controller's collision detection stays on with the real payload set.
-5. **One skill, many callers.** `pick`, `place`, `give` and `open/close` are Python functions. The voice assistant, the API (`/pick`, Swagger) and the dashboard all call the same ones.
+5. **One skill, many callers.** `pick`, `place`, `give` and `open/close` are Python functions. The voice assistant, the API (`/skills/*`, Swagger) and the dashboard all call the same ones.
 
 ---
 
@@ -121,18 +121,18 @@ Grip force cannot be set from software with digital outputs. It comes from the g
 
 ## 4. Software layout
 
-New modules in `real/thor/` (same style as the existing ones: one job each, runnable alone for testing):
+New modules in `real/thor/` (same style as the existing ones: one job each, runnable alone):
 
 | Module | Job |
 |---|---|
-| `gripper.py` | open / close / state (done) |
-| `objects.py` | (written, live check in progress) detect objects in the torso camera, colour, choose one (rules / LLM on the image), 3D position and size from depth |
-| `calib.py` | camera → arm-base extrinsics (ArUco on the gripper, still arm poses moved by hand in Cobo π, Park & Martin AX = XB), saved to `camera_extrinsics.json` (done, see §8) |
-| `reach.py` | planning model: loads the MuJoCo model from `sim/`, IK with joint margins, collision check, chooses lift / waist / base for a target |
-| `motion.py` | sends checked joint and linear moves to the arm (controller TCP 10001), slow presets, stop (done, see [04_ARM.md §10](04_ARM.md)) |
-| `skills.py` | (pick / place / move of one named object done 2026-10-13: `python skills.py plan|pick|move cup [--to X Y]`) `pick(description)`, `place(where)`, `give()`, `fetch(...)`: the sequences above, each step logged and stoppable |
+| `robot/gripper.py` | open / close / state (done) |
+| `vision/objects.py` | (done) detect objects in the torso camera, colour, choose one (rules / LLM on the image), 3D position and size from depth |
+| `vision/calib.py` | camera → arm-base extrinsics (ArUco on the gripper, still arm poses moved by hand in Cobo π, Park & Martin AX = XB), saved to `data/camera_extrinsics.json` (done, see §8) |
+| `manipulation/reach.py` | planning model: loads the MuJoCo model from `sim/`, IK with joint margins, collision check, chooses lift / waist / base for a target |
+| `robot/motion.py` | sends checked joint and linear moves to the arm (controller TCP 10001), slow presets, stop (done, see [04_ARM.md §10](04_ARM.md)) |
+| `manipulation/skills.py` | (pick / place / move of one named object done 2026-10-13: `python manipulation/skills.py plan|pick|move cup [--to X Y]`) `pick(description)`, `place(where)`, `give()`, `fetch(...)`: the sequences above, each step logged and stoppable |
 
-`lumi.py` gets the new actions and speaks the results. `api.py` gets `/gripper/*`, `/objects` (what the camera sees, with sizes), `/pick`, `/place`, `/give`. The dashboard gets gripper buttons and an object overlay on the torso camera.
+`assistant/lumi.py` gets the new actions and speaks the results. `api/server.py` gets `/gripper/*`, `/objects` (what the camera sees, with sizes), `/skills/plan|move|pick|place` and `/skills/state` (skills run in the background; STOP and `/arm/stop` end them through `skills.cancel()`), later `/skills/give`. The dashboard gets gripper buttons, an object overlay on the torso camera and a Pick and place section (Check plan, Move it, Stop).
 
 ---
 
@@ -147,11 +147,11 @@ Each stage ends with a test on the robot; the next starts only when it passes.
 | P2 ✅ | **Arm motion from code**: checked joint and linear moves (`motion.py`), tuck / ready / reach poses, speed presets, stop | Arm moves to named poses from the API and stops on STOP |
 | P3 ✅ | **Camera extrinsics**: ArUco on the gripper, `calib.py` | A point seen by the camera maps to the arm base frame within ±10 mm |
 | P4 ✅ | **Objects**: `objects.py` detects, colours, measures; `/objects` and a dashboard overlay | Cup / apple / bottle on a table: position ±1 cm, width ±5 mm |
-| P5 | **Reach planning**: `reach.py` with the MuJoCo model, lift / waist / base choice, clearance checks | For objects on the table, the plan says reachable or not reachable and why, and agrees with the real arm in 10 test placements |
-| P6 | **Pick**: `skills.pick` with sensor and AI_1 checks, failure handling | 8 of 10 picks of a cup at different positions; every failure detected and reported |
-| P7 | **Place and give**: free-space search, hand-over | Objects placed upright within ±2 cm; hand-over works with a person |
-| P8 | **Voice**: intents, object choice by the LLM on the image, spoken progress and reasons | "Find the red cup and put it here" works end to end with two cups on the table |
-| P9 | **Fetch with driving**: go to a marker, pick there, come back, give | A cup is fetched from another table and handed over |
+| P5 🟡 | **Reach planning**: `reach.py` with the MuJoCo model, lift / waist / base choice, clearance checks. Done on the robot without the model: grasp turned about the vertical (0…±60°), lift to the table's height (measured with depth), base shift, search by turning on the spot (`skills.py`, `tasks/fetch.py`, [16](16_FETCH_TASKS.md)) | For objects on the table, the plan says reachable or not reachable and why, and agrees with the real arm in 10 test placements |
+| P6 🟡 | **Pick**: `skills.pick` with sensor and AI_1 checks, failure handling. Live by fetch 2026-10-15: 4 of 4 grasps held (one from a box 12 cm higher, lift 193 mm) | 8 of 10 picks of a cup at different positions; every failure detected and reported |
+| P7 🟡 | **Place and give**: free-space search, hand-over. Live 2026-10-15: put down upright on the table and on the box (seen-table spots, lift fitted); hand-over opens only on "thank you" / Release (AI_1 can't feel a pull), Release not yet run live | Objects placed upright within ±2 cm; hand-over works with a person |
+| P8 🟡 | **Voice**: intents, object choice by the LLM on the image, spoken progress and reasons. Done in code: "pick up the (colour) cup", "move the cup", "put it down / back" (rules + LLM action), API `/skills/*`, dashboard button; not yet run live. Still open: choice among several objects by the LLM, "put it here" | "Find the red cup and put it here" works end to end with two cups on the table |
+| P9 🟡 | **Fetch with driving**: go to a marker, pick there, come back, give. Live 2026-10-15: drove with the cup towards p6, the base stalled on the way (cancelled), the cup stayed held | A cup is fetched from another table and handed over |
 
 ---
 

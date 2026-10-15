@@ -36,7 +36,7 @@ Robot Wi-Fi `Lumi10000013-5G` (a laptop needs a manual IP such as 192.168.10.200
 ## Safety (always)
 
 - **Ask before moving anything** (base, lift, waist, head, arm, gripper) unless the owner asked for that motion. People work next to the robot.
-- **Do not restart `lumi.py` or `api.py` while the base drives**: check `GET /status` → `base.move_status` first. Stopping the assistant cancels the drive.
+- **Do not restart the assistant (`assistant/lumi.py`) or the API (`api/server.py`, service `lumi-api`) while the base drives**: check `GET /status` → `base.move_status` first. Stopping the assistant cancels the drive.
 - Do not change controller, AGV or network settings without the owner's go-ahead. Match Wi-Fi profile names exactly (a too-broad match once deleted a profile).
 - Colleagues' projects on the Thor (`~/Dev/lumi_edu`, `lumi-vision`, `lumi_voice_app`, `jaka-lumi-docs`, `lumi-doctor`, docs on :3080) are not ours. Do not touch them.
 - `pkill -f` / `pgrep -f` patterns can match your own shell's command line. Kill by PID.
@@ -45,6 +45,6 @@ Robot Wi-Fi `Lumi10000013-5G` (a laptop needs a manual IP such as 192.168.10.200
 
 - The Thor has no git checkout: `~/Dev/lumi-wave` is the code from `real/thor/` plus `docs/` (including `docs/private/`), `tools/` and its own `CLAUDE.md`. Changes made on the Thor must be copied back here.
 - Run Python with `~/Dev/lumi-wave/.venv/bin/python` (system Python lacks OpenCV).
-- Logs are in `~/Dev/lumi-wave/*.log`; `lumi.log` is the assistant.
+- Logs are in `~/Dev/lumi-wave/logs/`; `lumi.log` is the assistant, `api.log` the API.
 - After editing a module, restart only what uses it (see "Deploying a change" in the Thor README).
 - The Thor reaches the internet through its own Wi-Fi.

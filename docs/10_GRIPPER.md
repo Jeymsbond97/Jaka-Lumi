@@ -64,6 +64,22 @@ The controller's `get_data` was polled every 0.3 s while the outputs were switch
 | Close on a cup, wide part | AI_1 stopped at 3480–3560 (empty: 4090–4200) |
 | Close on a cup, narrow part (3 times) | AI_1 4100–4200: the cup gave way, reads like empty |
 
+### Pulling on a held cup (2026-10-15)
+
+The arm at `give`, the white tumbler in the closed gripper, AI_1 read at 10 Hz for 45 s while the owner first did not
+touch it, then pulled gently three times, then only held it.
+
+| Phase | AI_1 median | AI_1 spread (sd) |
+|---|---|---|
+| Nobody touches it | 2831–2836 | 54–61 (sd 19–23) |
+| Gentle pulls | 2779–2870 | 150–200 (sd 50–75) |
+| Held, not pulled | 2816–2860 | 93–142 (sd 29–39) |
+| The fingers settling just after a move (another run) | 2477 → 2285 within 1 s | |
+
+A pull does not move the fingers, so AI_1 cannot tell it; the settling after a move is larger than a pull. Lumi opens
+for a hand-over only on "thank you" or the dashboard's Release ([16_FETCH_TASKS.md](16_FETCH_TASKS.md)). On the four
+live picks of 2026-10-15 AI_1 read 1870–2477 holding (the cup's height at the grasp point differs).
+
 ---
 
 ### Finger opening (measured with a ruler, 2026-10-13, fully open, AI_1 162)
@@ -82,19 +98,19 @@ With 13 mm stroke per jaw, closing narrows each place by about 26 mm (middle ~74
 
 The fingers were placed around a cup by hand (FREE button), the cup measured by the torso camera after lifting the arm
 straight up. The point between the fingers where a cup's axis sits, 4 cm below the rim, is at **(106.4, −86.5, 230.5) mm
-in the flange frame** (268 mm from the flange, 137 mm off its axis). Stored in `grasp_teach.json` with the flange pose.
+in the flange frame** (268 mm from the flange, 137 mm off its axis). Stored in `data/grasp_teach.json` with the flange pose.
 First pick with it: the 82 mm LS metal cup moved 16 mm, the arm went 10 cm above, straight down, closed (AI_1 2189),
 lifted 30 mm (AI_1 2270–2310, stable), put it back within 1 mm. The finger sensor DI_1 stayed 0 the whole time:
 it does not see a cup held at this point (to check where it looks).
 
 ## 4. Software
 
-`real/thor/gripper.py` drives the gripper through the arm controller's TCP command port (192.168.10.90:10001, JSON, no SDK):
+`real/thor/robot/gripper.py` drives the gripper through the arm controller's TCP command port (192.168.10.90:10001, JSON, no SDK):
 
 ```bash
-python gripper.py            # {'closed': ..., 'holding': ..., 'object_in_front': ..., 'ai': [...], 'do': [...], 'di': [...]}
-python gripper.py open
-python gripper.py close
+python robot/gripper.py     # {'closed': ..., 'holding': ..., 'object_in_front': ..., 'ai': [...], 'do': [...], 'di': [...]}
+python robot/gripper.py open
+python robot/gripper.py close
 ```
 
 ```python
@@ -143,6 +159,7 @@ The collision limits shown with it are still the loose defaults (force 100 %, TC
 | TCP offset | Kept in our code, not in Cobo π, and measured during the camera calibration (the fingers are off the flange axis, a tape measure is not accurate enough) |
 | Calibrate AI_1 against finger opening in mm | So that the vision system can check whether an object fits (see [15_PICK_AND_PLACE.md](15_PICK_AND_PLACE.md)) |
 | Teach the finger sensor's range | It decides when the gripper is close enough to an object to close |
+| A hand-over signal | AI_1 cannot feel a pull (§3); a force reading or a touch sensor would let Lumi open when the person takes it |
 
 ---
 

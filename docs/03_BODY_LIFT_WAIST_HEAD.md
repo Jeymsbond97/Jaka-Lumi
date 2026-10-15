@@ -59,6 +59,13 @@ Base URL: `http://192.168.10.90:5000/api/extaxis` (old documents: `http://10.5.5
 
 Rules: enable first; every call sends all four values, so read `/status` and keep the joints you don't want to move at their current value.
 
+Seen on our robot (2026-10-15):
+
+- After a full power cycle of the controller all four joints read `"enable": false`; every dashboard jog of the head then timed out. `robot/head.py` `moveto()` enables them first when any is off.
+- At its bottom stop the head pitch reads −5.003°, just outside −5…35°; a `moveto` that sends it back is dropped (the colleagues' `lumi_voice_app` found the same for the lift at −0.003 mm). `moveto()` clamps every value into the API ranges.
+- Lift moves 75 → 150, 193, 250, 0 mm at `vel` 20 ran without a problem (a 75 mm move takes about 5–9 s).
+- The torso camera sits on the same link as the arm base: lift 75 → 150 mm moved a cup in the arm frame by x +2, y −2, z −76 mm (table −71 mm). The camera calibration holds at any lift.
+
 `/status` returns one object per joint: `id`, `pos` (mm or deg), `vel`, `toq` (torque), `enable`, `error`, `ecode`.
 
 Responses seen (web doc 3.3.4, `private/images/body-02-curl-enable-moveto.png`):
