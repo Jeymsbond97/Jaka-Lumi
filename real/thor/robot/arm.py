@@ -12,14 +12,19 @@ import time
 CONTROLLER = ("192.168.10.90", 10001)
 WAVE = "hand_shaking.jks"
 # The controller now and then closes the connection without a reply (seen on get_data, get_program_state,
-# kine_inverse, stop_program). Commands that only read are asked again; motion commands are never repeated here.
+# kine_inverse, stop_program, moveL, set_digital_output). Commands that only read are asked again, and so are those
+# that set an absolute value: moves to an absolute target (relFlag 0) and setting an output; sent twice they do the
+# same. Relative moves are never repeated here.
 READ_ONLY = {"get_data", "get_joint_pos", "get_tcp_pos", "get_robot_state", "get_program_state", "get_loaded_program",
              "kine_inverse", "kine_forward"}
+ABSOLUTE_MOVES = {"moveL", "joint_move"}
+SET_VALUE = {"set_digital_output", "stop_program"}
 RETRIES, RETRY_S = 3, 0.2
 
 
 def cmd(name, **args):
-    tries = RETRIES if name in READ_ONLY else 1
+    again = name in READ_ONLY or name in SET_VALUE or (name in ABSOLUTE_MOVES and args.get("relFlag") == 0)
+    tries = RETRIES if again else 1
     for i in range(tries):
         try:
             return _send(name, args)

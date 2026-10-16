@@ -139,8 +139,6 @@ input:focus,select:focus{border-color:var(--accent)}
 .tab.on{color:var(--text);border-bottom-color:var(--accent)}
 .pane{display:none;padding:16px;overflow:auto;flex:1}.pane.on{display:block}
 .sec{margin-bottom:18px}.sec h4{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted)}
-.swatches{display:flex;gap:7px;flex-wrap:wrap}
-.sw{width:26px;height:26px;border-radius:8px;border:2px solid transparent;cursor:pointer}.sw.on{border-color:#fff}
 input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-radius:8px;background:none;padding:2px;cursor:pointer}
 .jrow{display:grid;grid-template-columns:34px 1fr 44px 44px;gap:7px;align-items:center;margin-bottom:7px}
 .jrow .v{font-variant-numeric:tabular-nums;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px}
@@ -239,7 +237,8 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
 
     <div class="card box">
       <h3>Arm pose</h3>
-      <div class="row"><select id="poseSel" class="grow"></select><button class="btn primary" id="poseGo">Move ➜</button></div>
+      <div class="row"><select id="poseSel" class="grow"></select><select id="poseSpeed"><option value="slow">Slow</option><option value="normal">Normal</option></select>
+        <button class="btn primary" id="poseGo">Move ➜</button></div>
     </div>
 
     <div class="card box">
@@ -271,19 +270,12 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
 <aside class="drawer" id="drawer">
   <div class="dh"><h2>Settings</h2><button class="icon" id="closeSettings">✕</button></div>
   <div class="tabs" id="tabs">
-    <button class="tab on" data-tab="view">Detection</button><button class="tab" data-tab="body">Body</button>
+    <button class="tab on" data-tab="body">Body</button>
     <button class="tab" data-tab="arm">Arm</button><button class="tab" data-tab="maps">Maps</button>
     <button class="tab" data-tab="voice">Voice</button><button class="tab" data-tab="logs">Logs</button>
   </div>
 
-  <div class="pane on" id="pane-view">
-    <div class="sec"><h4>Box colour</h4><div class="row"><div class="swatches" id="swatches"></div><input type="color" id="colorPick"></div></div>
-    <div class="sec"><h4>Line</h4><div class="row"><input type="range" id="thick" min="1" max="6"><span class="val" id="thickV"></span></div></div>
-    <div class="sec"><h4>Show</h4><div class="row"><label class="toggle"><input type="checkbox" id="showBoxes"> Boxes</label>
-      <label class="toggle"><input type="checkbox" id="showLabels"> Distance labels</label></div></div>
-  </div>
-
-  <div class="pane" id="pane-body">
+  <div class="pane on" id="pane-body">
     <div class="sec"><h4>Lift <span id="liftV" class="muted"></span></h4>
       <div class="row"><button class="btn hold grow" data-axis="lift" data-dir="-1">▼ Down</button><button class="btn hold grow" data-axis="lift" data-dir="1">▲ Up</button></div></div>
     <div class="sec"><h4>Waist <span id="waistV" class="muted"></span></h4>
@@ -302,8 +294,6 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
       <div class="note" id="tcp"></div></div>
     <div class="sec"><h4>Programs</h4>
       <div class="row"><input type="text" id="prog" class="grow" value="hand_shaking.jks"><button class="btn primary" id="progRun">Run</button><button class="btn danger" id="progStop">Stop</button></div></div>
-    <div class="sec"><h4>Poses</h4><div class="row" id="poseBtns" style="flex-wrap:wrap"></div>
-      <div class="row"><span class="lbl">Speed</span><select id="poseSpeed" class="grow"><option value="slow">Slow (10°/s)</option><option value="normal">Normal (25°/s)</option></select></div></div>
     <div class="sec"><h4>Gripper</h4>
       <div class="row"><span class="tag" id="gripSt">–</span><span class="tag" id="gripEye">sensor –</span></div>
       <div class="row"><button class="btn grow" id="gripOpen">Open</button><button class="btn grow" id="gripClose">Close</button></div>
@@ -330,8 +320,9 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
   <div class="pane" id="pane-logs">
     <div class="statgrid" id="stat"></div>
     <div id="errBox"></div>
-    <div class="row" style="margin-bottom:6px"><b style="flex:1;font-size:12px;letter-spacing:.8px;color:var(--muted)">ASSISTANT LOG</b>
-      <label class="toggle"><input type="checkbox" id="logAll"> show camera lines</label></div>
+    <div class="row" style="margin-bottom:6px"><select id="logSrc" class="grow"><option value="robot">Robot log: tasks, arm, base, errors</option>
+      <option value="assistant">Assistant log: voice, people</option></select>
+      <label class="toggle"><input type="checkbox" id="logAll"> camera lines</label></div>
     <div class="log" id="log">…</div>
   </div>
 </aside>
@@ -350,6 +341,8 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
         <div class="row" id="tDstMarkerRow" style="display:none"><select id="tDstMarker" class="grow"></select></div>
         <div id="tDstPickBox" style="display:none"><div class="pick" id="tDstPick"><canvas></canvas><div class="zoom"><button data-z="1.4">+</button><button data-z="0.714">−</button></div></div><div class="note" id="tDstPt"></div></div></div>
       <div class="sentence" id="tSentence">–</div>
+      <div class="row" id="tEdit" style="display:none"><select id="tObj" class="grow"></select><select id="tCol" class="grow"></select>
+        <select id="tFin" class="grow"></select></div>
       <div class="probs" id="tProblems"></div>
       <div class="row"><button class="btn primary grow" id="tStart">Start</button><button class="btn grow" id="tRelease" style="display:none">Release</button><button class="btn danger grow" id="tStop">Stop</button></div>
       <div class="sec" style="margin:12px 0 0"><div class="row" style="margin:0"><h4 style="margin:0">Task</h4><span class="tag" id="tSt">–</span></div>
@@ -361,7 +354,6 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
 
 <script>
 const $ = id => document.getElementById(id);
-const COLORS = ["#22c55e","#38bdf8","#f59e0b","#ef4444","#a855f7","#ec4899","#ffffff","#facc15"];
 let status = null, mapInfo = null;
 
 function toast(msg, kind = "") {
@@ -737,7 +729,6 @@ $("tuckBtn").onclick = tuck;
 const POSE_ORDER = ["look", "carry", "ready", "give", "tuck"];          // the rest (taught later) follow by name
 api("/arm/poses").then(ps => {
   const names = Object.keys(ps).sort((a, b) => ((POSE_ORDER.indexOf(a) + 1) || 99) - ((POSE_ORDER.indexOf(b) + 1) || 99) || a.localeCompare(b));
-  $("poseBtns").innerHTML = names.map(n => `<button class="btn grow" data-pose="${esc(n)}">${esc(n)}</button>`).join("");
   $("poseSel").innerHTML = names.map(n => `<option>${esc(n)}</option>`).join("");
 }).catch(() => {});
 try { $("poseSpeed").value = localStorage.getItem("poseSpeed") || "slow"; } catch (e) {}
@@ -746,7 +737,6 @@ function movePose(el, name) {
   const speed = $("poseSpeed").value;
   if (confirm(`Move the arm to ${name} (${speed})?`)) act(el, `Arm at ${name}`, () => api("/arm/pose", {name, speed}));
 }
-$("poseBtns").onclick = e => { const b = e.target.closest("[data-pose]"); if (b) movePose(b, b.dataset.pose); };
 $("poseGo").onclick = e => { if ($("poseSel").value) movePose(e.target, $("poseSel").value); };
 $("sayBtn").onclick = e => { const t = $("sayText").value.trim(); if (t) act(e.target, "Said", () => api("/say", {text: t})); };
 $("sayText").onkeydown = e => { if (e.key === "Enter") $("sayBtn").click(); };
@@ -818,19 +808,7 @@ $("tabs").onclick = e => {
 };
 
 let viewSet = {};
-function paintSettings() {
-  $("swatches").innerHTML = COLORS.map(c => `<div class="sw ${c === (viewSet.box_color || "").toLowerCase() ? "on" : ""}" style="background:${c}" data-c="${c}"></div>`).join("");
-  $("colorPick").value = viewSet.box_color; $("thick").value = viewSet.thickness; $("thickV").textContent = viewSet.thickness + " px";
-  $("showBoxes").checked = viewSet.boxes; $("showLabels").checked = viewSet.labels;
-}
-const saveSet = part => api("/view/settings", part).then(s => { viewSet = s; paintSettings(); }).catch(e => toast(e.message, "err"));
-api("/view/settings").then(s => { viewSet = s; paintSettings(); });
-$("swatches").onclick = e => e.target.dataset.c && saveSet({box_color: e.target.dataset.c});
-$("colorPick").onchange = e => saveSet({box_color: e.target.value});
-$("thick").oninput = e => $("thickV").textContent = e.target.value + " px";
-$("thick").onchange = e => saveSet({thickness: +e.target.value});
-$("showBoxes").onchange = e => saveSet({boxes: e.target.checked});
-$("showLabels").onchange = e => saveSet({labels: e.target.checked});
+api("/view/settings").then(s => { viewSet = s; });
 
 $("joints").innerHTML = [1, 2, 3, 4, 5, 6].map(i => `<div class="jrow"><b>J${i}</b><span class="v" id="j${i}V">–</span>
   <button class="btn hold" data-axis="j${i}" data-dir="-1">−</button><button class="btn hold" data-axis="j${i}" data-dir="1">+</button></div>`).join("");
@@ -862,7 +840,9 @@ const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 async function refreshLog() {
   if (!$("drawer").classList.contains("open") || !$("pane-logs").classList.contains("on")) return;
   try {
-    const st = await api("/assistant/status"), lg = await api("/assistant/log?lines=300");
+    const robot = $("logSrc").value === "robot";
+    const st = await api("/assistant/status"), lg = robot ? await api("/logs/robot?lines=300") : await api("/assistant/log?lines=300");
+    const task = robot ? await api("/tasks/state") : null;
     const cams = st.cameras ? Object.entries(st.cameras).map(([k, v]) => `${k}: ${v}`).join(", ") : "–";
     const up = st.uptime_s != null ? `${Math.floor(st.uptime_s / 60)} min ${st.uptime_s % 60} s` : "–";
     const state = !st.running ? '<b style="color:var(--muted)">not running</b>' : st.stuck ? '<b style="color:var(--bad)">STUCK</b>'
@@ -870,15 +850,17 @@ async function refreshLog() {
     $("stat").innerHTML = `<span>Assistant</span><div>${state}${st.pids.length ? " · pid " + st.pids.join(", ") : ""}</div>
       <span>Modes</span><div>greeter ${st.modes.greeter ? "on" : "off"} · patrol ${st.modes.patrol ? "on" : "off"} · wave ${st.modes.wave ? "on" : "off"} · come ${st.modes.drive ? "on" : "off"}</div>
       <span>Uptime</span><div>${up}</div><span>Cameras</span><div>${st.camera_service ? cams : '<b style="color:var(--bad)">camera service not running</b>'}</div>
-      <span>Last line</span><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(st.last_line || "–")}</div>`;
-    $("errBox").innerHTML = st.errors.length ? `<div class="errs">${esc(st.errors.slice(-8).join("\n"))}</div>` : "";
+      ${task ? `<span>Task</span><div><b style="color:var(--${task.status === "failed" ? "bad" : task.status === "running" ? "ok" : "muted"})">${esc(task.status)}</b>${task.step ? " · " + esc(task.step) : ""}${task.holding ? " · holding" : ""}</div>` : ""}
+      <span>Last line</span><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc((robot ? lg.lines.slice(-1)[0] : st.last_line) || "–")}</div>`;
+    const errs = robot ? lg.errors : st.errors;
+    $("errBox").innerHTML = errs.length ? `<div class="errs">${esc(errs.slice(-8).join("\n"))}</div>` : "";
     const all = $("logAll").checked, el = $("log"), end = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-    const lines = lg.lumi_log.filter(l => all || !/ see #| camera ok /.test(l)).map(l => {
-      const c = /\b(error|failed|stuck|refused|cannot|traceback)\b/i.test(l) ? "e" : /heard nothing|skipped|left - stop|could not/.test(l) ? "w"
+    const lines = (robot ? lg.lines : lg.lumi_log).filter(l => all || !/ see #| camera ok /.test(l)).map(l => {
+      const c = /\b(error|failed|stuck|refused|cannot|traceback)\b/i.test(l) ? "e" : /heard nothing|skipped|left - stop|could not|standing still|paused/.test(l) ? "w"
         : /GREET|WAKE|visitor|^\d\d:\d\d:\d\d lumi |calibrated|arrived/.test(l) ? "g" : "";
       return `<div class="${c}">${esc(l)}</div>`;
     });
-    el.innerHTML = (lines.join("") || "(no log yet)") + (lg.console.length ? `<div class="e" style="margin-top:8px">--- console (errors, tracebacks) ---</div>${esc(lg.console.join("\n"))}` : "");
+    el.innerHTML = (lines.join("") || "(no log yet)") + (!robot && lg.console.length ? `<div class="e" style="margin-top:8px">--- console (errors, tracebacks) ---</div>${esc(lg.console.join("\n"))}` : "");
     if (end) el.scrollTop = el.scrollHeight;
   } catch (e) {}
 }
@@ -995,6 +977,7 @@ function parseCmd() {
     $("tProblems").innerHTML = probs.map(p => `<div>${esc(p)}</div>`).join("");
     $("tStart").disabled = probs.length > 0 || !parsed;
     $("tStart").textContent = {give: "Give", place: "Place", carry: "Go"}[parsed && parsed.action] || "Start";
+    paintEdit();
   };
   parsed = null;
   if (!text && !heldNow) { show("–", []); return; }
@@ -1005,6 +988,48 @@ function parseCmd() {
     parsed = r; show(r.sentence, r.problems);
   }).catch(e => show("–", [e.message]));
 }
+// the command as read can be corrected by hand: object, colour and the end (fetch), or the end (carry)
+const FIN = {hold: "Hold it", place: "Put it on the table", give: "Give it to me"};
+const opt = (vals, cur, label = v => v) => vals.map(v => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(label(v))}</option>`).join("");
+function paintEdit() {
+  const r = parsed, fetchTask = r && r.action === "fetch" && r.task, carry = r && r.action === "carry";
+  $("tEdit").style.display = fetchTask || carry ? "" : "none";
+  if (!(fetchTask || carry)) return;
+  const c = r.choices;
+  $("tObj").style.display = $("tCol").style.display = fetchTask ? "" : "none";
+  if (fetchTask) {
+    $("tObj").innerHTML = (r.task.object ? "" : `<option value="">Object</option>`) + opt(c.object, r.task.object);
+    $("tCol").innerHTML = `<option value="">Any colour</option>` + opt(c.colour, r.task.colour);
+    $("tFin").innerHTML = opt(c.finish, r.task.finish, v => FIN[v]);
+  } else {
+    $("tFin").innerHTML = opt(["hold", ...c.then], r.task.then || "hold", v => FIN[v]);
+  }
+}
+async function editChanged() {
+  const r = parsed; if (!r || !r.task) return;
+  const n = ++cmdSeq;
+  if (r.action === "carry") {
+    r.task.then = $("tFin").value === "hold" ? null : $("tFin").value;
+    const where = r.task.dest.marker || "the point I was shown";
+    r.sentence = `Bring it to ${where} and ${{place: "put it on the table there", give: "hand it to you"}[r.task.then] || "keep holding it"}.`;
+    $("tSentence").textContent = r.sentence; return;
+  }
+  Object.assign(r.task, {object: $("tObj").value || null, colour: $("tCol").value || null, finish: $("tFin").value});
+  if (!r.task.object || !r.task.dest) {                // not a whole task yet: say what is missing
+    r.problems = [r.task.object ? "Where should I bring it?" : "Which object? I know " + r.choices.object.join(", ") + "."];
+    $("tProblems").innerHTML = r.problems.map(p => `<div>${esc(p)}</div>`).join(""); $("tStart").disabled = true; return;
+  }
+  try {
+    const d = await api("/tasks/describe", r.task);
+    if (n !== cmdSeq) return;
+    r.problems = (r.task.object ? [] : ["Which object? I know " + r.choices.object.join(", ") + "."]).concat(d.problems);
+    r.sentence = d.sentence;
+    $("tSentence").textContent = d.sentence;
+    $("tProblems").innerHTML = r.problems.map(p => `<div>${esc(p)}</div>`).join("");
+    $("tStart").disabled = r.problems.length > 0;
+  } catch (e) { $("tProblems").innerHTML = `<div>${esc(e.message)}</div>`; }
+}
+["tObj", "tCol", "tFin"].forEach(id => $(id).onchange = editChanged);
 document.querySelectorAll("#cmdModal .seg").forEach(s => s.onclick = e => {
   const b = e.target.closest("button"); if (!b) return;
   s.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); cmdChanged();
@@ -1025,9 +1050,9 @@ $("cmdModal").addEventListener("click", e => { if (downOnShade && e.target === $
 $("tStart").onclick = e => {
   const r = parsed; if (!r || r.problems.length) return;
   if (r.action === "give") return act(e.target, "Giving", () => api("/tasks/give", {}));
-  if (r.action === "place") return act(e.target, "Placing", () => api("/tasks/place", {}));
-  if (r.action === "carry") { if (confirm(r.sentence + "\n\nGo?")) act(e.target, "On the way", () => api("/tasks/carry", {dest: r.task.dest})); return; }
-  if (confirm(r.sentence + "\n\nStart?")) act(e.target, "Fetch started", () => api("/tasks/fetch", r.task));
+  if (r.action === "place") return act(e.target, "Placing", () => api("/tasks/place", {on: (r.task && r.task.on) || null}));
+  if (r.action === "carry") return act(e.target, "On the way", () => api("/tasks/carry", {dest: r.task.dest, then: r.task.then, on: r.task.on || null}));
+  act(e.target, "Fetch started", () => api("/tasks/fetch", r.task));
 };
 $("tStop").onclick = e => act(e.target, "Task stopped", () => api("/tasks/stop", {}));
 $("tRelease").onclick = e => act(e.target, "Released", () => api("/tasks/release", {}));

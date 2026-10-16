@@ -43,6 +43,9 @@ from api.control import jogger
 PORT = 8100
 LUMI_LOG = ROOT / "logs" / "lumi.log"                 # written by lumi.py itself
 CONSOLE_LOG = ROOT / "logs" / "lumi_console.log"      # lumi.py stdout/stderr when started from here (tracebacks)
+API_LOG = ROOT / "logs" / "api.log"                   # this server's output (lumi-api.service): tasks, arm, errors
+ERROR_RE = re.compile(r"\b(error|failed|stuck|refused|cannot|traceback|stopped)\b|E-stop pressed|not answering",
+                      re.I)                          # whole words only
 
 app = FastAPI(title="Lumi robot API", version="0.1.0",
               description="Base (AGV), head, arm, voice and the greeter/patrol assistant of our JAKA Lumi. "
@@ -383,6 +386,13 @@ def assistant_stop():
 @app.get("/assistant/log", tags=["assistant"], summary="Last lines of lumi.log (and errors from the console)")
 def assistant_log(lines: int = 50):
     return {"lumi_log": tail(LUMI_LOG, lines), "console": tail(CONSOLE_LOG, 15)}
+
+
+@app.get("/logs/robot", tags=["assistant"], summary="Last lines of this server's log (fetch tasks, arm, base, errors "
+         "and tracebacks) and the errors among the last 400")
+def robot_log(lines: int = 50):
+    recent = tail(API_LOG, 400)
+    return {"lines": [l[:300] for l in recent[-lines:]], "errors": [l[:200] for l in recent if ERROR_RE.search(l)][-15:]}
 
 
 # ---------- live cameras and the dashboard ----------
@@ -904,21 +914,10 @@ class ParseBody(BaseModel):
 def task_parse(body: ParseBody):
     from assistant import brain
     from tasks import fetch
-    holding = fetch.state().get("holding") or part(lambda: gripper.state()["holding"]) is True
-    if holding:
-        how = brain.held_command(body.text)
-        if how:
-            return {"action": how, "task": None, "problems": [],
-                    "sentence": "Hand it to you." if how == "give" else "Put it on the table in front of me."}
-    fields, read_by = brain.fetch_from_text(body.text, agv.markers()) if body.text.strip() else ({}, "rules")
-    if holding and not fields.get("object"):          # holding: only where to bring it (From is not used)
-        dest = fields.get("dest") or body.dest
-        if dest in (None, "here"):
-            return {"action": None, "task": None, "sentence": "–", "problems": [
-                "I'm holding something: say give it to me, put it on the table, or choose where to bring it."]}
-        task = {"dest": dest}
-        problems = _task_problems({**task, "object": "cup", "finish": "hold"})   # only the dest can be wrong
-        return {"action": "carry", "task": task, "sentence": fetch.carry_sentence(dest), "problems": problems}
+    markers = agv.markers()
+    if fetch.check_hand():                            # the camera sees the hand; a stale "holding" is forgotten
+        return _held_parse(body, markers)
+    fields, read_by = brain.fetch_from_text(body.text, markers) if body.text.strip() else ({}, "rules")
     task = {"object": fields.get("object"), "colour": fields.get("colour"),
             "source": fields.get("source") or body.source or "here", "dest": fields.get("dest") or body.dest,
             "finish": fields.get("finish", "hold")}
@@ -926,10 +925,46 @@ def task_parse(body: ParseBody):
     problems += [x for x in _task_problems(task) if x not in problems]
     if read_by == "other":                       # not English or Korean: nothing else is worth saying
         problems = ["Please write the command in English or Korean."]
-    if fetch.state().get("holding"):
-        problems.append("I'm holding something: say give it to me or put it on the table first.")
     return {"action": "fetch", "task": task, "sentence": fetch.describe(task, "en"), "problems": problems,
-            "read_by": read_by, "from_text": sorted(fields)}
+            "read_by": read_by, "from_text": sorted(fields), "choices": _choices()}
+
+
+def _choices():
+    """What the dialog may change by hand after reading a command."""
+    from tasks import fetch
+    return {"object": list(fetch.OBJECTS), "colour": list(fetch.COLOURS), "finish": list(fetch.FINISH),
+            "then": [t for t in fetch.THEN if t]}
+
+
+def _held_parse(body, markers):
+    """A command while something is held: what to do with it, read by the rules only (fast; the object named in it is
+    the held one, so "give me the cup" is a give, not a new fetch). A marker named anywhere in the text is where to
+    bring it, else the dialog's To; then put it on a table, hand it over or keep holding it."""
+    from assistant import brain
+    from tasks import fetch
+    held, text = fetch.held_name(), body.text
+    m, t = brain._mentions(text, markers), brain._norm(text)
+    if isinstance(m.get("source"), dict) and not brain.held_command(text):     # "take the bottle from p2": a new fetch
+        return {"action": None, "task": None, "sentence": "–", "problems": [
+            f"I'm holding {held}: give it to you, put it on a table, or say where to bring it first."]}
+    named = [brain._as_place(brain._resolve(x, markers)) for x in re.finditer(brain._place_re(markers), t)]
+    named = [p for p in named if isinstance(p, dict)]
+    dest = named[0] if named else (body.dest if body.dest not in (None, "here") else None)
+    on = brain.place_on(text)                         # "on the orange chair": what to put it on
+    then = "place" if on else brain.held_command(text) or ("place" if m.get("finish") == "place" else None)
+    if then == "give" and named and not re.search(r"\b(give|hand)\b|줘|주세요|건네", t):
+        then = None                                   # "bring it to p2" is a carry, not a hand-over
+    on_words = " ".join(w for w in (on.get("colour"), on["name"].replace("dining table", "table")) if w) if on else "table"
+    if dest is None:
+        if then:
+            return {"action": then, "task": {"on": on}, "problems": [], "choices": _choices(),
+                    "sentence": f"Hand {held} to you." if then == "give" else f"Put {held} on the {on_words} near me."}
+        return {"action": None, "task": None, "sentence": "–", "problems": [
+            f"I'm holding {held}: say give it to me, put it on the table, or where to bring it."]}
+    problems = _task_problems({"dest": dest, "object": "cup", "finish": "hold"})   # only the dest can be wrong
+    return {"action": "carry", "task": {"dest": dest, "then": then, "on": on}, "problems": problems,
+            "choices": _choices(), "sentence": fetch.carry_sentence(dest, then).replace("Bring it", f"Bring {held}", 1)
+            .replace("on the table there", f"on the {on_words} there")}
 
 
 @app.post("/tasks/fetch", tags=["tasks"], summary="Start a fetch: drive, pick, carry, hold or place; returns at once, "
@@ -949,8 +984,9 @@ def task_give():
 
 
 @app.post("/tasks/place", tags=["tasks"], summary="Put the held object on the table in front")
-def task_place():
-    return _fetch_call("place", "fetch_place")
+def task_place(body: PlaceBody | None = None):
+    on = body.on if body else None
+    return _fetch_call("place", "fetch_place", None, on, on=on)
 
 
 @app.post("/tasks/release", tags=["tasks"], summary="While giving: the person holds it, open the gripper")
@@ -965,11 +1001,20 @@ def task_release():
 
 class CarryBody(BaseModel):
     dest: dict = Field(examples=[{"marker": "p1"}], description='{"marker": name} or {"x", "y", "theta"} (map)')
+    then: str | None = Field(None, description='there: null = keep holding it, "place" = on a table, "give" = hand it over')
+    on: dict | None = Field(None, description='put it on this instead of a table: {"name": camera class, "colour"}')
 
 
-@app.post("/tasks/carry", tags=["tasks"], summary="Bring the held object to a place and keep holding it")
+class PlaceBody(BaseModel):
+    on: dict | None = Field(None, examples=[{"name": "chair", "colour": "orange"}],
+                            description="put it on this instead of a table: camera class and colour (or null)")
+
+
+@app.post("/tasks/carry", tags=["tasks"], summary="Bring the held object to a place, then keep holding it, put it on "
+          "a table there or hand it over")
 def task_carry(body: CarryBody):
-    return _fetch_call("carry_to", "fetch_carry", body.dest, dest=body.dest)
+    return _fetch_call("carry_to", "fetch_carry", body.dest, body.then, None, body.on, dest=body.dest, then=body.then,
+                       on=body.on)
 
 
 @app.post("/tasks/stop", tags=["tasks"], summary="Stop the fetch task, the base and the arm")
@@ -1117,7 +1162,14 @@ def start_services():
             print(f"{time.strftime('%H:%M:%S')} {name} failed: {e}", flush=True)
 
 
+def _drive_log():
+    """Every drive of the base in this log (robot/drive_log.py): start, on the way, standing still, the end."""
+    from robot import drive_log
+    drive_log.watch(lambda line: print(f"{time.strftime('%H:%M:%S')} {line}", flush=True))
+
+
 if __name__ == "__main__":
     camview.ensure_running()                             # the camera service owns both cameras
     threading.Thread(target=start_services, daemon=True).start()
+    threading.Thread(target=_drive_log, daemon=True).start()
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")

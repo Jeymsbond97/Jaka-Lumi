@@ -366,8 +366,25 @@ def fetch_from_text(text, markers=()):
     return out, "llm"
 
 
+SUPPORTS = {"table": "dining table", "desk": "dining table", "chair": "chair", "stool": "chair", "sofa": "couch",
+            "couch": "couch", "bench": "bench", "bed": "bed", "테이블": "dining table", "탁자": "dining table",
+            "책상": "dining table", "의자": "chair", "소파": "couch", "벤치": "bench", "침대": "bed"}   # word -> camera class
+
+
+def place_on(text):
+    """What to put the held object on: {"name": camera class, "colour": colour or None} for "on the orange chair",
+    "빨간 의자에"; None when no such thing is named."""
+    t = _norm(text)
+    m = re.search(rf"(?:\b(?:on|onto)\s+(?:the\s+|a\s+|that\s+)?)(?:({_COL})\s+)?({'|'.join(k for k in SUPPORTS if k.isascii())})s?\b", t) \
+        or re.search(rf"(?:({_COL})\s*)?({'|'.join(k for k in SUPPORTS if not k.isascii())})", t)
+    return {"name": SUPPORTS[m.group(2)], "colour": COLOURS.get(m.group(1))} if m else None
+
+
 def held_command(text):
-    """While holding: 'give' / 'place' for "give it to me", "put it on the table", "줘", "테이블에 놔"."""
+    """While holding: 'give' / 'place' for "give it to me", "put it on the table", "줘", "테이블에 놔". A table named
+    wins ("bring it to p5 and put it on the table" is a place)."""
+    if HELD_PLACE.search(text) and re.search(r"\btables?\b|테이블|탁자|책상", text, re.I):
+        return "place"
     if HELD_GIVE.search(text):
         return "give"
     if HELD_PLACE.search(text):

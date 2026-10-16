@@ -59,4 +59,33 @@ skills._ask = sag
 assert not skills.joint_move_ok([0] * 6, [10, 0, 0, 0, 0, 0])
 assert skills.joint_move_ok([5, 0, 0, 0, 0, 0], [10, 0, 0, 0, 0, 0])              # rising from the low point is fine
 assert skills.joint_move_ok([0] * 6, [0] * 6)
+
+# grasp options: only the flipped wrist reaches (seed J5 < 0), and only at turns of 45 deg or more; `accept` can refuse
+READY = [-284.35, -75.43, -52.45, -136.99, 26.46, -278.46]
+skills.motion.poses = lambda: {"ready": READY}
+def ik(name, **a):
+    if name == "kine_forward":
+        return {"errorCode": "0", "cartPosition": [0, 0, 0] + list(skills.GRASP_RPY)}
+    flipped, turn = a["jointPosition"][4] < 0, abs(skills.yaw_of(a["cartPosition"]))
+    if flipped and turn >= 44:
+        return {"errorCode": "0", "jointPosition": list(a["jointPosition"])}
+    return {"errorCode": "1"}
+skills._ask = ik
+start = READY
+plan = skills.reachable_pick(cup, start)
+assert plan and plan[1][4] < 0 and abs(round(skills.yaw_of(plan[0][1][1]))) == 45, plan       # nearest turn first
+plan = skills.reachable_pick(cup, start, accept=lambda wp, ja: abs(skills.yaw_of(wp[1][1])) > 100)
+assert plan and abs(round(skills.yaw_of(plan[0][1][1]))) == 105, plan
+assert skills.reachable_pick(cup, start, accept=lambda wp, ja: False) is None
+# hand_sees: depth right at the cup's axis = object, far behind it = empty, nothing seen = unknown
+skills.objects.base_from_camera = lambda: np.eye(4)                      # camera at the arm base origin
+skills._ask = lambda name, **a: {"errorCode": "0", "cartPosition": [0.0, 500.0, 0.0] + list(skills.GRASP_RPY)}
+skills._joints = lambda: [0.0] * 6
+for depth_extra, want in ((0.0, "object"), (2000.0, "empty")):
+    skills.surface_points = lambda pts, guess_z=-400.0, e=depth_extra: [tuple(np.array(p) * (1 + e / np.linalg.norm(p)))
+                                                                        for p in pts]
+    assert skills.hand_sees() == want, want
+skills.surface_points = lambda pts, guess_z=-400.0: [None] * len(pts)
+assert skills.hand_sees() == "unknown"
+assert len(skills.GRASP_YAWS) == 24 and set(skills.GRASP_YAWS) == set(range(-165, 181, 15))
 print("skills ok")

@@ -24,10 +24,17 @@ CLOSED_AI = 400              # AI_1 above this = closed on something (open reads
 EMPTY_AI = 3900              # closed above this = nothing between the fingers (empty reads 4100-4200, noise +-50)
 MOVE_S = 1.5                 # s a full stroke takes (measured ~1 s)
 SENSOR_DI = 0                # DI_1
+READ_TRIES, READ_GAP_S = 5, 0.1   # get_data now and then answers without the tool I/O: ask again
 
 
 def state():
-    d = arm.cmd("get_data")
+    for _ in range(READ_TRIES):
+        d = arm.cmd("get_data")
+        if all(k in d for k in ("tio_ain", "tio_din", "tio_dout")):
+            break
+        time.sleep(READ_GAP_S)
+    else:
+        raise ConnectionError("the arm controller sends no tool I/O")
     ai = d["tio_ain"][0]
     return {"closed": ai > CLOSED_AI, "holding": CLOSED_AI < ai < EMPTY_AI, "object_in_front": bool(d["tio_din"][SENSOR_DI]),
             "ai": d["tio_ain"], "do": d["tio_dout"], "di": d["tio_din"]}

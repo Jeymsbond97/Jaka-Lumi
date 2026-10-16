@@ -34,8 +34,10 @@ OBJECTS = {"cup": "컵", "bottle": "병", "apple": "사과", "orange": "오렌�
 COLOURS = {"red": "빨간", "orange": "주황색", "yellow": "노란", "green": "초록색", "blue": "파란", "purple": "보라색",
            "pink": "분홍색", "white": "흰", "black": "검은", "grey": "회색"}   # the names objects.colour_name gives
 FINISH = ("hold", "place")
-LOOK_POSE = "look"           # empty hand: drives, looks and picks from here; high, inside the base outline, out of the
-                             # torso camera's view (ready if not taught). With an object: carry
+LOOK_POSE = "look"           # drives, turns, looks and waits here, also with an object (the cup leans 5.9 deg); high,
+                             # out of the torso camera's view (ready if not taught). carry is only passed through after a
+                             # pick: in carry the hand is ~0.3 m before the base's front, where its 3D camera seems to see
+                             # it as an obstacle (every drive in carry stalled; the same drives in look went, 2026-10-16)
 MAX_TILT_DEG = 15.0          # deg; the held cup's axis may lean this far from vertical on ready <-> carry
 TILT_POINTS = 11             # points checked along a joint move (kine_forward)
 LINE_POINTS = 20             # points IK- and tilt-checked on a straight move with an object in the hand ...
@@ -44,23 +46,52 @@ LINE_STEP_DEG = 25.0         # ... no joint may turn more than this between two 
 # ponytail: fixed table height (top ~ -400 mm in the arm base frame, the 142 mm tumbler's top ~ -258);
 # use the measured table top instead when tables of other heights come in.
 MIN_POSE_Z = -220.0          # mm; a move between named poses must keep the grasp point above this (or above its start)
-PICK_ZONE_CENTRE = (-160.0, 600.0)   # mm, arm base frame: middle of the successful picks (x -126..-178, y 579..613)
+PICK_ZONE_CENTRE = (-100.0, 580.0)   # mm, arm base frame: where the base brings an object out of reach. Next to the
+                                     # successful picks (x -126..-178, y 579..613) and inside the reach at table height
+                                     # (IK map 2026-10-16, top -330: grasps for x -200..100 at y <= 650, none further)
 PLACE_GRID_X = range(-260, -59, 40)  # mm; place spots tried after the pick spot. At table height the torso camera
 PLACE_GRID_Y = (640, 660, 680, 700)  # sees only y >= ~640, nearer spots can't be checked for table (skills.on_table)
+PLACE_GOAL = (-160.0, 670.0)         # mm; a table spot seen further away is brought here by the base (middle of the grid)
+FAR_GRID_X = range(-700, 501, 50)    # mm; where a table further away is looked for in the depth image
+FAR_GRID_Y = range(720, 1601, 40)
+SUPPORT_DISC_MM = 100.0              # mm; the top of a named thing (a chair's seat) is measured on a disc this wide
+FAR_TRIES = 15                       # nearest table points checked for a whole free spot (ring) there
 TABLE_PROVEN_Z = -403.0      # mm, arm base frame: the table top of every proven pick and place (lift 75 mm)
-TABLE_FIT_MM = 150.0         # a measured surface further than this from it is not a table to fit (floor, a wall)
+SURFACE_Z = (-560.0, -30.0)  # mm, arm frame, after the lift: table tops the arm can pick from / put on at all (IK of
+                             # the grasp, 2026-10-16: -578 4 of 9 spots, -528 7 of 9, -28 9 of 9). Lower: a floor or a
+                             # seat ~30 cm under a table, which no grasp reaches even at lift 0
 LIFT_TOL_MM = 20.0           # closer than this: the lift stays
 LIFT_RANGE = (0.0, 250.0)    # mm; the body API allows 0-300, kept to what the colleagues' code uses (lumi_voice_app)
 LIFT_DRIVE_MM = 75.0         # every drive, every task's end and a look that found nothing again at this lift
                              # (higher, the near part of the table is below the torso camera's view)
 LIFT_VEL = 20                # % of the lift's speed
-LIFT_TRIES = (75.0, 250.0, 0.0)   # mm; where else to look when nothing is found at this lift (usual, top, bottom)
-SEARCH_TURN_DEG = 30.0       # then turn on the spot by this much and look again ...
-SEARCH_TURNS = 11            # ... this many times (all the way round); never while charging
+SEARCH_TURN_DEG = 30.0       # search: look, turn on the spot by this much, look again ...
+SEARCH_TURNS = 11            # ... this many times (all the way round) at the lift it has; never while charging
+LIFT_TRIES = (0.0, 250.0)    # mm; nothing found: the same whole turn again at these lifts (down first, then up)
 SAME_BASE_M = 0.02                   # m / rad; the base is still where it picked: the pick spot is still table
 SAME_BASE_RAD = 0.035
-MAX_SHIFT_M = 0.30           # m; at most this far per base shift
-SHIFT_TRIES = 3              # base shifts before asking the person to move the object
+APPROACH_TRIES = 5           # base moves to bring an object out of reach to PICK_ZONE_CENTRE before asking the person
+STRAIGHT_MAX_M = 0.6         # m; a straight drive (after a turn on the spot) at most this long, else navigation
+STANDOFF_M = 0.4             # m; navigation goes to this far back from the pick pose, then straight in
+APPROACH_SIDES = (0, 45, -45, 90, -90, 135, -135, 180)   # deg; ways in to the object tried by navigation, the
+                                                       # direct one first (a table side may be blocked)
+BASE_HALF_M = 0.255          # m; half the base's 510 mm (docs/01) ...
+CLEAR_M = 0.05               # ... plus this: a straight drive stops where the base would get closer to an obstacle
+PROBE_STEP_M = 0.05          # m between the points checked along a straight drive
+TURN_MIN_DEG = 3.0           # smaller turns are left out
+FURNITURE_ANGLES = (45, 90, 135)     # deg left / right of the heading ...
+FURNITURE_RANGES = (0.6, 1.0, 1.4)   # ... and m from the base centre where the first search turn looks for things
+FURNITURE_HIT_M = 0.3                # ... the lidar sees now (closer than this) and the map does not have (nothing
+FURNITURE_MAP_M = 0.5                # on the map this near): tables, chairs, boxes, where an object most likely stands
+LOST_BACK_M = 0.15           # an object lost after a base move: back off this much (the camera sees more) ...
+LOST_TURN_DEG = 20.0         # ... and turn this much each way, looking again (YOLO, then depth where it should be)
+ARM_CLEAR_M = 0.10           # m; flange, grasp point and finger tips kept this far from anything the lidar or the map
+SWEEP_STEP_DEG = 10.0        # shows while the base turns on the spot, checked every this many degrees (turn_hits)
+SELF_MM = 120.0              # depth this near the arm's own flange / grasp point / tips is the arm itself (depth_hits)
+OFFSET_TURN_DEG = 15.0       # a move that turned the base at least this much tells where the arm base is (arm_offset)
+WIDTH_NEAR_MM = 250.0        # mm from PICK_ZONE_CENTRE; a width measured further away is not trusted (the same tumbler:
+                             # 85-88 mm at 1.14 m, 76-81 up close, 2026-10-16; the gripper takes up to 84)
+OFFSET_SAMPLES = 9           # ... the median of the last this many such measurements is used (one can be off)
 ASK_WAIT_S = 30.0            # s; after "please move it closer" look again for this long ...
 ASK_EVERY_S = 2.0            # ... this often
 DRIVE_POLL_S = 0.5           # s between base status reads while driving
@@ -72,6 +103,7 @@ SAME_PLACE_M = 0.05          # m; closer than this to the target point (and SAME
 SAME_ANGLE_RAD = 0.05
 AXIS_STEP_M = 0.10           # m the base drives forward (and back) in measure-axis
 AXIS_SPEED = 0.05            # m/s; straight with joy_control (navigation may turn in place, the arm is over the table)
+COAST_S = 1.0                # s; the base coasts a little after a joy_control stop
 GIVE_WAIT_S = 30.0           # s; no release by then: keep holding it and go back to carry (never drop it)
 # Opening needs a word from the person ("thank you", or Release in the dashboard): AI_1 can't feel a pull. Measured
 # 2026-10-15 with the cup in the closed gripper: its median stayed 2780-2870 during gentle pulls (only its noise
@@ -79,7 +111,7 @@ GIVE_WAIT_S = 30.0           # s; no release by then: keep holding it and go bac
 GIVE_POLL_S = 0.2
 LOG_LINES = 40
 
-_lock = threading.Lock()
+_lock = threading.RLock()                   # _finish sets the state while it holds it
 _stop = threading.Event()                    # set by stop(): every step and every wait gives up
 _release = threading.Event()                 # set by release_now() ("thank you" / Release while giving)
 _thread = None
@@ -212,14 +244,15 @@ def _say(say, en, ko=None):
             log(f"say failed: {e}")
 
 
-def _pose(name):
+def _pose(name, speed=skills.EMPTY_SPEED):
+    """Joint move to pose `name`, refused when it would take the gripper down to the table. Empty hand: faster."""
     _go_on()
     start, low = lowest_along(name)
     if low < min(MIN_POSE_Z, start - 10.0):
         log(f"refused: on the way to {name} the gripper would go down to z {low:.0f} mm")
         raise FetchError("My arm would go too close to the table, I stopped.", "팔이 테이블에 너무 가까워져서 멈췄어요.")
     log(f"arm to {name}")
-    motion.go(name)
+    motion.go(name, speed)
     _go_on()
 
 
@@ -249,10 +282,10 @@ def tilt_along(name):
     return worst
 
 
-def _line_rows(target, label):
-    """IK rows of the straight move from here to the flange pose `target`. FetchError when IK fails on the way or the
-    held cup would lean more than MAX_TILT_DEG (the arm stays where it is)."""
-    c0, j0 = np.array(motion.tcp()), skills._joints()
+def _line_rows(target, label, start=None):
+    """IK rows of the straight move from here (or `start`: (flange pose, joints)) to the flange pose `target`.
+    FetchError when IK fails on the way or the held cup would lean more than MAX_TILT_DEG (the arm stays where it is)."""
+    c0, j0 = (np.array(motion.tcp()), skills._joints()) if start is None else (np.array(start[0], float), list(start[1]))
     d = np.array(target, float) - c0
     d[3:] = (d[3:] + 180) % 360 - 180
     rows = skills.ik_chain([(f"{label} {k}", [float(v) for v in c0 + d * k / LINE_POINTS])
@@ -280,7 +313,7 @@ def _line_holding(name):
     target = skills._ask("kine_forward", jointPosition=[float(v) for v in motion.poses()[name]])["cartPosition"]
     _line_rows(target, f"to {name}")
     log(f"arm to {name} (straight)")
-    motion.move_linear(target=target, speed="slow", path_checked=True)
+    motion.move_linear(target=target, speed=skills.HOLDING_SPEED, path_checked=True)
     _go_on()
     j = skills._joints()
     if max(abs(a - b) for a, b in zip(j, motion.nearest(motion.poses()[name], j))) > 1.0:
@@ -297,7 +330,7 @@ def _pose_holding(name):
     log(f"tilt on the way to {name}: {tilt:.1f} deg")
     if tilt > MAX_TILT_DEG:
         raise FetchError("I can't move my arm there without spilling it.")
-    _pose(name)
+    _pose(name, skills.HOLDING_SPEED)
 
 
 def _wait_drive(watch_holding=False):
@@ -358,44 +391,122 @@ def _charging():
         return True                          # unknown: better not drive off
 
 
-def _turn(deg, holding=False):
-    """Turn the base on the spot by `deg` (+ = left), arm in look (empty) or carry (holding), lift at 75 mm.
-    False when it must not (charging)."""
+def arm_points_3d():
+    """(x, y, z) mm in the arm base frame of the flange, the grasp point and the finger tips, from the joints now."""
+    c = skills._ask("kine_forward", jointPosition=[float(v) for v in skills._joints()])["cartPosition"]
+    R, f = calib.rpy_matrix(*c[3:]), np.array(c[:3])
+    g = f + R @ skills.GRASP_OFFSET
+    return [f, g, g + R @ [0.0, 0.0, skills.TIP_MM]]
+
+
+def arm_points():
+    """(x, y) m in the base frame of the flange, the grasp point and the finger tips: the parts of the arm that reach
+    out past the base (in look the flange is ~0.4 m ahead of the base centre)."""
+    return [to_base(p[:2], arm_yaw(), arm_xy()) for p in arm_points_3d()]
+
+
+def depth_hits(deg):
+    """Like turn_hits, with the torso depth camera: the arm's points along the turn at their real height (a table top's
+    edge, a shelf: the lidar at the base's height does not see them), (x, y, z) mm in the arm frame now of the first
+    one the camera sees something at or in front of; None when clear. Points out of its view are left to the lidar;
+    depth on the arm's own parts (in view, within SELF_MM of them) does not count."""
+    yaw = arm_yaw()
+    T = skills.objects.base_from_camera()
+    if yaw is None or T is None:
+        return None
+    pts, t, cam = arm_points_3d(), arm_xy(), T[:3, 3]
+    n = max(1, math.ceil(abs(deg) / SWEEP_STEP_DEG))
+    cand = []
+    for k in range(1, n + 1):
+        R = _rot(deg * k / n)
+        for p in pts:
+            xy = _rot(-yaw) @ (R @ to_base(p[:2], yaw, t) - t) * 1000.0
+            cand.append(np.array([xy[0], xy[1], p[2]]))
+    for c, h in zip(cand, skills.surface_points([tuple(c) for c in cand])):
+        if h is None or min(np.linalg.norm(np.subtract(h, q)) for q in pts) < SELF_MM:
+            continue
+        if np.linalg.norm(np.subtract(h, cam)) <= np.linalg.norm(c - cam) + ARM_CLEAR_M * 1000.0:
+            return c
+    return None
+
+
+def turn_hits(deg):
+    """The map point (x, y) where the arm would come closer than ARM_CLEAR_M to something the lidar or the map shows
+    while the base turns by `deg`, checked every SWEEP_STEP_DEG along the way; None when the way is clear. The base
+    itself turns in its own footprint; navigation does not know about the arm sticking out."""
+    if arm_yaw() is None:
+        return None
+    pts, (x, y, th) = arm_points(), agv.pose()
+    n = max(1, math.ceil(abs(deg) / SWEEP_STEP_DEG))
+    for k in range(1, n + 1):
+        R = _rot(math.degrees(th) + deg * k / n)
+        for p in pts:
+            w = np.array([x, y]) + R @ p
+            if agv.clearance(*w) < ARM_CLEAR_M:
+                return w
+    return None
+
+
+def _turn(deg, holding=False, why="to look further"):
+    """Turn the base on the spot by `deg` (+ = left), arm in look (holding: it is there already), the lift where it
+    is. False when it must not: charging, or the arm would hit something on the way (turn_hits)."""
     if _charging():
         log("on the charger: I don't turn")
         return False
-    if holding:
-        _line_holding("carry")
-    else:
+    if not holding:
         _pose(_look())
-    _lift_to(LIFT_DRIVE_MM)
-    log(f"turning {deg:+.0f} deg to look further")
+    hit = turn_hits(deg)
+    if hit is not None:
+        log(f"not turning {deg:+.0f} deg: my arm would hit something at ({hit[0]:.2f}, {hit[1]:.2f})")
+        return False
+    seen = depth_hits(deg)
+    if seen is not None:
+        log(f"not turning {deg:+.0f} deg: the camera sees something in my arm's way at ({seen[0]:.0f}, {seen[1]:.0f}, "
+            f"{seen[2]:.0f}) mm")
+        return False
+    log(f"turning {deg:+.0f} deg {why}")
     ok, msg = agv.turn_by(math.radians(deg))
     if not ok:
         raise FetchError(f"I couldn't turn ({msg}).")
     _wait_drive(watch_holding=holding)
-    if holding:
-        _line_holding(LOOK_POSE)
     return True
 
 
 def _search(attempt, holding=False, say=None):
-    """Run attempt() until it returns something: here at this lift, at LIFT_TRIES, then turning on the spot
-    (each new heading at the usual and the top lift). None when the whole search found nothing."""
-    for i in range(SEARCH_TURNS + 1):
-        if i and not _turn(SEARCH_TURN_DEG, holding):
-            return None
-        if i == 1:
-            _say(say, "Let me look around.", "주변을 둘러볼게요.")
-        here = head.status()[0]
-        lifts = [None] + [m for m in LIFT_TRIES if abs(m - here) >= 5.0] if i == 0 else [None, LIFT_TRIES[1]]
-        for lift in lifts:
-            if lift is not None:
-                _lift_to(lift)
+    """Run attempt() until it returns something: a whole turn on the spot (SEARCH_TURNS turns) at the lift it has,
+    then the same at each of LIFT_TRIES; on the charger only the lifts. None when nothing was found."""
+    here, step = head.status()[0], None
+    for n, lift in enumerate([None] + [m for m in LIFT_TRIES if abs(m - here) >= 5.0]):
+        if lift is not None:
+            _lift_to(lift)
+        for i in range(SEARCH_TURNS + 1):
+            if i and step is None and not _charging():
+                step = SEARCH_TURN_DEG * first_side()
+            if i and not _turn(step or SEARCH_TURN_DEG, holding):
+                break
+            if n == 0 and i == 1:
+                _say(say, "Let me look around.", "주변을 둘러볼게요.")
             got = attempt()
             if got is not None:
                 return got
     return None
+
+
+def first_side():
+    """+1 (left) or -1 (right): the side where the lidar sees more things the map does not have (FURNITURE_*), the
+    first way to turn when searching. ponytail: base-height lidar only (a table counts by its legs)."""
+    x, y, th = agv.pose()
+    seen = {}
+    for side in (1, -1):
+        seen[side] = 0
+        for a in FURNITURE_ANGLES:
+            for r in FURNITURE_RANGES:
+                h = th + side * math.radians(a)
+                live, mapped = agv.probe(x + r * math.cos(h), y + r * math.sin(h))
+                seen[side] += live < FURNITURE_HIT_M and mapped > FURNITURE_MAP_M
+    side = 1 if seen[1] >= seen[-1] else -1
+    log(f"things around me: {seen[1]} on the left, {seen[-1]} on the right: turning {'left' if side > 0 else 'right'}")
+    return side
 
 
 def _find_any(task):
@@ -405,19 +516,29 @@ def _find_any(task):
         return None
 
 
+def surface_band(lift=None):
+    """(low, high) mm, arm frame at the lift it has now: surfaces some lift in LIFT_RANGE brings into SURFACE_Z."""
+    lift = head.status()[0] if lift is None else lift
+    return SURFACE_Z[0] - lift + LIFT_RANGE[0], SURFACE_Z[1] - lift + LIFT_RANGE[1]
+
+
+def lift_for(z):
+    """The lift (mm) for working on a surface at `z` (arm frame now): the one bringing it nearest TABLE_PROVEN_Z,
+    where every proven pick and place was; None when no lift brings it into SURFACE_Z."""
+    lift = head.status()[0]
+    target = max(LIFT_RANGE[0], min(LIFT_RANGE[1], lift + z - TABLE_PROVEN_Z))   # higher surface -> lift up
+    return target if SURFACE_Z[0] <= z - (target - lift) <= SURFACE_Z[1] else None
+
+
 def _fit_lift(table):
-    """Bring a table at `table` mm (arm frame) to TABLE_PROVEN_Z with the lift. True when the lift moved (look again)."""
+    """Set the lift for a table at `table` mm (arm frame; lift_for). True when the lift moved (look again)."""
     if table is None:
         log("table height not measured: the lift stays")
         return False
-    delta = table - TABLE_PROVEN_Z                    # table higher (less negative) -> lift up by as much
-    if abs(delta) > TABLE_FIT_MM:
-        log(f"surface at {table:.0f} mm is not a table I can work at: the lift stays")
+    target, lift = lift_for(table), head.status()[0]
+    if target is None:
+        log(f"surface at {table:.0f} mm is not one my arm can work at: the lift stays")
         return False
-    if abs(delta) < LIFT_TOL_MM:
-        return False
-    lift = head.status()[0]
-    target = max(LIFT_RANGE[0], min(LIFT_RANGE[1], lift + delta))
     if abs(target - lift) < LIFT_TOL_MM:
         log(f"table at {table:.0f} mm, but the lift is at its end ({lift:.0f} mm)")
         return False
@@ -461,17 +582,47 @@ def _rot(deg):
     return np.array([[c, -s], [s, c]])
 
 
-def shift_target(obj_xy, base_pose, yaw_deg):
-    """Map pose (x, y, theta) the base drives to so the object at `obj_xy` (mm, arm base frame) comes to the
-    pick zone centre. The base moves by the object's offset from the centre, turned into the base frame, so the
-    object then appears that much nearer; at most MAX_SHIFT_M."""
-    move = _rot(yaw_deg) @ (np.subtract(obj_xy, PICK_ZONE_CENTRE) / 1000.0)
-    n = np.linalg.norm(move)
-    if n > MAX_SHIFT_M:
-        move *= MAX_SHIFT_M / n
-    x, y, th = base_pose
-    dx, dy = _rot(math.degrees(th)) @ move
-    return x + dx, y + dy, th
+def arm_xy():
+    """Arm base origin (m) in the base frame, as last learned by arm_offset() (0, 0 until then: approach() corrects
+    the error by looking again after every move)."""
+    try:
+        return np.array(json.loads(CALIB_FILE.read_text())["arm_xy_in_base_m"], float)
+    except (FileNotFoundError, ValueError, KeyError):
+        return np.zeros(2)
+
+
+def to_base(obj_xy, yaw_deg, t):
+    """A point (mm, arm base frame) in the base frame (m)."""
+    return _rot(yaw_deg) @ (np.asarray(obj_xy, float) / 1000.0) + t
+
+
+def approach_move(obj_xy, yaw_deg, t, goal=PICK_ZONE_CENTRE):
+    """(turn deg, then straight m) of the base that bring the object at `obj_xy` (mm, arm frame) to `goal`. The turn
+    puts the object on the circle the goal reaches by a straight drive. None when the object is nearer the turning
+    centre than the goal is from the drive line (back off first)."""
+    o, d = to_base(obj_xy, yaw_deg, t), to_base(goal, yaw_deg, t)
+    r2 = float(o @ o - d[1] ** 2)
+    if r2 < 0:
+        return None
+    s = math.sqrt(r2) - d[0]
+    turn = math.atan2(o[1], o[0]) - math.atan2(d[1], d[0] + s)
+    return math.degrees((turn + math.pi) % (2 * math.pi) - math.pi), s
+
+
+def side_pose(obj_world, heading, yaw_deg, t, back=STANDOFF_M, goal=PICK_ZONE_CENTRE):
+    """Map pose (x, y, heading) from which a straight drive of `back` m brings the object at `obj_world` (map, m)
+    to `goal`."""
+    g = np.asarray(obj_world) - _rot(math.degrees(heading)) @ to_base(goal, yaw_deg, t)
+    return g[0] - back * math.cos(heading), g[1] - back * math.sin(heading), heading
+
+
+def arm_offset(seen1, seen2, yaw_deg):
+    """Arm base origin (m) in the base frame from one object seen from two base poses that differ by a turn.
+    seen = ((x, y, theta) map pose, (x, y) mm arm frame); the object stays put in the map."""
+    (p1, a1), (p2, a2) = seen1, seen2
+    R1, R2 = _rot(math.degrees(p1[2])), _rot(math.degrees(p2[2]))
+    b = R2 @ to_base(a2, yaw_deg, 0) - R1 @ to_base(a1, yaw_deg, 0) + np.subtract(p2[:2], p1[:2])
+    return np.linalg.solve(R1 - R2, b)
 
 
 def yaw_from_shift(before_xy, after_xy, base_move):
@@ -491,29 +642,193 @@ def _find(task):
         raise FetchError(f"I can't see the {task['object']}.", f"{thing}{'이' if _object_particle(thing) == '을' else '가'} 안 보여요.")
 
 
+def _carry_ok(waypoints, ja):
+    """After the pick the arm goes straight up to above, then straight to carry with the cup: check that line now."""
+    target = skills._ask("kine_forward", jointPosition=[float(v) for v in motion.poses()["carry"]])["cartPosition"]
+    try:
+        _line_rows(target, "to carry", start=(waypoints[0][1], ja))
+        return True
+    except FetchError:
+        return False
+
+
 def _reachable(obj):
-    """The pick waypoints when their IK passes from look (any grasp turn), else None. Wrong-size objects raise."""
-    return skills.reachable_pick(obj)
+    """(waypoints, joints above) of a pick from look (any grasp turn, either wrist) after which the cup can go
+    straight to carry, else None. Wrong-size objects raise, but only when measured near: from further away the width
+    is not trusted, the base goes closer and it is measured again."""
+    try:
+        return skills.reachable_pick(obj, accept=_carry_ok)
+    except skills.SkillError:
+        if math.hypot(obj["x"] - PICK_ZONE_CENTRE[0], obj["y"] - PICK_ZONE_CENTRE[1]) <= WIDTH_NEAR_MM:
+            raise
+        log(f"width {obj.get('width_mm')} mm measured from further away: I'll measure it again up close")
+        return None
+
+
+def _see(task, say=None):
+    """Find the object here (else search again), fit the lift to its table and look once more."""
+    obj = _find_any(task) or _search(lambda: _find_any(task), say=say)
+    if obj is None:
+        _lift_to(LIFT_DRIVE_MM)
+        thing = OBJECTS[task["object"]]
+        raise FetchError(f"I looked all around, but I can't see the {task['object']}.",
+                         f"주변을 다 봤는데 {thing}{'이' if _object_particle(thing) == '을' else '가'} 안 보여요.")
+    return _fitted(task, obj)
+
+
+def _fitted(task, obj):
+    """Fit the lift to the table `obj` stands on; look once more when the lift moved."""
+    table = skills.table_near(obj) or skills.table_z(obj)
+    log(f"table at {table:.0f} mm" if table is not None else "table height not measured")
+    if _fit_lift(table):
+        obj = _find(task)
+    log(f"found {obj['colour']} {obj['name']} at ({obj['x']:.0f}, {obj['y']:.0f}) top {obj['top_mm']:.0f}")
+    return obj
+
+
+def _straight_clear(dist):
+    """Drive straight by `dist` m (+ forward), only as far as the base keeps BASE_HALF_M + CLEAR_M from every obstacle
+    the sensors and the map show (checked every PROBE_STEP_M before it starts; getting further from one is fine).
+    Returns the distance driven (m)."""
+    x, y, th = agv.pose()
+    sign = 1.0 if dist > 0 else -1.0
+    free, last = 0.0, agv.clearance(x, y)
+    for k in range(1, int(abs(dist) / PROBE_STEP_M + 1e-9) + 1):
+        c = agv.clearance(x + sign * k * PROBE_STEP_M * math.cos(th), y + sign * k * PROBE_STEP_M * math.sin(th))
+        if c < BASE_HALF_M + CLEAR_M and c < last:
+            log(f"an obstacle {c:.2f} m from the way after {free:.2f} m")
+            break
+        free, last = k * PROBE_STEP_M, c
+    if free >= PROBE_STEP_M:
+        log(f"straight {sign * free:+.2f} m")
+        _straight(sign * free)
+    return free
+
+
+def _approach(obj, yaw, tried, goal=PICK_ZONE_CENTRE, holding=False):
+    """One base move that should bring `obj` (x, y in the arm frame) to `goal`: turn on the spot and drive straight
+    when the way is short and free; else navigation (around obstacles) to a stand-off point on a side of it not in
+    `tried`, facing it. FetchError when no side can be reached."""
+    t = arm_xy()
+    move = approach_move((obj["x"], obj["y"]), yaw, t, goal)
+    if move is None:
+        log("it is too near me: backing off")
+        if _straight_clear(-STANDOFF_M) < PROBE_STEP_M:
+            raise FetchError("It is too close to me and I can't back off.")
+        return
+    turn, s = move
+    log(f"to bring it to ({goal[0]:.0f}, {goal[1]:.0f}): turn {turn:+.0f} deg, straight {s:+.2f} m")
+    if abs(s) <= STRAIGHT_MAX_M:
+        turned = abs(turn) < TURN_MIN_DEG or _turn(turn, holding, why="to face it")
+        if turned:
+            turn = 0.0
+        if turned and (abs(s) < PROBE_STEP_M or _straight_clear(s) >= PROBE_STEP_M):
+            return                                    # else the turn or the straight way is blocked: go round
+    x, y, th = agv.pose()
+    world = np.array([x, y]) + _rot(math.degrees(th)) @ to_base((obj["x"], obj["y"]), yaw, t)
+    facing = th + math.radians(turn)
+    _lift_to(LIFT_DRIVE_MM)
+    for side in APPROACH_SIDES:
+        if side in tried:
+            continue
+        tried.add(side)
+        sx, sy, sth = side_pose(world, facing + math.radians(side), yaw, t, goal=goal)
+        log(f"driving round to ({sx:.2f}, {sy:.2f}) to come in from {side:+d} deg")
+        ok, msg = agv.go_point(sx, sy, (sth + math.pi) % (2 * math.pi) - math.pi)
+        if not ok:
+            log(f"no way there: {msg}")
+            continue
+        try:
+            _wait_drive(watch_holding=holding)
+            return
+        except FetchError as e:
+            log(f"no way there: {e}")
+    raise FetchError("I can't find a way to get close to it.", "가까이 갈 길을 못 찾겠어요.")
+
+
+def _learn_offset(before, after, yaw):
+    """After a move with a turn: the arm base origin in the base frame from the object seen before and after; kept
+    in CALIB_FILE when it is plausible (inside the base)."""
+    if abs(math.degrees((after[0][2] - before[0][2] + math.pi) % (2 * math.pi) - math.pi)) < OFFSET_TURN_DEG:
+        return
+    t = arm_offset(before, after, yaw)
+    if np.linalg.norm(t) > BASE_HALF_M * math.sqrt(2):
+        log(f"arm offset {t.round(3)} m does not fit the base: not kept")
+        return
+    try:
+        data = json.loads(CALIB_FILE.read_text())
+    except (FileNotFoundError, ValueError):
+        data = {}
+    samples = (data.get("arm_xy_samples", []) + [[round(float(v), 3) for v in t]])[-OFFSET_SAMPLES:]
+    mid = [round(float(v), 3) for v in np.median(samples, axis=0)]
+    log(f"arm base measured at ({t[0]:.3f}, {t[1]:.3f}) m; median of {len(samples)}: ({mid[0]:.3f}, {mid[1]:.3f})")
+    data.update(arm_xy_samples=samples, arm_xy_in_base_m=mid, arm_xy_measured=time.strftime("%Y-%m-%d %H:%M"))
+    CALIB_FILE.write_text(json.dumps(data))
+
+
+def remember(obj, yaw):
+    """Where `obj` (arm frame) is on the map, to find it again after the base moved."""
+    x, y, th = agv.pose()
+    table = skills.table_z(obj)
+    return {"world": np.array([x, y]) + _rot(math.degrees(th)) @ to_base((obj["x"], obj["y"]), yaw, arm_xy()),
+            "top": obj["top_mm"], "table": table if table is not None else obj["top_mm"] - 100.0,
+            "lift": head.status()[0], "obj": obj}
+
+
+def expected(mem, yaw):
+    """((x, y) arm frame mm, top mm, table mm) where a remembered object should be seen from here."""
+    x, y, th = agv.pose()
+    b = _rot(-math.degrees(th)) @ (mem["world"] - [x, y])
+    xy = _rot(-yaw) @ (b - arm_xy()) * 1000.0
+    down = head.status()[0] - mem["lift"]                 # the lift went up: the object is lower in the arm frame
+    return (float(xy[0]), float(xy[1])), mem["top"] - down, mem["table"] - down
+
+
+def _see_again(task, mem, yaw, say):
+    """After a base move: the object by YOLO (its box measured with depth: what a pick may use). Not found: depth
+    where it should be now (`mem`) says whether it is still there; back off a little, turn a little each way and
+    look again. Depth sees only table where it was: someone took it, the whole search. Depth sees it but YOLO never
+    does: ask the person. A pick never uses the depth-only position: it was 45 mm off once and the gripper knocked
+    the cup over (2026-10-16)."""
+    there = False
+    for move in (None, -LOST_BACK_M, LOST_TURN_DEG, -2 * LOST_TURN_DEG):
+        if move is not None and abs(move) < 1:
+            _straight_clear(move)
+        elif move is not None:
+            _turn(move, why="to find it again")
+        obj = _find_any(task)
+        if obj is not None:
+            return _fitted(task, obj)
+        xy, top, table = expected(mem, yaw)
+        how, got = skills.locate(xy, top, table, mem["obj"]["width_mm"])
+        log(f"no box for it; depth where it should be ({xy[0]:.0f}, {xy[1]:.0f}): {how}")
+        if how == "gone":
+            _say(say, "It is not where I saw it. Let me look around.", "아까 본 자리에 없어요. 주변을 볼게요.")
+            return _see(task, say)
+        there = there or how == "here"
+    if there:
+        raise FetchError(f"Something is still where I saw the {task['object']}, but I can't see it well enough to "
+                         "take it. Please move it a little.", "물건이 보이긴 하는데 잡을 만큼 잘 안 보여요. 조금 옮겨 주세요.")
+    return _see(task, say)
 
 
 def _reach(task, obj, say):
-    """Step 5: (obj, waypoints) of a pick that passes IK, shifting the base or asking the person when needed."""
-    yaw = arm_yaw()
-    for i in range(SHIFT_TRIES + 1):
-        waypoints = _reachable(obj)
-        if waypoints:
-            return obj, waypoints
-        if yaw is None or i == SHIFT_TRIES:
+    """Step 5: (obj, waypoints, joints above) of a pick that passes IK. Out of reach: move the base (_approach) and look
+    again, up to APPROACH_TRIES times (never on the charger); then ask the person to move it."""
+    yaw, tried = arm_yaw(), set()
+    for i in range(APPROACH_TRIES + 1):
+        plan = _reachable(obj)
+        if plan:
+            return (obj, *plan)
+        if yaw is None or i == APPROACH_TRIES or _charging():
             break
-        target = shift_target((obj["x"], obj["y"]), agv.pose(), yaw)
-        _step(f"shifting the base ({i + 1}/{SHIFT_TRIES})", say, "Let me move a little closer.", "조금 가까이 갈게요.")
+        _step(f"moving to reach it ({i + 1}/{APPROACH_TRIES})", say,
+              *(("Let me get closer to it.", "가까이 가 볼게요.") if i == 0 else ()))
+        before, mem = (agv.pose(), (obj["x"], obj["y"])), remember(obj, yaw)
         _pose(_look())
-        ok, msg = agv.go_point(*target)
-        if not ok:
-            raise FetchError(f"I couldn't move the base ({msg}).")
-        _wait_drive()
-        _pose(_look())
-        obj = _find(task)
+        _approach(obj, yaw, tried)
+        obj = _see_again(task, mem, yaw, say)
+        _learn_offset(before, (agv.pose(), (obj["x"], obj["y"])), yaw)
     _step("asking to move it closer", say, "I can't reach it, please move it closer to me.",
           "손이 닿지 않아요. 저에게 조금 더 가까이 놓아 주세요.")
     deadline = time.time() + ASK_WAIT_S
@@ -524,17 +839,18 @@ def _reach(task, obj, say):
             obj = _find(task)
         except FetchError:
             continue
-        waypoints = _reachable(obj)
-        if waypoints:
-            return obj, waypoints
+        plan = _reachable(obj)
+        if plan:
+            return (obj, *plan)
     raise FetchError("I still can't reach it.", "아직 손이 닿지 않아요.")
 
 
 def table_ahead():
     """Height (mm) of the table in front: median depth surface over the place grid, only values near
-    TABLE_PROVEN_Z (TABLE_FIT_MM) count; None when too little table is in view."""
+    the arm can work at (surface_band) count; None when too little table is in view."""
+    band = surface_band()
     zs = [z for z in skills.surface_heights([(x, y) for y in PLACE_GRID_Y for x in PLACE_GRID_X])
-          if z is not None and abs(z - TABLE_PROVEN_Z) <= TABLE_FIT_MM]
+          if z is not None and band[0] <= z <= band[1]]
     return statistics.median(zs) if len(zs) >= 4 else None
 
 
@@ -567,9 +883,16 @@ def _place_here(top0):
     if table is not None and held_table is not None:
         top += table - held_table                     # the same object on a table this much higher / lower
     log(f"table here at {table:.0f} mm" if table is not None else "no table in view")
+    if table is None:                    # never put it down on a table not measured right now
+        return _to_far_table(top0)
     tries = place_spots(skills._held, agv.pose(), skills.look(), table)
     if not tries:
-        return None
+        return _to_far_table(top0)
+    return _place_at(tries, top)
+
+
+def _place_at(tries, top):
+    """Put the held object down at the first of `tries` (x, y) whose way down passes IK. True when it is down."""
     log(f"place spots: {', '.join(f'({x:.0f}, {y:.0f})' for x, y in tries[:6])}")
     for x, y in tries:
         way = skills.plan_place(x, y, top, yaw=skills._held.get("yaw", 0.0))      # above place, place, release up
@@ -582,7 +905,8 @@ def _place_here(top0):
         if not rows[-1][3]:
             _go_on()
             log(f"putting it down at ({x:.0f}, {y:.0f})")
-            skills._guarded(lambda: motion.move_linear(target=way[0][1], speed="slow", path_checked=True))  # checked
+            skills._guarded(lambda: motion.move_linear(target=way[0][1], speed=skills.HOLDING_SPEED,
+                                                       path_checked=True))  # checked
             skills._guarded(skills._do_place, [(r[0], r[1]) for r in rows])   # ends at home (look), hand open
             _set(holding=False)
             _pose(_look())
@@ -591,23 +915,120 @@ def _place_here(top0):
     return None
 
 
-def _put_down(say=None):
+def far_table():
+    """(x, y) mm of a free table spot the torso depth camera sees beyond the place grid (the nearest whole one, its
+    ring all table) and the table's height, or None. Surfaces no lift brings into SURFACE_Z are not
+    tables (floor, low seats)."""
+    pts = [(x, y) for y in FAR_GRID_Y for x in FAR_GRID_X]
+    band = surface_band()
+    hits = [(p, z) for p, z in zip(pts, skills.surface_heights(pts, TABLE_PROVEN_Z))
+            if z is not None and band[0] <= z <= band[1]]
+    if len(hits) < 4:
+        return None
+    table = statistics.median(z for _, z in hits)
+    near = sorted((p for p, z in hits if abs(z - table) <= skills.TABLE_TOL_MM),
+                  key=lambda p: math.hypot(p[0] - PLACE_GOAL[0], p[1] - PLACE_GOAL[1]))[:FAR_TRIES]
+    spots = skills.on_table(near, table)
+    return (spots[0], table) if spots else None
+
+
+def _to_far_table(top0):
+    """No place in reach but a table further away: bring the base to it (as for a pick) and look for a place
+    again, up to APPROACH_TRIES times. None when there is no table in view or it can't be reached."""
+    yaw, tried = arm_yaw(), set()
+    for i in range(APPROACH_TRIES):
+        far = far_table()
+        if far is None or yaw is None or _charging():
+            return None
+        (x, y), table = far
+        log(f"a table at {table:.0f} mm further away, free at ({x:.0f}, {y:.0f}): going closer ({i + 1}/{APPROACH_TRIES})")
+        try:
+            _approach({"x": x, "y": y}, yaw, tried, goal=PLACE_GOAL, holding=True)
+        except FetchError as e:
+            log(f"{e}")
+            return None
+        table = table_ahead()
+        if _fit_lift(table):
+            table = table_ahead()
+        top, held_table = top0, skills._held.get("table")
+        if table is not None and held_table is not None:
+            top += table - held_table
+        if table is None:
+            continue
+        tries = place_spots(skills._held, agv.pose(), skills.look(), table)
+        if tries and _place_at(tries, top):
+            return True
+    return None
+
+
+def _support(on):
+    """The nearest thing of the class (and colour) `on` names, as skills.look() sees it, or None."""
+    seen = [o for o in skills.look() if o["name"] == on["name"] and (not on.get("colour") or o.get("colour") == on["colour"])]
+    return min(seen, key=lambda o: math.hypot(o["x"], o["y"])) if seen else None
+
+
+def _top_of(thing):
+    """Height (mm) of the flat top of `thing` (a chair's seat, not its back): the median depth surface on a disc of
+    SUPPORT_DISC_MM around its centre, below its highest point; None when too little of it is seen."""
+    pts = [(thing["x"] + r * math.cos(a), thing["y"] + r * math.sin(a))
+           for r in (0.0, SUPPORT_DISC_MM / 2, SUPPORT_DISC_MM) for a in np.linspace(0, 2 * math.pi, 8, endpoint=False)]
+    top = thing.get("top_mm") or TABLE_PROVEN_Z
+    zs = [z for z in skills.surface_heights(pts, top - 150.0) if z is not None and z < top - 30.0]
+    return statistics.median(zs) if len(zs) >= 6 else None
+
+
+def _put_on(top0, on, say):
+    """Put the held object on a named thing that is not a table (a chair, a couch...): find it (searching like for an
+    object), measure its flat top, fit the lift and put it there when the arm can reach that height; else say why.
+    A chair seat is ~30 cm lower than a table: the arm reaches no place there even at lift 0 (IK, 2026-10-16)."""
+    label = " ".join(w for w in (on.get("colour"), on["name"]) if w)
+    yaw, tried = arm_yaw(), set()
+    for i in range(APPROACH_TRIES + 1):
+        thing = _search(lambda: _support(on), holding=True, say=say)
+        if thing is None:
+            raise FetchError(f"I can't see the {label} around me.", "그 물건이 안 보여요.")
+        surface = _top_of(thing)
+        if surface is None:
+            raise FetchError(f"I can't see the top of the {label} well enough.", "윗면이 잘 안 보여요.")
+        off = surface - TABLE_PROVEN_Z
+        log(f"{label} at ({thing['x']:.0f}, {thing['y']:.0f}), its top at {surface:.0f} mm")
+        if lift_for(surface) is None:
+            raise FetchError(f"The top of the {label} is {abs(off) / 10:.0f} cm {'lower' if off < 0 else 'higher'} "
+                             "than a table: my arm can't put things there.", "높이가 맞지 않아서 거기에는 놓을 수 없어요.")
+        if _fit_lift(surface):
+            continue                                  # look again from the new height
+        held_table = skills._held.get("table")
+        top = top0 + (surface - held_table if held_table is not None else 0.0)
+        spots = skills.on_table([(thing["x"] + dx, thing["y"] + dy) for dx in (0, -50, 50) for dy in (0, -50, 50)],
+                                surface)
+        if spots and _place_at(spots, top):
+            return True
+        if yaw is None or i == APPROACH_TRIES or _charging():
+            break
+        _approach({"x": thing["x"], "y": thing["y"]}, yaw, tried, goal=PLACE_GOAL, holding=True)
+    raise FetchError(f"I couldn't reach a free spot on the {label}.", "놓을 자리에 손이 닿지 않아요.")
+
+
+def _put_down(say=None, on=None):
     """Straight to look with the object (carry hides the table from the torso camera), then search for a free
-    table spot: here, at other lifts, turning on the spot; put it down, back to look."""
+    table spot: here, a table further away (the base goes closer), at other lifts, turning on the spot; put it
+    down, back to look. `on` (brain.place_on): put it on that named thing instead (a table: as above)."""
     top = skills._held.get("top_mm")
     if top is None:
         raise FetchError("I'm not holding anything I picked.")
     _step("placing")
     _line_holding(LOOK_POSE)
+    if on and on.get("name") != "dining table":
+        _put_on(top, on, say)
+        return
     if _search(lambda: _place_here(top), holding=True, say=say) is None:
-        _line_holding("carry")
         _lift_to(LIFT_DRIVE_MM)
         raise FetchError("I can't find a free place on a table around me.", "주변에 내려놓을 빈 자리를 못 찾았어요.")
 
 
 def _give(say):
-    """Carry -> give (straight), open on "thank you" / Release, then look. No release within GIVE_WAIT_S:
-    back to carry, still holding it; returns "kept"."""
+    """Look -> give (straight), open on "thank you" / Release, then look. No release within GIVE_WAIT_S:
+    back to look, still holding it; returns "kept"."""
     _line_holding("give")
     _release.clear()
     _step("giving", say, "Here you go. Hold it and say thank you.", "여기 있어요. 잡고 고맙다고 말해 주세요.")
@@ -617,7 +1038,7 @@ def _give(say):
             raise Stopped()
     if not _release.is_set():
         _say(say, "Nobody took it, I'll keep holding it.", "아무도 안 받아서 계속 들고 있을게요.")
-        _line_holding("carry")
+        _line_holding(LOOK_POSE)
         return "kept"
     _go_on()
     log("opening")
@@ -630,37 +1051,24 @@ def _give(say):
 def _run(task, say):
     try:
         _step("preparing")
-        s = gripper.state()
-        if s["holding"]:
-            raise FetchError("I'm holding something, where should I put it first?",
-                             "뭔가 들고 있어요. 먼저 어디에 놓을까요?")
-        if s["closed"]:
-            gripper.open_()
+        if gripper.open_()["closed"]:          # always open: AI_1 may say open while the fingers are shut
+            raise FetchError("My hand does not open.", "손이 안 열려요.")
         _pose(_look())
         _step("driving to the source")
         _drive_to(task.get("source", "here"), say)
         _step("looking")
-        obj = _search(lambda: _find_any(task), say=say)
-        if obj is None:
-            _lift_to(LIFT_DRIVE_MM)
-            thing = OBJECTS[task["object"]]
-            raise FetchError(f"I looked all around, but I can't see the {task['object']}.",
-                             f"주변을 다 봤는데 {thing}{'이' if _object_particle(thing) == '을' else '가'} 안 보여요.")
-        table = skills.table_near(obj) or skills.table_z(obj)
-        log(f"table at {table:.0f} mm" if table is not None else "table height not measured")
-        if _fit_lift(table):
-            obj = _find(task)
-        log(f"found {obj['colour']} {obj['name']} at ({obj['x']:.0f}, {obj['y']:.0f}) top {obj['top_mm']:.0f}")
+        obj = _see(task, say)
         _step("reaching")
-        obj, waypoints = _reach(task, obj, say)
+        obj, waypoints, ja = _reach(task, obj, say)
         _step("picking")
-        skills._guarded(skills._do_pick, obj, waypoints)       # ends 3 cm above the table, holding
+        skills._guarded(skills._do_pick, obj, waypoints, ja)   # ends 3 cm above the table, holding
         skills._held["base"] = agv.pose()                       # place_spots: put back here if the base stays
         _set(holding=True)
         _say(say, "I've got it.", "잡았어요.")
         _step("carry")
         skills._guarded(skills._line, "up", waypoints[0][1])   # straight up to the approach height first
-        _line_holding("carry")                                   # straight: the cup stays upright
+        _line_holding("carry")                                   # straight: the cup stays upright (a turned grasp
+        _line_holding(LOOK_POSE)                                 # can't go straight to look), then look to drive
         _step("driving to the destination")
         _drive_to(task["dest"], say, watch_holding=True)
         _say(say, "I'm here.", "도착했어요.")
@@ -712,12 +1120,44 @@ def _busy():
 
 
 # ---------- public ----------
-def _hand_holds():
-    """The gripper's own word (closed on something), whatever the state file says."""
+def _in_hand():
+    """Is something in the hand, whatever the state file says? The torso depth camera first (skills.hand_sees: it
+    sees the place between the fingers); when it can't tell, the gripper's AI_1. AI_1 alone was wrong once: a cup
+    pulled out of the closed fingers left it reading "open" (2026-10-16)."""
     try:
-        return bool(gripper.state()["holding"])
+        seen = skills.hand_sees()
+    except (skills.SkillError, ConnectionError, OSError, KeyError):
+        seen = "unknown"
+    try:
+        ai = bool(gripper.state()["holding"])
     except (ConnectionError, OSError, KeyError):
-        return False
+        ai = None
+    if seen == "unknown":
+        return bool(ai)
+    if ai is not None and ai != (seen == "object"):
+        log(f"hand: the camera sees it {seen}, AI_1 says {'holding' if ai else 'empty'}: the camera is believed")
+    return seen == "object"
+
+
+def check_hand():
+    """Bring the state in line with the hand (_in_hand) while no task runs: forget a held object that is gone, take
+    over one that is there. Returns whether something is held. The dashboard's command dialog asks this."""
+    _adopt()                                     # what the state file says (another process, or before a restart)
+    with _lock:
+        if _busy():
+            return bool(_state["holding"])
+        held = _in_hand()
+        if _state["holding"] and not held:
+            _forget_held()
+        elif held and not _state["holding"]:
+            _set(holding=True)
+        return held
+
+
+def _forget_held():
+    log("the state says holding, but the hand is empty: nothing is held")
+    _set(holding=False, **({"status": "idle", "step": ""} if _state["status"] == "holding" else {}))
+    skills._held.clear()
 
 
 def start(task, say=None):
@@ -726,7 +1166,11 @@ def start(task, say=None):
     with _lock:
         if _busy():
             raise FetchError("I'm busy with another task.")
-        if _state["holding"] or _hand_holds():
+        held = _in_hand()
+        if _state["holding"] and not held:              # taken out of the hand since: forget it
+            _forget_held()
+        if held:
+            _set(holding=True)
             raise FetchError("I'm holding something, where should I put it first?")
     problems = validate(task, agv.markers() if _needs_markers(task) else [])
     if problems:
@@ -747,9 +1191,12 @@ def _finish(fn, say):
     with _lock:
         if _busy():
             raise FetchError("I'm busy with another task.")
+        held = _in_hand()
+        if not held:
+            if _state["holding"]:
+                _forget_held()
+            raise FetchError("My hand is empty, I'm not holding anything.", "손에 아무것도 없어요.")
         if not _state["holding"]:
-            if not _hand_holds():
-                raise FetchError("I'm not holding anything.")
             _set(holding=True)                    # the state was lost; give still works, place needs skills._held
     _clear()
     _set(status="running")
@@ -775,29 +1222,49 @@ def give(say=None):
     _finish(_give, say)
 
 
-def place(say=None):
-    """Put the held object on the table in front."""
-    _finish(_put_down, say)
+def place(say=None, on=None):
+    """Put the held object on the table in front, or on the thing `on` names (brain.place_on)."""
+    _finish(lambda s: _put_down(s, on), say)
 
 
-def carry_to(dest, say=None):
-    """Bring the held object to `dest` (marker / map point) in carry and keep holding it."""
+THEN = (None, "place", "give")       # after carry_to: keep holding it, put it on a table there, hand it over
+
+
+def carry_to(dest, then=None, say=None, on=None):
+    """Bring the held object to `dest` (marker / map point) in look, then keep holding it, put it on a table there
+    ("place") or hand it over ("give")."""
     if not _place_ok(dest, agv.markers() if isinstance(dest, dict) and "marker" in dest else []):
         raise FetchError("I don't know that place.")
-    _finish(lambda s: _carry_to(dest, s), say)
+    if then not in THEN:
+        raise FetchError(f"After driving I can only {', '.join(t for t in THEN if t)} or keep holding it.")
+    if then == "give" and "give" not in motion.poses():
+        raise FetchError("I haven't learned how to hand things over yet.")
+    _finish(lambda s: _carry_to(dest, s, then, on), say)
 
 
-def _carry_to(dest, say):
-    _line_holding("carry")
+def _carry_to(dest, say, then=None, on=None):
+    _line_holding(LOOK_POSE)
     _step("driving to the destination")
     _drive_to(dest, say, watch_holding=True)
     _say(say, "I'm here.", "도착했어요.")
+    if then == "place":
+        return _put_down(say, on)
+    if then == "give":
+        return _give(say)
     return "kept"
 
 
-def carry_sentence(dest):
+def held_name():
+    """"the white cup" / "the cup": what the last fetch took, for "I'm holding the cup"."""
+    t = _state.get("task") or state().get("task") or {}
+    return " ".join(["the"] + [w for w in (t.get("colour"), t.get("object")) if w]) if t.get("object") else "something"
+
+
+def carry_sentence(dest, then=None):
     m = dest.get("marker") if isinstance(dest, dict) else None
-    return f"Bring it to {m} and keep holding it." if m else "Bring it to the point I was shown and keep holding it."
+    where = m or "the point I was shown"
+    rest = {"place": "put it on the table there", "give": "hand it to you"}.get(then, "keep holding it")
+    return f"Bring it to {where} and {rest}."
 
 
 def release_now():
@@ -820,16 +1287,18 @@ def stop():
 
 # ---------- measuring the arm's yaw on the base ----------
 def _straight(dist_m):
-    """Drive straight by dist_m (+ forward) at AXIS_SPEED with joy_control (no turning), then stop."""
+    """Drive straight by dist_m (+ forward) at AXIS_SPEED with joy_control (no turning), then stop. Stopped() on STOP."""
     t_end = time.time() + abs(dist_m) / AXIS_SPEED
     v = AXIS_SPEED if dist_m > 0 else -AXIS_SPEED
     try:
-        while time.time() < t_end:
+        while time.time() < t_end and not _stop.is_set():
             agv.request(f"/api/joy_control?linear_velocity={v:.3f}&angular_velocity=0")
             time.sleep(0.1)
     finally:
         agv.request("/api/joy_control?linear_velocity=0&angular_velocity=0")
-    time.sleep(1.0)                                  # the base coasts a little
+    if _stop.is_set():
+        raise Stopped()
+    time.sleep(COAST_S)
 
 
 def yaw_from_motion(pairs, move, dtheta):

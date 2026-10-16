@@ -33,6 +33,8 @@ EDGE_PCT = (1, 99)          # percentiles taken as the object's edges (robust to
 MIN_SATURATION = 50          # HSV S below this is white / grey / black
 EDGE_PX = 4                  # a box this close to the bottom of the frame is cut off: height and centre z unknown
 STALE_S = 1.5                # s; an older detection file means the camera service is not live
+SURE_SCORE = 0.35            # a box scoring less (person.WEAK_SCORE) is kept only when depth measures this size there:
+WEAK = {"cup": ((40, 110), (50, 250))}   # name -> (width, height) mm ranges
 
 COCO = ("person bicycle car motorcycle airplane bus train truck boat traffic_light fire_hydrant stop_sign "
         "parking_meter bench bird cat dog horse sheep cow elephant bear zebra giraffe backpack umbrella handbag tie "
@@ -136,9 +138,18 @@ def measure_all(color, depth, boxes, intr=None):
             if y2 >= color.shape[0] - EDGE_PX and o.get("height_mm") is not None:   # the bottom is out of view
                 o.update(cut=True, height_mm=None)
                 o["position_mm"][2] = None
+        if score < SURE_SCORE and not sized_like(o):
+            continue
         result.append(o)
     result.sort(key=lambda o: o.get("distance_m") or 99)
     return result
+
+
+def sized_like(o):
+    """A weak box is believed only when depth measured a whole object of its class's size (WEAK)."""
+    size = WEAK.get(o["name"])
+    w, h = o.get("width_mm"), o.get("height_mm")
+    return bool(size and w is not None and h is not None and size[0][0] <= w <= size[0][1] and size[1][0] <= h <= size[1][1])
 
 
 def latest():

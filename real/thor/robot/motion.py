@@ -48,10 +48,14 @@ class MotionError(RuntimeError):
 
 
 def _read(name, key):
-    r = arm.cmd(name)
-    if key not in r:
-        raise MotionError(f"{name} failed: {r.get('errorMsg') or r}")
-    return r[key]
+    """A value read from the controller. It now and then answers with another command's reply (get_data or
+    get_robot_state to get_joint_pos, 2026-10-16): ask again."""
+    for _ in range(arm.RETRIES):
+        r = arm.cmd(name)
+        if key in r:
+            return r[key]
+        time.sleep(arm.RETRY_S)
+    raise MotionError(f"{name} failed: {r.get('errorMsg') or r.get('cmdName') or r}")
 
 
 def joints():

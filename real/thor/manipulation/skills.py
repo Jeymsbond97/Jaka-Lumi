@@ -34,8 +34,13 @@ ROOT = Path(__file__).resolve().parents[1]      # the project folder
 TEACH = json.loads((ROOT / "data" / "grasp_teach.json").read_text())
 GRASP_RPY = TEACH["flange"][3:]                  # deg, flange orientation with the fingers around a cup
 GRASP_OFFSET = np.array(TEACH["tcp_offset_flange"])   # mm, cup axis 4 cm below the rim, in the flange frame
-GRASP_YAWS = (0, -10, 10, -20, 20, -30, 30, -45, 45, -60, 60)   # deg; the taught grasp turned about the vertical,
-                                                 # tried in this order (the cup stays upright at every one)
+GRASP_YAWS = (0, *(s * a for a in range(15, 180, 15) for s in (-1, 1)), 180)   # deg; the taught grasp turned about
+                                                 # the vertical, every 15 deg all the way round, nearest the taught one
+                                                 # first (the cup stays upright at every one)
+EMPTY_SPEED = "normal"                           # arm speed with nothing in the hand (motion.JOINT_SPEED / LINEAR_SPEED:
+                                                 # "normal" = 25 deg/s, 50 mm/s)
+HOLDING_SPEED = "slow"                           # with an object in the hand, and the last 10 cm down onto one or
+                                                 # away from it ("slow" = 10 deg/s, 20 mm/s)
 HOME_POSE = "look"                               # empty hand: picks start here and the arm comes back here
                                                  # (high, out of the torso camera's view; ready if not taught)
 PATH_POINTS = 11                                 # points checked (kine_forward) on a joint move
@@ -59,6 +64,12 @@ SPOT_DX = (-60, -90, -120, 60, 90, 120)          # mm; candidate offsets from th
 SPOT_DY = (0, -20, -40, 20)
 TABLE_RING_MM = 50.0                             # a place spot is checked at its centre and 8 points this far around
 TABLE_TOL_MM = 25.0                              # ... each must be table: depth within this of the table height
+LOCATE_MM = 90.0                                 # locate(): looked for this far around where an object was last seen,
+LOCATE_STEP_MM = 15.0                            # ... on a grid this fine
+LOCATE_MIN_HITS = 4                              # ... with at least this many depth points above half its height
+HAND_PROBE_MM = (30.0, 50.0, 70.0)               # hand_sees(): points this far below the grasp point, on the cup's axis
+HAND_NEAR_MM = 60.0                              # ... depth no further than this behind one = something in the hand
+HAND_FAR_MM = 250.0                              # ... depth further than this behind one = nothing there (the room)
 NEAR_FRACTION = 0.7                              # depth nearer than this part of the expected one: something in front
                                                  # of the sight line (the gripper, the held cup), not the surface
 RETRIES = 4                                      # the controller now and then answers with nothing: ask again
@@ -217,13 +228,19 @@ def surface_heights(points_xy, guess_z=-400.0):
     """z (mm, arm base frame) of the surface the torso depth camera sees on its line of sight to each
     (x, y, guess_z); None where the point is out of view or has no depth. A table at another height is still
     measured right (the sight line meets it a little nearer or further)."""
+    return [None if q is None else q[2] for q in surface_points(points_xy, guess_z)]
+
+
+def surface_points(points_xy, guess_z=-400.0):
+    """(x, y, z) mm, arm base frame, where the torso depth camera's line of sight to each (x, y, guess_z) (or to each
+    (x, y, z) given whole) meets a surface; None where the point is out of view or has no depth."""
     d, intr, T = camview.depth(objects.CAMERA), camview.intrinsics(objects.CAMERA), objects.base_from_camera()
     if d is None or intr is None or T is None:
         log("no depth frame: I can't measure the table")
         return [None] * len(points_xy)
     K = np.array([[intr["fx"], 0, intr["cx"]], [0, intr["fy"], intr["cy"]], [0, 0, 1]])
     dist, Ti = np.array(intr["dist"]), np.linalg.inv(T)
-    P = np.array([[x, y, guess_z] for x, y in points_xy], float)
+    P = np.array([[p[0], p[1], p[2] if len(p) > 2 else guess_z] for p in points_xy], float)
     cam = (Ti[:3, :3] @ P.T + Ti[:3, 3:4]).T
     uv = cv2.projectPoints(cam, np.zeros(3), np.zeros(3), K, dist)[0].reshape(-1, 2)
     out = []
@@ -238,8 +255,51 @@ def surface_heights(points_xy, guess_z=-400.0):
             out.append(None)
             continue
         n = cv2.undistortPoints(np.array([[[u, v]]], np.float64), K, dist).reshape(2)
-        out.append(float((T[:3, :3] @ [n[0] * depth_mm, n[1] * depth_mm, depth_mm] + T[:3, 3])[2]))
+        out.append(tuple(float(v) for v in T[:3, :3] @ [n[0] * depth_mm, n[1] * depth_mm, depth_mm] + T[:3, 3]))
     return out
+
+
+def locate(xy, top_mm, table_mm, width_mm, radius=LOCATE_MM):
+    """An object last seen at `xy` (mm) with its top at `top_mm` on a table at `table_mm`, looked for with depth only
+    (YOLO may miss it): ("here", obj) with its centre and top from what stands above half its height within
+    `radius`; ("gone", None) when the camera sees only table there; ("unseen", None) when it can't see the place."""
+    pts = [(xy[0] + dx, xy[1] + dy) for dx in np.arange(-radius, radius + 1, LOCATE_STEP_MM)
+           for dy in np.arange(-radius, radius + 1, LOCATE_STEP_MM)]
+    hits = [q for q in surface_points(pts, top_mm - 20.0) if q is not None]
+    if len(hits) < len(pts) / 3:
+        return "unseen", None
+    tall = np.array([q for q in hits if q[2] > table_mm + (top_mm - table_mm) / 2])
+    if len(tall) < LOCATE_MIN_HITS:
+        return "gone", None
+    c = tall[:, :2].mean(axis=0)
+    cam = objects.base_from_camera()[:2, 3]
+    away = (c - cam) / max(np.linalg.norm(c - cam), 1e-6)       # the camera sees the front half of the cup: its
+    c = c + away * (2 / math.pi) * width_mm / 2                 # mean lies 0.64 r nearer than the axis
+    return "here", {"x": float(c[0]), "y": float(c[1]), "top_mm": float(tall[:, 2].max()), "width_mm": width_mm}
+
+
+def hand_sees():
+    """What the torso depth camera sees where a held object would be (on the cup's axis just below the grasp point,
+    from the arm's joints now): "object", "empty", or "unknown" (out of view, no depth, the fingers in the way).
+    In look the place is in view (2026-10-16: pixel (558, 259), 264 mm away): an empty hand reads "empty" (the room
+    behind); a cup held there gave no depth at all ("unknown", too near for the camera), so a held object is left to
+    AI_1. The gripper's AI_1 alone can be wrong: a cup pulled out of the closed fingers left it at 162 ("open")."""
+    c = _ask("kine_forward", jointPosition=[float(v) for v in _joints()])["cartPosition"]
+    R, f = calib.rpy_matrix(*c[3:]), np.array(c[:3])
+    g = f + R @ GRASP_OFFSET
+    pts = [g - [0.0, 0.0, dz] for dz in HAND_PROBE_MM]
+    T = objects.base_from_camera()
+    if T is None:
+        return "unknown"
+    cam = T[:3, 3]
+    near = far = 0
+    for p, hit in zip(pts, surface_points(pts)):
+        if hit is None:
+            continue
+        behind = np.linalg.norm(np.subtract(hit, cam)) - np.linalg.norm(p - cam)
+        near += behind <= HAND_NEAR_MM
+        far += behind > HAND_FAR_MM
+    return "object" if near >= 2 else "empty" if far >= 2 and not near else "unknown"
 
 
 def table_near(obj):
@@ -329,16 +389,33 @@ def home_joints():
     return motion.nearest(motion.poses()[home()], _joints())
 
 
-def above_joints(pose):
-    """Joints for the approach pose `pose`, in the arm configuration of `ready` (where the picks were proven), or None."""
-    r = _ask("kine_inverse", jointPosition=motion.nearest(motion.poses()["ready"], _joints()), cartPosition=list(pose))
-    if r["errorCode"] != "0":
-        return None
-    try:
-        motion.check(r["jointPosition"])
-    except motion.MotionError:
-        return None
-    return r["jointPosition"]
+def wrist_flip(j):
+    """Seed for the other wrist solution of the same flange pose."""
+    return [j[0], j[1], j[2], j[3] + 180.0, -j[4], j[5] + 180.0]
+
+
+def above_joints(pose, start=None):
+    """Joint solutions for the approach pose `pose`: from `ready`'s arm configuration (where the picks were proven)
+    and from it with the wrist flipped. Each is within the joint limits and a joint move from `start` (default: here)
+    that move_joints accepts (no joint further than motion.MAX_TRAVEL); no duplicates."""
+    start = _joints() if start is None else start
+    ready = motion.nearest(motion.poses()["ready"], start)
+    out = []
+    for seed in (ready, wrist_flip(ready)):
+        r = _ask("kine_inverse", jointPosition=[float(v) for v in seed], cartPosition=list(pose))
+        if r["errorCode"] != "0":
+            continue
+        j = r["jointPosition"]
+        try:
+            motion.check(j)
+        except motion.MotionError:
+            continue
+        near = motion.nearest(j, start)
+        if max(abs(a - b) for a, b in zip(near, start)) > motion.MAX_TRAVEL:
+            continue
+        if all(max(abs(a - b) for a, b in zip(motion.nearest(o, j), j)) > 1.0 for o in out):
+            out.append(j)
+    return out
 
 
 def path_heights(j0, j1):
@@ -366,19 +443,24 @@ def checked(waypoints, start_joints):
     return rows
 
 
-def reachable_pick(obj, start=None):
-    """Pick waypoints for the first grasp turn (GRASP_YAWS) that is reachable from `start` (home): a joint move down
-    to above that stays above it, then straight down and up. Else None. Objects of the wrong width raise."""
+def pick_options(obj, start):
+    """(waypoints, joints above) of every grasp turn (GRASP_YAWS) and wrist solution reachable from `start`: a joint
+    move down to above that stays above it, then straight down and up. Objects of the wrong width raise."""
     plan_pick(obj)
-    start = home_joints() if start is None else start
     for yaw in GRASP_YAWS:
         waypoints = plan_pick(obj, yaw)
-        ja = above_joints(waypoints[0][1])
-        if ja is None or ik_chain(waypoints[1:], ja)[-1][3] or not joint_move_ok(start, ja):
-            continue
-        if yaw:
-            log(f"grasp turned {yaw:+d} deg")
-        return waypoints
+        for ja in above_joints(waypoints[0][1], start):
+            if not ik_chain(waypoints[1:], ja)[-1][3] and joint_move_ok(start, ja):
+                yield waypoints, ja
+
+
+def reachable_pick(obj, start=None, accept=lambda waypoints, ja: True):
+    """(waypoints, joints above) of the first pick option from `start` (home) that `accept` also takes, else None."""
+    for waypoints, ja in pick_options(obj, home_joints() if start is None else start):
+        if accept(waypoints, ja):
+            yaw = round(yaw_of(waypoints[1][1]))
+            log(f"grasp turned {yaw:+d} deg, wrist J5 {ja[4]:+.0f}" if yaw else f"grasp, wrist J5 {ja[4]:+.0f}")
+            return waypoints, ja
     log(f"plan refused: no grasp turn reaches ({obj['x']:.0f}, {obj['y']:.0f})")
     return None
 
@@ -393,17 +475,13 @@ def plan_move(obj, to=None, seen=()):
         tries = spots((obj["x"], obj["y"]), others)
         if not tries:
             raise SkillError("I can't find a free place to put it.")
-    plan_pick(obj)                       # wrong width raises
-    for yaw in GRASP_YAWS:               # the cup is put down turned as it was picked
-        pick = plan_pick(obj, yaw)
-        ja = above_joints(pick[0][1])
-        if ja is None or ik_chain(pick[1:], ja)[-1][3] or not joint_move_ok(start, ja):
-            continue
+    for pick, ja in pick_options(obj, start):      # the cup is put down turned as it was picked
+        yaw = yaw_of(pick[1][1])
         for xy in tries:
             rows = ik_chain(pick[1:] + plan_place(*xy, obj["top_mm"], start=pick[-1][1], yaw=yaw), ja)
             if not rows[-1][3]:
                 return xy, [["above", pick[0][1], ja, None]] + rows
-            log(f"spot ({xy[0]:.0f}, {xy[1]:.0f}) grasp {yaw:+d} deg refused at {rows[-1][0]}: {rows[-1][3]}")
+            log(f"spot ({xy[0]:.0f}, {xy[1]:.0f}) grasp {yaw:+.0f} deg refused at {rows[-1][0]}: {rows[-1][3]}")
     if to is not None:
         raise SkillError("I can't reach that place safely.")
     raise SkillError("I can't find a free place I can reach.")
@@ -417,7 +495,7 @@ def _prepare():
         gripper.open_()
     if max(abs(a - b) for a, b in zip(_joints(), home_joints())) > 1.0:
         log(f"going to {home()}")
-        motion.go(home())
+        motion.go(home(), EMPTY_SPEED)
 
 
 def _back_home():
@@ -426,33 +504,31 @@ def _back_home():
     if not joint_move_ok(_joints(), home_joints()):
         raise SkillError("I can't get my arm back up safely from here.")
     log(f"going to {home()}")
-    motion.go(home())
+    motion.go(home(), EMPTY_SPEED)
 
 
 def _line(name, pose):
     _go_on()                             # move_linear clears motion's own stop flag, so check ours before each move
     log(f"{name}: to ({pose[0]:.0f}, {pose[1]:.0f}, {pose[2]:.0f})")
-    motion.move_linear(target=pose, speed="slow")
+    motion.move_linear(target=pose, speed=HOLDING_SPEED)
 
 
 def _give_up(reason):
     """Open, back up 100 mm, home, raise. Only used while the object is at (or just above) the table."""
     log(f"{reason}: opening, backing up")
     gripper.open_()
-    motion.move_linear(delta=[0, 0, ABOVE_MM], speed="slow")
+    motion.move_linear(delta=[0, 0, ABOVE_MM], speed=HOLDING_SPEED)
     _back_home()
     raise SkillError(reason)
 
 
-def _do_pick(obj, waypoints):
+def _do_pick(obj, waypoints, ja):
+    """Pick with the planned joints `ja` above the object (pick_options)."""
     above, grasp, lift = (p for _, p in waypoints)
     _prepare()
-    ja = above_joints(above)
-    if ja is None:
-        raise SkillError("I can't reach it safely.")
     _go_on()
     log(f"above: joint move to ({above[0]:.0f}, {above[1]:.0f}, {above[2]:.0f})")
-    motion.move_joints(ja, "slow")
+    motion.move_joints(ja, EMPTY_SPEED)
     _line("grasp", grasp)
     _go_on()
     log("closing")
@@ -499,10 +575,10 @@ def pick(name="cup", colour=None):
     obj = find(name, colour)
     log(f"found {obj['colour']} {obj['name']} at ({obj['x']:.0f}, {obj['y']:.0f}) top {obj['top_mm']:.0f} "
         f"width {obj['width_mm']:.0f}")
-    waypoints = reachable_pick(obj)
-    if waypoints is None:
+    plan = reachable_pick(obj)
+    if plan is None:
         raise SkillError("I can't reach it safely.")
-    _guarded(_do_pick, obj, waypoints)
+    _guarded(_do_pick, obj, *plan)
     log("holding it")
     return obj
 
@@ -551,7 +627,7 @@ def move_object(name="cup", colour=None, to=None):
     xy, rows = plan_move(obj, to, seen)
     log(f"placing at ({xy[0]:.0f}, {xy[1]:.0f}); plan of {len(rows)} waypoints passed")
     waypoints = [(r[0], r[1]) for r in rows]
-    _guarded(_do_pick, obj, waypoints[:3])
+    _guarded(_do_pick, obj, waypoints[:3], rows[0][2])
     _guarded(_do_place, waypoints[3:])
     log("done")
     return xy

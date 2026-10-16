@@ -1,4 +1,5 @@
-"""Find people in front of the robot: Orbbec colour + depth, YOLOv8n (ONNX, OpenCV DNN on the CPU).
+"""Find people in front of the robot: Orbbec colour + depth, YOLOv8s on the GPU (TensorRT engine) or, when that is not
+available, YOLOv8n on the CPU (ONNX, OpenCV DNN). Both have the 80 COCO classes; only the speed and accuracy differ.
 
     python vision/person.py                # head camera, print the people seen (distance, angle) for 20 s
     python vision/person.py torso --save   # torso camera, also save person_view.jpg with boxes every second
@@ -25,15 +26,20 @@ from vision import camview
 from robot import head
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]      # the project folder
-MODEL = ROOT / "models" / "yolov8n.onnx"
+MODEL = ROOT / "models" / "yolov8n.onnx"              # fallback: OpenCV DNN on the CPU
+ENGINE = ROOT / "models" / "yolov8s.engine"           # TensorRT engine built from yolov8s.onnx on this Thor (640, FP32)
 COLOR_HFOV = 94.0            # deg, Gemini 2 L colour camera
 SIZE = 640                   # YOLO input size
 MIN_SCORE = 0.5
-OBJECT_SCORE = 0.35          # other COCO classes (cups, bottles...) are kept for objects.py above this
-# Full-size px (x1, y1, x2, y2) looked at a second time, bigger: the pick zone of the torso camera. A cup on a box there
-# scored 0.15 in the whole frame and 0.73 in this crop (2026-10-15).
-ZOOM = {"torso": (400, 300, 880, 720)}
-ZOOM_EDGE_PX = 3             # a zoom box touching the crop's side or top is cut by it: not used
+OBJECT_SCORE = 0.35          # other COCO classes (cups, bottles...) are kept for objects.py above this ...
+WEAK_SCORE = {41: 0.05}      # ... and cups from this: a white tumbler 1.4 m away scored 0.03-0.25 (2026-10-16); objects.py
+                             # keeps such a weak box only when depth measures a cup-sized thing there (objects.WEAK)
+# Full-size px (x1, y1, x2, y2) looked at a second time, bigger (about 2.7x the whole-frame pass): the pick zone of the
+# torso camera (a cup on a box there scored 0.15 in the whole frame and 0.73 in this crop, 2026-10-15), and the left
+# and right of the band where table tops further away are seen (cups 1-3 m away were missed, 2026-10-16). ~45-50 ms
+# each on the CPU.
+ZOOM = {"torso": [(400, 300, 880, 720), (0, 180, 560, 600), (720, 180, 1280, 600)]}
+ZOOM_EDGE_PX = 3             # a zoom box touching a crop side inside the frame is cut by it: not used
 CAMERAS = {"head": "CPA9B52007A", "torso": "CPA9B520037"}   # name -> serial number
 # The head camera sits behind a USB 2.0 hub inside the head (shared with the mic and speaker).
 # On USB 2 the default depth mode is 1280x800 at 10 fps with many broken framesets. 15 fps colour (MJPG)
@@ -100,6 +106,79 @@ def _iou(a, b):
     return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter or 1)
 
 
+class CvNet:
+    """YOLO on the CPU through OpenCV DNN (the fallback)."""
+    name = "OpenCV DNN on the CPU (yolov8n)"
+
+    def __init__(self):
+        self.net = cv2.dnn.readNetFromONNX(str(MODEL))
+
+    def forward(self, blob):
+        self.net.setInput(blob)
+        return self.net.forward()
+
+
+class TrtNet:
+    """YOLO on the GPU through TensorRT: the engine file is deserialized once, input and output stay in GPU memory."""
+    name = "TensorRT on the GPU (yolov8s)"
+
+    def __init__(self, path=None):
+        import tensorrt as trt
+        from cuda.bindings import runtime as cr
+        self.cr = cr
+        path = path or ENGINE
+        self.engine = trt.Runtime(trt.Logger(trt.Logger.ERROR)).deserialize_cuda_engine(open(path, "rb").read())
+        if self.engine is None:
+            raise RuntimeError(f"cannot load {path}")
+        self.ctx = self.engine.create_execution_context()
+        self.inp, self.out = (self.engine.get_tensor_name(i) for i in range(2))
+        self.out_shape = (1, 84, 8400)                # YOLOv8 at 640: 84 values (box + 80 classes) x 8400 anchors
+        self.in_bytes = 1 * 3 * SIZE * SIZE * 4
+        self.out_bytes = int(np.prod(self.out_shape)) * 4
+        self.d_in, self.d_out = self._malloc(self.in_bytes), self._malloc(self.out_bytes)
+        self.ctx.set_tensor_address(self.inp, int(self.d_in))
+        self.ctx.set_tensor_address(self.out, int(self.d_out))
+        self.stream = self._malloc_stream()
+        self.host_out = np.empty(self.out_shape, np.float32)
+
+    def _check(self, r):
+        """cuda-python returns (error, value) or just the error."""
+        if isinstance(r, tuple):
+            err, val = r[0], (r[1] if len(r) > 1 else None)
+        else:
+            err, val = r, None
+        if err != self.cr.cudaError_t.cudaSuccess:
+            raise RuntimeError(f"CUDA error {err}")
+        return val
+
+    def _malloc(self, nbytes):
+        return self._check(self.cr.cudaMalloc(nbytes))
+
+    def _malloc_stream(self):
+        return self._check(self.cr.cudaStreamCreate())
+
+    def forward(self, blob):
+        """blob: (1, 3, 640, 640) float32, as cv2.dnn.blobFromImage makes it. Returns (1, 84, 8400)."""
+        x = np.ascontiguousarray(blob, np.float32)
+        cr = self.cr
+        self._check(cr.cudaMemcpyAsync(self.d_in, x.ctypes.data, self.in_bytes,
+                                       cr.cudaMemcpyKind.cudaMemcpyHostToDevice, self.stream))
+        self.ctx.execute_async_v3(int(self.stream))
+        self._check(cr.cudaMemcpyAsync(self.host_out.ctypes.data, self.d_out, self.out_bytes,
+                                       cr.cudaMemcpyKind.cudaMemcpyDeviceToHost, self.stream))
+        self._check(cr.cudaStreamSynchronize(self.stream))
+        return self.host_out
+
+
+def load_net():
+    """The GPU detector when its engine loads, else the CPU one (the robot keeps working, only slower)."""
+    try:
+        return TrtNet()
+    except Exception as e:                  # no engine file, no GPU, no TensorRT: say why, then use the fallback
+        print(f"person: TensorRT not used ({e}); YOLOv8n on the CPU", flush=True)
+        return CvNet()
+
+
 class PersonDetector:
     def __init__(self, camera="head", head_sign=1.0, depth=True):
         self.camera, self.use_depth = camera, depth
@@ -115,7 +194,7 @@ class PersonDetector:
         if self.name == "head":                     # the head camera turns with the head
             threading.Thread(target=self._follow_head, daemon=True).start()
         self.align = AlignFilter(align_to_stream=OBStreamType.COLOR_STREAM)   # depth pixels -> colour pixels
-        self.net = cv2.dnn.readNetFromONNX(str(MODEL))
+        self.net = load_net()
         # frames are grabbed at the camera's rate in their own thread (live video: on_raw gets every JPEG);
         # read() detects people on the newest frame only, at whatever speed YOLO manages
         self.on_raw = None                          # f(name, jpeg bytes), set by the camera service
@@ -268,17 +347,18 @@ class PersonDetector:
         scale = SIZE / max(h, w)
         canvas = np.zeros((SIZE, SIZE, 3), np.uint8)              # letterbox, keep aspect ratio
         canvas[:int(h * scale), :int(w * scale)] = cv2.resize(color, (int(w * scale), int(h * scale)))
-        self.net.setInput(cv2.dnn.blobFromImage(canvas, 1 / 255.0, (SIZE, SIZE), swapRB=True))
-        out = self.net.forward()[0].T                              # (8400, 84): cx, cy, w, h, 80 class scores
+        out = self.net.forward(cv2.dnn.blobFromImage(canvas, 1 / 255.0, (SIZE, SIZE), swapRB=True))[0].T
+                                                                   # (8400, 84): cx, cy, w, h, 80 class scores
         cls = out[:, 4:].argmax(axis=1)
         scores = out[np.arange(len(out)), 4 + cls]
-        keep = scores > np.where(cls == 0, MIN_SCORE, OBJECT_SCORE)
+        floor = np.array([WEAK_SCORE.get(int(c), OBJECT_SCORE) for c in cls])
+        keep = scores > np.where(cls == 0, MIN_SCORE, floor)
         if not keep.any():
             return []
         cls = cls[keep]
         cx, cy, bw, bh = (out[keep, i] / scale for i in range(4))
         boxes = np.stack([cx - bw / 2, cy - bh / 2, bw, bh], axis=1)
-        idx = cv2.dnn.NMSBoxes(boxes.tolist(), scores[keep].tolist(), OBJECT_SCORE, 0.45)
+        idx = cv2.dnn.NMSBoxes(boxes.tolist(), scores[keep].tolist(), min(WEAK_SCORE.values()), 0.45)
         result = []
         for i in np.array(idx).flatten():
             x, y, bw_, bh_ = boxes[i]
@@ -287,15 +367,18 @@ class PersonDetector:
         return result
 
     def _zoomed(self, color, have):
-        """Non-person boxes found in the ZOOM crop (full-frame px) that the whole frame missed."""
-        zx1, zy1, zx2, zy2 = ZOOM[self.name]
+        """Non-person boxes found in the ZOOM crops (full-frame px) that the whole frame and earlier crops missed."""
+        h, w = color.shape[:2]
         out = []
-        for x1, y1, x2, y2, score, cls in self._detect(color[zy1:zy2, zx1:zx2]):
-            if cls == 0 or x1 < ZOOM_EDGE_PX or y1 < ZOOM_EDGE_PX or x2 > zx2 - zx1 - 1 - ZOOM_EDGE_PX:
-                continue
-            box = (x1 + zx1, y1 + zy1, x2 + zx1, y2 + zy1)
-            if not any(c == cls and _iou(box, b[:4]) > 0.3 for b in have for c in [b[5]]):
-                out.append((*box, score, cls))
+        for zx1, zy1, zx2, zy2 in ZOOM[self.name]:
+            for x1, y1, x2, y2, score, cls in self._detect(color[zy1:zy2, zx1:zx2]):
+                cut = (zx1 > 0 and x1 < ZOOM_EDGE_PX) or (zy1 > 0 and y1 < ZOOM_EDGE_PX) \
+                    or (zx2 < w and x2 > zx2 - zx1 - 1 - ZOOM_EDGE_PX) or (zy2 < h and y2 > zy2 - zy1 - 1 - ZOOM_EDGE_PX)
+                if cls == 0 or cut:
+                    continue
+                box = (x1 + zx1, y1 + zy1, x2 + zx1, y2 + zy1)
+                if not any(b[5] == cls and _iou(box, b[:4]) > 0.3 for b in have + out):
+                    out.append((*box, score, cls))
         return out
 
     def read(self):

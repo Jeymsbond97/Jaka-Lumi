@@ -83,3 +83,15 @@ Installation and layout of the company's voice-assistant containers: [private/TH
 - Orbbec SDK has arm64 `.deb` packages and the vendor's Jetson Docker setup for cameras ([06](06_CAMERAS_AND_VISION.md#v3-jetson-docker)).
 - Mind the GPU memory: the voice model takes about 80 GB; leave room for vision models.
 - Keep our code in this repo and mount it into a container (`-v $PWD:/work`), like the vendor compose files do.
+
+Measured on our Thor (2026-10-16, `lumi-thor`, JetPack R38.4, CUDA 13.0, driver 580):
+
+- 14 CPU cores (aarch64), 122 GB memory shared by CPU and GPU.
+- On the GPU: Ollama (`gemma4:e4b` 8B Q4 at ~50 tokens/s, ~4 GB; `qwen3-vl:8b` takes 44 GB at its default 262k
+  context), whisper.cpp (built with CUDA), the bge-m3 embedding server, and the camera service's YOLO.
+- `onnxruntime-gpu` 1.31 (pip) installs and lists the CUDA provider, but its kernels do not run on this GPU
+  ("no kernel image is available for execution on the device"). TensorRT 11.4 from pip (`tensorrt-cu13`, with
+  `cuda-python`) works: YOLOv8n 4 ms, YOLOv8s 2.5–4 ms per 640 frame, against ~45 ms for YOLOv8n on the CPU with OpenCV
+  DNN. TensorRT 11 has no FP16 builder flag (networks are strongly typed). An engine only runs with the TensorRT
+  version and GPU it was built with.
+- The camera service used ~8.4 cores with YOLO on the CPU, ~1 core with it on the GPU.

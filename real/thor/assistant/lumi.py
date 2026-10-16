@@ -593,11 +593,14 @@ class Lumi:
         # a stopped / failed task can still have the object in the hand: give / place must still work
         return "holding" if st.get("holding") and st.get("status") != "running" else st.get("status")
 
-    def fetch_finish(self, how):
+    def fetch_finish(self, how, on=None):
         """Give / place what the hand holds; a refusal ("I haven't learned how to hand things over yet") is spoken."""
         from tasks import fetch
         try:
-            (fetch.give if how == "give" else fetch.place)(say=self.fetch_say)
+            if how == "give":
+                fetch.give(say=self.fetch_say)
+            else:
+                fetch.place(say=self.fetch_say, on=on)
         except fetch.FetchError as e:
             log(f"  fetch {how} refused: {e}")
             self.fetch_say(str(e), "죄송해요, 지금은 할 수 없어요.")
@@ -771,11 +774,11 @@ class Lumi:
                 safe(fetch.release_now)
             elif cmd == "fetch_carry":
                 try:
-                    fetch.carry_to(d["dest"], say=self.fetch_say)
+                    fetch.carry_to(d["dest"], d.get("then"), say=self.fetch_say, on=d.get("on"))
                 except fetch.FetchError as e:
                     log(f"  carry refused: {e}")
             else:
-                self.fetch_finish(cmd[6:])
+                self.fetch_finish(cmd[6:], d.get("on"))
         elif cmd == "calibrate":
             self.calib_until = time.time() + CALIB_S if d.get("on", True) else 0.0
             self.calib_n = 0

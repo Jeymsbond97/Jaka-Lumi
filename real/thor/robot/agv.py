@@ -39,11 +39,11 @@ def status():
 
 
 def dock_marker():
-    """Name of the charging-dock marker (type 11) on the current map, or None."""
-    for name, m in (request("/api/markers/query_list").get("results") or {}).items():
-        if m.get("key") == 11:
-            return name
-    return None
+    """Name of the main charging-dock marker on the current map ("home"): of the type-11 markers the one with the
+    lowest dock number (num); None when there is none. Further docks keep their own names (dock2, ...)."""
+    docks = [(m.get("num", 1), name) for name, m in (request("/api/markers/query_list").get("results") or {}).items()
+             if m.get("key") == 11]
+    return min(docks)[1] if docks else None
 
 
 def markers():
@@ -80,6 +80,18 @@ def turn_by(angle_rad):
     """Turn in place by angle_rad (+ = left); the base plans it like a normal move."""
     x, y, th = pose()
     return go_point(x, y, (th + angle_rad + 3.14159265) % 6.2831853 - 3.14159265)
+
+
+def probe(x, y):
+    """(live, map): distance (m) from the map point (x, y) to the nearest obstacle the sensors see now and to the
+    nearest one on the map; inf when there is none in range."""
+    d = request(f"/api/map/distance_probe?x={x:.3f}&y={y:.3f}").get("results", {}).get("env_dist", {})
+    return tuple(v if v is not None and v >= 0 else float("inf") for v in (d.get("obstacle"), d.get("static")))
+
+
+def clearance(x, y):
+    """Distance (m) from the map point (x, y) to the nearest obstacle the sensors see now or the map holds."""
+    return min(probe(x, y))
 
 
 def cancel():

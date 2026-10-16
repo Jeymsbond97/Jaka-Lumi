@@ -114,7 +114,9 @@ Modules import each other by folder (`from robot import arm`, `from vision impor
 | `audio/mouth.py` | Text to speech: Supertonic-3 (EN / KO, voice F1), sentence by sentence, cache | USB speaker |
 | `audio/doa.py` | Voice direction from the 6-mic ring (SRP-PHAT), self-calibrating from the camera | |
 | `vision/camview.py` | Camera service: owns both cameras, detection, `/dev/shm` results, `RemoteDetector` | Orbbec (USB) |
-| `vision/person.py` | YOLOv8n (ONNX, OpenCV DNN) person detection; distance from depth, angle from the box | |
+| `robot/drive_log.py` | Writes every base drive to the API log (start, on the way, standing still / seems stuck, arrived / failed / cancelled, E-stop, error codes), whoever drives; run by `api/server.py` | AGV status |
+| `vision/yolo_engine.py` | Builds the TensorRT engine from the ONNX model (run after a JetPack / TensorRT change) | TensorRT |
+| `vision/person.py` | YOLOv8s on the GPU (TensorRT engine `models/yolov8s.engine`); falls back to YOLOv8n on the CPU (ONNX, OpenCV DNN) when the engine does not load. People and the 80 COCO objects; distance from depth, angle from the box | TensorRT (`tensorrt-cu13`, `cuda-python`) |
 | `vision/objects.py` | Objects in the torso camera (YOLO COCO classes): colour, centre / top / width / height in the arm base frame from depth + `data/camera_extrinsics.json`; called by the camera service, served as `/objects` | camera service |
 | `vision/calib.py` | Torso camera → arm base calibration with the ArUco marker on the gripper (`collect`, `solve`, `check`), see [docs/15_PICK_AND_PLACE.md §8](../../docs/15_PICK_AND_PLACE.md) | camera service, arm controller |
 | `vision/camera_test.py`, `camera_fps.py` | Diagnostics: list cameras and save a frame (to `logs/`); count full frames per second (USB 2 vs 3) | stop the camera service first |
@@ -162,7 +164,7 @@ systemctl --user restart lumi-api      # after changing api/, robot/ or manipula
 systemctl --user stop lumi-api         # stays stopped until start or the next boot
 ```
 
-Logs are in `logs/`: `lumi.log` (assistant), `lumi_console.log` (its stderr), `api.log`, `camview.log`, `whisper_server.log`, `embed_server.log`. The dashboard's Settings → Logs shows the assistant log and highlights real errors.
+Logs are in `logs/`: `lumi.log` (assistant), `lumi_console.log` (its stderr), `api.log`, `camview.log`, `whisper_server.log`, `embed_server.log`. The dashboard's Settings → Logs shows the robot log (`api.log`: tasks, arm, base, tracebacks) or the assistant log, with the latest errors on top.
 
 ---
 
@@ -182,7 +184,9 @@ Logs are in `logs/`: `lumi.log` (assistant), `lumi_console.log` (its stderr), `a
 | `logs/` | all log files | written at run time |
 | `data/camera_extrinsics.json`, `data/calib_samples/`, `data/doa_*`, `data/volume.txt` | calibrations and settings of this robot | `vision/calib.py`, `audio/doa.py`, the dashboard |
 | `.venv/` | Python 3.12 venv (plus `site-packages/lumi_wave.pth`, one line: the path of this folder): numpy, opencv-python-headless, pyorbbecsdk2, fastapi, uvicorn, supertonic, soundfile | wheels downloaded on a Mac and installed offline (the Thor's internet was too slow at the time) |
-| `models/yolov8n.onnx` | person / object detector | `YOLO("yolov8n.pt").export(format="onnx", imgsz=640, opset=12, simplify=True)` |
+| `models/yolov8n.onnx` | fallback person / object detector (CPU) | `YOLO("yolov8n.pt").export(format="onnx", imgsz=640, opset=12, simplify=True)` |
+| `models/yolov8s.onnx` | source of the GPU engine (`ultralytics` export of `yolov8s.pt`, 640, opset 17) | `YOLO("yolov8s.pt").export(format="onnx", imgsz=640, opset=17)` |
+| `models/yolov8s.engine` | GPU detector, built on this Thor from `yolov8s.onnx` (640, FP32, opset 17, `ultralytics` export). A TensorRT engine only runs on the TensorRT version and GPU it was built with: rebuild after a JetPack or TensorRT change | `vision/yolo_engine.py models/yolov8s.onnx models/yolov8s.engine` (about 100 s) |
 | `models/ggml-large-v3-turbo-q5_0.bin` | whisper model | Hugging Face `ggerganov/whisper.cpp` |
 | `models/supertonic3/` | TTS model | Hugging Face `Supertone/supertonic-3` |
 | `whisper.cpp/` | v1.9.5, built with CUDA | `cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=110 -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 12 --target whisper-server whisper-cli` |

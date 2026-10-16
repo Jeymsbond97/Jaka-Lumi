@@ -31,4 +31,9 @@ cx, cy, cz = m["position_mm"]
 assert abs(cx) < 5 and abs(cy - D) < 10 and abs(cz) < 5, m
 assert abs(m["width_mm"] - 2 * R) < 8, m
 assert abs(m["height_mm"] - H) < 12, m
+# a weak cup box (score below SURE_SCORE) stays only when depth measured a cup-sized thing there
+assert objects.sized_like({"name": "cup", "width_mm": 2 * R, "height_mm": H})
+assert not objects.sized_like({"name": "cup", "width_mm": 300.0, "height_mm": H})           # a box, a table edge
+assert not objects.sized_like({"name": "cup", "width_mm": 2 * R, "height_mm": None})        # cut off: not sure
+assert not objects.sized_like({"name": "bottle", "width_mm": 2 * R, "height_mm": H})        # only cups may be weak
 print("objects ok")

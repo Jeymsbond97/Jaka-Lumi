@@ -44,45 +44,107 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
 1. Prepare: empty hand → open the gripper, `look`.
 2. Drive to the source (marker: `agv.go`; map point: `agv.go_point`; `here`: no drive); wait until the base has stopped.
 3. The arm stays in `look`. Every move between named poses is checked first with `kine_forward`: the grasp point must stay above `MIN_POSE_Z` (−220 mm, table top ≈ −400) or above where it starts; otherwise the task fails before the arm moves.
-4. Look (`_search`): `skills.find(object, colour)` at this lift; not found → at the other lifts of `LIFT_TRIES`
-   (75, 250, 0 mm); still not → "Let me look around": turn on the spot by 30° (`SEARCH_TURN_DEG`, arm in `look`, lift
-   75 mm) and look at lift 75 and 250 mm, up to 11 times (all the way round). Never turns while charging. Nothing
-   anywhere → "I looked all around, but I can't see the cup", task failed. With "From: Here" (`"here"`) this is
+4. Look (`_search`): `skills.find(object, colour)` at the lift it has; not found → "Let me look around": turn on
+   the spot by 30° (`SEARCH_TURN_DEG`, arm in `look`, the lift stays) and look again, 11 times (all the way round);
+   still not → the same whole turn at lift 0 mm, then at 250 mm (`LIFT_TRIES`, down first, then up). The first turn
+   goes towards the side where the base's lidar sees more things the map does not have (`first_side`: 3 angles ×
+   3 distances each side, `/api/map/distance_probe` live < 0.3 m where the map is free for 0.5 m: tables, chairs,
+   boxes; ~2 s), all later turns the same way. The torso detector looks at the whole frame and again at three crops
+   (`vision/person.py` `ZOOM`: the pick zone and the left / right of the band where far table tops are seen, about
+   2.7× bigger; ~50 ms each), so cups 1–3 m away are found too. YOLOv8n scores some cups very low (the white
+   tumbler 1.4 m away: 0.03–0.25 over 8 frames, 2026-10-16): cup boxes are kept from 0.05 (`person.WEAK_SCORE`), but a
+   box under 0.35 counts only when depth measures a whole cup-sized thing there (`objects.sized_like`: width 40–110,
+   height 50–250 mm), and `find` still wants it in 5 of 8 frames at the same place. Never turns
+   while charging (then only the lifts). Nothing anywhere → "I looked all around, but I can't see the cup", task failed. With "From: Here" (`"here"`) this is
    the whole search; with a marker / point it is done after driving there.
-4b. Table height: the depth surface on rings 80 / 110 mm around the object (`skills.table_near`). When it is more
-   than 2 cm (`LIFT_TOL_MM`) from the proven −403 mm, the lift moves by the difference (table 10 cm higher → lift 10 cm
-   up, within 0–250 mm, slow) and Lumi looks again; a surface more than 15 cm off (floor, wall) is never fitted. The torso
+4b. Table height: the depth surface on rings 80 / 110 mm around the object (`skills.table_near`). The lift is set to bring it as near the
+   proven −403 mm as 0–250 mm allows (`lift_for`; table 10 cm higher → lift 10 cm up, slow) and Lumi looks again. Any
+   surface that ends between −560 and −30 mm in the arm frame is worked on (`SURFACE_Z`, from the grasp IK: a table
+   top +300 … −200 mm from ours at lift 0 reachable, −250 partly, −300 (a chair seat) not at all); lower ones (floor,
+   low seats) are never fitted. The torso
    camera sits on the same link as the arm base, so the lift does not change the camera calibration (checked: lift
    75 → 150 mm moved a cup x +2, y −2, top −76 mm). Every drive is at lift 75 mm. At a put-down the same is done with
    the table in front (`fetch.table_ahead`), and the object goes down at that table's height.
-5. Reach: the pick plan must pass IK. If not, compute the base shift that brings the object to the middle of the
-   proven pick zone, shift the base (at most `MAX_SHIFT_M` 0.30 m per try, slow), `look`, look again;
-   at most `SHIFT_TRIES` 3 tries. Still out of reach → "I can't reach it, please move it closer to me", look every
-   2 s for 30 s, go on when it is reachable, else task failed.
-6. Pick (`skills.reachable_pick`): the taught grasp turned about the vertical by 0, ±10, ±20, ±30, ±45, ±60° (`GRASP_YAWS`, the cup stays upright), the first that works: a joint move from `look` to 10 cm above the cup in `ready`'s arm configuration, checked with `kine_forward` at 11 points to never take the gripper more than 2 cm below both ends (`PATH_SAG_MM`), then straight down, close, straight up. The turn is kept and the cup is put down turned the same way.
-7. Up, then straight to `carry` (`_line_holding`: the straight move is IK-checked at 10 points and the cup's lean at each must stay within `MAX_TILT_DEG`; measured 2.5° from four pick spots, against 36° for a joint move). No `ready`.
-8. Drive to the destination in `carry`; the gripper's holding signal is read every second, a drop stops the base
-   ("I dropped it").
+5. Reach (`_reach`): the pick plan must pass IK. If not, the base moves so the object comes to `PICK_ZONE_CENTRE`
+   (−100, 580) mm, then Lumi looks again (lost: the whole search of step 4), fits the lift and plans again; at most
+   `APPROACH_TRIES` 5 moves, never on the charger. One move (`_approach`, geometry in `approach_move` / `side_pose`):
+   - Way in at most 0.6 m (`STRAIGHT_MAX_M`): turn on the spot to face it (navigation), then straight with
+     `joy_control` at 0.05 m/s (forward when it is too far, backwards when too near). Before the drive the line is
+     checked every 5 cm with the base's `/api/map/distance_probe` (lidar + map): the drive ends where the base
+     (half width 0.255 m + 0.05 m) would get closer to an obstacle (`agv.clearance`). Navigation alone does not go
+     near a table: it keeps its own margin and answered "succeeded" without moving (2026-10-16).
+   - Longer, or the straight way blocked: navigation (it plans round obstacles) to a stand-off point 0.4 m
+     (`STANDOFF_M`) back from the pose that reaches it, facing the object, from the direct side first, then from
+     ±45°, ±90°, ±135°, 180° around it (`APPROACH_SIDES`, each side once per task); the next move drives straight in.
+   - The arm base's position in the base frame is not known from a drawing: it starts at (0, 0) and is learned from
+     the object seen before and after a move that turned the base ≥ 15° (`arm_offset`), kept in
+     `data/fetch_calib.json` (`arm_xy_in_base_m`); the look after every move corrects the rest.
+   After every move the object is looked for again: YOLO first; else it is remembered on the map (`remember`,
+   `expected`: its map position from the base pose, the arm yaw and offset; its top and table moved by the lift
+   change) and looked for with depth only where it should be (`skills.locate`: a 90 mm grid around it, points
+   above half its height). Depth only tells whether it is still there; a pick always needs a YOLO box measured with
+   depth (a depth-only position was 45 mm off on 2026-10-16 and the gripper knocked the cup over). Depth sees only
+   table there → "It is not where I saw it", the whole search. Otherwise back off 0.15 m, turn 20° each way, looking
+   again after each; still no YOLO box but depth sees it → "please move it a little", the task ends; nothing seen
+   at all → the whole search. The arm base offset is the median of the last 9 measurements (`OFFSET_SAMPLES`).
+   An object's width is only trusted within 250 mm of the pick zone (`WIDTH_NEAR_MM`: the tumbler measured 85–88 mm at
+   1.14 m, 76–81 mm up close): a too wide / too narrow one further away is approached and measured again.
+   Still out of reach → "I can't reach it, please move it closer to me", look every 2 s for 30 s, go on when it is
+   reachable, else task failed.
+6. Pick (`skills.reachable_pick`): the taught grasp turned about the vertical every 15° all the way round
+   (`GRASP_YAWS`, nearest the taught one first; the cup stays upright at every one), each with two IK seeds: `ready`'s
+   arm configuration and the same with the wrist flipped (J4 + 180, −J5, J6 + 180). The first that works: a joint
+   move from `look` to 10 cm above the cup (no joint more than 200°), checked with `kine_forward` at 11 points to
+   never take the gripper more than 2 cm below both ends (`PATH_SAG_MM`), straight down and up passing IK, and the
+   straight line from above to `carry` with the cup passing too (`fetch._carry_ok`: IK at 20 points, ≤ 25° per
+   joint between two, lean ≤ 15°), so a pick never ends where the cup can't be carried. Measured with the
+   controller's IK (2026-10-16, top −340 mm): grasps exist only for y ≤ ~700 mm, 1–4 options per spot, about 1 s to
+   plan. The turn is kept and the cup is put down turned the same way.
+7. Up, then straight to `carry` (`_line_holding`: the straight move is IK-checked at 20 points and the cup's lean at each must stay within `MAX_TILT_DEG`; measured 2.5° from four pick spots, against 36° for a joint move), then straight to `look` (5.9° lean). A turned grasp can't go straight to `look` (a joint jumps 30–80° on the way, IK 2026-10-16), so `carry` is passed through. No `ready`.
+8. Drive to the destination in `look`; the gripper's holding signal is read every second, a drop stops the base
+   ("I dropped it"). Not in `carry`: there the hand is ~0.3 m before the base's front and 23 cm lower than in
+   `look`; every drive in `carry` stalled (p6 and home on 2026-10-15, p9 on 2026-10-16: the base only edged, and
+   `distance_probe` showed a live obstacle 0.5 m ahead in an aisle that is free on the map), while the owner's drives
+   from the AGV test tool with the arm in `look` went. Likely the base's front 3D camera sees the hand; not proven.
 9. Finish:
-   - `hold`: stay in `carry`, status `holding`; wait for "give" or "place".
-   - `place`: straight from `carry` to `look` with the object (5.9° lean; in `carry` the held cup covers the
-     torso camera's view of the table), then the same search as step 4, at each try (`_place_here`, `place_spots`): the pick spot itself when the
+   - `hold`: stay in `look`, status `holding`; wait for "give" or "place".
+   - `place`: in `look` (in `carry` the held cup covers the torso camera's view of the table), the same search as
+     step 4 (the arm stays in `look` while the base turns), at each try (`_place_here`, `place_spots`): the pick spot itself when the
      base has not moved since the pick (2 cm, 2°); then free spots of a grid (x −260…−60, y 640…700 mm) where the
      torso depth camera sees table at the pick table's height, every one checked at its centre and 8 points 50 mm
      around it (`skills.on_table`; the camera service writes `/dev/shm/lumi_depth_torso.npy`). At table height
      the camera sees only y ≥ ~640 mm, nearer spots can't be checked and are never used after a drive. No spot →
-     "I can't see a free place on the table". Then straight from `carry` to above the spot (2.3° lean), put down, back to `look`.
+     "I can't see a free place on the table". Then straight to above the spot, put down, back to `look`.
+     Nothing is put down unless the table in front is measured right then (`table_ahead`: at least 4 grid points
+     at table height); the height the object was picked from is never taken instead (2026-10-16 the cup was put
+     down at p9 on nothing).
+     No spot in reach but a table seen further away (`far_table`: depth surface on a grid x −700…500, y 720…1600 mm
+     within 15 cm of the proven table height, the nearest point whose 50 mm ring is all table): the base brings that
+     point to (−160, 670) mm (`PLACE_GOAL`) the same way as for a pick (step 5, up to 5 moves), then the grid again.
+9a. "Put it on the orange chair" (`brain.place_on`, `fetch._put_on`): the named thing (table, chair, stool, sofa,
+    bench, bed; a colour if said) is searched like an object, its flat top measured with depth; within reach of the
+    lift it is approached and the object put on it, else Lumi says how much lower / higher it is than a table.
+    Before every turn on the spot the arm's sweep is checked against lidar + map (`turn_hits`, 0.10 m) and with the
+    torso depth camera at the arm's real height (`depth_hits`; the arm's own parts within 120 mm do not count).
+9b. What is in the hand is checked at every command (fetch, place, give, carry; `fetch._in_hand`): the torso depth
+    camera looks at the cup's axis 30–70 mm below the grasp point, projected from the arm's joints
+    (`skills.hand_sees`: depth within 60 mm of it = an object, more than 250 mm behind = empty); only when it
+    can't tell, AI_1. Live: an empty hand reads "empty"; a held cup gave no depth ("unknown", too near the camera),
+    so a held object is decided by AI_1. A fetch always opens the gripper first and stops if it stays closed.
 10. Carry to another place (while holding): the dashboard's To (From is hidden while holding) or "bring it to p1"
-    → `carry`, drive with the drop watch, keep holding (`fetch.carry_to`, `POST /tasks/carry`).
-11. Give (while holding): `carry` → `give` straight (4.8° lean), say "Here you go. Hold it and say thank you.", open
+    → `look`, drive with the drop watch, keep holding (`fetch.carry_to`, `POST /tasks/carry`). A command that names a
+    place and a finish ("go to p5 and put it on the table", "give it to me at p9"; the place from the text, else the
+    dialog's To) drives there first, then puts it down (step 9) or gives it (step 11) (`carry_to(dest, then)`,
+    `POST /tasks/carry {"dest", "then": "place" | "give"}`). "put it on the table" alone puts it down where Lumi
+    stands. A command while holding is never a new fetch: the object stays in the hand until it is put down or given.
+11. Give (while holding): `look` → `give` straight (IK-checked), say "Here you go. Hold it and say thank you.", open
     only on "thank you" (voice) or Release (dashboard Command dialog, `POST /tasks/release`), then `look`. Nobody
-    releases within `GIVE_WAIT_S` 30 s: "I'll keep holding it", back to `carry`, still `holding` (it is never dropped).
+    releases within `GIVE_WAIT_S` 30 s: "I'll keep holding it", back to `look`, still `holding` (it is never dropped).
     A pull can't be felt: with the cup in the closed gripper AI_1's median stayed 2780–2870 during gentle pulls (only
     its noise grew, sd 20 → 50–75), and the fingers settling after the move changed it by 192.
 
-Base shift geometry: the object's position in the arm base frame and the pick zone centre give an offset in the arm
-base frame; the base moves by that offset (towards the object), turned into the base frame by the angle between the two
-frames (`ARM_YAW_IN_BASE_DEG`). That angle is measured once on the robot with `tasks/fetch.py measure-axis [object]`: the arm stands at
+Base move geometry: the object's position in the arm base frame is turned into the base frame by the angle between
+the two frames (`arm_yaw_in_base_deg`) plus the arm base's offset (`arm_xy_in_base_m`, step 5). That angle is measured once on the robot with `tasks/fetch.py measure-axis [object]`: the arm stands at
 `look` (or `ready`) with a few objects in the torso camera's view; the base drives 10 cm straight forward with `/api/joy_control`
 at 0.05 m/s (`AXIS_SPEED`; not navigation, which can turn in place while the arm is over the table). Every object seen
 steady before and after (matched by class) is used; the yaw is fitted as an exact rigid motion that includes the
@@ -92,7 +154,7 @@ drove 0.100 m forward, −0.003 m sideways and turned −1.25°; cup (−235, 10
 (−900, 1155) mm in the arm base frame. Fit with both: arm yaw in the base frame **−86.2°**, saved in
 `data/fetch_calib.json`. Single objects give −88.0° (cup), −85.0° (chair) and −89.2° (bowl, an earlier run): spread
 about ±2°, about 1 cm on a 30 cm shift. The drive back ended 3.5 mm from the start with −1.6° heading drift in total
-(straight `joy_control` drives turn about 1° per 10 cm). Without `data/fetch_calib.json`, step 5 does not shift the
+(straight `joy_control` drives turn about 1° per 10 cm). Without `data/fetch_calib.json`, step 5 does not move the
 base and goes straight to asking the person.
 
 STOP (dashboard, `/stop`, `/arm/stop`, `/tasks/stop`, voice "stop"): base and arm stop at once, the gripper keeps its
@@ -124,6 +186,12 @@ something, where should I put it first?".
 ## 5. Dashboard
 
 A **Command** button next to Settings opens a dialog in the middle of the screen (a click outside or Esc closes it):
+
+While holding, the command is read by the rules only (fast): the object named is the held one, a marker
+named anywhere is where to bring it (else To), "give" / "put it on the table" what to do there, "bring it to
+p2" a carry; a new fetch ("take the bottle from p2") is refused with the held object's name. Below the read
+sentence, selects correct it: Object, Colour and At the end (hold / put on the table) for a fetch, At the end
+(hold / put on the table / give) for a carry. Start / Go / Give / Place starts it at once.
 
 - **Command**: one text box ("Write command"), English or Korean only ("bring the red apple from p1 to home",
   "p1에서 흰 컵 가져와"). `POST /tasks/parse` reads it: the rules first, else the LLM, which may only answer with
@@ -162,6 +230,6 @@ the robot; stop also stops the base and arm directly.
 
 ## 7. Tests
 
-Without the robot: `tests/test_fetch.py` (task validation, read-back, base-shift geometry, the step order with fake
+Without the robot: `tests/test_fetch.py` (task validation, read-back, approach geometry (turn + straight, sides, arm offset), the step order with fake
 drivers, stop at every step), `tests/test_fetch_intents.py` (EN / KO commands, unknown words, corrections,
 confirmation answers). On the robot, with the owner at the STOP: empty cup first, slow, one step at a time.
