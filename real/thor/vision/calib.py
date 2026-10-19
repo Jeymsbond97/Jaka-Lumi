@@ -10,6 +10,7 @@ on the flange; solve() finds both (Park & Martin's AX = XB).
     python vision/calib.py solve          # compute camera_extrinsics.json, print the error of every sample
     python vision/calib.py check          # live: marker position from the camera vs from the arm, in mm
     python vision/calib.py clear          # forget the samples
+    add --camera head to any of these for the head camera (own samples and result file)
 
 Keep the lift and the waist where they are during a session: the camera turns with the waist and moves with
 the lift, the arm base too, but samples from different body poses must not be mixed until that is verified.
@@ -23,13 +24,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from robot import arm
+from robot import arm, head
 from vision import camview
 
 ROOT = Path(__file__).resolve().parents[1]      # the project folder
 SAMPLES_DIR = ROOT / "data" / "calib_samples"
 RESULT = ROOT / "data" / "camera_extrinsics.json"
-CAMERA = "torso"
+CAMERA = "torso"                  # --camera head switches the three names above and this one
 MARKER_ID = 0
 MARKER_MM = 50.0                  # black square side, checked with a ruler on the print
 STILL_S = 1.5                     # s the joints must not move before a sample is taken
@@ -151,7 +152,7 @@ def collect():
                 continue
             n = len(samples) + 1
             sample = {"position": d["actual_position"], "flange": T_base_flange.tolist(), "marker": T_cam_marker.tolist(), "corners": corners.tolist(),
-                      "joints": q.tolist(), "time": time.time()}
+                      "joints": q.tolist(), "body": head.status(), "time": time.time()}
             (SAMPLES_DIR / f"sample_{n:02d}.json").write_text(json.dumps(sample))
             cv2.imwrite(str(SAMPLES_DIR / f"sample_{n:02d}.jpg"), img)
             samples.append(sample)
@@ -271,7 +272,8 @@ def run_solve():
     RESULT.write_text(json.dumps({
         "camera": CAMERA, "euler": order, "T_base_cam": T_base_cam.tolist(), "T_flange_marker": T_flange_marker.tolist(),
         "samples": len(samples), "median_error_mm": round(float(np.median(errors)), 1),
-        "max_error_mm": round(max(errors), 1), "time": time.strftime("%Y-%m-%d %H:%M")}, indent=1))
+        "max_error_mm": round(max(errors), 1), "body": samples[0].get("body"),   # [lift, waist, head yaw, pitch]
+        "time": time.strftime("%Y-%m-%d %H:%M")}, indent=1))
     print(f"saved {RESULT.name}")
 
 
@@ -297,6 +299,11 @@ def check():
 
 
 if __name__ == "__main__":
+    if "--camera" in sys.argv:
+        CAMERA = sys.argv[sys.argv.index("--camera") + 1]
+        if CAMERA != "torso":                      # the torso keeps the original file names
+            SAMPLES_DIR = ROOT / "data" / f"calib_samples_{CAMERA}"
+            RESULT = ROOT / "data" / f"camera_extrinsics_{CAMERA}.json"
     what = sys.argv[1] if len(sys.argv) > 1 else ""
     if what == "collect":
         collect()

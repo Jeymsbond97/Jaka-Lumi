@@ -187,6 +187,7 @@ class PersonDetector:
         self.last_frame = time.time()
         self.reopens, self.reboots, self.last_reopen = 0, 0, 0.0
         self.head_sign, self.head_yaw = head_sign, 0.0
+        self.head_pose = None                       # [lift, waist, yaw, pitch] last read (head camera only)
         self.focus_angle = None                     # set by lumi.py: the person it talks to is drawn red
         self.bad_jpeg = 0                           # colour frames dropped because they arrived incomplete
         self.running = True
@@ -295,7 +296,8 @@ class PersonDetector:
         """Keep self.head_yaw up to date (deg) so image angles can be turned into waist angles."""
         while self.running:
             try:
-                self.head_yaw = head.status()[2]
+                self.head_pose = head.status()
+                self.head_yaw = self.head_pose[2]
             except Exception:
                 pass                                # keep the last value; the body API may be busy
             time.sleep(HEAD_POLL_S)

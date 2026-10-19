@@ -12,6 +12,7 @@ The task: {"object", "colour" (or null), "source": "here" | {"marker"} | {"x", "
 import json
 import math
 import os
+import random
 import statistics
 import sys
 import threading
@@ -26,10 +27,14 @@ from robot import gripper
 from robot import head
 from robot import motion
 from vision import calib
+from vision import camview
+from vision import head_cam
+from vision import objects
 
 ROOT = Path(__file__).resolve().parents[1]      # the project folder
 STATE_FILE = Path("/dev/shm/lumi_task.json")   # the task state, readable by every process
-CALIB_FILE = ROOT / "data" / "fetch_calib.json"  # {"arm_yaw_in_base_deg": ...} from measure-axis
+CALIB_FILE = ROOT / "data" / "fetch_calib.json"
+KNOWN_FILE = ROOT / "data" / "known_things.json"    # things taught by name and colour, kept by their place on the map  # {"arm_yaw_in_base_deg": ...} from measure-axis
 OBJECTS = {"cup": "컵", "bottle": "병", "apple": "사과", "orange": "오렌지", "banana": "바나나"}   # camera classes
 COLOURS = {"red": "빨간", "orange": "주황색", "yellow": "노란", "green": "초록색", "blue": "파란", "purple": "보라색",
            "pink": "분홍색", "white": "흰", "black": "검은", "grey": "회색"}   # the names objects.colour_name gives
@@ -54,6 +59,7 @@ PLACE_GRID_Y = (640, 660, 680, 700)  # sees only y >= ~640, nearer spots can't b
 PLACE_GOAL = (-160.0, 670.0)         # mm; a table spot seen further away is brought here by the base (middle of the grid)
 FAR_GRID_X = range(-700, 501, 50)    # mm; where a table further away is looked for in the depth image
 FAR_GRID_Y = range(720, 1601, 40)
+KNOWN_M = 0.5                        # m; a thing seen this near where it was taught is that thing
 SUPPORT_DISC_MM = 100.0              # mm; the top of a named thing (a chair's seat) is measured on a disc this wide
 FAR_TRIES = 15                       # nearest table points checked for a whole free spot (ring) there
 TABLE_PROVEN_Z = -403.0      # mm, arm base frame: the table top of every proven pick and place (lift 75 mm)
@@ -88,6 +94,15 @@ LOST_TURN_DEG = 20.0         # ... and turn this much each way, looking again (Y
 ARM_CLEAR_M = 0.10           # m; flange, grasp point and finger tips kept this far from anything the lidar or the map
 SWEEP_STEP_DEG = 10.0        # shows while the base turns on the spot, checked every this many degrees (turn_hits)
 SELF_MM = 120.0              # depth this near the arm's own flange / grasp point / tips is the arm itself (depth_hits)
+HEAD_SIDE_DEG = 60.0         # head yaw (+ left) towards the side of a turn, to check the arm's sweep (head_hits)
+HEAD_LOW_PITCH = -5.0        # head pitch for those checks and the search: its lowest, where the camera is calibrated
+HEAD_SETTLE_S = 1.2          # s after a head move: frames at rest (depth is written every 0.5 s)
+HEAD_SCAN_STEP_DEG = 60.0    # search with the head: ahead, then every this many degrees to one side up to ...
+HEAD_SCAN_MAX_DEG = 180.0    # ... this head yaw (its end), then the same to the other side (the colour view is 94 deg wide)
+BASE_HALF_STEPS = 3          # then the base turns half round in this many checked turns and the head looks again
+HEAD_READS = 4               # detection reads per head yaw ...
+HEAD_SAME_MM = 120.0         # ... an object counts when seen at least twice within this distance
+HEAD_DRIVE_MAX_M = 3.0       # m; at most this far straight towards a thing the head camera found
 OFFSET_TURN_DEG = 15.0       # a move that turned the base at least this much tells where the arm base is (arm_offset)
 WIDTH_NEAR_MM = 250.0        # mm from PICK_ZONE_CENTRE; a width measured further away is not trusted (the same tumbler:
                              # 85-88 mm at 1.14 m, 76-81 up close, 2026-10-16; the gripper takes up to 84)
@@ -109,11 +124,22 @@ GIVE_WAIT_S = 30.0           # s; no release by then: keep holding it and go bac
 # 2026-10-15 with the cup in the closed gripper: its median stayed 2780-2870 during gentle pulls (only its noise
 # grew, sd 20 -> 50-75), while the fingers settling after the move changed it by 192.
 GIVE_POLL_S = 0.2
+MOVE_SPEED = 0.10            # m/s; a mission's move (straight with joy_control); estimate, tune live (docs/17)
+RECEIVE_WAIT_S = 30.0        # s; receive: nothing put in the hand by then -> the mission fails, hand open
+RECEIVE_DI_S = 0.5           # s; DI_1 (finger sensor) sees something this long -> Lumi asks the person to let go;
+                             # the hand closes only on their "okay" / Release (never on fingers still in it)
+MOVE_SEGMENT_M = 0.25        # m; a mission move is driven in pieces this long, the way (base and arm) checked before each
+WAIT_POLL_S = 0.2            # s between looks at stop / go on / an instruction while a mission waits (a wait step)
 LOG_LINES = 40
 
 _lock = threading.RLock()                   # _finish sets the state while it holds it
 _stop = threading.Event()                    # set by stop(): every step and every wait gives up
 _release = threading.Event()                 # set by release_now() ("thank you" / Release while giving)
+_proceed = threading.Event()                 # set by proceed() ("go on" while a mission waits): the wait ends
+_order = {"steps": None}                     # steps given by instruct() to a wait for an instruction
+_rest = []                                   # the running mission's steps still to come (instruct() checks them too)
+_pause = threading.Event()                   # set by pause() (someone talks to Lumi on the way): drives halt, the run
+                                             # waits at the next step; resume() goes on where it was
 _thread = None
 _task = {"start_pose": None}                 # map pose (x, y, theta) where the current task was given
 _state = {"status": "idle", "step": "", "task": None, "holding": False, "log": [], "since": time.time()}
@@ -209,11 +235,12 @@ def describe(task, lang="en"):
     place = task.get("finish") == "place"
     if lang == "ko":
         thing = (COLOURS.get(colour, colour) + " " if colour else "") + OBJECTS.get(obj, obj)
-        frm = "여기에서" if src == "here" else f"{mark['src']} 위치에서" if "src" in mark else "알려준 위치에서"
+        frm = "여기에서" if src == "here" else f"{mark['src']} 위치에서" if "src" in mark else "알려 주신 위치에서"
         to = "여기로" if dst == "here" else f"{mark['dst']} 위치로" if "dst" in mark else \
-            "알려준 위치로" if dst else "어딘가로"
+            "알려 주신 위치로" if dst else "어딘가로"
         end = "테이블에 내려놓을게요" if place else "들고 있을게요"
-        return f"{frm} {thing}{_object_particle(thing)} 가져와서 {to} 가져가 {end}."
+        carry = "가져와서" if dst == "here" else "가져가서"
+        return f"{frm} {thing}{_object_particle(thing)} 가져와서 {to} {carry} {end}."
     thing = (colour + " " if colour else "") + obj
     frm = "from here" if src == "here" else f"from {mark['src']}" if "src" in mark else "from the point I was shown"
     to = "here" if dst == "here" else f"to {mark['dst']}" if "dst" in mark else \
@@ -224,8 +251,15 @@ def describe(task, lang="en"):
 
 # ---------- helpers ----------
 def _go_on():
+    """Between parts of a run: STOP ends it; a pause waits here until resume()."""
     if _stop.is_set():
         raise Stopped()
+    if _pause.is_set():
+        log("paused")
+        while _pause.is_set():
+            if _stop.wait(0.1):
+                raise Stopped()
+        log("going on")
 
 
 def _step(name, say=None, en=None, ko=None):
@@ -333,14 +367,27 @@ def _pose_holding(name):
     _pose(name, skills.HOLDING_SPEED)
 
 
-def _wait_drive(watch_holding=False):
-    """Wait until the base stops. Raises FetchError unless it arrived ("succeeded")."""
+def _wait_drive(watch_holding=False, again=None):
+    """Wait until the base stops. Raises FetchError unless it arrived ("succeeded"). A pause cancels the drive, waits
+    for resume() and then calls again() to send the base on (the rest of a turn, the same goal)."""
     t0 = last_hold = time.time()
     seen_running = False
     anchor = None                            # (x, y, time) of the last real progress
     while True:
         if _stop.wait(DRIVE_POLL_S):
             raise Stopped()
+        if _pause.is_set():
+            agv.cancel()
+            _go_on()                             # waits until resume() (or STOP)
+            if again is None:
+                raise FetchError("I was stopped on the way.", "가는 중에 멈췄어요.")
+            ok, msg = again()
+            if ok is None:                       # nothing left to do (a turn already finished)
+                return
+            if not ok:
+                raise FetchError(f"I couldn't go on ({msg}).")
+            t0, seen_running, anchor = time.time(), False, None
+            continue
         try:
             full = agv.status()
         except (ConnectionError, OSError):
@@ -405,13 +452,14 @@ def arm_points():
     return [to_base(p[:2], arm_yaw(), arm_xy()) for p in arm_points_3d()]
 
 
-def depth_hits(deg):
+def depth_hits(deg, camera="torso", T=None):
     """Like turn_hits, with the torso depth camera: the arm's points along the turn at their real height (a table top's
     edge, a shelf: the lidar at the base's height does not see them), (x, y, z) mm in the arm frame now of the first
     one the camera sees something at or in front of; None when clear. Points out of its view are left to the lidar;
-    depth on the arm's own parts (in view, within SELF_MM of them) does not count."""
+    depth on the arm's own parts (in view, within SELF_MM of them) does not count. Another camera: its name and its
+    camera -> arm base transform T."""
     yaw = arm_yaw()
-    T = skills.objects.base_from_camera()
+    T = skills.objects.base_from_camera() if T is None else T
     if yaw is None or T is None:
         return None
     pts, t, cam = arm_points_3d(), arm_xy(), T[:3, 3]
@@ -422,12 +470,35 @@ def depth_hits(deg):
         for p in pts:
             xy = _rot(-yaw) @ (R @ to_base(p[:2], yaw, t) - t) * 1000.0
             cand.append(np.array([xy[0], xy[1], p[2]]))
-    for c, h in zip(cand, skills.surface_points([tuple(c) for c in cand])):
+    for c, h in zip(cand, skills.surface_points([tuple(c) for c in cand], camera=camera, T=T)):
         if h is None or min(np.linalg.norm(np.subtract(h, q)) for q in pts) < SELF_MM:
             continue
         if np.linalg.norm(np.subtract(h, cam)) <= np.linalg.norm(c - cam) + ARM_CLEAR_M * 1000.0:
             return c
     return None
+
+
+def _head_to(yaw, pitch):
+    """Turn the head (lift and waist stay) and wait until its frames are at rest."""
+    lift, waist, _, _ = head.status()
+    head.moveto([lift, waist, yaw, pitch])
+    camview.want("head")
+    time.sleep(HEAD_SETTLE_S)
+
+
+def head_hits(deg):
+    """depth_hits with the head camera turned towards the side of the turn: the torso camera sees only ahead, the arm
+    sweeps to the side. None when clear, or when the head camera is not calibrated (then the other checks decide)."""
+    side = math.copysign(HEAD_SIDE_DEG, deg)
+    T = head_cam.base_from_head(side, HEAD_LOW_PITCH)
+    if T is None:
+        return None
+    _, _, yaw0, pitch0 = head.status()
+    try:
+        _head_to(side, HEAD_LOW_PITCH)
+        return depth_hits(deg, "head", T)
+    finally:
+        _head_to(yaw0, pitch0)
 
 
 def turn_hits(deg):
@@ -464,11 +535,21 @@ def _turn(deg, holding=False, why="to look further"):
         log(f"not turning {deg:+.0f} deg: the camera sees something in my arm's way at ({seen[0]:.0f}, {seen[1]:.0f}, "
             f"{seen[2]:.0f}) mm")
         return False
+    seen = head_hits(deg)
+    if seen is not None:
+        log(f"not turning {deg:+.0f} deg: the head camera sees something in my arm's way at ({seen[0]:.0f}, "
+            f"{seen[1]:.0f}, {seen[2]:.0f}) mm")
+        return False
     log(f"turning {deg:+.0f} deg {why}")
+    target = agv.pose()[2] + math.radians(deg)
+
+    def rest():                                  # after a pause: only what is left of the turn
+        left = (target - agv.pose()[2] + math.pi) % (2 * math.pi) - math.pi
+        return (None, "done") if abs(left) < math.radians(TURN_MIN_DEG) else agv.turn_by(left)
     ok, msg = agv.turn_by(math.radians(deg))
     if not ok:
         raise FetchError(f"I couldn't turn ({msg}).")
-    _wait_drive(watch_holding=holding)
+    _wait_drive(watch_holding=holding, again=rest)
     return True
 
 
@@ -559,20 +640,32 @@ def _drive_to(place, say, watch_holding=False):
     _lift_to(LIFT_DRIVE_MM)
     if "marker" in place:
         _say(say, f"Going to {place['marker']}.", f"{place['marker']} 위치로 갈게요.")
-        ok, msg = agv.go(place["marker"])
+        go = lambda: agv.go(place["marker"])
     else:
         _say(say, "On my way.", "가는 중이에요.")
-        ok, msg = agv.go_point(place["x"], place["y"], place["theta"])
+        go = lambda: agv.go_point(place["x"], place["y"], place["theta"])
+    ok, msg = go()
     if not ok:
         raise FetchError(f"I couldn't start driving ({msg}).")
-    _wait_drive(watch_holding)
+    _wait_drive(watch_holding, again=go)
 
 
 # ---------- base shift ----------
+def _waist_turn():
+    """How far (deg) the waist is turned from where measure-axis was run (0 when that was not recorded). The arm and
+    both cameras sit on the waist: they turn with it about the base centre. ponytail: waist axis taken at the base
+    centre (the lift column, URDF); measure-axis again if the base shift misses after a waist turn."""
+    try:
+        ref = json.loads(CALIB_FILE.read_text()).get("waist_deg")
+    except (FileNotFoundError, ValueError):
+        return 0.0
+    return 0.0 if ref is None else head.status()[1] - ref
+
+
 def arm_yaw():
     """Angle (deg) of the arm base frame in the base frame, from measure-axis; None until it is measured."""
     try:
-        return float(json.loads(CALIB_FILE.read_text())["arm_yaw_in_base_deg"])
+        return float(json.loads(CALIB_FILE.read_text())["arm_yaw_in_base_deg"]) + _waist_turn()
     except (FileNotFoundError, ValueError, KeyError):
         return None
 
@@ -586,7 +679,7 @@ def arm_xy():
     """Arm base origin (m) in the base frame, as last learned by arm_offset() (0, 0 until then: approach() corrects
     the error by looking again after every move)."""
     try:
-        return np.array(json.loads(CALIB_FILE.read_text())["arm_xy_in_base_m"], float)
+        return _rot(_waist_turn()) @ np.array(json.loads(CALIB_FILE.read_text())["arm_xy_in_base_m"], float)
     except (FileNotFoundError, ValueError, KeyError):
         return np.zeros(2)
 
@@ -665,9 +758,95 @@ def _reachable(obj):
         return None
 
 
+def _head_seen(task):
+    """The task's object as the head camera sees it now ({"x", "y"} mm, arm frame), seen at least twice in
+    HEAD_READS reads at about the same place; None when not."""
+    hits = []
+    for _ in range(HEAD_READS):
+        for o in objects.latest("head")["objects"]:
+            if o["name"] == task["object"] and task.get("colour") in (None, o.get("colour")) and o.get("position_mm"):
+                hits.append(np.array(o["position_mm"][:2], float))
+        time.sleep(0.3)
+    for h in hits:
+        near = [g for g in hits if np.linalg.norm(g - h) <= HEAD_SAME_MM]
+        if len(near) >= 2:
+            x, y = np.mean(near, axis=0)
+            return {"x": float(x), "y": float(y)}
+    return None
+
+
+def _head_yaws(side):
+    """Head yaws of one search: ahead, then up to HEAD_SCAN_MAX_DEG towards `side` (+1 left), then the other side."""
+    n = int(HEAD_SCAN_MAX_DEG // HEAD_SCAN_STEP_DEG)
+    steps = [k * HEAD_SCAN_STEP_DEG for k in range(1, n + 1)]
+    return [0.0] + [side * a for a in steps] + [-side * a for a in steps]
+
+
+def _head_search(task, side, say=None):
+    """Look for the object with the head camera (_head_yaws): it sees further and to the sides than the torso camera.
+    When found, turn the base to face it and drive straight towards it (checked moves), then find it with the torso
+    camera. None when the head camera did not see it or the torso camera still can't."""
+    _, _, yaw0, pitch0 = head.status()
+    found = None
+    try:
+        for yaw in _head_yaws(side):
+            _head_to(yaw, HEAD_LOW_PITCH)
+            found = _head_seen(task)
+            if found:
+                log(f"the head camera sees the {task['object']} at ({found['x']:.0f}, {found['y']:.0f}) mm "
+                    f"(head turned {yaw:+.0f} deg)")
+                break
+    finally:
+        _head_to(yaw0, pitch0)
+    if found is None:
+        return None
+    _say(say, "I see it. Going there.", "찾았어요. 그쪽으로 갈게요.")
+    move = approach_move((found["x"], found["y"]), arm_yaw(), arm_xy())
+    if move is None:
+        return _find_any(task)
+    turn, dist = move
+    if abs(turn) >= TURN_MIN_DEG and not _turn(turn, why="to face it"):
+        return None
+    if dist > PROBE_STEP_M:
+        _straight_clear(min(dist, HEAD_DRIVE_MAX_M))
+    return _find_any(task)
+
+
+def _look_around(task, say=None):
+    """Search with the head before the base moves: the head looks to the side with more things (first_side) as far
+    as it turns, then to the other side; then the base turns half round (checked turns) and the head looks again.
+    Not found: the lift goes to its other end (down when it is up, up when it is down) and all of it again. Without
+    a calibrated head camera: the base-turning search (_search)."""
+    if head_cam.base_from_head(0.0, HEAD_LOW_PITCH) is None or arm_yaw() is None:
+        return _search(lambda: _find_any(task), say=say)
+    here = head.status()[0]
+    other = LIFT_TRIES[1] if here < sum(LIFT_TRIES) / 2 else LIFT_TRIES[0]
+    side = None
+    for n, lift in enumerate((None, other)):
+        if lift is not None:
+            _lift_to(lift)
+            got = _find_any(task)
+            if got is not None:
+                return got
+        for half in range(2):
+            if half and not _charging():
+                if not all(_turn(side * 180.0 / BASE_HALF_STEPS) for _ in range(BASE_HALF_STEPS)):
+                    break                          # a turn was refused: the rest of that half is not looked at
+            elif half:
+                break                              # on the charger: the head and the lifts only
+            if side is None:
+                side = first_side()
+                _say(say, "Let me look around.", "주변을 둘러볼게요.")
+            got = _head_search(task, side, say)
+            if got is not None:
+                return got
+    return None
+
+
 def _see(task, say=None):
-    """Find the object here (else search again), fit the lift to its table and look once more."""
-    obj = _find_any(task) or _search(lambda: _find_any(task), say=say)
+    """Find the object here (else look with the head camera, else search by turning), fit the lift to its table and
+    look once more."""
+    obj = _find_any(task) or _look_around(task, say)
     if obj is None:
         _lift_to(LIFT_DRIVE_MM)
         thing = OBJECTS[task["object"]]
@@ -686,7 +865,7 @@ def _fitted(task, obj):
     return obj
 
 
-def _straight_clear(dist):
+def _straight_clear(dist, speed=None):
     """Drive straight by `dist` m (+ forward), only as far as the base keeps BASE_HALF_M + CLEAR_M from every obstacle
     the sensors and the map show (checked every PROBE_STEP_M before it starts; getting further from one is fine).
     Returns the distance driven (m)."""
@@ -701,7 +880,7 @@ def _straight_clear(dist):
         free, last = k * PROBE_STEP_M, c
     if free >= PROBE_STEP_M:
         log(f"straight {sign * free:+.2f} m")
-        _straight(sign * free)
+        free = _straight(sign * free, speed or AXIS_SPEED)
     return free
 
 
@@ -734,12 +913,13 @@ def _approach(obj, yaw, tried, goal=PICK_ZONE_CENTRE, holding=False):
         tried.add(side)
         sx, sy, sth = side_pose(world, facing + math.radians(side), yaw, t, goal=goal)
         log(f"driving round to ({sx:.2f}, {sy:.2f}) to come in from {side:+d} deg")
-        ok, msg = agv.go_point(sx, sy, (sth + math.pi) % (2 * math.pi) - math.pi)
+        go = lambda: agv.go_point(sx, sy, (sth + math.pi) % (2 * math.pi) - math.pi)
+        ok, msg = go()
         if not ok:
             log(f"no way there: {msg}")
             continue
         try:
-            _wait_drive(watch_holding=holding)
+            _wait_drive(watch_holding=holding, again=go)
             return
         except FetchError as e:
             log(f"no way there: {e}")
@@ -759,6 +939,7 @@ def _learn_offset(before, after, yaw):
         data = json.loads(CALIB_FILE.read_text())
     except (FileNotFoundError, ValueError):
         data = {}
+    t = _rot(-_waist_turn()) @ t                  # kept as at the waist of measure-axis
     samples = (data.get("arm_xy_samples", []) + [[round(float(v), 3) for v in t]])[-OFFSET_SAMPLES:]
     mid = [round(float(v), 3) for v in np.median(samples, axis=0)]
     log(f"arm base measured at ({t[0]:.3f}, {t[1]:.3f}) m; median of {len(samples)}: ({mid[0]:.3f}, {mid[1]:.3f})")
@@ -961,9 +1142,52 @@ def _to_far_table(top0):
     return None
 
 
+def known_things():
+    """[{"name", "colour", "map": [x, y]}] taught with teach_thing()."""
+    try:
+        return json.loads(KNOWN_FILE.read_text())
+    except (FileNotFoundError, ValueError):
+        return []
+
+
+def map_xy(obj):
+    """Map position (m) of an object seen now (arm frame), or None until the arm's yaw is measured."""
+    yaw = arm_yaw()
+    if yaw is None:
+        return None
+    x, y, th = agv.pose()
+    return np.array([x, y]) + _rot(math.degrees(th)) @ to_base((obj["x"], obj["y"]), yaw, arm_xy())
+
+
+def colour_of(obj):
+    """The taught colour of a thing seen within KNOWN_M of where it was taught, else the camera's: the colour read
+    from a box changes with the view (a chair read grey, blue, orange and yellow while the robot moved, 2026-10-16)."""
+    w = map_xy(obj)
+    for k in known_things():
+        if w is not None and k["name"] == obj["name"] and math.hypot(w[0] - k["map"][0], w[1] - k["map"][1]) < KNOWN_M:
+            return k["colour"]
+    return obj.get("colour")
+
+
+def teach_thing(name, colour):
+    """Remember the nearest `name` seen now as a `colour` one, by its place on the map. Returns it and its map place."""
+    seen = [o for o in skills.look() if o["name"] == name]
+    if not seen:
+        raise FetchError(f"I can't see a {name} now.")
+    o = min(seen, key=lambda o: math.hypot(o["x"], o["y"]))
+    w = map_xy(o)
+    if w is None:
+        raise FetchError("I don't know where my arm is on the base yet.")
+    things = [k for k in known_things() if not (k["name"] == name and math.hypot(w[0] - k["map"][0], w[1] - k["map"][1]) < KNOWN_M)]
+    things.append({"name": name, "colour": colour, "map": [round(float(w[0]), 3), round(float(w[1]), 3)],
+                   "taught": time.strftime("%Y-%m-%d %H:%M")})
+    KNOWN_FILE.write_text(json.dumps(things, indent=1))
+    return o, w
+
+
 def _support(on):
-    """The nearest thing of the class (and colour) `on` names, as skills.look() sees it, or None."""
-    seen = [o for o in skills.look() if o["name"] == on["name"] and (not on.get("colour") or o.get("colour") == on["colour"])]
+    """The nearest thing of the class (and colour: the taught one first, colour_of) `on` names, or None."""
+    seen = [o for o in skills.look() if o["name"] == on["name"] and (not on.get("colour") or colour_of(o) == on["colour"])]
     return min(seen, key=lambda o: math.hypot(o["x"], o["y"])) if seen else None
 
 
@@ -1018,8 +1242,8 @@ def _put_down(say=None, on=None):
         raise FetchError("I'm not holding anything I picked.")
     _step("placing")
     _line_holding(LOOK_POSE)
-    if on and on.get("name") != "dining table":
-        _put_on(top, on, say)
+    if on and (on.get("name") != "dining table" or on.get("colour")):
+        _put_on(top, on, say)                       # a chair, or "the white table": that thing, by colour
         return
     if _search(lambda: _place_here(top), holding=True, say=say) is None:
         _lift_to(LIFT_DRIVE_MM)
@@ -1056,19 +1280,7 @@ def _run(task, say):
         _pose(_look())
         _step("driving to the source")
         _drive_to(task.get("source", "here"), say)
-        _step("looking")
-        obj = _see(task, say)
-        _step("reaching")
-        obj, waypoints, ja = _reach(task, obj, say)
-        _step("picking")
-        skills._guarded(skills._do_pick, obj, waypoints, ja)   # ends 3 cm above the table, holding
-        skills._held["base"] = agv.pose()                       # place_spots: put back here if the base stays
-        _set(holding=True)
-        _say(say, "I've got it.", "잡았어요.")
-        _step("carry")
-        skills._guarded(skills._line, "up", waypoints[0][1])   # straight up to the approach height first
-        _line_holding("carry")                                   # straight: the cup stays upright (a turned grasp
-        _line_holding(LOOK_POSE)                                 # can't go straight to look), then look to drive
+        _pick_here(task, say)
         _step("driving to the destination")
         _drive_to(task["dest"], say, watch_holding=True)
         _say(say, "I'm here.", "도착했어요.")
@@ -1081,6 +1293,23 @@ def _run(task, say):
         log(_state["status"])
     except Exception as e:
         _fail(e, say)
+
+
+def _pick_here(task, say):
+    """Find task["object"] (colour) here, reach it (base moves if needed), pick it and bring it to look."""
+    _step("looking")
+    obj = _see(task, say)
+    _step("reaching")
+    obj, waypoints, ja = _reach(task, obj, say)
+    _step("picking")
+    skills._guarded(skills._do_pick, obj, waypoints, ja)   # ends 3 cm above the table, holding
+    skills._held["base"] = agv.pose()                       # place_spots: put back here if the base stays
+    _set(holding=True)
+    _say(say, "I've got it.", "잡았어요.")
+    _step("carry")
+    skills._guarded(skills._line, "up", waypoints[0][1])   # straight up to the approach height first
+    _line_holding("carry")                                   # straight: the cup stays upright (a turned grasp
+    _line_holding(LOOK_POSE)                                 # can't go straight to look), then look to drive
 
 
 def _fail(e, say):
@@ -1106,6 +1335,7 @@ def _fail(e, say):
 def _clear():
     """Before a run: a stop() from now on stays set for the whole run (skills.pick() would clear it itself)."""
     _stop.clear()
+    _pause.clear()
     skills._cancel.clear()
 
 
@@ -1254,6 +1484,313 @@ def _carry_to(dest, say, then=None, on=None):
     return "kept"
 
 
+# ---------- missions (docs/17): a list of steps ----------
+def run_steps(steps, say=None, sender=None):
+    """Start a mission (assistant/steps.py) in the background. FetchError when busy or when the steps don't fit the
+    hand or the map (steps.check)."""
+    from assistant import steps as steps_mod
+    _adopt()
+    with _lock:
+        if _busy():
+            raise FetchError("I'm busy with another task.")
+        held = _in_hand()
+        if _state["holding"] and not held:
+            _forget_held()
+        if held and not _state["holding"]:
+            _set(holding=True)
+    problems = steps_mod.check(steps, held, agv.markers())
+    if problems:
+        raise FetchError(" ".join(problems))
+    steps = [dict(s, to=random.choice(s["to"])) if s["do"] == "go" and isinstance(s["to"], list) else s
+             for s in steps]                     # "one of p3, p5, p7": chosen now, said when it starts
+    _task["start_pose"] = agv.pose()
+    _clear()
+    _proceed.clear()
+    _order["steps"] = None
+    _set(status="running", step="", task={"steps": steps, "sender": sender}, log=[], waiting=None)
+    log(f"mission: {steps_mod.describe(steps)}")
+    _launch(_run_steps, steps, say)
+
+
+def _run_steps(steps, say):
+    global _rest
+    try:
+        todo, done, at, stay = list(steps), [], None, False
+        while todo:
+            s = todo.pop(0)
+            _rest = todo
+            _go_on()
+            log(f"step {len(done) + 1}/{len(done) + 1 + len(todo)}: {s}")
+            if s == {"do": "wait", "s": None} and not todo:
+                stay = True                          # "go to p3 and stay there": the mission ends there, waiting
+            elif s["do"] == "wait":
+                new = _wait(s, at, say)
+                if new:                              # an instruction from the person here: done now, then the rest
+                    todo[:0] = new
+                    _set(task={**(_state.get("task") or {}), "steps": done + [s] + todo})
+            elif s["do"] == "receive":
+                _receive(s.get("object"), say, s.get("wait_s"), at)
+            else:
+                _do_step(s, say)
+            done.append(s)
+            at = s["to"] if s["do"] == "go" else None if s["do"] in ("move", "turn") else at
+        if stay:
+            _lift_to(LIFT_DRIVE_MM)
+            _set(status="holding" if _state["holding"] else "waiting", step=f"waiting {_where(at)}",
+                 waiting={"at": at, "for": "stay", "end": None})
+            _say(say, "I'll wait here.", "여기서 기다릴게요.")
+        elif _state["holding"]:
+            _set(status="holding", step="holding")
+        else:
+            _lift_to(LIFT_DRIVE_MM)
+            _set(status="done", step="")
+            _say(say, "Done.", "다 했어요.")
+        log(_state["status"])
+    except Exception as e:
+        _fail(e, say)
+
+
+def _do_step(s, say):
+    d, holding = s["do"], _state["holding"]
+    if d == "go":
+        if holding:
+            _line_holding(LOOK_POSE)
+        else:
+            _pose(_look())
+        _step(f"driving to {s['to']}")
+        _drive_to("here" if s["to"] == "here" else {"marker": s["to"]}, say, watch_holding=holding)
+        _say(say, "I'm here.", "도착했어요.")
+    elif d == "move":
+        _move(s["dir"], s["m"], holding)
+    elif d == "turn":
+        _step(f"turning {s['deg']:+.0f} deg")
+        if not _turn(s["deg"], holding, why="as asked"):
+            raise FetchError("I can't turn here: my arm would hit something, or I'm on the charger.",
+                             "여기서는 돌 수 없어요.")
+    elif d == "pick":
+        if gripper.open_()["closed"]:
+            raise FetchError("My hand does not open.", "손이 안 열려요.")
+        _pose(_look())
+        _pick_here({"object": s["object"], "colour": s.get("colour")}, say)
+        _set(task={**(_state.get("task") or {}), "object": s["object"], "colour": s.get("colour")})   # held_name
+    elif d == "receive":
+        _receive(s.get("object"), say)
+    elif d == "say":
+        _step("speaking")
+        _say(say, s["text"], s["text"])
+    elif d == "place":
+        on = s.get("on")
+        if on and on.get("side"):                    # "the table on your left": turn to that side first
+            _line_holding(LOOK_POSE)
+            _step(f"turning {on['side']}")
+            if not _turn(90.0 if on["side"] == "left" else -90.0, True, why=f"to the {on['side']}"):
+                raise FetchError(f"I can't turn {on['side']} here: my arm would hit something, or I'm on the charger.",
+                                 "여기서는 돌 수 없어요.")
+        _put_down(say, on)
+        if _state["holding"]:
+            raise FetchError("I couldn't put it down.", "내려놓지 못했어요.")
+    elif d == "give":
+        if "give" not in motion.poses():
+            raise FetchError("I haven't learned how to hand things over yet.")
+        if _give(say) == "kept":
+            raise FetchError("Nobody took it, I'm still holding it.", "아무도 안 받아서 계속 들고 있어요.")
+    elif d == "arm":
+        _arm(s["pose"])
+    # "hold": nothing to do, the mission ends holding
+
+
+def _where(at):
+    return f"at {at}" if at and at != "here" else "here"
+
+
+def _wait(s, at, say):
+    """A wait step: s["s"] seconds (time paused for someone talking does not count), or until "go on" (proceed())
+    when None; with "until": "instruction" until the person here gives one (instruct()), at most s["s"]. "Go on" ends
+    any wait. Returns the instruction's steps, or []. No instruction in time: said, and the mission goes on."""
+    from assistant import steps as steps_mod
+    kind = "instruction" if s.get("until") else "time" if s["s"] is not None else "go on"
+    _proceed.clear()
+    _order["steps"] = None
+    en, ko = {"instruction": ("I'll wait here. Tell me what I should do.", "여기서 기다릴게요. 무엇을 할지 말씀해 주세요."),
+              "time": (f"I'll wait {steps_mod._dur(s['s'] or 0)}.", f"{steps_mod._dur(s['s'] or 0, True)} 기다릴게요."),
+              "go on": ("I'll wait here until you tell me to go on.", "가도 된다고 하실 때까지 여기서 기다릴게요.")}[kind]
+    end = None if s["s"] is None else time.time() + s["s"]
+    _step(f"waiting {_where(at)}", say, en, ko)
+    _set(waiting={"at": at, "for": kind, "end": end})
+    try:
+        while end is None or time.time() < end:
+            if _pause.is_set():
+                t0 = time.time()
+                _go_on()
+                if end is not None:
+                    end += time.time() - t0
+                    _set(waiting={"at": at, "for": kind, "end": end})
+            if _stop.wait(WAIT_POLL_S):
+                raise Stopped()
+            if _proceed.is_set():
+                log("told to go on")
+                return []
+            if _order["steps"]:
+                got, _order["steps"] = _order["steps"], None
+                log(f"instruction: {got}")
+                return got
+        if kind == "instruction":
+            _say(say, "Nobody told me what to do, I'll go on.", "아무도 일을 시키지 않아서 계속할게요.")
+        return []
+    finally:
+        _set(waiting=None)
+
+
+def proceed():
+    """"Go on" while a mission waits (a wait step): the rest of the mission now."""
+    _proceed.set()
+
+
+def instruct(new_steps):
+    """The person at the place gives the instruction a wait step waits for ("go to p6 and do what they tell you"):
+    `new_steps` are done there, then the rest of the mission. "here" in them is that place. FetchError when no such
+    wait runs, when they ask for another such wait, or when they don't fit the hand / the map (steps.check)."""
+    from assistant import steps as steps_mod
+    w = _state.get("waiting") or {}
+    if not _busy() or w.get("for") != "instruction":
+        raise FetchError("I'm not waiting for an instruction.", "지금은 지시를 기다리고 있지 않아요.")
+    if any(isinstance(s, dict) and s.get("do") == "wait" and s.get("until") for s in new_steps or []):
+        raise FetchError("I can take one instruction here, not wait for another one.", "여기서는 한 번만 지시를 받을 수 있어요.")
+    problems = steps_mod.check(list(new_steps or []) + list(_rest), _state["holding"], agv.markers())
+    if problems:
+        raise FetchError(" ".join(problems))
+    here = w.get("at") if w.get("at") not in (None, "here") else "here"
+    _order["steps"] = [dict(s, to=here if s["to"] == "here" else random.choice(s["to"]) if isinstance(s["to"], list)
+                            else s["to"]) if s["do"] == "go" else s for s in new_steps]
+
+
+def line_hits(dist):
+    """Like turn_hits for a straight drive of `dist` m (+ forward): the map point where the arm would come closer than
+    ARM_CLEAR_M to something the lidar or the map shows, checked every PROBE_STEP_M; None when clear."""
+    if arm_yaw() is None:
+        return None
+    pts, (x, y, th) = arm_points(), agv.pose()
+    R, u = _rot(math.degrees(th)), np.array([math.cos(th), math.sin(th)])
+    n = max(1, math.ceil(abs(dist) / PROBE_STEP_M))
+    for k in range(1, n + 1):
+        for p in pts:
+            w = np.array([x, y]) + R @ p + u * dist * k / n
+            if agv.clearance(*w) < ARM_CLEAR_M:
+                return w
+    return None
+
+
+def _move(direction, m, holding):
+    """Drive `m` metres forward / back, or turn 90 deg left / right (arm sweep checked) and drive forward. Straight
+    with joy_control in MOVE_SEGMENT_M pieces; before each the base's way (_straight_clear) and the arm's (line_hits)
+    are checked again with the live lidar, and a held object is checked after it. Stopped short -> FetchError."""
+    if holding:
+        _line_holding(LOOK_POSE)
+    else:
+        _pose(_look())
+    if direction in ("left", "right"):
+        _step(f"turning {direction}")
+        if not _turn(90.0 if direction == "left" else -90.0, holding, why=f"to drive {direction}"):
+            raise FetchError(f"I can't turn {direction} here: my arm would hit something, or I'm on the charger.",
+                             "여기서는 돌 수 없어요.")
+    elif direction == "back" and _charging():
+        raise FetchError("I'm on the charger: I won't drive back into it.", "충전 중이라 뒤로 갈 수 없어요.")
+    _lift_to(LIFT_DRIVE_MM)
+    sign = -1.0 if direction == "back" else 1.0
+    _step(f"driving {m:g} m {'back' if direction == 'back' else 'forward'}")
+    done = 0.0
+    while m - done >= PROBE_STEP_M - 1e-9:
+        _go_on()
+        piece = min(MOVE_SEGMENT_M, m - done)
+        hit = line_hits(sign * piece)
+        if hit is not None:
+            raise FetchError(f"My arm would hit something: I stopped after {done:.2f} m of {m:g}.",
+                             f"팔이 부딪힐 것 같아서 {done:.2f}미터에서 멈췄어요.")
+        cut = _pause.is_set
+        got = _straight_clear(sign * piece, MOVE_SPEED)
+        done += got
+        if cut():                                # someone stopped me: wait, then the rest of the way, checked again
+            _go_on()
+            continue
+        if holding and not gripper.state()["holding"]:
+            skills._held.clear()
+            _set(holding=False)
+            raise FetchError("I dropped it.", "떨어뜨렸어요.")
+        if got < piece - PROBE_STEP_M + 1e-9:
+            raise FetchError(f"Something is in my way: I stopped after {done:.2f} m of {m:g}.",
+                             f"앞에 뭔가 있어서 {done:.2f}미터에서 멈췄어요.")
+
+
+def _receive(name, say, wait_s=None, at=None):
+    """Hold the open hand out (give pose), ask for the object, close when the finger sensor (DI_1) has seen something
+    for RECEIVE_DI_S, check the hand holds it. Nothing within RECEIVE_WAIT_S (wait_s: "wait until someone gives you
+    the cup"): hand open, FetchError, the mission ends there."""
+    if "give" not in motion.poses():
+        raise FetchError("I haven't learned how to hold my hand out yet.")
+    if gripper.open_()["closed"]:
+        raise FetchError("My hand does not open.", "손이 안 열려요.")
+    _pose("give")
+    thing, ko = name or "it", OBJECTS.get(name, "물건")
+    _step("receiving", say, f"Please put the {thing} in my hand." if name else "Please put it in my hand.",
+          f"제 손에 {ko}{_object_particle(ko)} 넣어 주세요.")
+    t0, seen_since = time.time(), None
+    if wait_s:
+        _set(waiting={"at": at, "for": "person", "object": name, "end": t0 + wait_s})
+    while time.time() - t0 < (wait_s or RECEIVE_WAIT_S):
+        if _stop.wait(GIVE_POLL_S):
+            raise Stopped()
+        try:
+            front = gripper.state()["object_in_front"]
+        except (ConnectionError, OSError, KeyError):
+            continue
+        seen_since = (seen_since or time.time()) if front else None
+        if seen_since and time.time() - seen_since >= RECEIVE_DI_S:
+            break
+    else:
+        _set(waiting=None)
+        _pose(_look())
+        raise FetchError(f"Nobody gave me the {thing}.", "아무도 주지 않았어요.")
+    _set(waiting=None)
+    _release.clear()                             # their fingers may still be in my hand: close only on their word
+    _step("receiving: waiting for okay", say, "Let go of it, then say okay.", "손을 놓고 됐다고 말해 주세요.")
+    t0 = time.time()
+    while not _release.is_set():
+        if _stop.wait(GIVE_POLL_S):
+            raise Stopped()
+        if time.time() - t0 > RECEIVE_WAIT_S:
+            _pose(_look())
+            raise FetchError("Nobody said okay, I didn't close my hand.", "확인이 없어서 손을 닫지 않았어요.")
+    if not gripper.state()["object_in_front"]:
+        _pose(_look())
+        raise FetchError(f"The {thing} is not in my hand any more.", "손에 아무것도 없어요.")
+    log("something in the hand and okay: closing")
+    st = gripper.close()
+    if not st.get("holding"):
+        gripper.open_()
+        _pose(_look())
+        raise FetchError("I couldn't hold it, my hand closed on nothing.", "잡지 못했어요.")
+    skills._held.clear()                         # nothing measured: where it sits in the hand is not known
+    skills._held["received"] = True
+    _set(holding=True, task={**(_state.get("task") or {}), "object": name})
+    _say(say, "Thank you, I've got it.", "고마워요, 받았어요.")
+    _line_holding(LOOK_POSE)
+
+
+def _arm(pose):
+    if pose in ("open", "close"):
+        st = gripper.open_() if pose == "open" else gripper.close()
+        if pose == "open":
+            skills._held.clear()
+            _set(holding=False)
+        log(f"gripper {pose}: {st}")
+    elif pose == "fold":
+        _pose("tuck")
+    elif pose == "reach":                        # the hand held out, as for a hand-over
+        if "give" not in motion.poses():
+            raise FetchError("I haven't learned how to reach out yet.")
+        _pose("give")
+
+
 def held_name():
     """"the white cup" / "the cup": what the last fetch took, for "I'm holding the cup"."""
     t = _state.get("task") or state().get("task") or {}
@@ -1272,6 +1809,40 @@ def release_now():
     _release.set()
 
 
+def replace(steps, say=None):
+    """The person a mission is for takes it here or changes it: end the rest of this run, start `steps`."""
+    sender = ((_state.get("task") or {}).get("sender"))
+    stop()
+    if _thread is not None:
+        _thread.join(30)
+    run_steps(steps, say, sender)
+
+
+def pause():
+    """Someone talks to Lumi on the way: halt the base now (an arm move in progress ends first), the run waits at its
+    next step until resume(). False when no run is going."""
+    if not _busy() or _pause.is_set():
+        return False
+    _pause.set()
+    try:
+        agv.cancel()
+    except Exception as e:
+        log(f"pause: base cancel failed: {e}")
+    _set(paused=True)
+    return True
+
+
+def resume():
+    """Go on after pause(): the drive or turn goes on where it was."""
+    if _pause.is_set():
+        _pause.clear()
+        _set(paused=False)
+
+
+def paused():
+    return _pause.is_set()
+
+
 def stop():
     """Stop the base, the arm and any waiting at once; the gripper keeps its state."""
     _stop.set()
@@ -1280,18 +1851,21 @@ def stop():
             fn()
         except Exception as e:           # try every stop even when one of them fails
             log(f"stop: {fn.__module__}.{fn.__name__} failed: {e}")
-    if _state["status"] in ("running", "holding"):
+    if _state["status"] in ("running", "holding", "waiting"):
         _set(status="stopped")
         log("stopped")
 
 
 # ---------- measuring the arm's yaw on the base ----------
-def _straight(dist_m):
-    """Drive straight by dist_m (+ forward) at AXIS_SPEED with joy_control (no turning), then stop. Stopped() on STOP."""
-    t_end = time.time() + abs(dist_m) / AXIS_SPEED
-    v = AXIS_SPEED if dist_m > 0 else -AXIS_SPEED
+def _straight(dist_m, speed=None):
+    """Drive straight by dist_m (+ forward) at `speed` (AXIS_SPEED) with joy_control (no turning), then stop.
+    Stopped() on STOP; a pause stops it early. Returns the distance driven (m, by time)."""
+    speed = speed or AXIS_SPEED
+    t0 = time.time()
+    t_end = t0 + abs(dist_m) / speed
+    v = speed if dist_m > 0 else -speed
     try:
-        while time.time() < t_end and not _stop.is_set():
+        while time.time() < t_end and not _stop.is_set() and not _pause.is_set():
             agv.request(f"/api/joy_control?linear_velocity={v:.3f}&angular_velocity=0")
             time.sleep(0.1)
     finally:
@@ -1299,6 +1873,7 @@ def _straight(dist_m):
     if _stop.is_set():
         raise Stopped()
     time.sleep(COAST_S)
+    return abs(dist_m) if time.time() >= t_end else min(abs(dist_m), (time.time() - t0) * speed)
 
 
 def yaw_from_motion(pairs, move, dtheta):
@@ -1318,12 +1893,16 @@ def yaw_from_motion(pairs, move, dtheta):
 
 
 def _pairs(before, after):
-    """Objects of the same class seen in both looks, matched nearest first (they moved by about the base move)."""
-    out = []
-    for b in before:
-        same = [a for a in after if a["name"] == b["name"]]
-        if same:
-            a = min(same, key=lambda o: np.hypot(o["x"] - b["x"], o["y"] - b["y"]))
+    """Objects of the same class seen in both looks, matched nearest first (they moved by about the base move); each
+    object of the second look is matched once (two cups seen before and one after gave one wrong pair)."""
+    cand = sorted((np.hypot(a["x"] - b["x"], a["y"] - b["y"]), i, k) for i, b in enumerate(before)
+                  for k, a in enumerate(after) if a["name"] == b["name"])
+    out, used_b, used_a = [], set(), set()
+    for _, i, k in cand:
+        if i not in used_b and k not in used_a:
+            used_b.add(i)
+            used_a.add(k)
+            b, a = before[i], after[k]
             out.append(((b["x"], b["y"]), (a["x"], a["y"]), b["name"]))
     return out
 
@@ -1363,6 +1942,7 @@ def measure_axis(name=None):
         sys.exit("no object was seen both times: nothing written")
     yaw = yaw_from_motion([(b, a) for b, a, _ in pairs], move, dth)
     CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": round(yaw, 1), "objects": [n for *_, n in pairs],
+                                      "waist_deg": round(head.status()[1], 2),
                                       "measured": time.strftime("%Y-%m-%d %H:%M")}))
     print(f"arm yaw in the base frame {yaw:.1f} deg -> {CALIB_FILE}")
 

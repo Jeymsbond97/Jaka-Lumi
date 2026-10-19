@@ -94,6 +94,20 @@ The fingers are curved inward, so the gap is widest in the middle:
 
 With 13 mm stroke per jaw, closing narrows each place by about 26 mm (middle ~74 mm), so a cup of 75–95 mm sits best in the middle of the fingers. An 82 mm cup passes the 88 mm entry with only ~3 mm per side: approach on the measured centre line.
 
+Measured again with a tape on 2026-10-19, open and closed (nothing between the fingers). Each finger is a straight
+thin shank below its mount block, then a C-shaped hook that bends out and curves back in to an inward tip:
+
+| Where | Open | Closed |
+|---|---|---|
+| Tips (entry gap) | 88 mm | 59 mm |
+| Belly: widest point inside the hook | 96 mm | 70 mm |
+| Neck: narrowest point where the hook meets the shank | 73 mm | 47 mm |
+| Shank: the straight part, same gap along its length | 66 mm | 39 mm |
+
+Along the fingers, from the bottom face of the Zimmer body (read off a tape photo, ±5 mm): shank starts ~100 mm,
+hook starts ~150 mm, tips ~200 mm. Photos are in `gripper_pictures/fingers/` on the Mac (not in git) and
+`~/Dev/lumi-wave/gripper/` on the Thor.
+
 ### Grasp point (taught 2026-10-13)
 
 The fingers were placed around a cup by hand (FREE button), the cup measured by the torso camera after lifting the arm

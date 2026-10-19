@@ -46,6 +46,20 @@ and `--start` for the detector. Line numbers are those of 2026-10-16; search the
 | `manipulation/skills.py:53` | `MIN_WIDTH`, `MAX_WIDTH` | 45, 84 mm | Object widths the gripper takes |
 | `tasks/fetch.py:98` | `GIVE_WAIT_S` | 30 s | Giving: no "thank you" / Release by then, keep holding it |
 
+## Missions (docs/17)
+
+| File | Name | Now | What it does |
+|---|---|---|---|
+| `assistant/steps.py` | `MOVE_MAX_M` | 3.0 m | Longest single `move` in a mission; longer is refused before it starts |
+| `tasks/fetch.py` | `MOVE_SPEED` | 0.10 m/s | Speed of a mission `move` (straight, joy_control); estimate |
+| `tasks/fetch.py` | `RECEIVE_WAIT_S` | 30 s | `receive`: nothing put in the hand by then, the mission fails with the hand open |
+| `assistant/steps.py` | `WAIT_SHORT_S` | 10 s | "wait a moment", "잠깐 기다렸다가": how long a short wait is |
+| `assistant/steps.py` | `WAIT_MAX_S` | 30 min | Longest wait step (and receive wait); longer is refused before it starts |
+| `assistant/steps.py` | `WAIT_GIVE_S` | 5 min | "wait until someone gives you the cup": the hand is held out this long, then the mission fails there |
+| `assistant/steps.py` | `WAIT_ORDER_S` | 5 min | "do what they tell you": no instruction by then, the mission goes on with its rest |
+| `tasks/fetch.py` | `RECEIVE_DI_S` | 0.5 s | `receive`: the finger sensor (DI_1) must see something this long before Lumi asks the person to let go (the hand closes on their "okay") |
+| `tasks/fetch.py` | `MOVE_SEGMENT_M` | 0.25 m | A mission `move` is driven in pieces this long; the way of the base and the arm is checked again before each |
+
 ## Detection
 
 | File:line | Name | Now | What it does |

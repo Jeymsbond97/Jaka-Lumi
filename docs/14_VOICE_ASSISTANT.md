@@ -10,7 +10,7 @@ Status: ✅ tested on the robot · 🟡 implemented, not yet tested live · ⬜ 
 
 | Requirement | Implementation | Status |
 |---|---|---|
-| Understand and answer **English and Korean** | whisper.cpp (`large-v3-turbo`, auto language) → Ollama `gemma4:e4b` → Supertonic TTS (voice F1) | ✅ |
+| Understand and answer **English and Korean** | whisper.cpp (`large-v3-turbo`, auto language) → Ollama `gemma4:26b` → Supertonic TTS (voice F1) | ✅ |
 | **Answer in the language the person just used**, switching at once (EN ↔ KO) | `ears.last_stt["language"]` → `brain.FORCED_LANG` → system prompt names the answer language | 🟡 |
 | Other languages are not answered | only `english` / `korean` count as understood | ✅ |
 
@@ -29,23 +29,33 @@ Status: ✅ tested on the robot · 🟡 implemented, not yet tested live · ⬜ 
 | Requirement | Implementation | Status |
 |---|---|---|
 | **Answer only what was asked**: no self-introduction, no extra offers | system prompt in `brain.py` | 🟡 |
+| Never "How can I help you?" / "무엇을 도와드릴까요?" tacked on after an answer | system prompt; such a sentence after the first one is dropped (`brain.HELP_OFFER`) | 🟡 |
 | Short spoken answers, 1–3 sentences | system prompt; streamed sentence by sentence (first words ~2 s after the question) | ✅ |
-| Follow-ups ("tell me more", "why?") continue the same topic | history of 4 turns, `FOLLOW_UP` | ✅ |
+| Follow-ups ("tell me more", "why?", "can they see in the dark?") continue the same topic | history of 4 turns; `Brain.topic()` joins a short follow-up or one with "it / they / 그거" to the previous question for the notes, the examples and the lookup decision | ✅ |
 | **Unclear or garbled speech → ask to repeat** ("Sorry, what did you say?"), never guess | `ears.understood()`: language EN/KO, average log-probability ≥ −1.0, and the text must be written in the detected language; LLM action `unclear` | 🟡 |
 | Facts it does not know (news, people, prices, events) → say "let me check", look them up, answer | `web.search`: Wikipedia + Google News RSS, query written by the LLM | ✅ |
+| Never looked up online: Lumi itself, Cutshion, this event or building (schedule, booths, restrooms, tickets, opening hours): the notes say it, else "I don't have that information" and a staff member | `lumi.not_online`, `lumi.look_up_unsure` | 🟡 |
+| The LLM never drives to a place the words do not name ("take me to the meeting room" is not p1) | `brain.named_place` | 🟡 |
 | Weather → current weather for Seoul (or a named place) | `web.weather` (open-meteo), refreshed in the background every ~9 min so the answer is immediate | 🟡 |
 | Date and time | `web.now_text()` in the prompt | ✅ |
 | Natural small talk ("how are you?") | system prompt | ✅ |
 | Sing a short song on request | action `sing` | ✅ |
 
+Lumi is presented as developed by Cutshion Company, 2 years old. With each question the LLM gets the few closest
+of 620+ example exchanges (`assistant/talk_examples.py`, English and Korean, by topic) as a guide to tone and to
+vary its wording ("Nice to meet you! How can I help you today?" every time was boring); on a mission also examples of
+answers to people met on the way (`assistant/interrupt_examples.py`).
+
 ## 4. Ending a conversation
 
 | Requirement | Implementation | Status |
 |---|---|---|
-| Closing words (**"okay", "thanks", "I got you", "thanks so much", "good"**) followed by ~3 s of silence → goodbye | `brain.is_closing`, `CLOSING_WAIT_S` | 🟡 |
-| Explicit goodbyes ("bye", "see you", "that's all") → goodbye at once | `FAREWELL_WORDS` | 🟡 |
-| **The goodbye fits the conversation and varies**; no fixed phrase | `Brain.farewell(text, lang)` (LLM, one short sentence) | 🟡 |
-| Silence after an answer ends the conversation | voice session `VOICE_SESSION_S` 15 s; on patrol `PATROL_WAIT_S` 8 s | ✅ |
+| Acknowledgements (**"okay", "got it", "I got you", "alright", "okay, I understand", "알겠어요", "네 알겠습니다", "오케이", "그래요", "네", "좋아요"**) followed by ~3 s of silence → goodbye; more words after them go on with the talk | `brain.is_closing`, `CLOSING_WAIT_S` | 🟡 |
+| Goodbyes and thanks (**"thanks", "thank you", "bye", "see you next time", "that's all", "good night", "I have to go", "nice talking to you", "take care", "고마워요", "감사합니다", "다음에 봬요", "들어가세요", "수고하세요", "안녕히 계세요", "이만 갈게요"**) → goodbye at once, unless a question comes with them ("thanks, what time is it?") | `FAREWELL_WORDS` (`answer()`), checked in `tests/test_fetch_intents.py` | 🟡 |
+| Said on their own (**"go on", "I see", "good", "good job", "well done", "got it, thanks", "가 보세요", "잘했어요", "좋아", "수고했어요", "그렇구나"**) → goodbye at once; inside a sentence they don't end it ("good morning", "I see a robot, what is it?") | `FAREWELL_ONLY` | 🟡 |
+| **The goodbye fits the conversation and varies**; no fixed phrase, never a greeting ("안녕!" at the end is bye) | `Brain.farewell(text, lang)` (LLM, one short sentence, 3 random goodbye examples as ideas, not one of the last `FAREWELL_RECENT` 8 goodbyes) | 🟡 |
+| Silence after an answer ends the conversation (the person may just walk away) | voice session `VOICE_SESSION_S` 15 s; someone in view: "How can I help you?" after `PROMPT_S` 12 s, at most `MAX_PROMPTS` 2; the person leaves the camera's view: talk over; on patrol `PATROL_WAIT_S` 8 s, then it drives on | ✅ |
+| On a mission (docs/17 §4): a goodbye or a thanks goes on with the task; silence: "Can I go on with my task?" after 15 s, goes on after 15 s more (never after a safety stop) | `lumi.mission_talk`, `TALK_ASK_S` | 🟡 |
 | "Be quiet" → no greetings for 10 min (the wake word still works) | action `quiet`, `QUIET_S` | ✅ |
 
 ## 5. Interrupting Lumi (barge-in)
@@ -64,6 +74,7 @@ Keep the clip mic's transmitter on the visitor, not on the robot: taped near the
 |---|---|---|
 | "Come here", "come to me", "이리 와" | drive to a free spot ~1 m in front of the caller (`nav.py`), stop at 1.1 m | ✅ |
 | "Go to p2", "go home", "go to the charger" | drive to a map marker | ✅ |
+| "p3로 가 줘", "피쓰리로 가", "포인트 삼으로", "삼 번 포인트로", "point three", "파이널로 가", "도크 투로 가" | the same: marker names said in English, in Korean or mixed, and as whisper writes them, are read by `assistant/wording.py` (one reader for the keyword rules, missions and the check of the LLM's place); a word that is not clearly a marker ("피로 가", "PE로") is not driven | 🟡 |
 | "Look left / right / up / down / at me" | head | ✅ |
 | "Turn left / right / around" | base turns 90° / 180° (or a spoken angle) | 🟡 |
 | "Move forward / back / left / right N metres" | short base move, at most 3 m | 🟡 |
@@ -76,6 +87,8 @@ Keep the clip mic's transmitter on the visitor, not on the robot: taped near the
 | "Put it down" / "put it back", 내려놔 / 제자리에 놔 | `skills.put_down`: a free spot near where it was picked / the same spot | 🟡 |
 | "Bring me the apple from p1", "take the cup from p2 to home and put it on the table", "p1에서 사과 가져와" | fetch task ([16_FETCH_TASKS.md](16_FETCH_TASKS.md)): strict parse (unknown words are asked about), read-back, yes or 5 s silence starts, a correction changes one field and is read back, "cancel" ends | 🟡 |
 | While holding: "give it to me" / "bring it to me" / 줘, "put it on the table" / 테이블에 놔, "thank you" while handing over | give (needs pose `give`), place, open the hand | 🟡 |
+| Several steps in one command: "take the cup, go left 1 m and put it on the table", "go to final, give it and say Anvar says hello", "go to p9, ask them for the cup, then bring it to p1", 컵 들고 p9로 가서 줘 | mission ([17_MISSIONS.md](17_MISSIONS.md)): read by rules (the LLM only for what they leave, every value checked against the words), read back, yes or silence starts, anything else cancels; a part not understood is named and nothing runs | 🟡 |
+| "What are you doing", "where are you going", "what are you holding", 뭐 해, 어디 가 | answered from the task state and the trip (`now_doing`), never guessed; during a mission's wait: "I'm waiting at p3, 25 seconds left" / "… for an instruction" / "… for someone to give me the cup" / "… until someone tells me to go on" (docs/17 §3) | 🟡 |
 | "Put it here" (where the person points) | needs the person's position on the table, P7 in [15_PICK_AND_PLACE.md](15_PICK_AND_PLACE.md) | ⬜ |
 
 Simple commands are matched by rules (`brain.INTENTS`) and done without waiting for the LLM; everything else goes through the LLM's `ACTION:` line.
@@ -108,7 +121,7 @@ Modes are switched live from the dashboard (`/assistant/modes`): **greeter**, **
 | Clear-speech threshold | `ears.MIN_LOGPROB` / `lumi.BARGE_IN_LOGPROB` | −1.0 / −0.6 |
 | Own-voice window | `mouth.recent_speech` | 30 s |
 | Speaker volume | `volume.txt`, dashboard | 55 % |
-| LLM | `brain.MODEL` | `gemma4:e4b` via Ollama, kept loaded |
+| LLM | `brain.MODEL` | `gemma4:26b` via Ollama, kept loaded |
 
 ## 9. Open items
 

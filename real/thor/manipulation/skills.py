@@ -231,10 +231,12 @@ def surface_heights(points_xy, guess_z=-400.0):
     return [None if q is None else q[2] for q in surface_points(points_xy, guess_z)]
 
 
-def surface_points(points_xy, guess_z=-400.0):
+def surface_points(points_xy, guess_z=-400.0, camera=objects.CAMERA, T=None):
     """(x, y, z) mm, arm base frame, where the torso depth camera's line of sight to each (x, y, guess_z) (or to each
-    (x, y, z) given whole) meets a surface; None where the point is out of view or has no depth."""
-    d, intr, T = camview.depth(objects.CAMERA), camview.intrinsics(objects.CAMERA), objects.base_from_camera()
+    (x, y, z) given whole) meets a surface; None where the point is out of view or has no depth. Another camera:
+    its name and its camera -> arm base transform T."""
+    d, intr = camview.depth(camera), camview.intrinsics(camera)
+    T = objects.base_from_camera() if T is None else T
     if d is None or intr is None or T is None:
         log("no depth frame: I can't measure the table")
         return [None] * len(points_xy)

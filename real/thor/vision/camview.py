@@ -255,7 +255,7 @@ def _serve():
     signal.signal(signal.SIGTERM, lambda *_: os._exit(0))   # exit at once: pipeline.stop() can hang
     cv2.setNumThreads(8)                          # two YOLOs share these (the Thor has 14 cores)
     from vision.person import PersonDetector, CAMERAS as SERIALS
-    from vision import objects
+    from vision import head_cam, objects
     state = {name: "starting" for name in CAMERAS}
 
     def write_status():
@@ -319,16 +319,21 @@ def _serve():
             if color is not None:
                 latest[name] = (time.time(), people)
                 found = []
-                if name == "torso" and det.objects:
+                if det.objects:
                     try:
-                        found = objects.measure_all(color, det.depth, det.objects)
+                        if name == "torso":
+                            found = objects.measure_all(color, det.depth, det.objects)
+                        elif det.head_pose is not None:            # the head camera's pose follows the head
+                            T = head_cam.base_from_head(*det.head_pose[2:])
+                            if T is not None:
+                                found = objects.measure_all(color, det.depth, det.objects, intrinsics(name), T)
                     except Exception as e:
                         print(f"objects: {e}", flush=True)
                 _write(det_path(name), json.dumps({
                     "time": time.time(), "serial": det.serial, "height": color.shape[0], "width": color.shape[1],
-                    "head_yaw": det.head_yaw, "bad_jpeg": det.bad_jpeg, "reopens": det.reopens, "reboots": det.reboots,
+                    "head_yaw": det.head_yaw, "head_pose": det.head_pose, "bad_jpeg": det.bad_jpeg, "reopens": det.reopens, "reboots": det.reboots,
                     "people": people, "objects": found}).encode())
-                if name == "torso" and det.depth is not None and time.time() - last_depth >= DEPTH_EVERY_S:
+                if det.depth is not None and time.time() - last_depth >= DEPTH_EVERY_S:
                     buf = io.BytesIO()
                     np.save(buf, det.depth.astype(np.uint16))
                     _write(depth_path(name), buf.getvalue())

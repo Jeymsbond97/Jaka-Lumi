@@ -124,6 +124,9 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
 9a. "Put it on the orange chair" (`brain.place_on`, `fetch._put_on`): the named thing (table, chair, stool, sofa,
     bench, bed; a colour if said) is searched like an object, its flat top measured with depth; within reach of the
     lift it is approached and the object put on it, else Lumi says how much lower / higher it is than a table.
+    A thing's colour can be taught (`POST /objects/teach {"name": "chair", "colour": "yellow"}`: the nearest one
+    seen, kept by its map place in `data/known_things.json`); within 0.5 m of that place it has that colour from
+    any side (`colour_of`), since a colour read from the box changes with the view.
     Before every turn on the spot the arm's sweep is checked against lidar + map (`turn_hits`, 0.10 m) and with the
     torso depth camera at the arm's real height (`depth_hits`; the arm's own parts within 120 mm do not count).
 9b. What is in the hand is checked at every command (fetch, place, give, carry; `fetch._in_hand`): the torso depth

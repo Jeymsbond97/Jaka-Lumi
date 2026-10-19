@@ -67,3 +67,25 @@ def run(task, markers, listen, say, describe, start):
         # not readback and nothing changed: the same question is asked again
     say("Sorry, let's try again later.", "죄송해요, 나중에 다시 해요.")
     return "gave_up"
+
+
+def run_steps(steps, listen, say, describe, start):
+    """Voice confirmation of a mission (docs/17): read the steps back, start only on a spoken yes (a mission drives
+    and moves the arm: silence is asked again, then cancelled). A no cancels it: a mission is said again as a whole,
+    not corrected piece by piece. Returns 'started' or 'cancelled'."""
+    say(describe(steps, "en") + " Is that right?", describe(steps, "ko") + " 맞아요?")
+    for _ in range(MAX_ROUNDS):
+        text, understood = listen(CONFIRM_S)
+        if not text:
+            say("Should I do it? Please say yes or no.", "할까요? 네 또는 아니요로 말해 주세요.")
+            continue
+        if not understood:
+            say("Sorry, I didn't catch that. Is that right?", "죄송해요, 잘 못 들었어요. 맞아요?")
+            continue
+        answer = brain.confirm_answer(text)
+        if answer == "yes":
+            start(steps)
+            return "started"
+        break
+    say("Okay, I won't do it. Please say the whole command again.", "네, 안 할게요. 전체 명령을 다시 말씀해 주세요.")
+    return "cancelled"

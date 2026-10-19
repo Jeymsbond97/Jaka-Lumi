@@ -17,6 +17,11 @@ lumi-wave/                      run with the venv: .venv/bin/python <folder>/<mo
 ├── assistant/                  the voice assistant
 │   ├── lumi.py                 main loop: tracking, greeting, conversation, commands, patrol, wake word
 │   ├── brain.py                answers (knowledge + gemma4), actions, rule-based intents
+│   ├── steps.py                missions: a command of several steps -> checked steps, read-back
+│   ├── wording.py              marker names and numbers as said (피쓰리, point three, 일 미터) -> written
+│   ├── fetch_dialog.py         voice read-back of fetch tasks and missions
+│   ├── talk_examples.py        620+ example exchanges (EN / KO); the closest few go with each question to the LLM
+│   ├── interrupt_examples.py   example replies to people met on a mission (added to those while on a task)
 │   ├── knowledge.py            knowledge base (RAG) over knowledge/
 │   └── web.py                  date / time, weather, Wikipedia, news
 ├── audio/                      microphones and speaker
@@ -106,7 +111,7 @@ Modules import each other by folder (`from robot import arm`, `from vision impor
 | `api/dashboard.html` | The single-page dashboard served at `/view` | |
 | `api/control.py` | Hold-to-move for the dashboard: base `joy_control`, head / waist / lift steps, arm relative joint moves | base, body, arm |
 | `assistant/lumi.py` | Voice assistant: tracking, greeting, conversation, commands, patrol, wake word | all |
-| `assistant/brain.py` | Answers: knowledge search + Ollama `gemma4:e4b`, streamed, with an `ACTION:` line; rule-based intents | Ollama :11434 |
+| `assistant/brain.py` | Answers: knowledge search + Ollama `gemma4:26b`, streamed, with an `ACTION:` line; rule-based intents | Ollama :11434 |
 | `assistant/knowledge.py` | Knowledge base (RAG): `knowledge/**/*.md` → bge-m3 vectors → `knowledge/index.npz` | llama-server :8095 |
 | `assistant/web.py` | Date / time, weather (open-meteo, cached), Wikipedia + Google News lookups | internet |
 | `audio/mic.py` | Always-on microphone: head array (8 ch) and wireless clip mic, cut into utterances, barge-in | AIUI mic, DJI Mic Mini |
@@ -128,8 +133,11 @@ Modules import each other by folder (`from robot import arm`, `from vision impor
 | `robot/gripper.py` | Zimmer gripper: open / close / state (DO_1, DO_2, AI_1, DI_1), see [docs/10_GRIPPER.md](../../docs/10_GRIPPER.md) | tool I/O via the arm controller |
 | `manipulation/skills.py` | Pick and place: `plan` (dry run with IK for every waypoint), `pick`, `put_down` (back or a free spot), `move` an object to a spot or a free place; `cancel()` stops a running skill for good; the grasp taught in `data/grasp_teach.json`; refuses objects of the wrong width and unreachable plans with a spoken-style reason. Called by the CLI, the API (`/skills/*`, in the background) and the assistant (voice) | motion, gripper, objects |
 | `tasks/fetch.py` | Fetch tasks ([docs/16_FETCH_TASKS.md](../../docs/16_FETCH_TASKS.md)): drive to the source, find, shift the base if out of reach, pick, `carry`, drive to the destination, hold / place / give; state in `/dev/shm/lumi_task.json`; run by the API or the assistant | base, arm, gripper, camera service |
-| `assistant/fetch_dialog.py` | Voice fetch: ask what is missing, read the task back, start on yes or silence, take corrections | |
-| `tests/test_*.py` | Self-checks without the robot: objects, skills, intents, fetch runner, fetch voice parsing and dialog, camera choice | |
+| `assistant/fetch_dialog.py` | Voice fetch: ask what is missing, read the task back, start on yes or silence, take corrections; read-back of a mission | |
+| `assistant/talk_examples.py` | Example exchanges by topic (greeting, name, age, jokes, kids, business...) in English and Korean; `pick()` gives the few closest to what was said, which go with the question to the LLM so the replies fit and vary | |
+| `assistant/steps.py` | Missions ([docs/17_MISSIONS.md](../../docs/17_MISSIONS.md)): a command of several steps -> checked steps (rules, then the LLM with every value checked against the words), `check` against the hand and the map, read-back EN / KO | Ollama :11434 (only for what the rules leave) |
+| `tests/test_*.py` | Self-checks without the robot: objects, skills, intents, fetch runner and missions, fetch voice parsing and dialog, mission reading (783 commands, `steps_cases*.py`), camera choice | |
+| `tests/voice_check.py` | Mission commands spoken by the TTS, heard by whisper, read again (needs the whisper server; nothing moves) | whisper :8096 |
 | `knowledge/` | `lumi_about_en.md` (visitor facts, in git); `jaka_zh/` and `index.npz` are local | |
 
 ---
@@ -192,7 +200,7 @@ Logs are in `logs/`: `lumi.log` (assistant), `lumi_console.log` (its stderr), `a
 | `whisper.cpp/` | v1.9.5, built with CUDA | `cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=110 -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 12 --target whisper-server whisper-cli` |
 | `~/models/bge-m3-Q8_0.gguf` | embedding model for the knowledge base | Hugging Face |
 | `knowledge/jaka_zh/` | 13 JAKA product texts (Chinese) from JAKA's voice service | vendor |
-| Ollama `gemma4:e4b` | LLM | `ollama pull gemma4:e4b` |
+| Ollama `gemma4:26b` | LLM | `ollama pull gemma4:26b` |
 
 Orbbec cameras need the udev rule `SUBSYSTEM=="usb", ATTR{idVendor}=="2bc5", MODE="0666"` in `/etc/udev/rules.d/99-orbbec.rules`.
 

@@ -106,4 +106,47 @@ for text, want in {"give it to me": "give", "hand it over": "give", "put it on t
     assert _b.held_command(text) == want, (text, _b.held_command(text))
 t, _ = brain.parse_fetch("could you go to p1 and fetch the bottle", ["p1", "home"])
 assert t["source"] == {"marker": "p1"} and t["object"] == "bottle", t           # where it goes first is the source
+# ---------- mission read-back (docs/17): yes / silence starts, anything else cancels ----------
+from assistant import steps as steps_mod
+mission = [{"do": "pick", "object": "cup", "colour": None}, {"do": "move", "dir": "left", "m": 1.0}]
+for answers, want in (([("yes", True)], "started"), ([(None, True)], "cancelled"), ([(None, True), ("yes", True)], "started"),
+                      ([("no", True)], "cancelled"),
+                      ([("hmm", False), ("네", True)], "started"), ([("cancel", True)], "cancelled"),
+                      ([("go to p3 instead", True)], "cancelled")):
+    heard, spoken, started = list(answers), [], []
+    got = fetch_dialog.run_steps(mission, lambda s: heard.pop(0) if heard else (None, True),
+                                 lambda en, ko: spoken.append(en), steps_mod.describe, started.append)
+    assert got == want and bool(started) == (want == "started"), (answers, got, spoken)
+    assert spoken[0] == "Take the cup, then turn left and drive 1 m. Is that right?", spoken
+# ---------- questions about what Lumi is doing: answered from the state, not by the LLM ----------
+from assistant.lumi import STATUS_Q
+for text in ("what are you doing?", "Lumi, where are you going?", "What are you holding", "what's in your hand",
+             "뭐 해?", "뭐 하고 있어?", "어디 가?", "어디로 가고 있어?", "손에 뭐 들고 있어?"):
+    assert STATUS_Q.search(text), text
+for text in ("what can you do", "what is your name", "뭐 해줄 수 있어?", "p3로 가", "go to p3", "how are you doing today"):
+    assert not STATUS_Q.search(text), text
+# ---------- the end of a talk: said goodbye (ends now), or an acknowledgement (ends after a moment of silence) ----------
+import re as _re
+from assistant import lumi as _lumi
+
+
+def _fate(t):
+    if _lumi.FAREWELL_ONLY.match(t):
+        return "end"
+    if _lumi.FAREWELL_WORDS.search(t) and not _re.search(r"\?|\b(but|can|could|what|how|where|why|when|who)\b|근데|그런데|뭐|"
+                                                          r"어떻게|어디|언제|누구", t, _re.I) and len(t.split()) <= 8:
+        return "end"
+    return "wait" if _b.is_closing(t) else "talk"
+
+
+for t in ("thanks", "thank you", "see you next time", "bye", "good night", "I have to go", "nice talking to you",
+          "take care", "고마워요", "감사합니다", "다음에 봬요", "들어가세요", "수고하세요", "안녕히 계세요", "이만 갈게요",
+          "go on", "I see", "got it, thanks", "good job", "good", "okay, good", "well done", "가 보세요", "잘했어요",
+          "좋아", "수고했어요", "그렇구나", "그렇군요"):
+    assert _fate(t) == "end", (t, _fate(t))
+for t in ("okay", "got it", "I got you", "alright", "okay, I understand", "알겠어요", "네 알겠습니다", "오케이", "그래요", "네"):
+    assert _fate(t) == "wait", (t, _fate(t))
+for t in ("thanks, what time is it?", "okay, and where is p3?", "what is your name", "네 근데 몇 살이에요?",
+          "good morning Lumi", "is this good for kids?", "I see a robot, what is it?", "좋아하는 음식 있어요?"):
+    assert _fate(t) == "talk", (t, _fate(t))
 print("fetch intents ok")

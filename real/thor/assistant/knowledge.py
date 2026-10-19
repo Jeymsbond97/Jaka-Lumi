@@ -83,13 +83,15 @@ def chunks(text):
 def build():
     texts, sources = [], []
     for f in sorted(DOCS.rglob("*")):
-        if f.suffix in (".md", ".txt") and f.is_file():
+        if f.suffix in (".md", ".txt") and f.is_file() and "jaka_zh" not in f.parts:   # vendor manuals: not Lumi's
             for c in chunks(f.read_text(encoding="utf-8", errors="ignore")):
                 texts.append(c)
                 sources.append(str(f.relative_to(DOCS)))
     t = time.time()
     vecs = embed(texts)
-    np.savez(INDEX, vectors=vecs, texts=np.array(texts, dtype=object), sources=np.array(sources, dtype=object))
+    tmp = INDEX.with_name("index.tmp.npz")       # written aside, then swapped in: a running search never reads half a file
+    np.savez(tmp, vectors=vecs, texts=np.array(texts, dtype=object), sources=np.array(sources, dtype=object))
+    tmp.replace(INDEX)
     print(f"{len(texts)} chunks from {len(set(sources))} files, embedded in {time.time() - t:.1f} s -> {INDEX}")
 
 
@@ -100,7 +102,7 @@ def search(question, k=4):
     """[(score, source, text)] best matching chunks."""
     global _index
     if _index is None:
-        _index = np.load(INDEX, allow_pickle=True)
+        _index = dict(np.load(INDEX, allow_pickle=True))     # all in memory: the file may be rebuilt meanwhile
     q = embed([question])[0]
     scores = _index["vectors"] @ q
     best = np.argsort(-scores)[:k]

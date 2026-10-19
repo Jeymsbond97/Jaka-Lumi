@@ -18,6 +18,7 @@ fetch.CALIB_FILE = tmp / "fetch_calib.json"
 fetch.DRIVE_POLL_S = fetch.GIVE_POLL_S = 0.01
 fetch.ASK_EVERY_S, fetch.ASK_WAIT_S = 0.01, 0.05
 fetch.LOG_LINES = 1000                              # whole runs in the state log
+fetch.KNOWN_FILE = tmp / "known_things.json"
 MARKERS = ["p1", "home"]
 
 # ---------- validate / describe ----------
@@ -37,9 +38,9 @@ assert fetch.describe({**ok, "source": "here", "colour": "red", "finish": "place
     "Take the red apple from here, bring it to home and put it on the table."
 assert fetch.describe({**ok, "source": {"x": 1, "y": 2, "theta": 0}, "dest": "here"}) == \
     "Take the apple from the point I was shown, bring it here and hold it."
-assert fetch.describe(ok, "ko") == "p1 위치에서 사과를 가져와서 home 위치로 가져가 들고 있을게요."
+assert fetch.describe(ok, "ko") == "p1 위치에서 사과를 가져와서 home 위치로 가져가서 들고 있을게요."
 assert fetch.describe({**ok, "object": "cup", "colour": "red", "finish": "place"}, "ko") == \
-    "p1 위치에서 빨간 컵을 가져와서 home 위치로 가져가 테이블에 내려놓을게요."
+    "p1 위치에서 빨간 컵을 가져와서 home 위치로 가져가서 테이블에 내려놓을게요."
 
 # ---------- approach geometry ----------
 def seen_from(pose, world, yaw, t):
@@ -170,7 +171,10 @@ fetch.motion.move_linear = lambda target=None, **kw: calls.append(("line", "stra
 skills.on_table = lambda spots, table: []                                 # no live depth frames in a test
 surface = {"z": -403.0}                     # what the fake depth camera sees: the proven table
 skills.surface_heights = lambda pts, guess_z=-400.0: [surface["z"]] * len(pts)
-skills.surface_points = lambda pts, guess_z=-400.0: [None] * len(pts)          # never the live depth file
+skills.surface_points = lambda pts, guess_z=-400.0, **kw: [None] * len(pts)    # never the live depth file
+fetch.head_cam.base_from_head = lambda yaw, pitch: None                    # head camera checks off (own test below)
+fetch.objects.latest = lambda camera="torso": {"age_s": None, "objects": [], "head_pose": None}
+fetch.camview.want = lambda name: None
 eye = {"hand": "unknown"}                                                 # what skills.hand_sees() says
 skills.hand_sees = lambda: eye["hand"]
 where = {"how": "unseen"}                                                 # what skills.locate finds by depth
@@ -489,6 +493,25 @@ skills.look, skills.on_table = real_look, real_on_table
 fetch._set(holding=False, status="idle")
 hand.update(holding=False, closed=False)
 
+# ---------- a taught colour sticks to the thing by its place, from any side ----------
+fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2}))
+base["pose"] = (0.0, 0.0, 0.0)
+stool = {"name": "chair", "colour": "grey", "x": 265.0, "y": 2390.0, "top_mm": -400.0, "seen": 8, "spread": 1.0}
+real_look2 = skills.look
+skills.look = lambda frames=None: [stool]
+o, w = fetch.teach_thing("chair", "yellow")
+assert fetch.colour_of(stool) == "yellow"
+b_now = fetch._rot(-90.0) @ (np.array(w) - [1.0, 1.0])                    # the base moved to (1, 1) and turned 90 deg
+arm_now = fetch._rot(86.2) @ (b_now - fetch.arm_xy()) * 1000
+base["pose"] = (1.0, 1.0, math.radians(90.0))
+moved = {**stool, "colour": "orange", "x": float(arm_now[0]), "y": float(arm_now[1])}
+assert fetch.colour_of(moved) == "yellow", fetch.colour_of(moved)         # seen from elsewhere, read orange: still yellow
+assert fetch.colour_of({**moved, "x": moved["x"] + 900.0}) == "orange"     # another chair 0.9 m away keeps its own
+skills.look = real_look2
+base["pose"] = (0.0, 0.0, 0.0)
+fetch.CALIB_FILE.unlink()
+fetch.KNOWN_FILE.unlink()
+
 # ---------- which heights the arm can work at: a lift for each, none for a floor or a low seat ----------
 body["lift"] = 75.0
 assert fetch.lift_for(-403.0) == 75.0                     # the proven table: the lift stays
@@ -508,12 +531,81 @@ assert fetch.turn_hits(90) is None
 # the torso camera sees something where the arm will be (a table top's edge the lidar misses): no turn
 real_points, real_extr = skills.surface_points, skills.objects.base_from_camera
 skills.objects.base_from_camera = lambda: np.eye(4)
-skills.surface_points = lambda pts, guess_z=-400.0: [tuple(p) for p in pts]          # depth right at each point
+skills.surface_points = lambda pts, guess_z=-400.0, **kw: [tuple(p) for p in pts]          # depth right at each point
 calls.clear()
 assert fetch._turn(30) is False and not any(c[0] == "go_point" for c in calls)
-skills.surface_points = lambda pts, guess_z=-400.0: [tuple(np.array(p) * 3) for p in pts]   # only far behind them
+skills.surface_points = lambda pts, guess_z=-400.0, **kw: [tuple(np.array(p) * 3) for p in pts]   # only far behind them
 assert fetch.depth_hits(30) is None
+# only the head camera, turned to the side of the turn, sees something in the arm's way: no turn, head back after
+heads = []
+real_head_move, real_from_head = fetch.head.moveto, fetch.head_cam.base_from_head
+fetch.head.moveto = lambda pos, **kw: heads.append(tuple(pos[2:]))
+fetch.head_cam.base_from_head = lambda yaw, pitch: np.eye(4)
+fetch.HEAD_SETTLE_S = 0.0
+skills.surface_points = lambda pts, guess_z=-400.0, camera="torso", T=None: \
+    [tuple(p) if camera == "head" else None for p in pts]
+calls.clear()
+assert fetch._turn(-30) is False and not any(c[0] == "go_point" for c in calls)
+assert heads == [(-fetch.HEAD_SIDE_DEG, fetch.HEAD_LOW_PITCH), (0.0, 0.0)], heads
+# the head camera finds the cup to the left (seen twice at the same place): the base turns to it and drives in
+skills.surface_points = lambda pts, guess_z=-400.0, **kw: [None] * len(pts)
+heads.clear()
+sight = {"n": 0}
+def head_sees(camera="torso"):
+    sight["n"] += 1
+    yaw = heads[-1][0] if heads else 0.0
+    cup = {"name": "cup", "colour": "white", "position_mm": [-900.0 + sight["n"] % 2 * 20, 700.0, -380.0]}
+    return {"age_s": 0.1, "objects": [cup] if yaw == fetch._head_yaws(1)[1] else [], "head_pose": None}
+fetch.objects.latest = head_sees
+real_find_any, real_straight = fetch._find_any, fetch._straight_clear
+fetch._find_any = lambda task: CUP
+fetch._straight_clear = lambda d, speed=None: calls.append(("straight", round(d, 2))) or d
+calls.clear()
+assert fetch._head_search({"object": "cup", "colour": "white"}, 1) == CUP
+assert heads[0] == (0.0, fetch.HEAD_LOW_PITCH) and heads[1] == (fetch._head_yaws(1)[1], fetch.HEAD_LOW_PITCH)
+assert heads[-1] == (0.0, 0.0), heads                                        # the head is back where it was
+assert any(c[0] == "go_point" for c in calls), calls                        # turned to face it
+assert any(c[0] == "straight" for c in calls), calls                        # then straight towards it
+# a colour that does not match: nothing found, the base does not move
+heads.clear(); calls.clear()
+assert fetch._head_search({"object": "cup", "colour": "red"}, 1) is None
+assert not any(c[0] in ("go_point", "straight") for c in calls) and heads[-1] == (0.0, 0.0)
+assert fetch._head_yaws(-1) == [0.0, -60.0, -120.0, -180.0, 60.0, 120.0, 180.0]           # the busier side first, as far as it turns
+# nothing anywhere: head both sides, base half round, head again; then the lift to its other end and all again
+order = []
+real_hs, real_turn, real_side, real_lift = fetch._head_search, fetch._turn, fetch.first_side, fetch._lift_to
+fetch._head_search = lambda task, side, say=None: order.append(("head", side))
+fetch._turn = lambda deg, holding=False, why="": order.append(("turn", deg)) or True
+fetch.first_side = lambda: -1
+fetch._lift_to = lambda mm: order.append(("lift", mm))
+fetch._find_any = lambda task: None
+body["lift"] = 75.0
+assert fetch._look_around({"object": "cup"}) is None
+half = [("turn", -60.0)] * fetch.BASE_HALF_STEPS
+assert order == [("head", -1)] + half + [("head", -1), ("lift", 250.0), ("head", -1)] + half + [("head", -1)], order
+order.clear()
+body["lift"] = 250.0                                                         # up: it looks down low next
+fetch._look_around({"object": "cup"})
+assert ("lift", 0.0) in order, order
+fetch._head_search, fetch._turn, fetch.first_side, fetch._lift_to = real_hs, real_turn, real_side, real_lift
+body["lift"] = 75.0
+fetch._find_any, fetch._straight_clear = real_find_any, real_straight
+fetch.objects.latest = lambda camera="torso": {"age_s": None, "objects": [], "head_pose": None}
+fetch.head.moveto, fetch.head_cam.base_from_head = real_head_move, real_from_head
+skills.surface_points = lambda pts, guess_z=-400.0, **kw: [None] * len(pts)
 skills.surface_points, skills.objects.base_from_camera = real_points, real_extr
+fetch.CALIB_FILE.unlink()
+
+# ---------- measure-axis pairs each object once: two cups before, one after ----------
+b2 = [{"name": "cup", "x": -211.5, "y": 1332.0}, {"name": "cup", "x": 9.0, "y": 1301.0}]
+assert fetch._pairs(b2, [{"name": "cup", "x": 36.0, "y": 1202.0}]) == [((9.0, 1301.0), (36.0, 1202.0), "cup")]
+
+# ---------- the waist turned since measure-axis: the arm frame turns with it about the base centre ----------
+fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2, "arm_xy_in_base_m": [0.1, 0.0], "waist_deg": -5.0}))
+assert abs(fetch.arm_yaw() - (-96.2)) < 1e-9                                 # the fake waist reads -15
+assert np.allclose(fetch.arm_xy(), [0.1 * math.cos(math.radians(-10)), 0.1 * math.sin(math.radians(-10))])
+fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2}))      # not recorded: as measured
+assert fetch.arm_yaw() == -86.2
 fetch.CALIB_FILE.unlink()
 
 # ---------- first search turn: towards the side with things the map does not have ----------
@@ -633,4 +725,112 @@ tries = fetch.place_spots(held, (1.0, 2.0, 0.5 + 0.17), [cup_near])          # t
 assert (-160.0, 600.0) not in tries and tries and seen_table["table"] == -402.0, tries
 fetch.place_spots({**held, "table": None}, (1.0, 2.0, 0.5), [cup_near])
 assert seen_table["table"] == -405.0                                          # from the other cup: -340 - 65
+# ---------- missions (docs/17): steps in order, moves checked, receive by the finger sensor ----------
+fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [0] * 6, "look": [0] * 6, "give": [0] * 6}
+fetch.MOVE_SPEED, fetch.RECEIVE_DI_S, fetch.GIVE_POLL_S = 100.0, 0.05, 0.01
+real_state, real_close = fetch.gripper.state, fetch.gripper.close
+fetch.gripper.state = lambda: {**hand, "object_in_front": hand.get("front", False),
+                               "ai": [3500 if hand["holding"] else 160], "di": [int(hand.get("front", False))]}
+fetch.gripper.close = lambda wait=True: (calls.append(("close",)), hand.update(holding=hand.get("front", False),
+                                                                               closed=True), fetch.gripper.state())[-1]
+said = []
+say = lambda en, ko: said.append(en)
+P = lambda **k: k
+reset()
+skills._held.clear()
+st = run(fetch.run_steps, [P(do="pick", object="apple", colour=None), P(do="move", dir="right", m=1.0),
+                           P(do="place", on=None)], say)
+names = [c[0] for c in calls]
+assert st["status"] == "done" and not st["holding"], st
+assert names.index("pick") < names.index("go_point") < names.index("joy") < names.index("place"), calls  # turn, drive
+assert ("joy", "100.000") in calls and "Done." in said, (calls, said)
+# receive: the hand held out, closes when the sensor sees something, the cup is carried on; place after it refused
+reset()
+hand["front"] = False
+threading.Timer(0.1, lambda: hand.update(front=True)).start()
+threading.Timer(0.4, fetch.release_now).start()            # the person lets go and says okay
+st = run(fetch.run_steps, [P(do="go", to="p1"), P(do="receive", object="cup"), P(do="go", to="home")], say)
+assert st["status"] == "holding" and st["holding"], st
+assert [c for c in calls if c[0] in ("go", "close")] == [("go", "p1"), ("close",), ("go", "home")], calls
+assert "give" in poses() and "Please put the cup in my hand." in said and "Let go of it, then say okay." in said, said
+# the cup is in the hand but nobody says okay: the hand never closes (their fingers may be in it)
+reset()
+hand["front"], fetch.RECEIVE_WAIT_S = True, 0.3
+st = run(fetch.run_steps, [P(do="receive", object="cup")], say)
+assert st["status"] == "failed" and ("close",) not in calls, (st, calls)
+fetch.RECEIVE_WAIT_S = 30.0
+hand["front"] = False
+fetch._set(holding=False, status="idle")
+try:
+    fetch.run_steps([P(do="receive", object="cup"), P(do="place", on=None)])
+    raise AssertionError("put down something handed over (its height in the hand is not known)")
+except fetch.FetchError:
+    pass
+# nobody puts anything in the hand: failed, the hand open
+reset()
+fetch.RECEIVE_WAIT_S = 0.2
+st = run(fetch.run_steps, [P(do="receive", object="cup")], say)
+assert st["status"] == "failed" and not st["holding"] and ("close",) not in calls and poses()[-1] == "look", (st, calls)
+# a message is spoken as written; one of several markers; here = where it was given (no drive)
+reset()
+said.clear()
+st = run(fetch.run_steps, [P(do="go", to=["p1", "home"]), P(do="say", text="Anvar says hello"), P(do="go", to="here")],
+         say)
+gone = [c for c in calls if c[0] in ("go", "go_point")]
+assert st["status"] == "done" and len(gone) == 1 and gone[0][1] in ("p1", "home") and "Anvar says hello" in said, \
+    (st, calls, said)
+# a move that can't go the whole way: stopped short and said why; the held object is kept
+reset()
+room["clear"] = lambda x, y: 0.05 if x > 0.15 else 1.0
+st = run(fetch.run_steps, [P(do="pick", object="apple", colour=None), P(do="move", dir="forward", m=1.0)], say)
+assert st["status"] == "failed" and st["holding"] and "in my way" in said[-1], (st, said[-1:])
+room["clear"] = lambda x, y: 1.0
+fetch._set(holding=False, status="idle")
+hand.update(holding=False, closed=False)
+# steps that don't fit the hand are refused before anything moves
+for bad in ([P(do="give")], [P(do="place", on=None)], [P(do="go", to="p9")], [P(do="move", dir="back", m=5.0)],
+            [P(do="arm", pose="wave")], [P(do="turn", deg=720)]):
+    calls.clear()
+    try:
+        fetch.run_steps(bad)
+        raise AssertionError(f"started {bad}")
+    except fetch.FetchError:
+        assert not any(c[0] in ("go", "go_point", "joy", "pose") for c in calls), calls
+# a move is driven in pieces, each checked again; back on the charger is refused
+reset()
+st = run(fetch.run_steps, [P(do="move", dir="forward", m=0.6)], say)
+assert st["status"] == "done" and [c for c in calls if c[0] == "joy"].count(("joy", "100.000")) == 3, calls  # 0.25+0.25+0.1
+fetch.agv.status = lambda: {"move_status": "succeeded", "charge_state": True}
+st = run(fetch.run_steps, [P(do="move", dir="back", m=0.5)], say)
+assert st["status"] == "failed" and "charger" in said[-1] and not any(c[0] == "joy" for c in calls), (st, said[-1:])
+fetch.agv.status = fake_status
+# "the white table on your left": turn left first, then that table by colour (not any table)
+reset()
+seen_things = []
+fetch._put_on = lambda top, on, say_: (seen_things.append(on), fetch._set(holding=False), True)[-1]
+st = run(fetch.run_steps, [P(do="pick", object="apple", colour=None),
+                           P(do="place", on={"name": "dining table", "colour": "white", "side": "left"})], say)
+assert st["status"] == "done" and seen_things and seen_things[0]["colour"] == "white", (st, seen_things)
+assert any(c[0] == "go_point" for c in calls), calls                                   # the turn left
+# someone talks to Lumi on the way: the drive halts, waits, then goes on to the same goal; a move goes the rest
+reset()
+base["on_poll"] = lambda: fetch.pause() if base["polls"] == 2 else None
+threading.Timer(0.3, fetch.resume).start()
+st = run(fetch.run_steps, [P(do="go", to="p1"), P(do="move", dir="forward", m=0.5)], say)
+assert st["status"] == "done" and [c for c in calls if c[0] == "go"] == [("go", "p1"), ("go", "p1")], calls
+assert ("cancel",) in calls and not fetch.paused(), calls
+reset()
+fetch.MOVE_SPEED = 0.5                               # 0.25 m pieces take 0.5 s: time to pause inside one
+threading.Timer(0.2, fetch.pause).start()
+threading.Timer(0.6, fetch.resume).start()
+st = run(fetch.run_steps, [P(do="move", dir="forward", m=0.5)], say)
+assert st["status"] == "done" and any("paused" in l for l in st["log"]), st
+fetch.MOVE_SPEED = 100.0
+# STOP while paused ends it
+reset()
+base["on_poll"] = lambda: fetch.pause() if base["polls"] == 2 else None
+threading.Timer(0.3, fetch.stop).start()
+st = run(fetch.run_steps, [P(do="go", to="p1")], say)
+assert st["status"] == "stopped", st
+fetch.gripper.state, fetch.gripper.close = real_state, real_close
 print("fetch ok")

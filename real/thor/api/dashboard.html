@@ -168,6 +168,7 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
 #tText{width:100%;min-height:64px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:9px;padding:9px 11px;font:inherit}
 .sentence{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 11px;margin-bottom:8px;min-height:38px}
 .probs{color:#fca5a5;font-size:12.5px;margin-bottom:8px}
+.steps{margin:0 0 8px;padding-left:22px}.steps li{padding:2px 0}.steps li span{margin-right:6px}.steps li .icon{padding:0 6px;font-size:12px}
 .full{position:fixed!important;inset:0;z-index:50;max-height:none!important;aspect-ratio:auto!important;background:#000}
 @media (max-width:1100px){
   body{overflow:auto}main{height:auto;grid-template-columns:1fr}.left{grid-template-rows:auto 420px}.right{overflow:visible}
@@ -341,6 +342,7 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
         <div class="row" id="tDstMarkerRow" style="display:none"><select id="tDstMarker" class="grow"></select></div>
         <div id="tDstPickBox" style="display:none"><div class="pick" id="tDstPick"><canvas></canvas><div class="zoom"><button data-z="1.4">+</button><button data-z="0.714">−</button></div></div><div class="note" id="tDstPt"></div></div></div>
       <div class="sentence" id="tSentence">–</div>
+      <ol class="steps" id="tSteps" style="display:none"></ol>
       <div class="row" id="tEdit" style="display:none"><select id="tObj" class="grow"></select><select id="tCol" class="grow"></select>
         <select id="tFin" class="grow"></select></div>
       <div class="probs" id="tProblems"></div>
@@ -977,7 +979,7 @@ function parseCmd() {
     $("tProblems").innerHTML = probs.map(p => `<div>${esc(p)}</div>`).join("");
     $("tStart").disabled = probs.length > 0 || !parsed;
     $("tStart").textContent = {give: "Give", place: "Place", carry: "Go"}[parsed && parsed.action] || "Start";
-    paintEdit();
+    paintEdit(); paintSteps();
   };
   parsed = null;
   if (!text && !heldNow) { show("–", []); return; }
@@ -1005,6 +1007,34 @@ function paintEdit() {
     $("tFin").innerHTML = opt(["hold", ...c.then], r.task.then || "hold", v => FIN[v]);
   }
 }
+const waitFor = sec => sec >= 60 ? `${+(sec / 60).toFixed(1)} min` : `${sec} s`;
+const STEP_EN = s => ({go: () => Array.isArray(s.to) ? `Go to one of ${s.to.join(", ")}` : s.to === "here" ? "Come back here" : `Go to ${s.to}`,
+  move: () => `Drive ${s.m} m ${s.dir}`, turn: () => `Turn ${s.deg > 0 ? "left" : "right"} ${Math.abs(s.deg)}°`,
+  pick: () => `Take the ${s.colour ? s.colour + " " : ""}${s.object}`, receive: () => s.wait_s ? `Wait for the ${s.object || "thing"} (${waitFor(s.wait_s)})` : `Take the ${s.object || "thing"} from a person`,
+  say: () => `Say “${s.text}”`, place: () => s.on ? `Put it on the ${[s.on.colour, s.on.name.replace("dining ", ""), s.on.side && "on my " + s.on.side].filter(Boolean).join(" ")}` : "Put it down",
+  give: () => "Hand it over", hold: () => "Hold it",
+  wait: () => s.until ? `Wait for an instruction (${waitFor(s.s)})` : s.s == null ? "Stay" : `Wait ${waitFor(s.s)}`, arm: () => ({reach: "Reach out", fold: "Fold the arm", open: "Open the hand", close: "Close the hand"})[s.pose]}[s.do] || (() => s.do))();
+function paintSteps() {                     // a mission: one line per step, a step can be dropped
+  const r = parsed, on = r && r.action === "steps";
+  $("tSteps").style.display = on ? "" : "none";
+  if (!on) return;
+  $("tSteps").innerHTML = r.steps.map((s, i) => `<li><span>${esc(STEP_EN(s))}</span><button class="icon" data-i="${i}">✕</button></li>`).join("");
+}
+$("tSteps").onclick = async e => {
+  const b = e.target.closest("button"); if (!b || !parsed) return;
+  parsed.steps.splice(+b.dataset.i, 1);
+  const n = ++cmdSeq;
+  if (!parsed.steps.length) { parsed = null; $("tSentence").textContent = "–"; $("tProblems").innerHTML = ""; $("tStart").disabled = true; paintSteps(); return; }
+  try {
+    const d = await api("/tasks/steps/describe", {steps: parsed.steps});
+    if (n !== cmdSeq) return;
+    Object.assign(parsed, d);
+    $("tSentence").textContent = d.sentence;
+    $("tProblems").innerHTML = d.problems.map(p => `<div>${esc(p)}</div>`).join("");
+    $("tStart").disabled = d.problems.length > 0;
+  } catch (err) { $("tProblems").innerHTML = `<div>${esc(err.message)}</div>`; }
+  paintSteps();
+};
 async function editChanged() {
   const r = parsed; if (!r || !r.task) return;
   const n = ++cmdSeq;
@@ -1052,6 +1082,7 @@ $("tStart").onclick = e => {
   if (r.action === "give") return act(e.target, "Giving", () => api("/tasks/give", {}));
   if (r.action === "place") return act(e.target, "Placing", () => api("/tasks/place", {on: (r.task && r.task.on) || null}));
   if (r.action === "carry") return act(e.target, "On the way", () => api("/tasks/carry", {dest: r.task.dest, then: r.task.then, on: r.task.on || null}));
+  if (r.action === "steps") return act(e.target, "Started", () => api("/tasks/steps", {steps: r.steps, lang: r.lang, sender: r.sender || null}));
   act(e.target, "Fetch started", () => api("/tasks/fetch", r.task));
 };
 $("tStop").onclick = e => act(e.target, "Task stopped", () => api("/tasks/stop", {}));
@@ -1062,7 +1093,7 @@ async function refreshTask() {
   try {
     const s = await api("/tasks/state");
     $("tSt").textContent = s.status + (s.step ? " · " + s.step : "");
-    $("tRelease").style.display = s.step === "giving" ? "" : "none";
+    $("tRelease").style.display = s.step === "giving" || s.step === "receiving: waiting for okay" ? "" : "none";
     if (heldNow !== !!s.holding) { heldNow = !!s.holding; $("tSrcSec").style.display = heldNow ? "none" : ""; cmdChanged(); }
     $("tSt").className = "tag " + (s.status === "running" || s.status === "holding" ? "live" : "");
     $("tLog").textContent = (s.log || []).slice(-3).map(l => typeof l === "string" ? l : JSON.stringify(l)).join("\n");

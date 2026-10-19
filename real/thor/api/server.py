@@ -48,7 +48,7 @@ ERROR_RE = re.compile(r"\b(error|failed|stuck|refused|cannot|traceback|stopped)\
                       re.I)                          # whole words only
 
 app = FastAPI(title="Lumi robot API", version="0.1.0",
-              description="Base (AGV), head, arm, voice and the greeter/patrol assistant of our JAKA Lumi. "
+              description="Base (AGV), head, arm, voice and the greeter/patrol assistant of our Lumi. "
                           "Motion endpoints really move the robot.")
 _brain = None
 _voice_lock = threading.Lock()
@@ -912,9 +912,20 @@ class ParseBody(BaseModel):
 @app.post("/tasks/parse", tags=["tasks"], summary="A typed command (English or Korean) as a task, its sentence and "
           "problems; while holding, also give / place. Nothing moves")
 def task_parse(body: ParseBody):
-    from assistant import brain
+    from assistant import brain, steps
     from tasks import fetch
     markers = agv.markers()
+    if body.text.strip():                             # a mission (docs/17): several steps the fetch / carry can't do
+        got, unread, by = steps.read(body.text, markers, llm=False)
+        if unread and got and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
+            got, unread, by = steps.read(body.text, markers)          # clearly several steps: the LLM may read it
+        if got and unread and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
+            return {"action": None, "task": None, "sentence": "–", "read_by": by,
+                    "problems": [f"I didn't understand: {', '.join(unread)}"]}
+        if got and steps.is_mission(got):
+            return {"action": "steps", "steps": got, "lang": "ko" if brain.HANGUL.search(body.text) else "en",
+                    "sender": steps.sender(body.text),
+                    "read_by": by, **_steps_said(got, markers)}
     if fetch.check_hand():                            # the camera sees the hand; a stale "holding" is forgotten
         return _held_parse(body, markers)
     fields, read_by = brain.fetch_from_text(body.text, markers) if body.text.strip() else ({}, "rules")
@@ -927,6 +938,44 @@ def task_parse(body: ParseBody):
         problems = ["Please write the command in English or Korean."]
     return {"action": "fetch", "task": task, "sentence": fetch.describe(task, "en"), "problems": problems,
             "read_by": read_by, "from_text": sorted(fields), "choices": _choices()}
+
+
+def _steps_said(got, markers):
+    from assistant import steps
+    from tasks import fetch
+    problems = steps.check(got, bool(fetch.state().get("holding")), markers)   # read only: the runner may be in
+    try:                                                                         # the assistant's process
+        sentence = steps.describe(got)
+    except (KeyError, TypeError, IndexError, AttributeError):
+        sentence = "–"
+    return {"sentence": sentence, "problems": problems}
+
+
+class StepsBody(BaseModel):
+    steps: list[dict] = Field(examples=[[{"do": "pick", "object": "cup", "colour": None},
+                                         {"do": "move", "dir": "right", "m": 1.0}, {"do": "place", "on": None}]],
+                              description="the steps as /tasks/parse read them (docs/17)")
+    lang: str = Field("en", description="language Lumi speaks in while running it: en or ko")
+    sender: str | None = Field(None, description="who sends it (from /tasks/parse): may change or cancel it on the way")
+
+
+@app.post("/tasks/steps/describe", tags=["tasks"], summary="Steps as a sentence and what is wrong with them. Nothing moves")
+def steps_describe(body: StepsBody):
+    return _steps_said(body.steps, agv.markers())
+
+
+@app.post("/tasks/steps", tags=["tasks"], summary="Start a mission: the steps in order; returns at once, watch /tasks/state")
+def steps_run(body: StepsBody):
+    if assistant_pids():
+        send_to_assistant("fetch_steps", steps=body.steps, sender=body.sender)
+        return {"ok": True, "by": "assistant"}
+    from audio import mouth
+    from tasks import fetch
+    try:
+        fetch.run_steps(body.steps, say=lambda en, ko: mouth.say(ko if body.lang == "ko" else en), sender=body.sender)
+    except fetch.FetchError as e:
+        raise HTTPException(409, str(e))
+    return {"ok": True, "by": "api"}
 
 
 def _choices():
@@ -1022,6 +1071,25 @@ def task_stop():
     if assistant_pids():
         send_to_assistant("fetch_stop")
     return {"task": part(_fetch_stop), "agv": part(agv.cancel), "arm": part(skills.cancel)}
+
+
+class TeachBody(BaseModel):
+    name: str = Field(examples=["chair"], description="camera class of the thing (chair, couch, dining table, ...)")
+    colour: str = Field(examples=["yellow"], description="the colour to call it from now on")
+
+
+@app.post("/objects/teach", tags=["objects"], summary="The nearest thing of this class seen now is this colour, from now "
+          "on and from any side (kept by its place on the map)")
+def objects_teach(body: TeachBody):
+    from tasks import fetch
+    if body.colour not in fetch.COLOURS:
+        raise HTTPException(400, f"colour: {', '.join(fetch.COLOURS)}")
+    try:
+        o, w = fetch.teach_thing(body.name, body.colour)
+    except fetch.FetchError as e:
+        raise HTTPException(409, str(e))
+    return {"name": body.name, "colour": body.colour, "seen_at_mm": [round(o["x"]), round(o["y"])],
+            "camera_said": o.get("colour"), "map": [round(float(v), 3) for v in w]}
 
 
 @app.get("/tasks/state", tags=["tasks"], summary="The fetch task: status, step, task, holding, log")

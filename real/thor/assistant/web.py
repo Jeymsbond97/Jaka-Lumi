@@ -5,7 +5,7 @@ The robot network has no internet; the Thor reaches it through its own Wi-Fi. A 
 
     python assistant/web.py                  # date/time + is the internet reachable?
     python assistant/web.py weather Seoul
-    python assistant/web.py search "JAKA robotics"
+    python assistant/web.py search "Jetson Thor"
 """
 import html
 import json
@@ -113,8 +113,6 @@ def _wikipedia(query, lang):
     """Best-matching Wikipedia article summary + the matching snippets of the top results, or ''."""
     api = f"https://{lang}.wikipedia.org"
     words = [w for w in re.findall(r"\w+", query.lower()) if w not in STOP]
-    if "jaka" in words and "robotics" not in words:     # our own maker, not the people called Jaka
-        words.append("robotics")
     hits = []
     for q in (" ".join(words), query):                   # the names alone first: "height in metres" misleads search
         if not q:

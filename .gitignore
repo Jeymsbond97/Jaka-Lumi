@@ -51,3 +51,7 @@ real/thor/data/mic_source.txt
 real/thor/data/proxy.txt
 real/thor/data/calib_samples/
 real/thor/data/camera_extrinsics.json
+real/thor/data/calib_samples_head/
+real/thor/data/camera_extrinsics_head.json
+real/thor/data/head_axes_*.json
+real/thor/data/known_things.json

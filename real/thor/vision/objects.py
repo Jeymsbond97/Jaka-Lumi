@@ -121,13 +121,15 @@ def measure(color, depth, box, intr, T, round_=False):
     return out
 
 
-def measure_all(color, depth, boxes, intr=None):
+def measure_all(color, depth, boxes, intr=None, T=None):
     """[{name, score, box, colour, distance_m, position_mm, top_mm, width_mm, height_mm}] for YOLO boxes
     (x1, y1, x2, y2, score, coco_class) of one frame, nearest first. "cut": the object's bottom is below the
-    frame, so height_mm and position_mm z are None (top_mm, x, y and width still hold)."""
+    frame, so height_mm and position_mm z are None (top_mm, x, y and width still hold). intr / T default to the
+    torso camera's."""
     if intr is None:
         intr = camview.intrinsics(CAMERA)
-    T = base_from_camera()
+    if T is None:
+        T = base_from_camera()
     result = []
     for x1, y1, x2, y2, score, cls in boxes:
         o = {"name": COCO[cls], "score": round(score, 2), "box": (x1, y1, x2, y2)}
@@ -152,14 +154,16 @@ def sized_like(o):
     return bool(size and w is not None and h is not None and size[0][0] <= w <= size[0][1] and size[1][0] <= h <= size[1][1])
 
 
-def latest():
-    """What the camera service saw last: {"age_s", "objects"}; objects is [] when it is not live."""
+def latest(camera=CAMERA):
+    """What the camera service saw last: {"age_s", "objects"}; objects is [] when it is not live. For the head
+    camera also "head_pose" [lift, waist, yaw, pitch] the positions were measured at."""
     try:
-        d = json.loads(camview.det_path(CAMERA).read_text())
+        d = json.loads(camview.det_path(camera).read_text())
     except (FileNotFoundError, ValueError):
         return {"age_s": None, "objects": []}
     age = time.time() - d.get("time", 0)
-    return {"age_s": round(age, 2), "objects": d.get("objects", []) if age < STALE_S else []}
+    return {"age_s": round(age, 2), "objects": d.get("objects", []) if age < STALE_S else [],
+            "head_pose": d.get("head_pose")}
 
 
 def _print():

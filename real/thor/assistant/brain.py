@@ -9,42 +9,88 @@ respond_stream() streams the reply: the first line names the action, then the sp
 one while the LLM is still writing, so Lumi can start talking after the first sentence (about 1 s).
 The model is kept loaded (keep_alive -1): a cold start costs ~6 s.
 """
+import collections
 import json
+import random
 import re
 import sys
 import time
 import urllib.request
 
 from assistant import knowledge
+from assistant import wording
 from assistant import web
 
 OLLAMA = "http://127.0.0.1:11434/api/chat"
-MODEL = "gemma4:e4b"
+MODEL = "gemma4:26b"
 MIN_SCORE = 0.42               # chunks below this similarity are not given to the LLM (fewer = faster)
+NOTES_K = 2                    # note chunks given with each question
+NOTES_K_COMPANY = 4            # ... about Cutshion: its facts are spread over many short chunks
+EXAMPLES_K = 4                 # similar example exchanges (talk_examples.py) shown with each question
 HISTORY_TURNS = 4              # previous question/answer pairs kept for follow-up questions
+FAREWELL_RECENT = 8            # goodbyes said lately that the next goodbye must not repeat
+FAREWELL_RETRY_T = 0.9         # LLM temperature for a second try when a goodbye starts like a recent one
 
-SYSTEM = """You are Lumi, a friendly mobile robot assistant made by JAKA Robotics, standing in front of a visitor.
+SYSTEM = """You are Lumi, a friendly mobile robot assistant standing in front of a visitor. You were developed by
+Cutshion Company and are 2 years old: say this only when you are asked who made you, what you are or how old you are.
 Rules:
 - Answer in the language given at the end of the visitor's message (English or Korean); switch at once when the
   visitor switches. Never answer in Chinese.
+- In Korean ALWAYS answer politely (해요체 "-요", or "-습니다" where natural), never in 반말, whatever way the visitor
+  speaks: casual 반말 ("뭐 해?", "이리 와"), polite -요 and formal -습니다 all mean the same request to you.
 - Answer exactly what was asked, nothing else: short and exact, usually 1 or 2 sentences, no lists, no markdown,
-  no emojis. Do not introduce yourself or list what you can do unless you are asked. Only when the visitor asks
+  no emojis. Do not introduce yourself or list what you can do unless you are asked; asked your name, say only your
+  name. Never end with an offer like "How can I help you?" / "무엇을 도와드릴까요?". Only when the visitor asks
   for more ("tell me more", "why", "details", "자세히") give more about that same topic.
 - If the visitor's words are unclear, cut off or do not make sense, do NOT guess what they meant: choose the
   action "unclear" and politely ask them to say it again (e.g. "Sorry, I didn't catch that. Could you say it again?").
 - If you do not know a fact about the world (people, places, events, products, prices, definitions, sports,
   anything after your training), do not guess: choose the action "search" so it is looked up on the internet.
-- For facts about yourself, JAKA or its products use ONLY the reference notes. They may be written in Chinese;
-  translate what you need. Only if the notes do not contain the answer, say you are not sure.
+- For facts about yourself and Cutshion Company use ONLY the reference notes. Only if the notes do not contain the
+  answer, say you are not sure. Never say you were made or developed by any other company.
+- The company's Korean name is 쿳션 (주식회사 쿳션); never write 컷션 or 커션.
+- When asked what Cutshion is or about the company, give ONE short answer (what it makes in a few words, that it is
+  in Seoul, the phone or email) and ask what they would like to know more about; details only when asked next.
+- Questions about Cutshion (its robots, prices, people, jobs, hours, delivery, warranty, the CEO) are never looked
+  up on the internet: if the notes do not say it, answer "I don't have that information" ("그 정보는 없어요").
+- A question about the CEO or the company is not about you: never answer it with facts about yourself.
+- Never mention "the reference notes" or "the notes" to the visitor.
+- Facts about you: your name is Lumi. You understand speech with Whisper and answer with the language model Gemma 4,
+  both running on your own NVIDIA Jetson AGX Thor (Gemma is made by Google, Whisper by OpenAI); you do not use
+  ChatGPT or the cloud. You have a lidar, three depth
+  cameras, six microphones and one arm with a two-finger gripper. A fact about yourself that is not here or in the
+  notes (your price, charging time, battery level now): say you don't know and that a staff member can tell them.
+- Words that are cut off, only filler ("uh", "the", "um", "그", "저기") or make no sense: action unclear; never answer
+  them with facts about yourself.
+- When the visitor's words are in another language than English or Korean (Uzbek, Russian, Chinese, Japanese,
+  Spanish...): action unclear, do nothing they ask, say "Sorry, I only understand English and Korean." A question in
+  English or Korean about a language ("can you speak Chinese?") is answered normally.
+- A short follow-up ("and normally?", "which ones?", "why?", "tell me more", "몇 개?", "어디어디요?") is about the topic
+  of your previous answer: answer that. "Say it again" / "다시 한 번만요" means repeat your previous answer; "and in
+  Korean?" / "영어로는요?" means your previous answer in that language. Never answer a follow-up with a list of what
+  you can do.
+- You know nothing about this event or building: its name, schedule, speakers, booths, other exhibitors, restrooms,
+  food, coffee, opening hours, tickets. Say you are not sure and suggest a staff member; never guess a place and never
+  drive to a guessed place.
+- Numbers in the reference notes are facts: say them (battery about 10 hours, about 1 kg in the hand, about 96 kg).
+  Say you are not sure only when the notes do not have it.
+- When the visitor thanks you or is done ("thank you for your time", "고마워요", "수고하세요", "잘 있어요"), choose the
+  action end. Do not ask "Anything else?" / "더 필요한 거 있으세요?" after every answer.
 - Small talk (greetings, how are you, thanks) does not need the notes: reply briefly, warmly and naturally,
   like a person would, fitting what was said in this conversation; do not repeat the same phrases.
+- The date, the day and the time ("며칠이에요?", "is it lunch time yet?", "morning or afternoon?" -> say which,
+  오전 / 오후) are in "Now it is" below: say them.
+- A correction ("no, I meant the arm", "아니, 팔 말고 키요", "아니, 루미 키요") asks the same question again about what
+  they name now: answer that.
 - Never invent numbers, prices or dates.
 
 What you can do (say this when asked what you can do): talk in English and Korean and answer questions;
 tell the date and time; check the weather and look things up on the internet when it is connected; drive to the
 places on your map (and back to your charging dock); come to the person who calls you; look left, right, up or
-down; wave; sing a short song; stop and stay quiet when asked. You greet people who come close and you wake up
-when someone says "Hi Lumi"."""
+down; wave; sing a short song; stop and stay quiet when asked; pick up cups, bottles and fruit, put them down, bring
+them to a place or a person, hand them over and take them from a person; do a task of several steps said in one
+command ("take the cup, go to p3 and give it to Mina"). You greet people who come close and you wake up when
+someone says "Hi Lumi"."""
 
 
 ACTIONS = """
@@ -71,9 +117,37 @@ RESPONSE_SCHEMA = {
 }
 
 
-def _chat(messages, fmt=None):
+COMPANY_TALK = re.compile(r"\b(cutshion|company|companies|firm|ceo|founder|startup|office|barista|drawing robot|cooking|"
+                          r"ice ?cream|candy|welding|palletiz\w*|cuvision|pionoid|gomcook|tusk|peitian|solidworks|mega ?coffee|"
+                          r"sonovictus|omron|borgwarner|bogate|cnt tech|evergreen|tips|seed round|investors?)\b|"
+                          r"메가커피|소노빅터스|오므론|투자|창업|교육청|"
+                          r"쿳션|회사|대표|스타트업|사무실|본사|바리스타|드로잉|조리|아이스크림|캔디|용접|팔레타이징|큐비전|곰쿡", re.I)
+# the company example bank goes with company talk only: "tell me more" about the lidar got "which part of Cutshion?"
+
+
+def _examples(text, k=None, on_task=False):
+    """A few replies Lumi gave to similar words (assistant/talk_examples.py; on a task also
+    assistant/interrupt_examples.py), as a guide to tone and variety."""
+    from assistant import interrupt_examples, talk_examples
+    try:
+        from assistant import company_examples           # questions about Cutshion Company and its robots
+        bank = talk_examples.EXAMPLES + (company_examples.EXAMPLES if COMPANY_TALK.search(text) else [])
+    except ImportError:
+        bank = list(talk_examples.EXAMPLES)
+    if on_task:
+        bank += [("task", "ko" if HANGUL.search(u) else "en", u, r)
+                 for _, _, u, d, r in interrupt_examples.EXAMPLES if d in ("answer", "refuse_redirect")]
+    picked = talk_examples.pick(text, "ko" if language(text) == "Korean" else "en", k=k or EXAMPLES_K, bank=bank)
+    if not picked:
+        return ""
+    lines = "\n".join(f"- \"{ex[2]}\" -> \"{ex[3]}\"" for ex in picked)
+    return ("Examples of how you answered similar words before (for tone only: answer what is asked now, in your "
+            f"own words, never copy them):\n{lines}\n\n")
+
+
+def _chat(messages, fmt=None, temperature=0.3):
     body = {"model": MODEL, "messages": messages, "stream": False, "think": False,
-            "keep_alive": -1, "options": {"temperature": 0.3, "num_predict": 200}}
+            "keep_alive": -1, "options": {"temperature": temperature, "num_predict": 200}}
     if fmt:
         body["format"] = fmt
     req = urllib.request.Request(OLLAMA, json.dumps(body).encode(), {"Content-Type": "application/json"})
@@ -103,8 +177,12 @@ You can also move. Decide if the visitor asks you to do something:
   it on the table" -> fetch cup from p2 to home place). Leave out what the visitor did not say; never guess a word.
 - give: hand over the object you are holding ("give it to me").
 - place: put the object you are holding on the table ("put it on the table").
-- stop: stop moving.
-- end: the visitor says goodbye or ends the conversation.
+- stop: stop moving (also "stop Lumi", "stop it", "freeze", "멈춰", "그만 가"). Use quiet only when they say
+  stop TALKING ("stop talking", "be quiet", "그만 말해").
+- end: the visitor says goodbye or ends the conversation ("good night", "I have to go", "잘 가", "이제 갈게요").
+A place must be one of the marker names exactly; a place that is not on the list ("the kitchen", "point 20",
+"주방") is go_to none: say which places you know, never pick the nearest. fetch only when an object is named.
+Short Korean commands are commands: "컵 가져다 줘" -> fetch cup, "컵 옮겨" -> move_object cup, "잡아" -> pick.
 - quiet: the visitor wants silence ("be quiet", "stop talking", "shut up", "조용히 해", "그만 말해").
 - sing: the visitor asks for a song. Then your words ARE the song: 4 to 8 short, cheerful, original lines.
 - weather <place>: the visitor asks about the weather (place in English; - means here, Seoul).
@@ -135,36 +213,57 @@ def _stream(messages):
     body = {"model": MODEL, "messages": messages, "stream": True, "think": False,
             "keep_alive": -1, "options": {"temperature": 0.3, "num_predict": 200}}
     req = urllib.request.Request(OLLAMA, json.dumps(body).encode(), {"Content-Type": "application/json"})
+    pending = bytearray()                     # gemma4 streams some Hangul (쿳) as byte tokens "<0xEC><0xBF><0xB3>"
     with urllib.request.urlopen(req, timeout=120) as r:
         for line in r:
             d = json.loads(line)
             piece = d.get("message", {}).get("content", "")
-            if piece:
-                yield piece
+            for part in re.split(r"(<0x[0-9A-Fa-f]{2}>)", piece):
+                m = re.fullmatch(r"<0x([0-9A-Fa-f]{2})>", part)
+                if m:
+                    pending.append(int(m.group(1), 16))
+                    try:
+                        part = pending.decode()
+                    except UnicodeDecodeError:
+                        continue
+                    pending.clear()
+                if part:
+                    yield part.replace("커션", "쿳션").replace("컷션", "쿳션")
             if d.get("done"):
                 return
 
 
+MOVE_MAX_M = 3.0                # m; a longer "move forward N m" is not a short move (lumi.MAX_MOVE_M)
 NUMBER_WORDS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7",
-                "eight": "8", "nine": "9", "ten": "10", "일": "1", "이": "2", "삼": "3", "사": "4", "오": "5"}
+                "eight": "8", "nine": "9", "ten": "10"}
 OBJECTS = {"cup": "cup", "mug": "cup", "glass": "cup", "tumbler": "cup", "bottle": "bottle", "apple": "apple",
            "orange": "orange", "banana": "banana", "컵": "cup", "잔": "cup", "병": "bottle", "사과": "apple",
            "오렌지": "orange", "바나나": "banana"}       # spoken word -> camera class (skills.py)
 COLOURS = {"white": "white", "red": "red", "blue": "blue", "green": "green", "yellow": "yellow", "black": "black",
            "orange": "orange", "흰": "white", "하얀": "white", "빨간": "red", "파란": "blue", "초록": "green",
-           "노란": "yellow", "검은": "black", "까만": "black"}
+           "노란": "yellow", "검은": "black", "까만": "black", "주황": "orange", "주황색": "orange", "빨간색": "red",
+           "파란색": "blue", "노란색": "yellow", "초록색": "green", "검은색": "black", "까만색": "black", "하얀색": "white",
+           "흰색": "white"}
 _OBJ = "|".join(OBJECTS)
 _COL = "|".join(COLOURS)
+STOP_TALK = re.compile(r"비상 ?정지|emergency stop|stop button|정지 ?버튼", re.I)   # about the stop button, not "stop!"
 INTENTS = [   # (action, pattern) checked in order on what the visitor said
-    ("quiet", r"\b(be quiet|keep quiet|quiet please|stop talking|shut up|silence|be silent)\b|조용히|그만 말|시끄러워|말하지 마"),
+    ("quiet", r"\b(be quiet|keep quiet|quiet please|stop talking|shut up|silence|be silent|stop greeting)\b|조용히|그만 말|"
+              r"시끄러워|말하지 마|인사 ?(그만|하지 ?마)"),
+    ("stop", r"\b(stop|halt|freeze|don'?t move)\b|멈춰|정지|그만 ?가|거기 ?서|스톱|움직이지 ?마"),
+    ("fetch", rf"\b(fetch|bring|deliver|carry)\b.*\b({_OBJ}|it|that|this)s?\b|\b(take|get|grab)\b.*\b({_OBJ})s?\b.*\b(from|to)\b"
+              rf"|\b(go|drive) to\b.*\b(get|take|grab|pick up|fetch|bring)\b.*\b({_OBJ})s?\b"
+              rf"|\b(pick up|pick|take|grab|get)\b.*\b({_OBJ})s?\b.*\b(go|drive) to\b|({_OBJ}).*(집어서|들고).*가서"
+              r"|가져와|가져다|갖다|가지고 ?와|에서.*(옮겨|가져)" rf"|({_OBJ}).*(집고|들고|가지고).*(와|줘)"),
     ("come", r"\bcome (here|to me|closer|over here|over)\b|\bcome\b.*\bme\b|이리 ?와|여기로 ?와|가까이 ?와|나한테 ?와"),
-    ("fetch", rf"\b(fetch|bring|deliver|carry)\b|\b(take|get|grab)\b.*\b({_OBJ})s?\b.*\b(from|to)\b"
-              r"|가져와|가져다|갖다|가지고 ?와|에서.*(옮겨|가져)"),
-    ("go_home", r"\bgo (back )?(home|to (the |your )?(dock|charger|charging))|\bgo charge|충전하러|집에 ?가|충전기로"),
-    ("go_point", r"\b(?:go|drive|move) to (?:the )?(point|marker|p)\s*(\d+)|포인트\s*(\d+)|(\d+)\s*번\s*(?:으로|포인트)"),
+    ("go_home", r"\bgo (back )?(home|to (the |your )?(dock(?!2)|charger|charging))|\bgo charge|충전하러|집(?:에|으로) ?가|충전기로"),
+    ("go_point", r"\b(?:go|drive|move|head)(?: back)? to (?:the )?(?:point |marker )?([a-z]+\d*)\b|(\d+)\s*번\s*(?:으로|포인트)"   # after _norm:
+                 r"|^\W*(?:(?:루미야?|lumi|hey lumi)\W*)?(?:좀\s*)?([a-z]+\d*)\s*(?:으로|로|에)\s*(?:좀\s*)?"   # "p3로 가 줘":
+                 r"(?:가|와|이동해|돌아가)"                                                               # all of it
+                 r"(?:\s*줘요?|\s*주세요|요|자|줄래)?\s*[.!?]*$"),
     ("sing", r"\bsing\b|\ba song\b|노래"),
     ("turn", r"\bturn (a)?round\b|\bturn (left|right)\b|뒤로 ?돌|돌아 ?봐|왼쪽으로 ?돌|오른쪽으로 ?돌"),
-    ("move", r"\b(?:move|go|come|drive|step)\s+(?:a little\s+|a bit\s+)?(forward|ahead|back(?:ward)?|left|right)\b"
+    ("move", r"\b(?!go ahead\b)(?:move|go|come|drive|step)\s+(?:a little\s+|a bit\s+)?(forward|ahead|back(?:ward)?|left|right)\b"
              r"(?:\s+(\d+(?:\.\d+)?|half)\s*(?:m|meters?|metres?)?)?|"
              r"\b(?:move|go|come)\s+(\d+(?:\.\d+)?)\s*(?:m|meters?|metres?)\s+(forward|ahead|back(?:ward)?|left|right)\b|"
              r"(앞으로|뒤로|왼쪽으로|오른쪽으로)\s*(\d+(?:\.\d+)?)?\s*(?:미터|m)?\s*(?:가|와|이동|움직)"),
@@ -173,42 +272,64 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
     ("move_object", rf"\b(?:move|shift|slide) (?:the |that |this |a )?(?:({_COL}) )?({_OBJ})s?\b"
                     rf"|(?:({_COL})\s*)?({_OBJ})\s*(?:을|를)?\s*옮겨"),
     ("pick", rf"\b(?:pick up|pick|take|grab|get|lift|hold) (?:up )?(?:me )?(?:the |that |this |a |an )?(?:({_COL}) )?({_OBJ})s?\b"
-             rf"|(?:({_COL})\s*)?({_OBJ})\s*(?:을|를)?\s*(?:잡아|집어|들어)"),
+             rf"|(?:({_COL})\s*)?({_OBJ})\s*(?:을|를)?\s*(?:좀\s*)?(?:잡아|집어|들어)"),
     ("grip_open", r"\b(open (your )?(hand|gripper|fingers)|let (it )?go|drop it)\b|손을? ?(펴|벌려|열어)|놓아"),
     ("grip_close", r"\b(close (your )?(hand|gripper|fingers)|grab (it|this)|grip (it|this))\b"
                    r"|손을? ?(쥐|오므려|닫아)|잡아"),
     ("arm", r"\b(reach out|stretch (out )?your (arm|hand)|put your (arm|hand) (out|forward)|hand forward)\b|팔을? ?(뻗|내밀)"),
-    ("weather", r"\bweather\b|\bforecast\b|\b(will it|is it going to) rain\b|\btemperature (outside|today)\b|날씨|비 ?와|기온"),
-    ("search", r"\b(news|latest|headlines|who won|score of|price of|exchange rate|stock)\b|뉴스|환율|주가"),
+    ("weather", r"\bweather\b|\bforecast\b|\b(will it|is it going to) rain\b|\btemperature (outside|today)\b|날씨|비 ?와|기온"
+                r"|\b(cold|hot|warm|chilly) (outside|out)\b|\bumbrella\b|우산|밖에 ?(추|더)워"
+                r"|\bhow (hot|cold|warm) is it\b|\b(is it|will it be) (sunny|cloudy|windy|raining|snowing)\b|\bwill it snow\b"
+                r"|눈 ?(이 )?(와|올 ?까|오나|온대|오니)|(오늘|내일|밖|바깥)(은|에|이)? ?(덥|춥|더워|추워)"),
+    ("search", r"\b(news|latest|headlines|who won|score of|price of|exchange rate|stock)\b|뉴스|환율|(?<![가-힣])주가"),
 ]
 
 
 def intent(text, markers=()):
     """(action, target) for clear requests, or None. Backs up the LLM's ACTION line."""
-    t = text.lower()
-    for word, digit in NUMBER_WORDS.items():                # "point five" -> "point 5"
-        t = re.sub(rf"\b{word}\b", digit, t)
+    t = _norm(text)                                         # "point five" -> "point 5"
+    asks = re.search(r"^\s*(how|why|what if)\b|\b(how do you|how can you|can you carry|are you able)\b|"
+                     r"\b(can|could) you (pick( up)?|lift|hold|grab|take) (a|an|any)\b|"   # "can you pick up a bottle?"
+                     r"^\s*(what|when|which|at what|do you|does|is it|are you)\b|몇|언제|얼마|"   # "at what level do you go back?"
+                     rf"({_OBJ})(은|는)\s.*수 ?있|(루미가|로봇이)\s.*수 ?있|는 ?거 ?(돼|되나|가능)|"                                  # "물컵은 가져다줄 수 있어요?"
+                     r"어떻게|왜|혼자|스스로|\bby yourself\b|\bsomeone\b", t)
     for action, pat in INTENTS:
         m = re.search(pat, t, re.I)
         if not m:
             continue
+        if action == "stop" and STOP_TALK.search(t):
+            return None                                     # "where's your emergency stop?": a question
+        if action != "quiet" and re.search(r"\b(don'?t|do not|never)\b|(하|펴|가|잡|놓|열)지 ?마", t) and action != "stop":
+            return None                                     # "don't go to p1", "손 펴지 마": not an order
+        if asks and action in ("go_home", "go_point", "move", "turn", "pick", "put", "move_object", "fetch", "come",
+                               "arm", "grip_open", "grip_close"):
+            return None                                     # "how do you pick up a cup?": a question, not an order
         if action == "go_home":
+            if re.search(r"(^|\s)(나|저|우리|저희)(는|도)?\s", t):
+                return None                                 # "나 이제 집에 가": the visitor goes home
             return ("go_to", "home") if "home" in markers else None
         if action == "go_point":
-            n = next(g for g in m.groups()[1:] if g)
-            name = next((mk for mk in markers if mk.lower() == f"p{n}"), None)
-            return ("go_to", name) if name else None
+            word = m.group(1) or m.group(3) or f"p{m.group(2)}"
+            name = next((mk for mk in markers if mk.lower() == word), None)
+            if name and (len(name) > 1 or named_place(text, name, markers)):   # "a": not "go to a meeting room"
+                return ("go_to", name)
+            if re.fullmatch(r"p\d+", word):
+                return None                                 # "go to p12": not on the map
+            continue                                        # "go to the kitchen", "move to the left ..."
         if action == "weather":
-            place = re.search(r"\bin ([A-Za-z][A-Za-z ]+?)(\?|$|\.| today| tomorrow)", text)
+            if re.search(r"\bhow do you (know|check|get|find)\b|어떻게 (알|확인)", t):
+                return None                                 # "how do you know the weather?": about Lumi
+            place = re.search(r"\bin ([A-Za-z][A-Za-z ]+?)(\?|$|\.| today| tomorrow| right now| now| this)", text)
             return ("weather", place.group(1).strip() if place else "")
         if action == "search":
             return ("search", text)
         if action == "fetch":
             return ("fetch", text)                        # parse_fetch() reads the details
         if action == "turn":
-            if re.search(r"around|뒤로|돌아", t):
+            if re.search(r"around|뒤로", t) or not re.search(r"left|right|왼쪽|오른쪽", t):   # "왼쪽으로 돌아": left
                 return ("turn", "around 180")
-            return ("turn", ("left" if re.search(r"left|왼쪽", t) else "right") + " 90")
+            deg = re.search(r"(\d+)\s*(degrees?|도)", t)                # "turn left 45 degrees"
+            return ("turn", ("left" if re.search(r"left|왼쪽", t) else "right") + f" {deg.group(1) if deg else 90}")
         if action == "move":
             g = [x for x in m.groups() if x]
             dirs = {"ahead": "forward", "backward": "back", "앞으로": "forward", "뒤로": "back", "왼쪽으로": "left",
@@ -217,7 +338,9 @@ def intent(text, markers=()):
             n = next((0.5 if x == "half" else float(x) for x in g if re.match(r"[\d.]+$|half$", x)), 1.0)
             if re.search(r"a little|a bit|조금", t):
                 n = min(n, 0.5)
-            return ("move", f"{d} {min(n, 3.0):g}")
+            if n > MOVE_MAX_M:
+                return None                                 # "move forward ten metres": the LLM says the limit
+            return ("move", f"{d} {n:g}")
         if action == "arm":
             return ("arm", "reach")
         if action in ("grip_open", "grip_close"):
@@ -240,8 +363,9 @@ _NOT_OBJ = r"(?:not|instead of) (?:the |a |an )?$"            # "not the apple, 
 
 
 def _norm(text):
-    t = (text or "").lower()
-    for word, digit in NUMBER_WORDS.items():                # "point one" -> "point 1"
+    """Lower case, marker names and numbers as written (wording.py: "피쓰리" -> "p3", "point one" -> "p1")."""
+    t = wording.norm(text)
+    for word, digit in NUMBER_WORDS.items():                # "one of them" -> "1 of them"
         t = re.sub(rf"\b{word}\b", digit, t)
     return t
 
@@ -301,6 +425,20 @@ def _mentions(text, markers):
     return out
 
 
+def named_place(text, marker, markers):
+    """True when the words name this marker ("p1", "point one", "피원", "1번", "home", "the charger", "go back").
+    A one-letter marker ("a") only after "point" / "marker" or as the last word of "to a": not the article."""
+    t = _norm(text)
+    if marker == "home" and re.search(r"\bgo back\b|돌아가|\b(?:home|dock|charger|charging station)\b|집(?:으로|에)|"
+                                      r"충전|도크", t):
+        return True
+    if len(marker) == 1:
+        return bool(re.search(rf"\b(?:point|marker) {marker.lower()}(?![a-z])|\bto {marker.lower()}(?:[\s,.!?]*$|"
+                              rf"\s+(?:and|then)\b|,)", t))
+    return bool(re.search(rf"(?<![a-z]){re.escape(marker.lower())}(?![a-z0-9])", t)) or \
+        any(_resolve(m, markers) == marker for m in re.finditer(_place_re(markers), t))
+
+
 def fetch_problems(task):
     """'object' / 'place' (source) / 'dest': what is still missing or unknown in a task."""
     return [p for p, f in (("object", "object"), ("place", "source"), ("dest", "dest")) if task.get(f) is None]
@@ -327,6 +465,29 @@ Answer with JSON only: {{"language": ..., "object": ..., "colour": ..., "source"
 Use only words the command really says; never fill in a guess."""
 LANGUAGE_Q = 'Which language is this text written in? Answer JSON {"language": "<name in English>"}.'
 HANGUL = re.compile(r"[\uac00-\ud7a3\u3131-\u318e]")    # Korean text: the LLM's language answer is not needed
+OTHER_LANGUAGE = {"en": "Sorry, I only understand English and Korean.", "ko": "죄송해요, 영어와 한국어만 이해해요."}
+
+
+def other_latin_language(text):
+    """True for words in Latin letters that are not English ("menga suv ber", "wie heißt du"): asked on its own,
+    one short LLM call. Hangul or a single word: False."""
+    if HANGUL.search(text) or len(text.split()) < 2:
+        return False
+    try:
+        lang = json.loads(_chat([{"role": "system", "content": LANGUAGE_Q}, {"role": "user", "content": text}],
+                                fmt="json")).get("language", "")
+    except Exception:                                      # noqa: BLE001 - not sure: treat as English
+        return False
+    return str(lang).lower() not in ("english", "en", "korean", "ko")
+
+
+def spoken(sentence, lang):
+    """A sentence as it may be said: in English the company is "Cutshion", not "쿳션 (Cutshion Company)"."""
+    if lang == "English":
+        sentence = re.sub(r"쿳션\s*\(([^)]*)\)", r"\1", sentence).replace("쿳션", "Cutshion")
+    return sentence
+
+
 HELD_GIVE = re.compile(r"\b(give|hand)\b|\bbring it\b|줘|주세요|건네", re.I)
 HELD_PLACE = re.compile(r"\b(put|place|set)\b|놔|놓|둬", re.I)
 
@@ -368,7 +529,7 @@ def fetch_from_text(text, markers=()):
 
 SUPPORTS = {"table": "dining table", "desk": "dining table", "chair": "chair", "stool": "chair", "sofa": "couch",
             "couch": "couch", "bench": "bench", "bed": "bed", "테이블": "dining table", "탁자": "dining table",
-            "책상": "dining table", "의자": "chair", "소파": "couch", "벤치": "bench", "침대": "bed"}   # word -> camera class
+            "책상": "dining table", "식탁": "dining table", "의자": "chair", "소파": "couch", "벤치": "bench", "침대": "bed"}   # word -> camera class
 
 
 def place_on(text):
@@ -429,12 +590,19 @@ def confirm_answer(text):
 
 UNSURE = re.compile(r"\b(not sure|don't know|do not know|don't have (any )?(information|details|data)|"
                     r"do not have (any )?(information|details|data)|no information|can't (tell|say|find)|cannot (tell|say|find)|"
-                    r"unable to|ask a staff|i'm afraid i|my knowledge|would you like me to (search|look))\b|"
-                    r"모르|알 수 없|알지 못|정보(가|는|를)? ?(없|가지고 있지 않)|가지고 있지 않|확실하지|드릴 수 없", re.I)
+                    r"ask a staff|i'm afraid i|my knowledge|would you like me to (search|look))\b|"
+                    r"모르|알 수 없|알지 못|정보(가|는|를)? ?(없|가지고 있지 않)|가지고 있지 않|확실하지|알려 드릴 수 없", re.I)
+REFERS_BACK = re.compile(r"\b(it|they|them|those|these|another|one more|one about)\b|그거|그걸|그건|그게|그것|하나 ?더|또 ?하나",
+                         re.I)   # about the last answer
+HELP_OFFER = re.compile(r"\b(how|what) (can|may) i (help|assist|do for) you\b|\bis there anything (else )?i can\b|"
+                        r"\banything else i can (help|do)\b|\blet me know if (there'?s|there is|you need) anything\b|"
+                        r"무엇을 도와|어떻게 도와|뭘 도와|도와드릴 일", re.I)   # owner: never tacked on after an answer
 FOLLOW_UP = re.compile(r"\b(more|why|how come|details?|explain|elaborate|and then|what else|tell me more)\b|자세히|더 알려|왜|그리고", re.I)
 _CLOSE_WORD = (r"(ok(ay)?|okay then|thanks?( you)?( very much)?( a lot)?|thank you( so much)?|got it|alright|all right|"
                r"fine|good|great|cool|nice|perfect|stop|enough|that'?s (it|all|enough|fine)|so|sure|i see|understood|"
-               r"no thanks|nothing|never ?mind|lumi|루미|고마워요?|감사합니다|감사해요|알겠어요?|알았어요?|오케이|됐어요?|그만|좋아요?)")
+               r"no thanks|nothing|never ?mind|lumi|루미|고마워요?|감사합니다|감사해요|알겠어요?|알았어요?|오케이|됐어요?|그만|좋아요?|"
+               r"i got (it|you)|got you|i understand|makes sense|that makes sense|okay,? i understand|"
+               r"네|예|그래요?|알겠습니다|알겠어|이해했어요|이해했습니다|그렇군요|아하)")
 CLOSING = re.compile(rf"^(\s*{_CLOSE_WORD}[\s,.!]*)+$", re.I)   # one or several: "okay, thanks", "got it, thank you"
 
 
@@ -451,6 +619,11 @@ def warm_up():
     _chat([{"role": "user", "content": "Hi"}])
 
 
+_recent_byes = collections.deque(maxlen=FAREWELL_RECENT)
+
+
+def _opening(text, words=3):
+    return " ".join(re.sub(r"[^\w\s]", "", text.lower()).split()[:words])
 FORCED_LANG = {}                   # {"lang": "en"|"ko"} set by lumi.py from the speech recogniser
 
 
@@ -473,7 +646,7 @@ class Brain:
         messages = [{"role": "system", "content": SYSTEM}]
         for q, a in self.history[-HISTORY_TURNS:]:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
-        messages.append({"role": "user", "content": f"Reference notes:\n{notes}\n\nVisitor: {question}\n\n"
+        messages.append({"role": "user", "content": f"Reference notes:\n{notes}\n\n{_examples(question)}Visitor: {question}\n\n"
                                                     f"(Reply in {language(question)}.)"})
         reply = _chat(messages)
         self.history.append((question, reply))
@@ -487,7 +660,7 @@ class Brain:
         messages = [{"role": "system", "content": system}]
         for q, a in self.history[-HISTORY_TURNS:]:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
-        messages.append({"role": "user", "content": f"Reference notes:\n{notes}\n\nVisitor: {text}\n\n"
+        messages.append({"role": "user", "content": f"Reference notes:\n{notes}\n\n{_examples(text)}Visitor: {text}\n\n"
                                                     f"(Reply in {language(text)}.)"})
         try:
             out = json.loads(_chat(messages, RESPONSE_SCHEMA))
@@ -495,22 +668,32 @@ class Brain:
             out = {"action": "none", "target": "", "say": "Sorry, could you say that again?"}
         if out.get("action") == "go_to" and out.get("target") not in markers:
             out["action"] = "none"
-        if re.search(r"\b(bye|goodbye|see you)\b|안녕히|잘 ?가|다음에 봐", text, re.I):
+        if re.search(r"\b(bye|goodbye|see you|good night|i have to go|i'?m leaving)\b|안녕히|잘 ?가|잘 ?있어|"
+                     r"다음에 봐|갈게요|안녕\s*[.!]?$", text, re.I):
             out["action"] = "end"
         self.history.append((text, json.dumps(out, ensure_ascii=False)))
         return out
 
-    def respond_stream(self, text, markers=()):
-        """Generator: first {"action", "target"}, then the spoken reply sentence by sentence."""
-        hits = [h for h in knowledge.search(text, k=2) if h[0] >= MIN_SCORE]
+    def respond_stream(self, text, markers=(), now=None):
+        """Generator: first {"action", "target"}, then the spoken reply sentence by sentence. now: what Lumi is doing
+        at the moment (lumi.now_doing), so a question about it is answered from facts."""
+        about = self.topic(text)                                              # "which ones?": the topic before
+        context = f"{self.history[-1][0]} {text}" if self.history else text    # "how heavy can the items be?"
+        k = NOTES_K_COMPANY if COMPANY_TALK.search(context) else NOTES_K
+        hits = knowledge.search(about, k=k)
+        if context != about:                                                  # the words alone, and with the
+            hits += [h for h in knowledge.search(context, k=NOTES_K)          # question before (one more chunk)
+                     if h[2] not in {x[2] for x in hits}][:1]
+        hits = [h for h in hits if h[0] >= MIN_SCORE]
         notes = "\n\n".join(f"[{src}]\n{t}" for _, src, t in hits) or "(no matching notes)"
-        system = SYSTEM + f"\nNow it is {web.now_text()}." + "\n" + ACTIONS_STREAM.format(markers=", ".join(markers) or "(none)")
+        system = SYSTEM + f"\nNow it is {web.now_text()}." + (f"\nWhat you are doing now: {now}" if now else "") + \
+            "\n" + ACTIONS_STREAM.format(markers=", ".join(markers) or "(none)")
         messages = [{"role": "system", "content": system}]
         for q, a in self.history[-HISTORY_TURNS:]:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
-        messages.append({"role": "user", "content": f"Reference notes:\n{notes}\n\nVisitor: {text}\n\n"
+        messages.append({"role": "user", "content": f"Reference notes:\n{notes}\n\n{_examples(about, on_task=bool(now) and 'not doing any task' not in now)}Visitor: {text}\n\n"
                                                     f"(Reply in {language(text)}.)"})
-        buf, full, header = "", "", None
+        buf, full, header, said = "", "", None, []
         try:
             for piece in _stream(messages):
                 full += piece
@@ -523,10 +706,16 @@ class Brain:
                     if header is None:                     # the model skipped the ACTION line
                         header, buf = {"action": "none", "target": ""}, first + " " + buf
                     yield header
+                    if header["action"] == "unclear" and other_latin_language(text):
+                        said.append(OTHER_LANGUAGE["en"])  # Uzbek / German in Latin letters: not "say it again"
+                        yield said[0]
+                        buf, full = "", f"{first}\n{said[0]}"
+                        break
                 parts = SENTENCE_END.split(buf)
                 for sentence in parts[:-1]:
-                    if sentence.strip():
-                        yield sentence.strip()
+                    if sentence.strip() and not (said and HELP_OFFER.search(sentence)):
+                        said.append(spoken(sentence.strip(), language(text)))
+                        yield said[-1]
                 buf = parts[-1]
         except Exception:
             if header is None:
@@ -537,9 +726,20 @@ class Brain:
             header = self._action(buf, text, markers)
             yield header or {"action": "none", "target": ""}
             buf = "" if header else buf
-        if buf.strip():
-            yield buf.strip()
+        if buf.strip() and not (said and HELP_OFFER.search(buf)):
+            said.append(spoken(buf.strip(), language(text)))
+            yield said[-1]
+        for sentence in re.split(r"(?<=[.!?])\s+", full):   # a dropped "How can I help?" is not kept either
+            if HELP_OFFER.search(sentence) and sentence.strip() not in said:
+                full = full.replace(sentence, "")
         self.history.append((text, full.strip()))
+
+    def topic(self, text):
+        """What the words are about: a short follow-up ("tell me more", "can they see in the dark?") goes with the
+        previous question, for the notes, the examples and the lookup decision."""
+        if self.history and (len(text.split()) <= 4 or FOLLOW_UP.search(text) or REFERS_BACK.search(text)):
+            return " ".join([q for q, _ in self.history[-2:]] + [text])   # "which ones?" then "can they...?"
+        return text
 
     def respond_from(self, question, facts):
         """Spoken answer built from looked-up facts (weather, web results); yields sentences."""
@@ -566,18 +766,33 @@ class Brain:
         self.last_lookup = question                        # a "tell me more" next is looked up again
 
     def farewell(self, text, lang="en"):
-        """A short natural goodbye that fits the conversation (what the visitor just said, or their silence)."""
+        """A short natural goodbye that fits the conversation (what the visitor just said, or their silence),
+        unlike the goodbyes said lately (FAREWELL_RECENT)."""
+        from assistant import talk_examples
         said = f'The visitor just said: "{text}".' if text else "The visitor has stopped talking."
+        ideas = random.sample([r for c, lg, _, r in talk_examples.EXAMPLES if c == "goodbye" and lg == lang], 3)
+        avoid = " ".join(f'"{b}"' for b in _recent_byes)
         messages = [{"role": "system", "content": SYSTEM + f"\nNow it is {web.now_text()}."}]
         for q, a in self.history[-HISTORY_TURNS:]:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
-        messages.append({"role": "user", "content": f"{said} The conversation is over. Say one short, warm, natural "
-                                                    f"goodbye that fits this conversation (thank them back if they thanked "
-                                                    f"you), in {'Korean' if lang == 'ko' else 'English'}. Only the words."})
+        messages.append({"role": "user", "content": f"{said} The visitor is leaving: the conversation is over. Say one "
+                                                    f"short, warm, natural goodbye that fits this conversation (thank them "
+                                                    f"back if they thanked you), in {'Korean' if lang == 'ko' else 'English'}. "
+                                                    f"Only the words. Never greet them (\"안녕\" here means bye). Ideas, "
+                                                    f"in your own words: {' / '.join(ideas)}. "
+                                                    + (f"Said to other visitors lately, so do not use these again: {avoid}. "
+                                                       if avoid else "") +
+                                                    "Do not begin with 'You're welcome' or '천만에요'; never say 'Have a "
+                                                    "great day', 'It was nice talking with you' or 'It was my pleasure'; "
+                                                    "in Korean polite (-요)."})
         try:
-            return _chat(messages).strip().strip('"')
+            bye = _chat(messages).strip().strip('"')
+            if _opening(bye) in {_opening(b) for b in _recent_byes}:   # same start as a recent one: once more, freer
+                bye = _chat(messages, temperature=FAREWELL_RETRY_T).strip().strip('"')
         except Exception:
-            return "See you next time!" if lang == "en" else "다음에 또 봐요!"
+            bye = "See you next time!" if lang == "en" else "다음에 또 봐요!"
+        _recent_byes.append(bye)
+        return bye
 
     def search_terms(self, text):
         """A short English web-search query for the visitor's question (also for Korean questions)."""
@@ -615,6 +830,8 @@ class Brain:
             action = "none"
         if action == "go_to":
             target = next((mk for mk in markers if mk.lower() == target.lower()), None)
+            if target and not named_place(text, target, markers):
+                target = None                              # "take me to the meeting room" -> p1: a guess, not driven
             action = "go_to" if target else "none"
         if action == "look" and target not in LOOK_TARGETS:
             action = "none"
@@ -624,7 +841,8 @@ class Brain:
             target = ""
         if action == "search" and not target:
             target = text
-        if re.search(r"\b(bye|goodbye|see you)\b|안녕히|잘 ?가|다음에 봐", text, re.I):
+        if re.search(r"\b(bye|goodbye|see you|good night|i have to go|i'?m leaving)\b|안녕히|잘 ?가|잘 ?있어|"
+                     r"다음에 봐|갈게요|안녕\s*[.!]?$", text, re.I):
             action = "end"
         rule = intent(text, markers)                       # clear wordings win over the small model's guess
         if rule and not (rule[0] == "search" and action in ("go_to", "come", "look", "weather", "sing")):
