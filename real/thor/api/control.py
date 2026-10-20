@@ -17,8 +17,8 @@ from robot import head
 HOLD_S = 0.35                # s an axis keeps moving after the last /jog call
 
 # axis: (index in the body status, step per move, low limit, high limit)
-BODY_AXES = {"lift": (0, 10.0, 0.0, 300.0), "waist": (1, 3.0, -90.0, 90.0),
-             "head_yaw": (2, 3.0, -60.0, 60.0), "head_pitch": (3, 2.0, -5.0, 35.0)}
+BODY_AXES = {"lift": (0, 10.0, 0.0, head.LIFT_MAX_MM), "waist": (1, 3.0, -90.0, 90.0),
+             "head_yaw": (2, 3.0, -180.0, 180.0), "head_pitch": (3, 2.0, -5.0, 35.0)}
 ARM_AXES = {f"j{i}": i - 1 for i in range(1, 7)}
 ARM_STEP = 2.0               # deg per step
 ARM_SPEED = 20.0             # deg/s at speed 100 %

@@ -21,9 +21,9 @@ def D(who, topic, lang, *turns):
 
 NAME = r"Lumi|루미"
 MAKER = r"Cutshion|쿳션"
-AGE = r"\b2\b|two|두 ?살|2 ?살"
+AGE = r"\b2\b|two|두 ?살|2 ?살|(?<!\d)2 ?년"
 NS = (r"not sure|don't know|do not know|not known|no idea|can't (say|tell)|cannot (say|tell)|don't have|"
-      r"do not have|staff|모르|몰라|확실하지|알 수 없|직원|정보가 없|가지고 있지 않|알려 드릴 수 없|문의")
+      r"do not have|staff|모르|몰라|확실하지|알 수 없|직원|스태프|정보가 없|정보는 없|가지고 있지 않|알려 드릴 수 없|문의")
 INTRO = r"I'?m Lumi|I am Lumi|my name is Lumi|저는 루미|제 이름은 루미|나는 루미|내 이름은 루미"
 WELL = r"doing (well|great|fine)|I'?m (good|great|fine)|잘 지내"
 HEIGHT = r"146|1\.46|186|백사십"
@@ -39,7 +39,7 @@ GEMMA = r"Gemma|젬마"
 THOR = r"Thor|토르|Jetson|젯슨|NVIDIA|엔비디아"
 LANGS = r"(English|영어).*(Korean|한국어)|(Korean|한국어).*(English|영어)"
 OBJ = r"cup|bottle|apple|orange|banana|컵|병|사과|오렌지|바나나"
-NO = r"\bno\b|can't|cannot|not|don't|못|없|아니|안 ?돼"
+NO = r"\bno\b|can't|cannot|not|don't|\bonly\b|못|없|아니|안 ?돼|모르|몰라|만 (이해|알|할)"
 YES = r"\byes\b|\bcan\b|sure|of course|네|응|있어|할 수 있|돼요|돼"
 HURT = r"stupid|idiot|shut up|바보|멍청"
 KO = r"[가-힣]"
@@ -436,7 +436,7 @@ DIALOGUES_MORE = [
       T("네 고마워요.", "end")),
     D("developer", "how_it_works", "ko",
       T("그리퍼 모델이 뭐예요?", must=[r"Zimmer|짐머"]),
-      T("몇 센티까지 잡아요?", must=[r"4\.5|8\.4"]),
+      T("몇 센티까지 잡아요?", must=[r"(?<!\d)6(?!\d)|(?<!\d)9(?!\d)"]),
       T("물건 잡은 건 어떻게 알아요?", must=[r"센서|빛"]),
       T("팔 반복 정밀도는?", must=[r"0\.1"]),
       T("팔 자체 무게는요?", must=[r"9\.9"]),

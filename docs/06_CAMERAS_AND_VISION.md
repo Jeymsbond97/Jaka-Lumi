@@ -100,9 +100,27 @@ The same files contain the camera → arm-base transform (eye-to-hand calibratio
 | torso `CalibParams-lumi-hand.json` | (5.8, 217.8, −33.4) |
 | head `CalibParams-head0717.json` | (81.9, 96.3, 345.8), valid only for the head pose used during calibration |
 
-The torso camera and the arm both sit on the waist link, so its calibration stays valid when the waist or lift moves. The head camera moves relative to the arm (head yaw/pitch), so its calibration only holds at one head pose unless the head joints are added to the transform chain (use the URDF + `Camera3_Link`).
+The torso camera and the arm both sit on the waist link, so its calibration stays valid when the waist or lift moves. The head camera moves relative to the arm (head yaw/pitch), so its calibration only holds at one head pose unless the head joints are added to the transform chain (ours: measured axes, below).
 
 Mount poses from the sensors URDF: see [01_HARDWARE.md](01_HARDWARE.md#7-kinematic-model-files).
+
+### Head camera on our robot (measured 2026-10-19)
+
+- Link: USB 3 (5000M in `/sys/bus/usb/devices/*/speed`) after the owner's cable work. When the camera service had
+  opened it earlier at USB 2 it ran colour only; it gets depth only after a service restart
+  (`vision/camview.py --stop`, `--start`) with the camera at 5000M.
+- Colour intrinsics at 1280 × 720 (factory, read by the camera service into `/dev/shm/lumi_intr_head.json`):
+  fx 607.0, fy 607.2, cx 639.1, cy 365.6.
+- Camera → arm base, `vision/calib.py --camera head` (ArUco marker on the gripper, 30 samples; samples in
+  `data/calib_samples_head/`, result `data/camera_extrinsics_head.json` with the body pose): median 6.0 mm, max
+  14.2 mm. Body pose: lift 0, waist −20.3°, head yaw 0°, pitch −5°. Camera at (−114.1, 68.7, 402.6) mm in the arm
+  base frame. Live check (`calib.py --camera head check`): 8–16 mm at 5 arm positions.
+- Head axes in the arm base frame (`vision/head_cam.py measure yaw|pitch`, arm holding the marker still): yaw axis
+  through (−83.1, −26.5, −142.1) mm, direction (−0.017, −0.014, 1.000); pitch axis through (33.2, 6.4, 355.7) mm,
+  direction (0.995, 0.099, −0.005). Measured over yaw −30…0° and pitch −5…+4°; the model is within 11 mm / 1.4° of
+  every pose seen. Outside that range it is extrapolated.
+- Cross-check: a potted plant seen by both cameras at head yaw +10° came out 13 mm apart in the arm frame.
+- Head yaw turns to ±180° were run live (slow): about 6 s per 90°.
 
 ### Pixel → 3D → arm base
 

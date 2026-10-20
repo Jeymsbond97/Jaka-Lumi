@@ -39,8 +39,10 @@ OBJECTS = {"cup": "컵", "bottle": "병", "apple": "사과", "orange": "오렌�
 COLOURS = {"red": "빨간", "orange": "주황색", "yellow": "노란", "green": "초록색", "blue": "파란", "purple": "보라색",
            "pink": "분홍색", "white": "흰", "black": "검은", "grey": "회색"}   # the names objects.colour_name gives
 FINISH = ("hold", "place")
-LOOK_POSE = "look"           # drives, turns, looks and waits here, also with an object (the cup leans 5.9 deg); high,
-                             # out of the torso camera's view (ready if not taught). carry is only passed through after a
+LOOK_POSE = "look"           # drives, turns, looks and waits here, also with an object (the cup leans 3.6 deg); high,
+                             # the hand ~0.3 m from the base centre, 5 cm past its front (taught 2026-10-20, 12 cm further
+                             # in than before: the hand touched a door frame); a held cup's bottom is at the top edge of
+                             # the torso view, too near for depth (ready if not taught). carry is only passed through after a
                              # pick: in carry the hand is ~0.3 m before the base's front, where its 3D camera seems to see
                              # it as an obstacle (every drive in carry stalled; the same drives in look went, 2026-10-16)
 MAX_TILT_DEG = 15.0          # deg; the held cup's axis may lean this far from vertical on ready <-> carry
@@ -54,26 +56,38 @@ MIN_POSE_Z = -220.0          # mm; a move between named poses must keep the gras
 PICK_ZONE_CENTRE = (-100.0, 580.0)   # mm, arm base frame: where the base brings an object out of reach. Next to the
                                      # successful picks (x -126..-178, y 579..613) and inside the reach at table height
                                      # (IK map 2026-10-16, top -330: grasps for x -200..100 at y <= 650, none further)
-PLACE_GRID_X = range(-260, -59, 40)  # mm; place spots tried after the pick spot. At table height the torso camera
-PLACE_GRID_Y = (640, 660, 680, 700)  # sees only y >= ~640, nearer spots can't be checked for table (skills.on_table)
+PLACE_GRID_X = range(-260, -59, 40)  # mm; place spots tried after the pick spot. The torso camera sees a table at
+PLACE_GRID_Y = (640, 660, 680, 700, 720, 740)  # -403 from y ~640, a lower one only further (-414: ~655, -457: ~690);
+                                     # nearer spots can't be checked for table (skills.on_table). IK refuses the far ones
 PLACE_GOAL = (-160.0, 670.0)         # mm; a table spot seen further away is brought here by the base (middle of the grid)
-FAR_GRID_X = range(-700, 501, 50)    # mm; where a table further away is looked for in the depth image
-FAR_GRID_Y = range(720, 1601, 40)
-KNOWN_M = 0.5                        # m; a thing seen this near where it was taught is that thing
+FAR_R_MM = range(600, 3001, 60)      # mm from the arm base: sight lines where a table further away is looked for ...
+FAR_HALF_DEG = 45                    # ... within this of where the camera looks (torso, or the head as it is turned),
+FAR_STEP_DEG = 3                     # ... every this many degrees
+FAR_IN_MM = 150.0                    # the base brings the table point this far in from its nearest one (the edge) to
+                                     # PLACE_GOAL: the place grid then lies on the table
+TOP_NEAR_MM = 1500.0                 # mm from the arm base; a named thing's top measured further away is not trusted
+                                     # (2026-10-20 a white thing 3.8 m away read -258, then -620 mm): go closer first
+KNOWN_M = 0.5                       # m; a thing seen this near where it was taught is that thing
 SUPPORT_DISC_MM = 100.0              # mm; the top of a named thing (a chair's seat) is measured on a disc this wide
-FAR_TRIES = 15                       # nearest table points checked for a whole free spot (ring) there
+NEAR_THING_MM = 400.0                # mm; place grid spots this near a named thing at its top's height are on it
+SUPPORT_NEAR_MM = 400.0              # mm; a surface is named after the thing the camera sees this near it ("the grey table")
+FURNITURE = {"dining table", "chair", "couch", "bench", "bed", "sink", "toilet", "desk"}   # camera classes the
+                                     # cameras mix up for one piece of furniture: a named one matches any of them
 TABLE_PROVEN_Z = -403.0      # mm, arm base frame: the table top of every proven pick and place (lift 75 mm)
 SURFACE_Z = (-560.0, -30.0)  # mm, arm frame, after the lift: table tops the arm can pick from / put on at all (IK of
                              # the grasp, 2026-10-16: -578 4 of 9 spots, -528 7 of 9, -28 9 of 9). Lower: a floor or a
                              # seat ~30 cm under a table, which no grasp reaches even at lift 0
 LIFT_TOL_MM = 20.0           # closer than this: the lift stays
-LIFT_RANGE = (0.0, 250.0)    # mm; the body API allows 0-300, kept to what the colleagues' code uses (lumi_voice_app)
+LIFT_RANGE = (0.0, head.LIFT_MAX_MM)   # mm; 0-105 for now (head camera cable, robot/head.py), 0-250 with the long one
 LIFT_DRIVE_MM = 75.0         # every drive, every task's end and a look that found nothing again at this lift
                              # (higher, the near part of the table is below the torso camera's view)
 LIFT_VEL = 20                # % of the lift's speed
-SEARCH_TURN_DEG = 30.0       # search: look, turn on the spot by this much, look again ...
-SEARCH_TURNS = 11            # ... this many times (all the way round) at the lift it has; never while charging
-LIFT_TRIES = (0.0, 250.0)    # mm; nothing found: the same whole turn again at these lifts (down first, then up)
+VIEW_STEPS = (60.0, 120.0, 180.0)    # search (_look_around): both cameras look this far (deg from the front) to one
+                                     # side step by step, then to the other ...
+WAIST_SCAN_MAX = 120.0               # ... the waist turns up to this (it carries the arm, the torso camera and the head;
+                                     # the body API allows +-140 absolute), the head the rest
+SEARCH_BASE_DEG = (180.0, 90.0)      # then the base turns towards that side, the first of these it may (checked)
+LIFT_TRIES = LIFT_RANGE      # mm; nothing found: all of it again at the other end of these
 SAME_BASE_M = 0.02                   # m / rad; the base is still where it picked: the pick spot is still table
 SAME_BASE_RAD = 0.035
 APPROACH_TRIES = 5           # base moves to bring an object out of reach to PICK_ZONE_CENTRE before asking the person
@@ -93,24 +107,24 @@ LOST_BACK_M = 0.15           # an object lost after a base move: back off this m
 LOST_TURN_DEG = 20.0         # ... and turn this much each way, looking again (YOLO, then depth where it should be)
 ARM_CLEAR_M = 0.10           # m; flange, grasp point and finger tips kept this far from anything the lidar or the map
 SWEEP_STEP_DEG = 10.0        # shows while the base turns on the spot, checked every this many degrees (turn_hits)
-SELF_MM = 120.0              # depth this near the arm's own flange / grasp point / tips is the arm itself (depth_hits)
+SELF_MM = 120.0              # depth this near the hand (flange -> grasp point -> tips) is the arm itself (depth_hits);
+                             # a finger 122 mm from the grasp point stopped a waist turn (2026-10-20)
 HEAD_SIDE_DEG = 60.0         # head yaw (+ left) towards the side of a turn, to check the arm's sweep (head_hits)
 HEAD_LOW_PITCH = -5.0        # head pitch for those checks and the search: its lowest, where the camera is calibrated
-HEAD_SETTLE_S = 1.2          # s after a head move: frames at rest (depth is written every 0.5 s)
-HEAD_SCAN_STEP_DEG = 60.0    # search with the head: ahead, then every this many degrees to one side up to ...
-HEAD_SCAN_MAX_DEG = 180.0    # ... this head yaw (its end), then the same to the other side (the colour view is 94 deg wide)
-BASE_HALF_STEPS = 3          # then the base turns half round in this many checked turns and the head looks again
-HEAD_READS = 4               # detection reads per head yaw ...
+HEAD_READS = 4               # head camera frames read per view (10 a second) ...
 HEAD_SAME_MM = 120.0         # ... an object counts when seen at least twice within this distance
-HEAD_DRIVE_MAX_M = 3.0       # m; at most this far straight towards a thing the head camera found
+WAIST_VEL = 20               # % of the waist's speed: the arm sweeps sideways
+HEAD_AHEAD = (0.0, 0.0)      # head (yaw, pitch) deg before a drive to a place and after every task: looking ahead
+                             # (search turns and short moves keep the head where the search turned it)
 OFFSET_TURN_DEG = 15.0       # a move that turned the base at least this much tells where the arm base is (arm_offset)
 WIDTH_NEAR_MM = 250.0        # mm from PICK_ZONE_CENTRE; a width measured further away is not trusted (the same tumbler:
                              # 85-88 mm at 1.14 m, 76-81 up close, 2026-10-16; the gripper takes up to 84)
 OFFSET_SAMPLES = 9           # ... the median of the last this many such measurements is used (one can be off)
 ASK_WAIT_S = 30.0            # s; after "please move it closer" look again for this long ...
-ASK_EVERY_S = 2.0            # ... this often
-DRIVE_POLL_S = 0.5           # s between base status reads while driving
-DRIVE_START_S = 3.0          # s to see the base report "running" after a go; after that its status is believed
+ASK_EVERY_S = 0.2            # ... this often (a look itself takes 1.4 s)
+DRIVE_POLL_S = 0.2           # s between base status reads while driving
+DRIVE_START_S = 3.0          # s to see the base report "running" after a go; after that its status is believed (at
+                             # once when it reports "succeeded" at the goal pose: a short turn may end unseen)
 STUCK_S = 30.0               # s "running" without getting STUCK_M anywhere (turning on the spot does not count) ...
 STUCK_M = 0.10               # ... -> the drive is cancelled: no way through
 HOLD_CHECK_S = 1.0           # s between gripper reads while driving with an object
@@ -118,18 +132,19 @@ SAME_PLACE_M = 0.05          # m; closer than this to the target point (and SAME
 SAME_ANGLE_RAD = 0.05
 AXIS_STEP_M = 0.10           # m the base drives forward (and back) in measure-axis
 AXIS_SPEED = 0.05            # m/s; straight with joy_control (navigation may turn in place, the arm is over the table)
-COAST_S = 1.0                # s; the base coasts a little after a joy_control stop
+COAST_S = 0.3                # s; the base coasts a little after a joy_control stop: frames from then on are used
+                             # (estimate; measure-axis waits 1 s for its pose)
 GIVE_WAIT_S = 30.0           # s; no release by then: keep holding it and go back to carry (never drop it)
 # Opening needs a word from the person ("thank you", or Release in the dashboard): AI_1 can't feel a pull. Measured
 # 2026-10-15 with the cup in the closed gripper: its median stayed 2780-2870 during gentle pulls (only its noise
 # grew, sd 20 -> 50-75), while the fingers settling after the move changed it by 192.
-GIVE_POLL_S = 0.2
+GIVE_POLL_S = 0.05
 MOVE_SPEED = 0.10            # m/s; a mission's move (straight with joy_control); estimate, tune live (docs/17)
 RECEIVE_WAIT_S = 30.0        # s; receive: nothing put in the hand by then -> the mission fails, hand open
 RECEIVE_DI_S = 0.5           # s; DI_1 (finger sensor) sees something this long -> Lumi asks the person to let go;
                              # the hand closes only on their "okay" / Release (never on fingers still in it)
 MOVE_SEGMENT_M = 0.25        # m; a mission move is driven in pieces this long, the way (base and arm) checked before each
-WAIT_POLL_S = 0.2            # s between looks at stop / go on / an instruction while a mission waits (a wait step)
+WAIT_POLL_S = 0.05           # s between looks at stop / go on / an instruction while a mission waits (a wait step)
 LOG_LINES = 40
 
 _lock = threading.RLock()                   # _finish sets the state while it holds it
@@ -142,7 +157,8 @@ _pause = threading.Event()                   # set by pause() (someone talks to 
                                              # waits at the next step; resume() goes on where it was
 _thread = None
 _task = {"start_pose": None}                 # map pose (x, y, theta) where the current task was given
-_state = {"status": "idle", "step": "", "task": None, "holding": False, "log": [], "since": time.time()}
+_state = {"status": "idle", "step": "", "task": None, "holding": False, "held_object": None, "log": [],
+          "since": time.time()}          # held_object: {"object", "colour"} picked or received, until the hand opens
 
 
 class FetchError(RuntimeError):
@@ -165,7 +181,8 @@ def _adopt():
     take over its holding state and what skills needs to put it down."""
     s = state()
     if not _busy() and s.get("holding") and not _state["holding"]:
-        _state.update(holding=True, task=s.get("task"), status="holding", step="holding")
+        _state.update(holding=True, task=s.get("task"), held_object=s.get("held_object"), status="holding",
+                      step="holding")
         skills._held.update(s.get("held") or {})
 
 
@@ -173,6 +190,8 @@ def _set(**kw):
     with _lock:
         if "status" in kw and kw["status"] != _state["status"]:
             kw["since"] = time.time()
+        if kw.get("holding") is False:             # put down, given, dropped, hand opened: nothing is held
+            kw.setdefault("held_object", None)
         _state.update(kw)
         _write()
 
@@ -190,7 +209,8 @@ def state():
     try:
         return json.loads(STATE_FILE.read_text())
     except (FileNotFoundError, ValueError):
-        return {"status": "idle", "step": "", "task": None, "holding": False, "log": [], "since": None}
+        return {"status": "idle", "step": "", "task": None, "holding": False, "held_object": None, "log": [],
+                "since": None}
 
 
 # ---------- the task in words ----------
@@ -278,9 +298,18 @@ def _say(say, en, ko=None):
             log(f"say failed: {e}")
 
 
+def _at_pose(name):
+    """The arm is at pose `name` already (every joint within 1 deg)."""
+    j = skills._joints()
+    return max(abs(a - b) for a, b in zip(j, motion.nearest(motion.poses()[name], j))) <= 1.0
+
+
 def _pose(name, speed=skills.EMPTY_SPEED):
-    """Joint move to pose `name`, refused when it would take the gripper down to the table. Empty hand: faster."""
+    """Joint move to pose `name`, refused when it would take the gripper down to the table. Empty hand: faster.
+    Nothing when it is there already."""
     _go_on()
+    if _at_pose(name):
+        return
     start, low = lowest_along(name)
     if low < min(MIN_POSE_Z, start - 10.0):
         log(f"refused: on the way to {name} the gripper would go down to z {low:.0f} mm")
@@ -342,9 +371,12 @@ def _line_rows(target, label, start=None):
 
 
 def _line_holding(name):
-    """With the object in the hand: straight to pose `name` (IK and tilt checked), then its exact joints."""
+    """With the object in the hand: straight to pose `name` (IK and tilt checked), then its exact joints. Nothing
+    when it is there already."""
     _go_on()
-    target = skills._ask("kine_forward", jointPosition=[float(v) for v in motion.poses()[name]])["cartPosition"]
+    if _at_pose(name):
+        return
+    target =skills._ask("kine_forward", jointPosition=[float(v) for v in motion.poses()[name]])["cartPosition"]
     _line_rows(target, f"to {name}")
     log(f"arm to {name} (straight)")
     motion.move_linear(target=target, speed=skills.HOLDING_SPEED, path_checked=True)
@@ -367,9 +399,23 @@ def _pose_holding(name):
     _pose(name, skills.HOLDING_SPEED)
 
 
-def _wait_drive(watch_holding=False, again=None):
+def _at(pose, goal):
+    """The base pose {"x", "y", "theta"} is at `goal` (x, y, theta) within SAME_PLACE_M and SAME_ANGLE_RAD."""
+    return math.hypot(pose["x"] - goal[0], pose["y"] - goal[1]) < SAME_PLACE_M and \
+        abs((pose["theta"] - goal[2] + math.pi) % (2 * math.pi) - math.pi) < SAME_ANGLE_RAD
+
+
+def _wait_drive(watch_holding=False, again=None, goal=None):
     """Wait until the base stops. Raises FetchError unless it arrived ("succeeded"). A pause cancels the drive, waits
-    for resume() and then calls again() to send the base on (the rest of a turn, the same goal)."""
+    for resume() and then calls again() to send the base on (the rest of a turn, the same goal). `goal` (x, y, theta):
+    "succeeded" at that pose ends the wait at once (a short turn can end before "running" is ever seen)."""
+    try:
+        _drive_wait(watch_holding, again, goal)
+    finally:
+        skills.moved()                       # the cameras moved with the base: frames from now on
+
+
+def _drive_wait(watch_holding, again, goal):
     t0 = last_hold = time.time()
     seen_running = False
     anchor = None                            # (x, y, time) of the last real progress
@@ -413,7 +459,8 @@ def _wait_drive(watch_holding=False, again=None):
                 _set(holding=False)
                 skills._held.clear()
                 raise FetchError("I dropped it.")
-        if st != "running" and (seen_running or time.time() - t0 > DRIVE_START_S):
+        there = st == "succeeded" and goal is not None and pose is not None and _at(pose, goal)
+        if st != "running" and (seen_running or there or time.time() - t0 > DRIVE_START_S):
             if st != "succeeded":
                 raise FetchError(f"I couldn't get there (base: {st}).")
             return
@@ -428,6 +475,7 @@ def _lift_to(mm):
     _go_on()
     log(f"lift {lift:.0f} -> {mm:.0f} mm")
     head.moveto([mm, waist, yaw, pitch], vel=LIFT_VEL, acc=20, timeout=90)
+    skills.moved()
     _go_on()
 
 
@@ -443,13 +491,24 @@ def arm_points_3d():
     c = skills._ask("kine_forward", jointPosition=[float(v) for v in skills._joints()])["cartPosition"]
     R, f = calib.rpy_matrix(*c[3:]), np.array(c[:3])
     g = f + R @ skills.GRASP_OFFSET
-    return [f, g, g + R @ [0.0, 0.0, skills.TIP_MM]]
+    return [f, g, g + R @ (skills.TIP_MM * skills.FINGER_DIR)]
 
 
 def arm_points():
     """(x, y) m in the base frame of the flange, the grasp point and the finger tips: the parts of the arm that reach
     out past the base (in look the flange is ~0.4 m ahead of the base centre)."""
     return [to_base(p[:2], arm_yaw(), arm_xy()) for p in arm_points_3d()]
+
+
+def _near_hand(p, pts):
+    """Distance (mm) from `p` to the hand: the lines flange -> grasp point -> finger tips (the gripper and its long
+    fingers; the torso camera sees them at the top of its view in look)."""
+    p, best = np.asarray(p, float), float("inf")
+    for a, b in zip(pts, pts[1:]):
+        a, b = np.asarray(a, float), np.asarray(b, float)
+        f = min(1.0, max(0.0, float((p - a) @ (b - a) / max((b - a) @ (b - a), 1e-9))))
+        best = min(best, float(np.linalg.norm(p - (a + f * (b - a)))))
+    return best
 
 
 def depth_hits(deg, camera="torso", T=None):
@@ -471,7 +530,7 @@ def depth_hits(deg, camera="torso", T=None):
             xy = _rot(-yaw) @ (R @ to_base(p[:2], yaw, t) - t) * 1000.0
             cand.append(np.array([xy[0], xy[1], p[2]]))
     for c, h in zip(cand, skills.surface_points([tuple(c) for c in cand], camera=camera, T=T)):
-        if h is None or min(np.linalg.norm(np.subtract(h, q)) for q in pts) < SELF_MM:
+        if h is None or _near_hand(h, pts) < SELF_MM:
             continue
         if np.linalg.norm(np.subtract(h, cam)) <= np.linalg.norm(c - cam) + ARM_CLEAR_M * 1000.0:
             return c
@@ -479,26 +538,26 @@ def depth_hits(deg, camera="torso", T=None):
 
 
 def _head_to(yaw, pitch):
-    """Turn the head (lift and waist stay) and wait until its frames are at rest."""
-    lift, waist, _, _ = head.status()
-    head.moveto([lift, waist, yaw, pitch])
+    """Turn the head (lift and waist stay) unless it is there; its frames are then read from after the move
+    (skills.moved)."""
+    lift, waist, y0, p0 = head.status()
     camview.want("head")
-    time.sleep(HEAD_SETTLE_S)
+    if abs(y0 - yaw) < 1.0 and abs(p0 - pitch) < 1.0:
+        return
+    head.moveto([lift, waist, yaw, pitch])
+    skills.moved("head")
 
 
 def head_hits(deg):
     """depth_hits with the head camera turned towards the side of the turn: the torso camera sees only ahead, the arm
-    sweeps to the side. None when clear, or when the head camera is not calibrated (then the other checks decide)."""
+    sweeps to the side. None when clear, or when the head camera is not calibrated (then the other checks decide).
+    The head stays there: the next look or drive turns it where it needs it."""
     side = math.copysign(HEAD_SIDE_DEG, deg)
     T = head_cam.base_from_head(side, HEAD_LOW_PITCH)
     if T is None:
         return None
-    _, _, yaw0, pitch0 = head.status()
-    try:
-        _head_to(side, HEAD_LOW_PITCH)
-        return depth_hits(deg, "head", T)
-    finally:
-        _head_to(yaw0, pitch0)
+    _head_to(side, HEAD_LOW_PITCH)
+    return depth_hits(deg, "head", T)
 
 
 def turn_hits(deg):
@@ -518,6 +577,56 @@ def turn_hits(deg):
     return None
 
 
+def _sweep_blocked(deg, what):
+    """True (and logged) when the arm would hit something while it swings by `deg` about the base centre: a base turn
+    on the spot and a waist turn sweep the same circles (turn_hits, depth_hits, head_hits)."""
+    hit = turn_hits(deg)
+    if hit is not None:
+        log(f"not {what} {deg:+.0f} deg: my arm would hit something at ({hit[0]:.2f}, {hit[1]:.2f})")
+        return True
+    for cam, check in (("camera", depth_hits), ("head camera", head_hits)):
+        seen = check(deg)
+        if seen is not None:
+            log(f"not {what} {deg:+.0f} deg: the {cam} sees something in my arm's way at ({seen[0]:.0f}, "
+                f"{seen[1]:.0f}, {seen[2]:.0f}) mm")
+            return True
+    return False
+
+
+def _waist_to(rel):
+    """Turn the waist to `rel` deg from the front (the waist of measure-axis), lift and head stay; the arm keeps its
+    pose; `rel` is cut to the body's limit. False when the arm's sweep is not clear (_sweep_blocked)."""
+    waist = head.status()[1]
+    lo, hi = head.AXIS_LIMITS[1]
+    d = max(lo, min(hi, waist - _waist_turn() + rel)) - waist
+    if abs(d) < 1.0:
+        return True
+    _go_on()
+    if _sweep_blocked(d, "turning my waist"):
+        return False
+    lift, waist, yaw, pitch = head.status()
+    log(f"waist {waist:.0f} -> {waist + d:.0f} deg")
+    head.moveto([lift, waist + d, yaw, pitch], vel=WAIST_VEL, acc=20, timeout=60)
+    skills.moved()
+    _go_on()
+    return True
+
+
+def head_ahead():
+    """Turn the head to HEAD_AHEAD (lift and waist stay) unless it is there already."""
+    lift, waist, yaw, pitch = head.status()
+    if abs(yaw - HEAD_AHEAD[0]) > 1.0 or abs(pitch - HEAD_AHEAD[1]) > 1.0:
+        head.moveto([lift, waist, *HEAD_AHEAD])
+
+
+def _waist_front():
+    """Every base move starts with the waist at the front: navigation does not know the arm, and sideways it sticks
+    out further. FetchError when the way back is not clear."""
+    if not _waist_to(0.0):
+        raise FetchError("My arm can't turn back to the front: something is in its way.",
+                         "팔을 앞으로 돌릴 수 없어요. 뭔가 막고 있어요.")
+
+
 def _turn(deg, holding=False, why="to look further"):
     """Turn the base on the spot by `deg` (+ = left), arm in look (holding: it is there already), the lift where it
     is. False when it must not: charging, or the arm would hit something on the way (turn_hits)."""
@@ -526,19 +635,8 @@ def _turn(deg, holding=False, why="to look further"):
         return False
     if not holding:
         _pose(_look())
-    hit = turn_hits(deg)
-    if hit is not None:
-        log(f"not turning {deg:+.0f} deg: my arm would hit something at ({hit[0]:.2f}, {hit[1]:.2f})")
-        return False
-    seen = depth_hits(deg)
-    if seen is not None:
-        log(f"not turning {deg:+.0f} deg: the camera sees something in my arm's way at ({seen[0]:.0f}, {seen[1]:.0f}, "
-            f"{seen[2]:.0f}) mm")
-        return False
-    seen = head_hits(deg)
-    if seen is not None:
-        log(f"not turning {deg:+.0f} deg: the head camera sees something in my arm's way at ({seen[0]:.0f}, "
-            f"{seen[1]:.0f}, {seen[2]:.0f}) mm")
+    _waist_front()
+    if _sweep_blocked(deg, "turning"):
         return False
     log(f"turning {deg:+.0f} deg {why}")
     target = agv.pose()[2] + math.radians(deg)
@@ -546,30 +644,65 @@ def _turn(deg, holding=False, why="to look further"):
     def rest():                                  # after a pause: only what is left of the turn
         left = (target - agv.pose()[2] + math.pi) % (2 * math.pi) - math.pi
         return (None, "done") if abs(left) < math.radians(TURN_MIN_DEG) else agv.turn_by(left)
+    x, y, _ = agv.pose()
     ok, msg = agv.turn_by(math.radians(deg))
     if not ok:
         raise FetchError(f"I couldn't turn ({msg}).")
-    _wait_drive(watch_holding=holding, again=rest)
+    _wait_drive(watch_holding=holding, again=rest, goal=(x, y, target))
     return True
 
 
-def _search(attempt, holding=False, say=None):
-    """Run attempt() until it returns something: a whole turn on the spot (SEARCH_TURNS turns) at the lift it has,
-    then the same at each of LIFT_TRIES; on the charger only the lifts. None when nothing was found."""
-    here, step = head.status()[0], None
-    for n, lift in enumerate([None] + [m for m in LIFT_TRIES if abs(m - here) >= 5.0]):
+def _head_ok():
+    """The head camera's positions are in the arm frame at any head pose (calibrated with its axes)."""
+    return head_cam.base_from_head(0.0, HEAD_LOW_PITCH) is not None
+
+
+def _look_at(view, attempt):
+    """Both cameras towards `view` deg from the front (+ left): the waist as far as WAIST_SCAN_MAX (when its sweep is
+    clear and the arm's yaw is measured), the head the rest; then attempt()."""
+    if arm_yaw() is not None:
+        _waist_to(max(-WAIST_SCAN_MAX, min(WAIST_SCAN_MAX, view)))
+    if _head_ok():
+        _head_to(view - _waist_turn(), HEAD_LOW_PITCH)
+    return attempt()
+
+
+def _search_turn(side, holding=False):
+    """The base turns towards `side` (+1 left) for the search: the first of SEARCH_BASE_DEG it may (checked, the
+    waist to the front first); never on the charger. True when it turned."""
+    if _charging():
+        log("on the charger: I don't turn")
+        return False
+    return any(_turn(side * deg, holding) for deg in SEARCH_BASE_DEG)
+
+
+def _look_around(attempt, holding=False, say=None):
+    """The search for picking and placing: attempt() at every view until it returns something.
+    (a) Ahead, both cameras: the torso camera sees near, low things (tables, what stands on them), the head camera far,
+    high ones. (b) The waist and the head turn to the busier side (first_side) step by step (VIEW_STEPS; the waist
+    carries the arm, the torso camera and the head up to WAIST_SCAN_MAX, every turn of it checked: _sweep_blocked; the
+    head turns the rest), then to the other side. (c) The base turns towards that side (_search_turn) and all of it
+    again. (d) The lift goes to the other end of LIFT_TRIES and (a)-(c) again. Returns what attempt() found (the waist
+    and the head stay where it was seen), else None with the waist at the front."""
+    got = _look_at(0.0, attempt)
+    if got is not None:
+        return got
+    _say(say, "Let me look around.", "주변을 둘러볼게요.")
+    side = first_side()
+    sides = [s * v for s in (side, -side) for v in VIEW_STEPS] if arm_yaw() is not None or _head_ok() else []
+    here = head.status()[0]
+    other = LIFT_TRIES[1] if here < sum(LIFT_TRIES) / 2 else LIFT_TRIES[0]
+    for n, lift in enumerate((None, other)):
         if lift is not None:
             _lift_to(lift)
-        for i in range(SEARCH_TURNS + 1):
-            if i and step is None and not _charging():
-                step = SEARCH_TURN_DEG * first_side()
-            if i and not _turn(step or SEARCH_TURN_DEG, holding):
+        for turned in (False, True):
+            if turned and not _search_turn(side, holding):
                 break
-            if n == 0 and i == 1:
-                _say(say, "Let me look around.", "주변을 둘러볼게요.")
-            got = attempt()
-            if got is not None:
-                return got
+            for view in ([] if n == 0 and not turned else [0.0]) + sides:
+                got = _look_at(view, attempt)
+                if got is not None:
+                    return got
+    _waist_front()
     return None
 
 
@@ -621,7 +754,8 @@ def _fit_lift(table):
         log(f"surface at {table:.0f} mm is not one my arm can work at: the lift stays")
         return False
     if abs(target - lift) < LIFT_TOL_MM:
-        log(f"table at {table:.0f} mm, but the lift is at its end ({lift:.0f} mm)")
+        end = abs(lift + table - TABLE_PROVEN_Z - target) >= LIFT_TOL_MM     # it would go further, but can't
+        log(f"table at {table:.0f} mm: the lift stays at {lift + 0.0:.0f} mm{' (its end)' if end else ''}")
         return False
     _lift_to(target)
     return True
@@ -637,6 +771,8 @@ def _drive_to(place, say, watch_holding=False):
                 abs((th - pth + math.pi) % (2 * math.pi) - math.pi) < SAME_ANGLE_RAD:
             return
         place = {"x": x, "y": y, "theta": th}
+    _waist_front()
+    head_ahead()
     _lift_to(LIFT_DRIVE_MM)
     if "marker" in place:
         _say(say, f"Going to {place['marker']}.", f"{place['marker']} 위치로 갈게요.")
@@ -647,7 +783,7 @@ def _drive_to(place, say, watch_holding=False):
     ok, msg = go()
     if not ok:
         raise FetchError(f"I couldn't start driving ({msg}).")
-    _wait_drive(watch_holding, again=go)
+    _wait_drive(watch_holding, again=go, goal=None if "marker" in place else (place["x"], place["y"], place["theta"]))
 
 
 # ---------- base shift ----------
@@ -758,101 +894,64 @@ def _reachable(obj):
         return None
 
 
-def _head_seen(task):
-    """The task's object as the head camera sees it now ({"x", "y"} mm, arm frame), seen at least twice in
-    HEAD_READS reads at about the same place; None when not."""
-    hits = []
+def _head_seen(match):
+    """{"x", "y"} mm (arm frame) of a thing `match(detection)` takes that the head camera saw at least twice in
+    HEAD_READS fresh frames within HEAD_SAME_MM, with "head": True (its depth is not the torso camera's: it only shows
+    where to go); None when not, or when the head camera is not calibrated."""
+    if not _head_ok():
+        return None
+    hits, last = [], 0.0
     for _ in range(HEAD_READS):
-        for o in objects.latest("head")["objects"]:
-            if o["name"] == task["object"] and task.get("colour") in (None, o.get("colour")) and o.get("position_mm"):
-                hits.append(np.array(o["position_mm"][:2], float))
-        time.sleep(0.3)
+        last = (skills.fresh(camview.det_path("head"), "head", last + 0.01) or last)
+        hits += [np.array(o["position_mm"][:2], float) for o in objects.latest("head")["objects"]
+                 if o.get("position_mm") and match(o)]
     for h in hits:
         near = [g for g in hits if np.linalg.norm(g - h) <= HEAD_SAME_MM]
         if len(near) >= 2:
             x, y = np.mean(near, axis=0)
-            return {"x": float(x), "y": float(y)}
+            return {"x": float(x), "y": float(y), "head": True}
     return None
 
 
-def _head_yaws(side):
-    """Head yaws of one search: ahead, then up to HEAD_SCAN_MAX_DEG towards `side` (+1 left), then the other side."""
-    n = int(HEAD_SCAN_MAX_DEG // HEAD_SCAN_STEP_DEG)
-    steps = [k * HEAD_SCAN_STEP_DEG for k in range(1, n + 1)]
-    return [0.0] + [side * a for a in steps] + [-side * a for a in steps]
+def _is_task(o, task):
+    return o["name"] == task["object"] and objects.same_colour(task.get("colour"), o.get("colour"))
 
 
-def _head_search(task, side, say=None):
-    """Look for the object with the head camera (_head_yaws): it sees further and to the sides than the torso camera.
-    When found, turn the base to face it and drive straight towards it (checked moves), then find it with the torso
-    camera. None when the head camera did not see it or the torso camera still can't."""
-    _, _, yaw0, pitch0 = head.status()
-    found = None
-    try:
-        for yaw in _head_yaws(side):
-            _head_to(yaw, HEAD_LOW_PITCH)
-            found = _head_seen(task)
-            if found:
-                log(f"the head camera sees the {task['object']} at ({found['x']:.0f}, {found['y']:.0f}) mm "
-                    f"(head turned {yaw:+.0f} deg)")
-                break
-    finally:
-        _head_to(yaw0, pitch0)
-    if found is None:
-        return None
-    _say(say, "I see it. Going there.", "찾았어요. 그쪽으로 갈게요.")
-    move = approach_move((found["x"], found["y"]), arm_yaw(), arm_xy())
-    if move is None:
-        return _find_any(task)
-    turn, dist = move
-    if abs(turn) >= TURN_MIN_DEG and not _turn(turn, why="to face it"):
-        return None
-    if dist > PROBE_STEP_M:
-        _straight_clear(min(dist, HEAD_DRIVE_MAX_M))
-    return _find_any(task)
+def arm_frame(world):
+    """A map point (m) in the arm base frame now (mm)."""
+    x, y, th = agv.pose()
+    b = _rot(-math.degrees(th)) @ (np.asarray(world, float) - [x, y])
+    return _rot(-arm_yaw()) @ (b - arm_xy()) * 1000.0
 
 
-def _look_around(task, say=None):
-    """Search with the head before the base moves: the head looks to the side with more things (first_side) as far
-    as it turns, then to the other side; then the base turns half round (checked turns) and the head looks again.
-    Not found: the lift goes to its other end (down when it is up, up when it is down) and all of it again. Without
-    a calibrated head camera: the base-turning search (_search)."""
-    if head_cam.base_from_head(0.0, HEAD_LOW_PITCH) is None or arm_yaw() is None:
-        return _search(lambda: _find_any(task), say=say)
-    here = head.status()[0]
-    other = LIFT_TRIES[1] if here < sum(LIFT_TRIES) / 2 else LIFT_TRIES[0]
-    side = None
-    for n, lift in enumerate((None, other)):
-        if lift is not None:
-            _lift_to(lift)
-            got = _find_any(task)
-            if got is not None:
-                return got
-        for half in range(2):
-            if half and not _charging():
-                if not all(_turn(side * 180.0 / BASE_HALF_STEPS) for _ in range(BASE_HALF_STEPS)):
-                    break                          # a turn was refused: the rest of that half is not looked at
-            elif half:
-                break                              # on the charger: the head and the lifts only
-            if side is None:
-                side = first_side()
-                _say(say, "Let me look around.", "주변을 둘러볼게요.")
-            got = _head_search(task, side, say)
-            if got is not None:
-                return got
-    return None
+def _go_to(thing, goal, tried, holding=False):
+    """Bring a thing seen at thing["x"], ["y"] (mm, arm frame now, the waist anywhere) to `goal` with the base
+    (_approach): its map place is kept while the waist turns to the front (the base never moves with it turned)."""
+    w = map_xy(thing)
+    _waist_front()
+    x, y = arm_frame(w)
+    _approach({"x": float(x), "y": float(y)}, arm_yaw(), tried, goal=goal, holding=holding)
 
 
 def _see(task, say=None):
-    """Find the object here (else look with the head camera, else search by turning), fit the lift to its table and
-    look once more."""
-    obj = _find_any(task) or _look_around(task, say)
-    if obj is None:
-        _lift_to(LIFT_DRIVE_MM)
-        thing = OBJECTS[task["object"]]
-        raise FetchError(f"I looked all around, but I can't see the {task['object']}.",
-                         f"주변을 다 봤는데 {thing}{'이' if _object_particle(thing) == '을' else '가'} 안 보여요.")
-    return _fitted(task, obj)
+    """Find the object (_look_around: the torso camera, else the head camera, which shows where to go: the base goes
+    there and they look again), fit the lift to its table and look once more."""
+    tried = set()
+    for i in range(APPROACH_TRIES + 1):
+        obj = _look_around(lambda: _find_any(task) or _head_seen(lambda o: _is_task(o, task)), say=say if i == 0 else None)
+        if obj is None:
+            break
+        if not obj.get("head"):
+            return _fitted(task, obj)
+        log(f"the head camera sees the {task['object']} at ({obj['x']:.0f}, {obj['y']:.0f}) mm")
+        if i == APPROACH_TRIES or arm_yaw() is None or _charging():
+            break
+        _say(say, "I see it. Going there.", "찾았어요. 그쪽으로 갈게요.")
+        _go_to(obj, PICK_ZONE_CENTRE, tried)
+    _lift_to(LIFT_DRIVE_MM)
+    thing = OBJECTS[task["object"]]
+    raise FetchError(f"I looked all around, but I can't see the {task['object']}.",
+                     f"주변을 다 봤는데 {thing}{'이' if _object_particle(thing) == '을' else '가'} 안 보여요.")
 
 
 def _fitted(task, obj):
@@ -869,6 +968,7 @@ def _straight_clear(dist, speed=None):
     """Drive straight by `dist` m (+ forward), only as far as the base keeps BASE_HALF_M + CLEAR_M from every obstacle
     the sensors and the map show (checked every PROBE_STEP_M before it starts; getting further from one is fine).
     Returns the distance driven (m)."""
+    _waist_front()
     x, y, th = agv.pose()
     sign = 1.0 if dist > 0 else -1.0
     free, last = 0.0, agv.clearance(x, y)
@@ -906,20 +1006,21 @@ def _approach(obj, yaw, tried, goal=PICK_ZONE_CENTRE, holding=False):
     x, y, th = agv.pose()
     world = np.array([x, y]) + _rot(math.degrees(th)) @ to_base((obj["x"], obj["y"]), yaw, t)
     facing = th + math.radians(turn)
-    _lift_to(LIFT_DRIVE_MM)
+    _waist_front()                                    # the lift stays: a short move, the look after it is at this lift
     for side in APPROACH_SIDES:
         if side in tried:
             continue
         tried.add(side)
         sx, sy, sth = side_pose(world, facing + math.radians(side), yaw, t, goal=goal)
+        sth = (sth + math.pi) % (2 * math.pi) - math.pi
         log(f"driving round to ({sx:.2f}, {sy:.2f}) to come in from {side:+d} deg")
-        go = lambda: agv.go_point(sx, sy, (sth + math.pi) % (2 * math.pi) - math.pi)
+        go = lambda: agv.go_point(sx, sy, sth)
         ok, msg = go()
         if not ok:
             log(f"no way there: {msg}")
             continue
         try:
-            _wait_drive(watch_holding=holding, again=go)
+            _wait_drive(watch_holding=holding, again=go, goal=(sx, sy, sth))
             return
         except FetchError as e:
             log(f"no way there: {e}")
@@ -1003,6 +1104,14 @@ def _reach(task, obj, say):
             return (obj, *plan)
         if yaw is None or i == APPROACH_TRIES or _charging():
             break
+        w = _waist_turn()
+        if abs(w) >= TURN_MIN_DEG:                    # seen with the waist turned: the base turns that way instead
+            _step("turning to face it", say)
+            _pose(_look())
+            if not _turn(w, why="to face it"):
+                break
+            obj, yaw = _see(task, say), arm_yaw()
+            continue
         _step(f"moving to reach it ({i + 1}/{APPROACH_TRIES})", say,
               *(("Let me get closer to it.", "가까이 가 볼게요.") if i == 0 else ()))
         before, mem = (agv.pose(), (obj["x"], obj["y"])), remember(obj, yaw)
@@ -1027,27 +1136,30 @@ def _reach(task, obj, say):
 
 
 def table_ahead():
-    """Height (mm) of the table in front: median depth surface over the place grid, only values near
-    the arm can work at (surface_band) count; None when too little table is in view."""
-    band = surface_band()
-    zs = [z for z in skills.surface_heights([(x, y) for y in PLACE_GRID_Y for x in PLACE_GRID_X])
-          if z is not None and band[0] <= z <= band[1]]
-    return statistics.median(zs) if len(zs) >= 4 else None
+    """Height (mm) of the table in front: the level top most sight lines over the place grid meet (skills.flat_top:
+    a chair's back or seat, the table's edge, the floor don't count) at a height the arm can work at (surface_band);
+    None when too little table is in view."""
+    top = skills.flat_top([(x, y) for y in PLACE_GRID_Y for x in PLACE_GRID_X], surface_band())
+    return None if top is None else top[0]
 
 
 def place_spots(held, base_now, seen, table=None):
     """Where the held object may go: the pick spot when the base has not moved since the pick, then free grid spots
     the depth camera sees as table at `table` mm (default: the pick table's height), nearest the pick zone centre
-    first."""
+    first. Free: FREE_MM from everything seen standing on the table."""
     b0 = held.get("base")
     same = b0 is not None and math.hypot(base_now[0] - b0[0], base_now[1] - b0[1]) < SAME_BASE_M \
-        and abs((base_now[2] - b0[2] + math.pi) % (2 * math.pi) - math.pi) < SAME_BASE_RAD
+        and abs((base_now[2] - b0[2] + math.pi) % (2 * math.pi) - math.pi) < SAME_BASE_RAD \
+        and abs(held.get("waist", 0.0) - _waist_turn()) < 1.0
     tries = [(held["x"], held["y"])] if same else []
     others = [o for o in seen if not (same and math.hypot(o["x"] - held["x"], o["y"] - held["y"]) < skills.CLUSTER_MM)]
     table = held.get("table") if table is None else table
     if table is None:                    # the held one's bottom was out of view: another object on the table
         zs = [skills.table_z(o) for o in seen if skills.table_z(o) is not None]
         table = statistics.median(zs) if zs else None
+    if table is not None:                # a box no higher than the table is the table itself under another name (a
+        others = [o for o in others      # round white table read "sink" and "chair", 2026-10-20)
+                  if o.get("top_mm") is None or o["top_mm"] - table > skills.TABLE_TOL_MM]
     grid = sorted(((x, y) for y in PLACE_GRID_Y for x in PLACE_GRID_X
                    if all(math.hypot(x - o["x"], y - o["y"]) >= skills.FREE_MM for o in others)),
                   key=lambda p: math.hypot(p[0] - PICK_ZONE_CENTRE[0], p[1] - PICK_ZONE_CENTRE[1]))
@@ -1056,7 +1168,7 @@ def place_spots(held, base_now, seen, table=None):
 
 def _place_here(top0):
     """One look for a place from where the arm is (look, the held object out of the view): measure the table, fit the
-    lift, try the spots. True when the object was put down."""
+    lift, try the spots. True when the object was put down, else None."""
     table = table_ahead()
     if _fit_lift(table):
         table = table_ahead()
@@ -1065,11 +1177,15 @@ def _place_here(top0):
         top += table - held_table                     # the same object on a table this much higher / lower
     log(f"table here at {table:.0f} mm" if table is not None else "no table in view")
     if table is None:                    # never put it down on a table not measured right now
-        return _to_far_table(top0)
+        return None
     tries = place_spots(skills._held, agv.pose(), skills.look(), table)
-    if not tries:
-        return _to_far_table(top0)
-    return _place_at(tries, top)
+    return _place_at(tries, top) if tries else None
+
+
+def _place_view(top0):
+    """At one view of the search: put it down in reach (True), else a table further away to go to (far_table), else
+    None."""
+    return _place_here(top0) or (far_table() if arm_yaw() is not None else None)
 
 
 def _place_at(tries, top):
@@ -1097,48 +1213,26 @@ def _place_at(tries, top):
 
 
 def far_table():
-    """(x, y) mm of a free table spot the torso depth camera sees beyond the place grid (the nearest whole one, its
-    ring all table) and the table's height, or None. Surfaces no lift brings into SURFACE_Z are not
-    tables (floor, low seats)."""
-    pts = [(x, y) for y in FAR_GRID_Y for x in FAR_GRID_X]
+    """A table seen further away by the torso camera, else by the head camera as it is turned: {"x", "y"} (mm, arm
+    frame now) FAR_IN_MM in from the point of its level top nearest PLACE_GOAL (that is its edge), "table" (its height,
+    mm), "camera"; None when neither sees a level top at a height some lift can work at (surface_band)."""
     band = surface_band()
-    hits = [(p, z) for p, z in zip(pts, skills.surface_heights(pts, TABLE_PROVEN_Z))
-            if z is not None and band[0] <= z <= band[1]]
-    if len(hits) < 4:
-        return None
-    table = statistics.median(z for _, z in hits)
-    near = sorted((p for p, z in hits if abs(z - table) <= skills.TABLE_TOL_MM),
-                  key=lambda p: math.hypot(p[0] - PLACE_GOAL[0], p[1] - PLACE_GOAL[1]))[:FAR_TRIES]
-    spots = skills.on_table(near, table)
-    return (spots[0], table) if spots else None
-
-
-def _to_far_table(top0):
-    """No place in reach but a table further away: bring the base to it (as for a pick) and look for a place
-    again, up to APPROACH_TRIES times. None when there is no table in view or it can't be reached."""
-    yaw, tried = arm_yaw(), set()
-    for i in range(APPROACH_TRIES):
-        far = far_table()
-        if far is None or yaw is None or _charging():
-            return None
-        (x, y), table = far
-        log(f"a table at {table:.0f} mm further away, free at ({x:.0f}, {y:.0f}): going closer ({i + 1}/{APPROACH_TRIES})")
-        try:
-            _approach({"x": x, "y": y}, yaw, tried, goal=PLACE_GOAL, holding=True)
-        except FetchError as e:
-            log(f"{e}")
-            return None
-        table = table_ahead()
-        if _fit_lift(table):
-            table = table_ahead()
-        top, held_table = top0, skills._held.get("table")
-        if table is not None and held_table is not None:
-            top += table - held_table
-        if table is None:
+    views = [("torso", skills.objects.base_from_camera())]
+    if _head_ok():
+        views.append(("head", head_cam.base_from_head(*head.status()[2:])))
+    for cam, T in views:
+        if T is None:
             continue
-        tries = place_spots(skills._held, agv.pose(), skills.look(), table)
-        if tries and _place_at(tries, top):
-            return True
+        a = math.degrees(math.atan2(T[1, 2], T[0, 2]))          # where the camera looks, in the arm frame
+        pts = [(r * math.cos(math.radians(a + b)), r * math.sin(math.radians(a + b)))
+               for r in FAR_R_MM for b in range(-FAR_HALF_DEG, FAR_HALF_DEG + 1, FAR_STEP_DEG)]
+        top = skills.flat_top(pts, band, TABLE_PROVEN_Z, cam, T)
+        if top is None:
+            continue
+        p = np.array(min(((q[0], q[1]) for q in top[1]),
+                         key=lambda q: math.hypot(q[0] - PLACE_GOAL[0], q[1] - PLACE_GOAL[1])))
+        p += FAR_IN_MM * p / max(float(np.linalg.norm(p)), 1.0)
+        return {"x": float(p[0]), "y": float(p[1]), "table": top[0], "camera": cam}
     return None
 
 
@@ -1164,14 +1258,14 @@ def colour_of(obj):
     from a box changes with the view (a chair read grey, blue, orange and yellow while the robot moved, 2026-10-16)."""
     w = map_xy(obj)
     for k in known_things():
-        if w is not None and k["name"] == obj["name"] and math.hypot(w[0] - k["map"][0], w[1] - k["map"][1]) < KNOWN_M:
+        if w is not None and _same_kind(k["name"], obj["name"]) and math.hypot(w[0] - k["map"][0], w[1] - k["map"][1]) < KNOWN_M:
             return k["colour"]
     return obj.get("colour")
 
 
 def teach_thing(name, colour):
     """Remember the nearest `name` seen now as a `colour` one, by its place on the map. Returns it and its map place."""
-    seen = [o for o in skills.look() if o["name"] == name]
+    seen = [o for o in skills.look(ignore=()) if _same_kind(o["name"], name)]
     if not seen:
         raise FetchError(f"I can't see a {name} now.")
     o = min(seen, key=lambda o: math.hypot(o["x"], o["y"]))
@@ -1185,58 +1279,160 @@ def teach_thing(name, colour):
     return o, w
 
 
-def _support(on):
-    """The nearest thing of the class (and colour: the taught one first, colour_of) `on` names, or None."""
-    seen = [o for o in skills.look() if o["name"] == on["name"] and (not on.get("colour") or colour_of(o) == on["colour"])]
-    return min(seen, key=lambda o: math.hypot(o["x"], o["y"])) if seen else None
+def _same_kind(a, b):
+    """Two camera classes that may name the same thing: equal, or both FURNITURE (one white table was "chair", "sink"
+    and "dining table" from frame to frame and camera to camera, 2026-10-20)."""
+    return a == b or (a in FURNITURE and b in FURNITURE)
+
+
+def _matches(o, on):
+    """A detection is what `on` names (its class or one of "alts", furniture for furniture) in its colour."""
+    return any(_same_kind(o["name"], n) for n in [on["name"]] + list(on.get("alts") or ())) \
+        and objects.same_colour(on.get("colour") or None, colour_of(o))
+
+
+def _workable(thing, heights=None):
+    """The flat top (mm) of a thing the torso camera sees near enough to trust it (TOP_NEAR_MM) when some lift can
+    work at it; None when not (no level top: a chair's back; too low or high; too far to measure). A top measured
+    but out of reach is added to `heights`."""
+    if math.hypot(thing["x"], thing["y"]) > TOP_NEAR_MM:
+        return None
+    top = _top_of(thing)
+    if top is not None and lift_for(top) is None and heights is not None:
+        heights.append(top)
+    return top if top is not None and lift_for(top) is not None else None
+
+
+def _support(on, seen=None, heights=None):
+    """The thing `on` names (_matches; the cameras' labels flip, the level top decides): the nearest the torso camera
+    sees with a top the arm can work at, or one further away (its top is measured up close); else one the head camera
+    sees ("head": True). None when neither sees one. `seen`: skills.look(ignore=()) of now; the tops of ones seen
+    out of the arm's reach go to `heights`."""
+    near = lambda o: math.hypot(o["x"], o["y"])
+    for o in sorted((o for o in (skills.look(ignore=()) if seen is None else seen) if _matches(o, on)), key=near):
+        if near(o) > TOP_NEAR_MM or _workable(o, heights) is not None:
+            return o
+    return _head_seen(lambda o: _matches(o, on))
 
 
 def _top_of(thing):
-    """Height (mm) of the flat top of `thing` (a chair's seat, not its back): the median depth surface on a disc of
-    SUPPORT_DISC_MM around its centre, below its highest point; None when too little of it is seen."""
+    """Height (mm) of the level top of `thing` (a chair's seat, not its back): skills.flat_top on a disc of
+    SUPPORT_DISC_MM around its centre, aimed at its box top and 15 cm lower (a seat below a chair's back); the one
+    more sight lines agree on. None when too little of it is seen."""
     pts = [(thing["x"] + r * math.cos(a), thing["y"] + r * math.sin(a))
            for r in (0.0, SUPPORT_DISC_MM / 2, SUPPORT_DISC_MM) for a in np.linspace(0, 2 * math.pi, 8, endpoint=False)]
     top = thing.get("top_mm") or TABLE_PROVEN_Z
-    zs = [z for z in skills.surface_heights(pts, top - 150.0) if z is not None and z < top - 30.0]
-    return statistics.median(zs) if len(zs) >= 6 else None
+    tries = [t for t in (skills.flat_top(pts, (-float("inf"), top + 30.0), guess) for guess in (top - 150.0, top)) if t]
+    return max(tries, key=lambda t: (len(t[1]), t[0]))[0] if tries else None
+
+
+def _usable(usable, seen):
+    """At one view while looking for a named thing: note in `usable` every surface the object could go on instead, by
+    its map place: the table in front, a table further away (far_table) and furniture with a level top the arm can
+    work at, with a name for it ("grey table"). `seen`: skills.look(ignore=()) of now."""
+    if arm_yaw() is None:
+        return
+    things = [o for o in seen if o["name"] not in objects.ROUND]
+    def name(xy):
+        near = [o for o in things if math.hypot(o["x"] - xy[0], o["y"] - xy[1]) < SUPPORT_NEAR_MM]
+        o = min(near, key=lambda o: math.hypot(o["x"] - xy[0], o["y"] - xy[1])) if near else None
+        return " ".join(w for w in (colour_of(o), o["name"].replace("dining table", "table")) if w) if o else "table"
+    if table_ahead() is not None:
+        usable.append((map_xy({"x": PLACE_GOAL[0], "y": PLACE_GOAL[1]}), name(PLACE_GOAL)))
+    far = far_table()
+    if far:
+        usable.append((map_xy(far), name((far["x"], far["y"]))))
+    for o in things:
+        if o["name"] in FURNITURE and _workable(o) is not None:
+            usable.append((map_xy(o), name((o["x"], o["y"]))))
+
+
+def _place_near(top0, tried):
+    """Put it down on a table in front, going closer to a table seen further ahead up to APPROACH_TRIES times (no
+    whole search). True when it is down."""
+    for i in range(APPROACH_TRIES + 1):
+        got = _look_at(0.0, lambda: _place_view(top0))
+        if got is True:
+            return True
+        if got is None or i == APPROACH_TRIES or _charging():
+            return False
+        log(f"a table at {got['table']:.0f} mm further away ({got['camera']} camera), at ({got['x']:.0f}, "
+            f"{got['y']:.0f}): going closer ({i + 1}/{APPROACH_TRIES})")
+        _go_to(got, PLACE_GOAL, tried, holding=True)
+    return False
 
 
 def _put_on(top0, on, say):
-    """Put the held object on a named thing that is not a table (a chair, a couch...): find it (searching like for an
-    object), measure its flat top, fit the lift and put it there when the arm can reach that height; else say why.
-    A chair seat is ~30 cm lower than a table: the arm reaches no place there even at lift 0 (IK, 2026-10-16)."""
-    label = " ".join(w for w in (on.get("colour"), on["name"]) if w)
-    yaw, tried = arm_yaw(), set()
+    """Put the held object on a named thing (a chair, a sink, "the white table", "the table or chair"): one search
+    (_look_around) for it (_support); seen: go to it, measure its level top, fit the lift and put it there. Not seen,
+    but another surface the arm can work at was (_usable): go to the nearest, put it there and say so. Nothing: say
+    why. A chair seat is ~30 cm lower than a table: the arm reaches no place there even at lift 0 (IK, 2026-10-16)."""
+    words = [on["name"]] + list(on.get("alts") or ())
+    label = " ".join(w for w in (on.get("colour"), " or ".join(n.replace("dining table", "table") for n in words)) if w)
+    tried, usable, heights = set(), [], []
+    def view():
+        seen = skills.look(ignore=())
+        return _support(on, seen, heights) or _usable(usable, seen)
+    thing = _look_around(view, holding=True, say=say)
     for i in range(APPROACH_TRIES + 1):
-        thing = _search(lambda: _support(on), holding=True, say=say)
-        if thing is None:
-            raise FetchError(f"I can't see the {label} around me.", "그 물건이 안 보여요.")
-        surface = _top_of(thing)
-        if surface is None:
-            raise FetchError(f"I can't see the top of the {label} well enough.", "윗면이 잘 안 보여요.")
-        off = surface - TABLE_PROVEN_Z
-        log(f"{label} at ({thing['x']:.0f}, {thing['y']:.0f}), its top at {surface:.0f} mm")
-        if lift_for(surface) is None:
+        if thing is None and heights and not usable:          # seen, but no lift brings its top in reach
+            off = heights[0] - TABLE_PROVEN_Z
             raise FetchError(f"The top of the {label} is {abs(off) / 10:.0f} cm {'lower' if off < 0 else 'higher'} "
                              "than a table: my arm can't put things there.", "높이가 맞지 않아서 거기에는 놓을 수 없어요.")
+        if thing is None:
+            return _put_instead(top0, label, usable, tried, say)
+        surface = None if thing.get("head") else _workable(thing)
+        can_move = arm_yaw() is not None and i < APPROACH_TRIES and not _charging()
+        if surface is None:
+            if not can_move:
+                raise FetchError(f"I can't see the top of the {label} well enough.", "윗면이 잘 안 보여요.")
+            log(f"{label} at ({thing['x']:.0f}, {thing['y']:.0f}): going closer to measure its top")
+            _go_to(thing, PLACE_GOAL, tried, holding=True)
+            thing = _look_at(0.0, lambda: _support(on))
+            continue
+        log(f"{label} at ({thing['x']:.0f}, {thing['y']:.0f}), its top at {surface:.0f} mm")
         if _fit_lift(surface):
-            continue                                  # look again from the new height
+            thing = _look_at(0.0, lambda: _support(on))             # look again from the new height
+            continue
         held_table = skills._held.get("table")
         top = top0 + (surface - held_table if held_table is not None else 0.0)
         spots = skills.on_table([(thing["x"] + dx, thing["y"] + dy) for dx in (0, -50, 50) for dy in (0, -50, 50)],
                                 surface)
+        spots += [p for p in place_spots(skills._held, agv.pose(), skills.look(), surface)   # a big top (a table):
+                  if math.hypot(p[0] - thing["x"], p[1] - thing["y"]) <= NEAR_THING_MM and p not in spots]  # its near part
         if spots and _place_at(spots, top):
             return True
-        if yaw is None or i == APPROACH_TRIES or _charging():
+        if not can_move:
             break
-        _approach({"x": thing["x"], "y": thing["y"]}, yaw, tried, goal=PLACE_GOAL, holding=True)
+        _go_to(thing, PLACE_GOAL, tried, holding=True)
+        thing = _look_at(0.0, lambda: _support(on))
     raise FetchError(f"I couldn't reach a free spot on the {label}.", "놓을 자리에 손이 닿지 않아요.")
 
 
+def _put_instead(top0, label, usable, tried, say):
+    """The named thing was not seen: put it on the nearest other surface seen on the way (`usable`: (map place, name))
+    and say so. FetchError when there was none, or none could be reached."""
+    if not usable or arm_yaw() is None:
+        raise FetchError(f"I looked all around, but I can't see the {label}, and no other table I could put it on.",
+                         "주변을 다 봤는데 그곳도, 놓을 만한 다른 곳도 안 보여요.")
+    x, y, _ = agv.pose()
+    w, name = min(usable, key=lambda u: math.hypot(u[0][0] - x, u[0][1] - y))
+    held = held_name().replace("something", "it")
+    log(f"no {label} anywhere; the {name} at ({w[0]:.2f}, {w[1]:.2f}) on the map can take it: going there")
+    xy = arm_frame(w)
+    _go_to({"x": float(xy[0]), "y": float(xy[1])}, PLACE_GOAL, tried, holding=True)
+    if not _place_near(top0, tried):
+        raise FetchError(f"I couldn't find the {label}, and I couldn't reach a free spot on the {name} either.",
+                         "그곳을 못 찾았고, 다른 곳에도 놓지 못했어요.")
+    _say(say, f"I couldn't find the {label}, so I put {held} on the {name} here.",
+         "말씀하신 곳을 못 찾아서 여기 있는 다른 곳에 놓았어요.")
+    return True
+
+
 def _put_down(say=None, on=None):
-    """Straight to look with the object (carry hides the table from the torso camera), then search for a free
-    table spot: here, a table further away (the base goes closer), at other lifts, turning on the spot; put it
-    down, back to look. `on` (brain.place_on): put it on that named thing instead (a table: as above)."""
+    """Straight to look with the object (carry hides the table from the torso camera), then one search (_look_around)
+    for a free table spot in reach or a table further away (the base goes closer, then it looks ahead again); put it
+    down, back to look. `on` (brain.place_on): put it on that named thing instead (a table with no colour: as above)."""
     top = skills._held.get("top_mm")
     if top is None:
         raise FetchError("I'm not holding anything I picked.")
@@ -1245,9 +1441,18 @@ def _put_down(say=None, on=None):
     if on and (on.get("name") != "dining table" or on.get("colour")):
         _put_on(top, on, say)                       # a chair, or "the white table": that thing, by colour
         return
-    if _search(lambda: _place_here(top), holding=True, say=say) is None:
-        _lift_to(LIFT_DRIVE_MM)
-        raise FetchError("I can't find a free place on a table around me.", "주변에 내려놓을 빈 자리를 못 찾았어요.")
+    tried = set()
+    got = _look_around(lambda: _place_view(top), holding=True, say=say)
+    if got is True:
+        return
+    if got is not None and arm_yaw() is not None and not _charging():
+        log(f"a table at {got['table']:.0f} mm further away ({got['camera']} camera), at ({got['x']:.0f}, "
+            f"{got['y']:.0f}): going closer")
+        _go_to(got, PLACE_GOAL, tried, holding=True)
+        if _place_near(top, tried):
+            return
+    _lift_to(LIFT_DRIVE_MM)
+    raise FetchError("I can't find a free place on a table around me.", "주변에 내려놓을 빈 자리를 못 찾았어요.")
 
 
 def _give(say):
@@ -1303,8 +1508,10 @@ def _pick_here(task, say):
     obj, waypoints, ja = _reach(task, obj, say)
     _step("picking")
     skills._guarded(skills._do_pick, obj, waypoints, ja)   # ends 3 cm above the table, holding
-    skills._held["base"] = agv.pose()                       # place_spots: put back here if the base stays
-    _set(holding=True)
+    skills._held["base"] = agv.pose()                       # place_spots: put back here if the base stays ...
+    skills._held["waist"] = _waist_turn()                   # ... and the waist too
+    skills._held["what"] = {"object": task["object"], "colour": task.get("colour")}   # held_name() when the state lost it
+    _set(holding=True, held_object=skills._held["what"])
     _say(say, "I've got it.", "잡았어요.")
     _step("carry")
     skills._guarded(skills._line, "up", waypoints[0][1])   # straight up to the approach height first
@@ -1336,12 +1543,21 @@ def _clear():
     """Before a run: a stop() from now on stays set for the whole run (skills.pick() would clear it itself)."""
     _stop.clear()
     _pause.clear()
+    _set(paused=False)
     skills._cancel.clear()
 
 
 def _launch(fn, *a):
     global _thread
-    _thread = threading.Thread(target=fn, args=a, daemon=True)
+
+    def run():
+        fn(*a)
+        if not _stop.is_set():                   # done or failed: the head looks ahead again (not after a STOP)
+            try:
+                head_ahead()
+            except Exception as e:
+                log(f"head ahead failed: {e}")
+    _thread = threading.Thread(target=run, daemon=True)
     _thread.start()
 
 
@@ -1401,7 +1617,7 @@ def start(task, say=None):
             _forget_held()
         if held:
             _set(holding=True)
-            raise FetchError("I'm holding something, where should I put it first?")
+            raise FetchError(f"I'm holding {held_name()}, where should I put it first?")
     problems = validate(task, agv.markers() if _needs_markers(task) else [])
     if problems:
         raise FetchError(" ".join(problems))
@@ -1572,7 +1788,6 @@ def _do_step(s, say):
             raise FetchError("My hand does not open.", "손이 안 열려요.")
         _pose(_look())
         _pick_here({"object": s["object"], "colour": s.get("colour")}, say)
-        _set(task={**(_state.get("task") or {}), "object": s["object"], "colour": s.get("colour")})   # held_name
     elif d == "receive":
         _receive(s.get("object"), say)
     elif d == "say":
@@ -1771,7 +1986,9 @@ def _receive(name, say, wait_s=None, at=None):
         raise FetchError("I couldn't hold it, my hand closed on nothing.", "잡지 못했어요.")
     skills._held.clear()                         # nothing measured: where it sits in the hand is not known
     skills._held["received"] = True
-    _set(holding=True, task={**(_state.get("task") or {}), "object": name})
+    skills._held["what"] = {"object": name, "colour": None} if name else None
+    _set(holding=True, task={**(_state.get("task") or {}), "object": name},
+         held_object={"object": name, "colour": None} if name else None)
     _say(say, "Thank you, I've got it.", "고마워요, 받았어요.")
     _line_holding(LOOK_POSE)
 
@@ -1792,9 +2009,13 @@ def _arm(pose):
 
 
 def held_name():
-    """"the white cup" / "the cup": what the last fetch took, for "I'm holding the cup"."""
-    t = _state.get("task") or state().get("task") or {}
-    return " ".join(["the"] + [w for w in (t.get("colour"), t.get("object")) if w]) if t.get("object") else "something"
+    """"the white cup" / "the cup": the held object (held_object, kept in the state file across tasks and restarts),
+    for "I'm holding the cup"; "something" when it is not known (taken over from the hand)."""
+    s = state()
+    h = _state.get("held_object") or s.get("held_object") or {}
+    if not h and (_state["holding"] or s.get("holding")):        # the state lost it: kept with the pick's data too
+        h = skills._held.get("what") or (s.get("held") or {}).get("what") or {}
+    return " ".join(["the"] + [w for w in (h.get("colour"), h.get("object")) if w]) if h.get("object") else "something"
 
 
 def carry_sentence(dest, then=None):
@@ -1870,9 +2091,9 @@ def _straight(dist_m, speed=None):
             time.sleep(0.1)
     finally:
         agv.request("/api/joy_control?linear_velocity=0&angular_velocity=0")
+    skills.moved(after=COAST_S)                  # frames from after the base has coasted to a stop
     if _stop.is_set():
         raise Stopped()
-    time.sleep(COAST_S)
     return abs(dist_m) if time.time() >= t_end else min(abs(dist_m), (time.time() - t0) * speed)
 
 
@@ -1926,7 +2147,7 @@ def measure_axis(name=None):
     try:
         moved = True
         _straight(AXIS_STEP_M)
-        time.sleep(1.0)                              # let the camera service see the new view
+        time.sleep(1.0)                              # the base coasts to a stop: its pose and the view at rest
         after = steady(skills.look())
         p1 = agv.pose()
     finally:

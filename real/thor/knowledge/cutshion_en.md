@@ -24,7 +24,7 @@ Cutshion partners listed on its website include OMRON, Zimmer Group Korea, Scree
 
 Cutshion's robot apps: barista robot, AI drawing robot, welding robot, palletizing robot, cooking robot, ice cream robot, candy ball robot and an educational robot kit. Its technology: CUVision (AI vision), Pionoid (robot development platform) and GOMCOOK (cooking robot platform). It also sells collaborative robots, TUSK logistics robots, PEITIAN industrial robots and SOLIDWORKS design software.
 
-Cutshion's barista robot makes espresso coffee fully automatically. Unlike vending coffee robots, it runs a real espresso machine and does the barista's main steps itself: grinding the beans, dosing, tamping and extracting. It is an all-in-one barista station that keeps the same taste every time, serves fast and reliably and lowers staff costs. It works together with human baristas, taking over the repeated steps. In December 2025 Cutshion signed a yearly barista robot supply agreement with Mega Coffee. In September 2026 news reported a contract to supply 200 barista robots to Sonovictus in the USA, delivered over three years from 2027. Its price is not on the website, so Lumi does not know it.
+Cutshion's barista robot makes espresso coffee fully automatically. Unlike vending coffee robots, it runs a real espresso machine and does the barista's main steps itself: grinding the beans, dosing, tamping and extracting. It is an all-in-one barista station that keeps the same taste every time, serves fast and reliably and lowers staff costs. It works together with human baristas, taking over the repeated steps. In December 2025 Cutshion signed a yearly barista robot supply agreement with Mega Coffee. In September 2026 news reported a deal (contract) to supply 200 barista robots to Sonovictus in the USA (the US deal), delivered over three years from 2027. Its price is not on the website, so Lumi does not know it.
 
 Cutshion's AI drawing robot takes your photo with a camera, AI turns it into a line drawing, and the robot arm draws it on a canvas. One button starts the selfie and the drawing. It can be mobile or fixed, comes as an all-in-one type or a kiosk type, and a brand can be printed on the photo backdrop, the arm and the canvas, so it is popular for promotion at events and in education. Drawing robots were supplied to the Gyeongnam Office of Education (2024) and two to the Jeonbuk Office of Education's science bus (2024). Its price is not on the website, so Lumi does not know it.
 
@@ -82,7 +82,7 @@ How to contact Cutshion: phone 070-8959-2960, email cutshion@cutshion.com, the w
 
 쿳션의 큐비전은 카메라 영상을 AI로 이해하는 AI 비전 기술이에요. 피오노이드는 제조사와 상관없이 하나의 통합 로봇 API로 로봇 앱을 만들 수 있는 로봇 개발 플랫폼이고, 곰쿡은 배달·주문 앱과 연동되는 조리 로봇 플랫폼이에요. 솔리드웍스 설계 소프트웨어도 공급하고, TUSK 물류로봇과 PEITIAN 산업용 로봇도 판매해요.
 
-쿳션의 수상: 로보월드 어워드 2023(곰쿡), 로보월드 어워드 2024(모바일 용접 로봇), 2026 벤처리움 데모데이 우수상, 2026 비바테크 Tech for Change Award. CES 2025, CES 2026, 2026 NRA 시카고 전시회에도 참가했어요.
+쿳션이 받은 상(수상): 로보월드 어워드 2023(곰쿡), 로보월드 어워드 2024(모바일 용접 로봇), 2026 벤처리움 데모데이 우수상, 2026 비바테크 Tech for Change Award. CES 2025, CES 2026, 2026 NRA 시카고 전시회에도 참가했어요.
 
 쿳션 본사는 서울시 영등포구 선유로 9길 10, 문래 SK V1 Center 709호예요. 같은 건물 B135호에 쿳션 문래 팩토리가 있고, 강남사무소(봉은사로 435, 벤처리움 101호), 연구소(강서구 마곡중앙8로 14, 615호), 대구지사(수성구 스마트에코타워 1004호), 미국법인(버지니아주 맥린)이 있어요. 연락처는 전화 070-8959-2960, 이메일 cutshion@cutshion.com이고, 홈페이지 cutshion.com의 문의하기로 제품 문의를 할 수 있어요.
 

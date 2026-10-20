@@ -35,6 +35,8 @@ EDGE_PX = 4                  # a box this close to the bottom of the frame is cu
 STALE_S = 1.5                # s; an older detection file means the camera service is not live
 SURE_SCORE = 0.35            # a box scoring less (person.WEAK_SCORE) is kept only when depth measures this size there:
 WEAK = {"cup": ((40, 110), (50, 250))}   # name -> (width, height) mm ranges
+WIDEST = {"cup": 100}        # mm; a box measured wider is something else: a white plant pot read "cup" at 110 mm
+                             # (2026-10-20); the widest cup the gripper takes reads ~84
 
 COCO = ("person bicycle car motorcycle airplane bus train truck boat traffic_light fire_hydrant stop_sign "
         "parking_meter bench bird cat dog horse sheep cow elephant bear zebra giraffe backpack umbrella handbag tie "
@@ -61,6 +63,14 @@ def base_from_camera():
     if m != _extr["mtime"]:
         _extr["mtime"], _extr["T"] = m, np.array(json.loads(EXTRINSICS.read_text())["T_base_cam"])
     return _extr["T"]
+
+
+LIGHT = {"white", "grey"}     # the same white cup reads "grey" in shade or from the head camera (2026-10-20)
+
+
+def same_colour(asked, seen):
+    """True when a thing seen as `seen` counts as the colour `asked` (None: any colour)."""
+    return asked is None or asked == seen or {asked, seen} <= LIGHT
 
 
 def colour_name(bgr_pixels):
@@ -141,6 +151,8 @@ def measure_all(color, depth, boxes, intr=None, T=None):
                 o.update(cut=True, height_mm=None)
                 o["position_mm"][2] = None
         if score < SURE_SCORE and not sized_like(o):
+            continue
+        if (o.get("width_mm") or 0) > WIDEST.get(o["name"], float("inf")):
             continue
         result.append(o)
     result.sort(key=lambda o: o.get("distance_m") or 99)

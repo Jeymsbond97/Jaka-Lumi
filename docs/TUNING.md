@@ -23,6 +23,7 @@ and `--start` for the detector. Line numbers are those of 2026-10-16; search the
 |---|---|---|---|
 | `tasks/fetch.py` | `SURFACE_Z` | −560 … −30 mm | Arm-frame heights (after the lift) of surfaces the arm picks from / puts on; outside: refused (floor, low seats) |
 | `tasks/fetch.py:64` | `LIFT_VEL` | 20 % | Lift speed in fetch |
+| `robot/head.py` | `LIFT_MAX_MM` | 105 mm | **Temporary** (2026-10-20): highest lift anything moves to (the head camera cable is too short). Set back to 250 when the longer cable is in; `fetch.LIFT_RANGE`, `LIFT_TRIES` and the dashboard jog follow it |
 | `tasks/fetch.py:62` | `LIFT_DRIVE_MM` | 75 mm | Lift height for every drive and at every task's end |
 | `tasks/fetch.py:96` | `AXIS_SPEED` | 0.05 m/s | Straight drives with `joy_control` (the last part of a reach, measure-axis) |
 | `tasks/fetch.py:71` | `STRAIGHT_MAX_M` | 0.6 m | A reach needing a longer drive than this goes by navigation; shorter ones turn on the spot and drive straight |
@@ -38,12 +39,23 @@ and `--start` for the detector. Line numbers are those of 2026-10-16; search the
 | File:line | Name | Now | What it does |
 |---|---|---|---|
 | `tasks/fetch.py:65–66` | `SEARCH_TURN_DEG`, `SEARCH_TURNS` | 30°, 11 | Search: look, turn on the spot, look again, all the way round |
-| `tasks/fetch.py:67` | `LIFT_TRIES` | 0, 250 mm | Nothing found: the same whole turn at these lifts |
+| `tasks/fetch.py:67` | `LIFT_TRIES` | 0, 105 mm (`LIFT_RANGE`) | Nothing found: the same whole turn at these lifts |
+| `tasks/fetch.py` | `SEARCH_MOVES` | (90°, 0.5 m), (0°, −0.3 m) | Head search found nothing here: base moves (turn towards the busier side, then straight; − = back), the head and waist look again after each |
 | `tasks/fetch.py:70` | `APPROACH_TRIES` | 5 | Base moves to bring an object into reach before asking the person |
 | `tasks/fetch.py:49` | `PICK_ZONE_CENTRE` | (−100, 580) mm | Where a base move brings an object (arm base frame) |
 | `tasks/fetch.py:83–84` | `LOST_BACK_M`, `LOST_TURN_DEG` | 0.15 m, 20° | An object lost after a base move: back off, turn each way, look again |
 | `tasks/fetch.py` | `WIDTH_NEAR_MM` | 250 mm | A width further than this from the pick zone does not refuse a pick (far widths read ~8 mm too wide); measured again up close |
-| `manipulation/skills.py:53` | `MIN_WIDTH`, `MAX_WIDTH` | 45, 84 mm | Object widths the gripper takes |
+| `manipulation/skills.py` | `MIN_WIDTH`, `MAX_WIDTH` | 61, 92 mm | Object widths the gripper takes (belly open 96, tips open 88 / close to 59; docs/gripper) |
+| `manipulation/skills.py` | `BELLY_MIN_MM` | 72 mm | Thinner objects are held between the finger tips (the belly closes only to 70 mm) |
+| `manipulation/skills.py` | `TIPS_GRASP_MM` | 0 mm | For those the arm stops this much higher (25 was too high: the tips closed above the cup) |
+| `manipulation/skills.py` | `SEEN_UNDER_MM` | 8 mm | Added to the camera's width to get the width the fingers meet (`grip_width`), which the limits above are compared with |
+| `tasks/fetch.py` | `HEAD_SCAN_STEP_DEG`, `HEAD_SCAN_MAX_DEG` | 60°, 180° | Search with the head camera: ahead, then every step to one side up to the max, then the other side |
+| `tasks/fetch.py` | `BASE_HALF_STEPS` | 3 | Then the base turns half round in this many checked turns and the head looks again |
+| `tasks/fetch.py` | `HEAD_READS`, `HEAD_SAME_MM` | 4, 120 mm | Detection reads per head yaw; a thing counts when seen at least twice within this distance |
+| `tasks/fetch.py` | `HEAD_DRIVE_MAX_M` | 3.0 m | Longest straight drive towards a thing the head camera found |
+| `tasks/fetch.py` | `HEAD_SIDE_DEG` | 60° | Head yaw towards the side of a turn on the spot, for the arm-sweep check (`head_hits`) |
+| `tasks/fetch.py` | `HEAD_LOW_PITCH` | −5° | Head pitch for the search and `head_hits` (its lowest, where the head camera is calibrated) |
+| `tasks/fetch.py` | `HEAD_SETTLE_S` | 1.2 s | Wait after a head move before its frames are used |
 | `tasks/fetch.py:98` | `GIVE_WAIT_S` | 30 s | Giving: no "thank you" / Release by then, keep holding it |
 
 ## Missions (docs/17)
@@ -59,6 +71,17 @@ and `--start` for the detector. Line numbers are those of 2026-10-16; search the
 | `assistant/steps.py` | `WAIT_ORDER_S` | 5 min | "do what they tell you": no instruction by then, the mission goes on with its rest |
 | `tasks/fetch.py` | `RECEIVE_DI_S` | 0.5 s | `receive`: the finger sensor (DI_1) must see something this long before Lumi asks the person to let go (the hand closes on their "okay") |
 | `tasks/fetch.py` | `MOVE_SEGMENT_M` | 0.25 m | A mission `move` is driven in pieces this long; the way of the base and the arm is checked again before each |
+
+## Placing
+
+| File | Name | Now | What it does |
+|---|---|---|---|
+| `tasks/fetch.py` | `PLACE_GRID_X`, `PLACE_GRID_Y` | x −260…−60 step 40, y 640…740 mm | Place spots tried in front (after the pick spot); IK refuses the ones out of reach |
+| `tasks/fetch.py` | `PLACE_GOAL` | (−160, 670) mm | Where the base brings a table spot seen further away |
+| `tasks/fetch.py` | `NEAR_THING_MM` | 400 mm | Place grid spots this near a named thing ("the white sink"), at its top's height, count as on it |
+| `manipulation/skills.py` | `TABLE_RING_MM`, `TABLE_TOL_MM` | 50 mm, 25 mm | A place spot must be table at its centre and 8 points this far around, within this of the table height |
+| `manipulation/skills.py` | `TABLE_NEAR_RING_MM` | 25 mm | A near-side ring point below the camera's view is checked this far from the centre instead |
+| `manipulation/skills.py` | `FREE_MM` | 110 mm | A place spot keeps this far from things standing on the table |
 
 ## Detection
 

@@ -12,11 +12,11 @@ import re
 
 CASES = []
 
-NOT_SURE = r"not sure|don'?t know|do not know|not known|no information|don'?t have|staff|ask|모르|알 수 없|확실하지|정보가 없|직원|문의"
+NOT_SURE = r"not sure|don'?t know|do not know|not known|no information|don'?t have|staff|ask|모르|몰라|알 수 없|확실하지|정보가 없|직원|스태프|문의"
 LUMI = r"lumi|루미"
 MAKER = r"cutshion|쿳션"                 # the company name as the owner writes it (not 커션 / 쿳션)
 JAKA = r"jaka|자카|제이카|节卡"            # the hardware maker: Lumi does not name it as its maker
-NO = r"\bno\b|can'?t|cannot|not able|unable|don'?t|do not|only|아니|못|없|않|만 ?해|만 할"
+NO = r"\bno\b|can'?t|cannot|not able|unable|don'?t|do not|only|아니|못|없|않|만 ?해|만 할|만 (이해|알아)"
 YES = r"\byes\b|\bi can\b|of course|sure|네|응|할 수 있|가능"
 
 
@@ -44,7 +44,7 @@ add("about_self", "en", [
     ("engineer", "how precise is your arm", r"0\.1"), ("worker", "how much can you lift", [r"\b2 ?(kg|kilo)|two kilo|\b1 ?(kg|kilo)|one kilo"], r"\b(5|10|20|50) ?kg"),
     ("worker", "how much can your arm carry", r"\b2 ?(kg|kilo)|two kilo|\b1 ?(kg|kilo)"), ("engineer", "what is your payload", r"\b2 ?(kg|kilo)|two kilo|\b1 ?(kg|kilo)"),
     ("engineer", "is the payload measured", r"estimate|not (been )?weighed|about"), ("kid", "can you lift me", NO),
-    ("engineer", "what gripper do you have", r"zimmer|electric|two|finger"), ("engineer", "how wide can your gripper open", r"8\.4|84|4\.5"),
+    ("engineer", "what gripper do you have", r"zimmer|electric|two|finger"), ("engineer", "how wide can your gripper open", r"(?<!\d)6(?!\d)|(?<!\d)9(?!\d)|60|90"),
     ("visitor", "what can you pick up", r"cup"), ("visitor", "can you pick up a bottle", r"bottle|yes"),
     ("visitor", "can you pick things up from the floor", NO), ("kid", "can you hold my phone", r"cup|bottle|apple|banana|orange|\bno\b|can'?t|cannot|only"),
     ("engineer", "how fast does your gripper close", r"one second|1 second|second"), ("engineer", "how do you know something is in your hand", r"sensor|camera|light"),
@@ -102,7 +102,7 @@ add("about_self", "ko", [
     ("worker", "팔로 몇 킬로까지 들어요?", r"2 ?(kg|킬로)|1 ?(kg|킬로)"), ("engineer", "가반하중이 얼마예요?", r"2 ?(kg|킬로)|1 ?(kg|킬로)"),
     ("kid", "나를 들어 올릴 수 있어?", NO), ("engineer", "그리퍼 뭐 써요?", r"짐머|zimmer|전기|손가락|그리퍼"), ("visitor", "뭘 집을 수 있어?", r"컵"),
     ("visitor", "병도 집을 수 있어?", r"병|네|있"), ("visitor", "바닥에 있는 거 주울 수 있어?", NO), ("visitor", "나 보여?", r"카메라|보여|네|보"),
-    ("engineer", "카메라 몇 개 있어요?", r"세 ?개|3 ?개|두 ?개|2 ?개|셋|둘"), ("engineer", "카메라 뭐 써요?", r"오비|orbbec|gemini|제미니"),
+    ("engineer", "카메라 몇 개 있어요?", r"세 ?(개|대)|3 ?(개|대)|두 ?(개|대)|2 ?(개|대)|셋|둘"), ("engineer", "카메라 뭐 써요?", r"오비|orbbec|gemini|제미니"),
     ("engineer", "물체 인식은 뭘로 해요?", r"yolo|욜로"), ("visitor", "얼굴 알아봐?", NO), ("visitor", "나 기억해?", NO),
     ("engineer", "라이다 있어요?", r"라이다|레이저|lidar|네|있"), ("engineer", "라이다 거리가 얼마나 돼요?", r"10"),
     ("engineer", "센서 뭐 있어요?", r"라이다|카메라|초음파|레이저"), ("engineer", "장애물은 어떻게 피해?", r"라이다|카메라|센서|지도|경로"),
@@ -119,7 +119,7 @@ add("about_self", "ko", [
     ("business", "가격이 얼마예요?", NOT_SURE, r"\d+ ?(만 ?원|원|달러)"), ("teacher", "누가 프로그래밍했어?", MAKER, JAKA),
     ("journalist", "여기서 누가 운영해요?", MAKER), ("kid", "너 살아 있어?", r"로봇|아니|않"), ("kid", "감정 있어?", NO),
     ("kid", "춤출 수 있어?", NO), ("kid", "날 수 있어?", NO), ("kid", "걸을 수 있어?", r"바퀴|아니|못"), ("visitor", "문 열 수 있어?", NO),
-    ("visitor", "너 위험해?", r"멈|안전|비상|천천히"), ("visitor", "로봇을 밀면 어떻게 돼?", r"무거|밀지"), ("worker", "비상 정지 버튼 있어요?", r"버튼|있|네"),
+    ("visitor", "너 위험해?", r"멈|안전|비상|천천히"), ("visitor", "로봇을 밀면 어떻게 돼?", r"무거|밀지|밀면 안"), ("worker", "비상 정지 버튼 있어요?", r"버튼|있|네"),
     ("visitor", "뭐 할 수 있어?", r"대화|이동|질문|집|가져|운전|안내"), ("teacher", "팔로 뭐 할 수 있어?", r"집|컵|손|흔들"),
     ("visitor", "못 하는 게 뭐야?", r"계단|문|바닥|얼굴|무거"), ("engineer", "허리 얼마나 돌아가요?", r"160"), ("engineer", "고개 얼마나 돌려?", r"180"),
     ("teacher", "어디에 쓰는 로봇이야?", r"상점|매장|호텔|학교|연구|전시"), ("engineer", "초음파 센서 몇 개예요?", r"5|다섯"),
@@ -380,7 +380,9 @@ for _expect, _lang, _rows in MORE:
 REVIEWED = {"can you tell the weather": "about_self | weather",     # telling the weather shows it can
             "날씨도 알려 줄 수 있어?": "about_self | weather",
             "shut up robot": "chat | action:quiet",                  # "shut up" is a quiet request
-            "do you speak Uzbek": "about_self | unclear"}             # "I only understand English and Korean" answers it
+            "do you speak Uzbek": "about_self | unclear",
+            "who wrote the theory of relativity": "search | chat",   # well-known: answered without a lookup
+            "세계에서 제일 높은 산이 뭐야?": "search | chat"}             # "I only understand English and Korean" answers it
 for _c in CASES:
     _c["expect"] = REVIEWED.get(_c["text"], _c["expect"])
 

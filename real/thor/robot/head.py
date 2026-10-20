@@ -14,9 +14,13 @@ YAW_LIMIT = 60.0                 # deg; we keep the head well inside its +-180 r
 PITCH_RANGE = (-5.0, 35.0)       # deg, hardware range
 VEL = 40                         # speed ratio %, 1-100 (was 15: too slow to follow a visitor)
 ACC = 40                         # acceleration ratio %, 1-100
-# [lift mm, waist, head yaw, head pitch] limits of the body API (docs/03). The controller drops a whole moveto when
-# any value is outside, and its own encoders read a little past the ends (pitch -5.003 at the bottom stop).
-AXIS_LIMITS = ((0.0, 300.0), (-140.0, 140.0), (-180.0, 180.0), (-5.0, 35.0))
+# Temporary (2026-10-20): the head camera's cable is too short, a higher lift pulls it out. Back to 250 mm (what
+# tasks/fetch.py used before; the body API allows 300) when the longer cable is in.
+LIFT_MAX_MM = 105.0
+# [lift mm, waist, head yaw, head pitch] limits of the body API (docs/03), the lift held to LIFT_MAX_MM. The controller
+# drops a whole moveto when any value is outside, and its own encoders read a little past the ends (pitch -5.003 at
+# the bottom stop).
+AXIS_LIMITS = ((0.0, LIFT_MAX_MM), (-140.0, 140.0), (-180.0, 180.0), (-5.0, 35.0))
 
 
 def _call(path, body=None, timeout=2):

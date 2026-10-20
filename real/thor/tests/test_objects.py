@@ -36,4 +36,6 @@ assert objects.sized_like({"name": "cup", "width_mm": 2 * R, "height_mm": H})
 assert not objects.sized_like({"name": "cup", "width_mm": 300.0, "height_mm": H})           # a box, a table edge
 assert not objects.sized_like({"name": "cup", "width_mm": 2 * R, "height_mm": None})        # cut off: not sure
 assert not objects.sized_like({"name": "bottle", "width_mm": 2 * R, "height_mm": H})        # only cups may be weak
+assert objects.same_colour("white", "grey") and objects.same_colour(None, "red") and not objects.same_colour("white", "red")
+assert objects.WIDEST["cup"] > 84            # the widest cup the gripper takes (92 mm, read ~8 mm under) stays a cup
 print("objects ok")

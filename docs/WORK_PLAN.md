@@ -112,51 +112,152 @@ repeated goodbye openings tried again, "hand it over / 테이블에 놔" with no
 up, keyword-rule search refused for company questions, COMPANY_Q narrowed ("CEO of Nvidia", "비트코인 가격" are
 searched), questions not taken as moves ("at what battery level do you go back", "물컵은 가져다줄 수 있어요?",
 "루미가 … 수 있어요?"), "turn left 45 degrees", no silent 3 m cap ("move forward ten metres" is talk), "stop
-greeting" = quiet, "나 이제 집에 가" = goodbye, "손주가" is not 주가, notes FAQ (EN + KO). Round-3 LLM checks started
-14:xx (logs/*_run.log, logs/recheck3_done at the end); then `tests/dialogue_check.py --all`.
+greeting" = quiet, "나 이제 집에 가" = goodbye, "손주가" is not 주가, notes FAQ (EN + KO).
 
-## Marker names and numbers as said (2026-10-19)
+Latest numbers, gemma4:26b (2026-10-19), on the enlarged sets: company 352 / 368 questions, 55 / 62 dialogues
+(before the company retrieval fix below); conversation 1146 / 1241 all right, 1189 route right; dialogue subset
+313 / 343 turns, 56 / 80 dialogues. Offline: test_steps 2035 / 2035, test_fetch, test_fetch_intents, test_intents,
+test_mission_talk ok, interrupt_check 288 / 301.
 
-Cause of "피쓰리로 가 줘" / "파이널로 가" answered but not driven: markers were read in two places with different
-code (steps `_KO_P`, brain `POINT_KO` / `_norm`), and brain's check of the LLM's place (`named_place`) and its
-keyword rule (`go_point`, English only) knew no Korean spellings. Now one reader, `assistant/wording.py`
-(`norm` = numbers then markers), used by `brain._norm` (so intent, fetch, `named_place`) and `steps._norm` (so the
-mission reader and the LLM check, which now calls `named_place`). It reads p1–p12 said as "p3", "P.3", "p 3",
-"point three", "피쓰리", "피스리", "피 삼", "포인트 쓰리", "삼 번 / 3번 / 세 번 포인트", "피3", mixed ("go to 피쓰리",
-"point 3에서"); final, dock2, exit, PInit, Wp, home in Korean; whisper forms (piece 6, 피트로 = p2, PO = p5, 도크트로,
-Docky2); numbers: 일 / 한 미터, 영점오, 오십 센치, 1미터 50센치, 일 미터 반, point five meters, 사십오 도, "05 meters".
-Not clearly a marker ("피로", "PE로", "피자", "피오나", "이번에", "팔도") stays unread. Also: `go_point` reads
-"p3로 가 줘" (only when that is all that is said), "go to dock two" no longer goes home, "go to a meeting room" is not
-marker a; steps: "from p3 to p5", "p5 앞에", "까지 / 쪽으로", "final이나 exit", "ask for the bottle", "컵 받아 와",
-"p6에 있는 제임스한테 컵 갖다줘", "컵 take해서", "turn left 하고", "go home and charge", "충전하러 가"; a lone
-"go back" is unread (back where? or backwards?).
-Tests: `tests/steps_cases5.py` written blind by an agent (549 cases, 41 % Korean, 24 % mixed, 84 must be refused;
-136 keyword-rule cases), `tests/test_places.py` (normaliser, intents, named_place). test_steps 1707/1707 (new cases
-1664/1701 with the first version of the reader), test_places 136/136, test_fetch, test_fetch_intents, test_intents,
-test_mission_talk ok, interrupt_check 288/301 (as before). voice_check now says Korean markers and numbers the way
-people do ("피쓰리로", "피삼으로", "일 미터"; Lumi's TTS reads "p3" / "1미터" in Korean badly) and includes the new
-cases: 889/1065 (old cases 538/600, was 440/600; new 351/465). Runs differ by ~10 (the TTS is not repeatable). What
-still fails: mixed-language sentences (the TTS speaks one language per sentence), whisper's guesses that are not one
-marker ("피사로" heard for p3 and p4, "PE" for p1 and p2, "픽으로" for p9, "PeeFree"), "2m" heard for "1미터" spoken
-by the TTS as digits. Files: assistant/wording.py (new), assistant/steps.py, assistant/brain.py (marker code only),
-tests/steps_cases5.py (new), tests/test_places.py (new), tests/test_steps.py, tests/voice_check.py, docs/14, docs/17.
+Done after those runs, not measured yet: company talk gets 4 note chunks (`brain.NOTES_K_COMPANY`, partner names in
+`COMPANY_TALK` / `lumi.COMPANY_Q`); the notes are also searched with the question before ("how heavy can the items
+be?"); tests/company_check.py refuses a search like lumi (`lumi.not_online`); "I can't see you" is no longer a
+goodbye; a stray "ACTION: ..." in a sentence or a goodbye is cut; Korean replies say 쿳션, not Cutshion.
 
-## Wait steps in missions (2026-10-19)
+Open (next session, in order):
+1. Re-run `tests/company_check.py`, `tests/conversation_check.py`, `tests/dialogue_check.py` (subset), then
+   `tests/dialogue_check.py --all` (479 dialogues; never run yet, ~6 h with 26b).
+2. Facts in the notes the model still misses: Cutshion follow-ups (Sonovictus 200 from 2027, seed 500 million won,
+   palletizing 20 kg, awards), Lumi's drive (two wheels, hub motors), battery (24 V, 45 Ah), arm in Korean
+   ("팔은 어디 거예요?" -> Mini 2), detector (YOLO), serving (Ollama), target market.
+3. Venue questions sometimes get the action unclear ("여기 몇 시까지 해요?", "When is the next demo at this
+   booth?"); "Sorry, Loomy?" gets unclear instead of "Lumi".
+4. "And in Korean?" / "한국어로!" do not always repeat the previous answer.
+5. Expectations to review with the owner: "그럼 가 보세요" after Lumi offers to go to p3 (docs/14 says it ends the
+   talk), "Can you move?" from a cleaner (Lumi moves back 1 m).
 
-Missions read and run waits (docs/17 §1, §2.4, §4): stay ("go to p3 and stay there", "p3에 가서 기다려": the mission
-ends there, status `waiting`; in the middle, "go to the exit, wait there, then go home", it waits for "go on"), a time
-("wait 30 seconds then go to p5", "p3에서 5분 기다렸다가 p1로 가", "잠깐 기다렸다가" = `WAIT_SHORT_S` 10 s, over
-`WAIT_MAX_S` 30 min refused, "a while" / "몇 분" unread), until someone gives it (receive with `wait_s`, `WAIT_GIVE_S`
-5 min, nobody: fails there, hand open), an instruction from the person at the place ("do what they tell you", "거기
-있는 사람이 시키는 거 해": one command, read back, spoken yes, checked with the rest; `WAIT_ORDER_S` 5 min, nobody: the
-rest of the mission). Times: `wording.durations` (mission reader only). Status answers say where, for what, how long.
-"Go on" ends any wait (`fetch.proceed`); "okay" / "thank you" while receiving / giving on a mission now reach the
-hand even when nobody spoke to Lumi before (they were ignored as "not to me"). Lone waits ("wait here", "hold on a
-second", "can you wait?") are not a task. Changed expectations: "wait for someone to give you the cup" is now a
-receive with the long wait (4 cases), "go to the exit, wait there, then go home" reads.
-Tests: `tests/steps_cases6.py` (blind, 329), test_steps 1707 -> 2035 / 2035, `tests/test_fetch_wait.py` (runner, fakes
-only), `tests/test_mission_wait.py` (lumi hooks, status), test_fetch, test_places, test_fetch_intents, test_intents,
-test_mission_talk ok, interrupt_check 288 / 301 (as before). Not live yet. No dashboard "go on" button (voice or Stop).
+## Overnight 2026-10-19 (gemma4:26b)
+
+Decided by the owner: (a) after Lumi talks about going somewhere ("p3로 갈 수 있어요?"), a plain "go ahead" / "yes, go" /
+"그럼 가 보세요" is consent: Lumi drives there and the talk goes on (`lumi.consent_place`, `go_offered`); (b) a cleaner's
+"Can you move?" / "비켜 줄래요?" = the checked 1 m back-off (`brain` rule make_way -> move back 1).
+My decisions: the "not sure" -> look it up fallback is off for 26b (`lumi.UNSURE_LOOKUP`; 26b picks search itself,
+11 of 11 of its not-sure answers were about Lumi / Cutshion / the venue); a move over 3 m asked of the LLM is not
+driven; general knowledge (Einstein, Everest) may be answered without a lookup (two expectations widened).
+Fixes: knowledge chunks smaller (320 chars, one paragraph each, the section heading and the paragraph's first words
+in front) and search adds a bonus for rare question words found in a chunk (names, numbers: Sonovictus, 20 kg);
+3 chunks per question, 5 for company talk; "say it again" / "and in Korean?" / "한국어로!" repeat the last answer
+(`Brain.again`, `repeat`); varied "don't know" wording (SYSTEM, `lumi.not_known`); SYSTEM: a clear sentence is never
+"unclear", general knowledge answered directly; status: the 3 missed questions and 4 more wordings caught, an empty
+hand said ("my hand is empty"); more empty-hand requests; weather words (coat, typhoon, fog, humidity, wind); "서,
+서!" = stop; lookups / weather in the checks carry no words (lumi does not say them).
+Round 4 (all of the above) started 19:02: logs/company_run.log, dialogue_run.log, conversation_run.log,
+logs/round4_done at the end; round 3 reports kept in logs/round3/. Round 4: company 358 / 368 + 61 / 62 (round 3: 352 + 55), dialogue subset
+323 / 343 turns, 64 / 80 dialogues (313, 56), conversation 1182 / 1241 all right, 1225 route (1146, 1189); reports in
+logs/round4/.
+After round 4: expectation regexes that missed right answers ("잘 몰라요", "스태프", "세 대", "만 이해", "밀면 안",
+parameter count 26 for gemma4:26b); notes worded with the words people ask (DOF, footprint, IMU, repeatability,
+differential drive, TTS, Ollama serves; Korean FAQ: gripper Zimmer 4.5-8.4 cm, only cups tried live, camera 10 m,
+position 5 cm, nothing over 1 kg); a question is never a drive ("where is your charger?" drove home:
+`brain.QUESTION_START`); a go_to the words don't name says which places Lumi knows instead of "okay, going"; "look
+up" / "위를 봐" = look; "그리퍼에 뭐 있어?" = status; target market / business model never searched; "say bye in
+Korean" says it in Korean; SYSTEM: no search for opinions / fun facts / recommendations, nothing over 1 kg; examples
+(name misheard, photo in broken English, phone / laptop can't be picked).
+Round 5 (after those fixes; the index still had the old gripper text): dialogue subset 326 / 343 turns,
+67 / 80 dialogues; conversation 1205 / 1241 all right, 1230 route; company 362 / 368 + 60 / 62.
+`tests/dialogue_check.py --all` (479 dialogues, first full run, 20:50-23:36): 1760 / 1904 turns, 355 / 479
+dialogues; report kept in logs/all1/.
+After --all (index rebuilt with the 6-9 cm gripper text): the model's "unclear" on short, broken but clear words
+is asked once more (`brain.has_meaning`, `UNCLEAR_RETRY`; "uh the um" stays unclear); the LLM's end needs goodbye
+or thanks words ("Alright then." / "Neat." wait for silence, docs/14 §4); no stop action for a question ("how do I
+stop you?"); the consent place comes from the visitor's question or Lumi's own offering question, not from an
+example in an answer; "한국어로 다시 말해 줄래요?" / "한국어로 말해 주세요" repeat in Korean; Korean words asked for
+are written in Hangul; "어디 가려고" = status; awards never searched; "need a jacket?" = weather; expectations: the
+parameter count is 26 (gemma4:26b), "only English and Korean" counts as no; `dialogue_check.py --failed` re-runs
+the dialogues that failed in the saved .json.
+Confirm runs (2026-10-20 night): the 124 dialogues that failed in --all: 41 / 124 now right, 408 / 511 turns
+(logs/dialogue_check_failed.md); the subset fell to 319 / 343 turns, 63 / 80 (logs/dialogue_check_subset6.md).
+Cause of the drop (compared turn by turn with round 5): the new end rule wanted goodbye words and missed "Good
+day", "cya", "I'll be in touch", "that's enough for now", "고맙네" (5 turns): those words added; the checks' {h24}
+did not match "00:35" after midnight (3 turns): fill() accepts 00; "정보는 없어요" was not in the not-sure regex
+(1 turn): added; one judge call is noise. Subset re-run (01:09): 329 / 343 turns, 70 / 80 dialogues.
+
+Final numbers (gemma4:26b, 2026-10-20): company 362 / 368 + 60 / 62; conversation 1205 / 1241 all right (1230
+route); dialogue subset 329 / 343 turns, 70 / 80 dialogues; --all 1760 / 1904 turns, 355 / 479 dialogues (before
+the post---all fixes; of its 124 failed dialogues 41 are right in the --failed re-run). Next: `--all` once more.
+
+`--all` again with all fixes (2026-10-20, ended 11:41, logs/all2/, subset report kept in
+logs/dialogue_check_subset7.md): **1791 / 1904 turns, 385 / 479 dialogues** (was 1760, 355). 46 dialogues newly
+right (end with no goodbye words, unclear on broken but clear words, "do you speak German?", stop for a question,
+parameter count, gripper width), 16 newly wrong, 78 still wrong. Causes: missing 65 turns, wrong action 32, ignores
+the question 23, Korean reply to English 5. The failing turns (113), grouped:
+- Model left out a fact it has or said "not sure" (~30): base 50 kg, arm 9.9 kg, battery 24 V / 10 h, Zimmer
+  gripper, awards, schools / customers, venture certificate 2023, threshold 1.5 cm, phone number.
+- Model made up an answer where "not sure" is expected (~12): "sees in the dark", "Python", talks counted.
+- End of talk (10, 6 of them new): Korean casual goodbyes are not ended. `brain.py` drops the LLM's end without
+  `FAREWELL_TEXT` words or with any "?" in the text: "빠이빠이!", "간다~", "잘 있게", "바이", "땡큐", "벌써요? 가 볼게요.".
+  `lumi.FAREWELL_WORDS` has none of them either.
+- Wrong action (~17): sing after "Prove it" / "Try again" following a joke; wave for "say hello" / "hello 해 봐", no
+  wave for "can you wave?"; search for "협동 로봇이 뭐예요?" / "빨간 옷 친구 봤어요?", no search for follow-ups
+  ("How old is he?", "입장료 얼마예요?"); "temperature 몇 도예요?" not weather; "and down?" not look down.
+- Unclear on clear words (6): "Where from?", "v 몇?", "네, 해 주세요.", "Photo? With you? Ok?".
+- Language (7): "English로 말해 줘" answered in Korean; "쿳션" in Hangul inside English replies.
+- Judge noise (~12): "우와" / "아 네" / "Good evening" answered briefly and counted wrong.
+- Check gaps (~7): "모르겠어요", "영어랑 한국어만 할 수 있어요", "2년 전에", "세 대", the time check at 10:59.
+Not fixed yet (the owner decides).
+
+Fixes for these groups (2026-10-20 afternoon, gemma4:26b):
+- Facts: a short fact sheet in `brain.SYSTEM` ("Facts you know", from knowledge/*.md only): weights (all 96 kg,
+  base 50 kg, arm 9.9 kg; carries 2 kg incl. gripper, ~1 kg in the hand), arm speed, Zimmer gripper, drive, step
+  1.5 cm / slope 8° / passage 70 cm, battery 24 V 45 Ah ~10 h, cameras, YOLOv8, Whisper large-v3-turbo, Gemma
+  (Google) via Ollama, Cutshion (products, phone, email, lab 2023, venture certificate Dec 2023, investment, awards,
+  customers, target places). A "not known" line (dark, noise, ROS, talks counted, charge time, battery now, wiping,
+  prices). Rules for "who made that?" after a part, a correction after a weight question, "How much?" after an
+  answer.
+- Goodbyes: 빠이빠이, 바이, 땡큐, 간다~, 잘 있게 in `brain.FAREWELL_TEXT` and `lumi.FAREWELL_WORDS`; the LLM's end
+  is dropped only for a "?" in the last sentence ("벌써요? 가 볼게요." ends).
+- Actions: `Brain._after()` checks the action line against the turn before: sing only when a song is asked for or
+  right after a song; "and down?" after a look looks down; a follow-up with he / there / 거기 / 왜 / 얼마 right after
+  a lookup is looked up. Wave only for wave words (`WAVE_ASK`; "Hello Lumi!" / "hello 해 봐" is talk); a wave
+  keyword rule (`INTENTS`) so "sorry. can you wave?" waves; "temperature" is weather. The sing action no longer
+  writes lines (a real song plays, `audio/sing.py`); the talk examples about singing say so.
+- Language: `reply_language()` answers in the language asked for ("English로 말해 줄래요?", "영어로 자기소개 해
+  봐"); "English로 다시 말해 줘" repeats in English; a sentence with no other Hangul writes "Cutshion", not 쿳션.
+- Date: the prompt's time line also in Korean form (`now_line()`): with the English form alone the model said
+  "10월 21일" on 20 October, every time.
+- Checks: `dialogue_check.py --help` (never starts a run), a list of numbers ("9,21,309"); NO accepts 모르 / 몰라 /
+  "만 할"; AGE "2년"; "세 대"; "plenty"; the hour check accepts the hour of 5 min before (`HOUR_SLACK_S`);
+  `conversation_check.rules_route` sends sing requests to the song like `lumi.answer()`.
+
+Results: subset **338 / 343 turns, 75 / 80 dialogues** (was 329, 70; logs/dialogue_check_subset9.md); the 57
+targeted failed dialogues of all2: 40 right in the first re-run, of the 15 still wrong after a second fix 12 right
+(logs/dialogue_target_r1.md, r2). Company 363 / 368 + 60 / 62 (was 362, 60), conversation 1212 / 1241 all right
+(was 1205), route 1226 (was 1230; flaky LLM routes: "멈춰, 어디 가?", "미세먼지", "기조연설 몇 시"). Still wrong:
+"Photo? With you? Ok?" unclear, "Who do I call?" without the phone, "거기 입장료" refused online by
+`lumi.VENUE_Q` (입장료), "모델은 어떤 거요?" without large-v3-turbo, judge noise. First sentence in the checks
+~3.9 s median (was 3.1): the longer prompt is prefilled again after each judge call; with one system prompt
+(live) the cached prefix makes it the same (measured 1.6–1.9 s both ways). `lumi-api` not restarted; the assistant
+loads the change when Greeter is switched on again.
+
+Body commands in any wording (2026-10-20, owner's request). Abilities the code has, with their limits: go to a
+marker; come; move forward / back / left / right (≤ 3 m) and turn (degrees, around); look left / right / up / down
+/ center / at me, now also degrees or a small step (head yaw ±60° in `robot/head.py YAW_LIMIT`, pitch −5…35°);
+lift up / down / small step / mm (new, 0–105 mm for now, `lumi.lift`, slow); arm reach / fold, hand open / close;
+wave; pick / put / move_object / fetch / give / place / receive; missions (steps.py: go, move, turn, pick, receive,
+say, place, give, hold, arm, wait); sing; quiet; stop. Keyword rules take the common wordings at once (`brain.
+INTENTS`: head words before the base turn, "고개 왼쪽으로 돌려" was a base turn; wave for "shake your hand" / 손
+흔들어 / 손 인사; lift words; "fold your arm" / 팔 접어; "앞으로 조금만 와"); look, lift and wave are now quick
+commands. Anything else goes through the LLM's ACTION line, which lists every ability with its values and limits
+and says that any wording counts and that jump / dance / fly / stairs / doors are answered plainly; `_action`
+checks the values. A number past a range is cut and said ("I can turn my head up to 60 degrees each way").
+Objects and places are still never guessed. Checks: tests/test_intents.py +91 EN/KO/mixed cases and the head /
+lift goal limits; new tests/dialogues_commands.py (10 dialogues, 42 turns, `dialogue_check.py --commands`): **42 /
+42**, 23 of them by the LLM path. Subset **338 / 343, 76 / 80** (the two misses in 281 were "lower yourself" now
+doing the lift, expectation updated, and "look down at me", fixed: 281 right on re-run); conversation 1215 / 1241
+all right, route 1227. First-sentence times in these runs were 4.9–7.3 s median while other agents used the GPU.
+Commanded looks use the body's full head yaw (`head.AXIS_LIMITS`, ±180°, also "look behind you" / 뒤를 봐) through
+`head.moveto`; `head.YAW_LIMIT` (±60°) stays for following people. --commands then 44 / 44. Not done: look and lift
+as mission steps (they need a step runner in tasks/fetch.py).
 
 ## Next (in order)
 
@@ -178,6 +279,12 @@ test_mission_talk ok, interrupt_check 288 / 301 (as before). Not live yet. No da
 6. Later: measure where a handed-over cup sits in the fingers (so it can be put down); a message added on change
    ("tell Tom happy birthday when you give it"); keep the sender's place ("take it back to Anvar").
 
+## 2026-10-19 robot work (head camera, gripper, base)
+
+Not part of this plan; written up in ROADMAP (log 2026-10-19, Next 0–0c), docs/06 §3 and docs/15 §8–9 (head camera
+calibration, `vision/head_cam.py`, measure-axis −95.5° at waist −20.3°, grip widths, picks), docs/16 (head search,
+`head_hits`, waist correction), docs/10 and `docs/gripper/`. Not live until `lumi-api` is restarted.
+
 ## Files changed in this work (for the Mac sync, "yangila")
 
 assistant/steps.py (new), assistant/talk_examples.py (new), assistant/interrupt_examples.py (new),
@@ -188,6 +295,6 @@ tests/test_steps.py, tests/steps_cases*.py (new), tests/test_fetch.py, tests/tes
 tests/test_mission_talk.py (new), tests/interrupt_cases.py (new), tests/interrupt_check.py (new),
 tests/voice_check.py (new), tests/llm_bench.py, tests/status_cases.py, tests/conversation_cases.py,
 tests/conversation_check.py, tests/dialogues.py, tests/dialogue_check.py, tests/company_cases.py,
-tests/company_check.py (new, agents), assistant/company_examples.py, tests/conversation_cases_more.py, tests/company_cases_more.py, tests/dialogues_more_a.py, tests/dialogues_more_b.py (new, agents), docs/14, docs/17_MISSIONS.md (new), docs/WORK_PLAN.md (this), docs/14, docs/TUNING.md,
+tests/company_check.py (new, agents), assistant/company_examples.py, tests/conversation_cases_more.py, tests/company_cases_more.py, tests/dialogues_more_a.py, tests/dialogues_more_b.py (new, agents), tests/company_check.py, docs/14, docs/17_MISSIONS.md (new), docs/WORK_PLAN.md (this), docs/14, docs/TUNING.md,
 docs/ROADMAP.md, README.md, CLAUDE.md, assistant/wording.py (new), tests/steps_cases5.py (new), tests/test_places.py (new), tests/steps_cases6.py (new), tests/test_fetch_wait.py (new),
 tests/test_mission_wait.py (new), docs/TUNING.md. Not synced: logs/, models, knowledge/index.npz.

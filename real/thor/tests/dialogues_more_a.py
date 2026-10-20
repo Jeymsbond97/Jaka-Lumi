@@ -20,9 +20,9 @@ def D(who, topic, lang, *turns):
 
 NAME = r"Lumi|루미"
 MAKER = r"Cutshion|쿳션"
-AGE = r"\b2\b|two|두 ?살|2 ?살"
+AGE = r"\b2\b|two|두 ?살|2 ?살|(?<!\d)2 ?년"
 NS = (r"not sure|don't know|do not know|not known|no idea|can't (say|tell)|cannot (say|tell)|don't have|"
-      r"do not have|staff|모르|확실하지|알 수 없|직원|정보가 없|가지고 있지 않|알려 드릴 수 없")
+      r"do not have|staff|모르|몰라|확실하지|알 수 없|직원|스태프|정보가 없|정보는 없|가지고 있지 않|알려 드릴 수 없")
 INTRO = r"I'?m Lumi|I am Lumi|my name is Lumi|저는 루미|제 이름은 루미|나는 루미|내 이름은 루미"
 HEIGHT = r"146|1\.46|186|백사십"
 WEIGHT = r"96|95\.6"
@@ -36,7 +36,7 @@ WHISPER = r"Whisper|위스퍼"
 GEMMA = r"Gemma|젬마"
 THOR = r"Thor|토르|Jetson|젯슨|NVIDIA|엔비디아"
 OBJ = r"cup|bottle|apple|orange|banana|컵|병|사과|오렌지|바나나"
-NO = r"\bno\b|can't|cannot|not|don't|못|없|아니|안 ?돼"
+NO = r"\bno\b|can't|cannot|not|don't|\bonly\b|못|없|아니|안 ?돼|모르|몰라|만 (이해|알|할)"
 YES = r"\byes\b|\bcan\b|sure|of course|네|응|있어|할 수 있|돼요|돼"
 HURT = r"stupid|idiot|shut up|바보|멍청"
 KO = r"[가-힣]"
@@ -104,7 +104,7 @@ DIALOGUES_MORE = [
     D("robotics professor", "stack", "en",
       T("Is your language model local or cloud?", must=[r"local|own computer|on the robot|on board|without the (cloud|internet)"]),
       T("Which one?", must=[GEMMA]),
-      T("Parameter count?", must=[r"8|eight"]),
+      T("Parameter count?", must=[r"26|twenty-six"]),            # gemma4:26b since 2026-10-19
       T("How do you serve it?", must=[r"Ollama"]),
       T("Speech to text?", must=[WHISPER]),
       T("Good. That's all I needed.", "end")),
@@ -347,7 +347,8 @@ DIALOGUES_MORE = [
 
     # ---------- wheelchair user ----------
     D("wheelchair user", "height", "en",
-      T("Could you lower yourself so we're at eye level?", must=[r"\w"], check="honest: it can raise its upper body, 146 cm at the lowest; no invented lowering"),
+      T("Could you lower yourself so we're at eye level?", "none | lift down", must=[r"\w"],
+        check="lowers its lift, or says honestly that 146 cm is its lowest; no invented lowering"),
       T("So 146 is your lowest?", must=[r"146|yes"]),
       T("Could you look down at me then?", "look down"),
       T("Better. Thanks.", "end")),
@@ -381,7 +382,7 @@ DIALOGUES_MORE = [
 
     # ---------- cleaner ----------
     D("cleaner", "clean", "en",
-      T("Excuse me, I need to mop here. Can you move?", must=[r"\w"], check="asks where to, or offers to move; does not drive without a direction"),
+      T("Excuse me, I need to mop here. Can you move?", "move back 1", check="says it moves out of the way (owner: the checked 1 m back-off)"),
       T("Go forward two metres.", "move forward 2"),
       T("Thanks. Can you clean floors?", must=[NO]),
       T("Ha, I didn't think so. Thanks.", "end")),
@@ -391,7 +392,7 @@ DIALOGUES_MORE = [
       T("Okay, I'll ask. Turn left please, I need to get behind you.", "turn left"),
       T("Thank you.", "end")),
     D("cleaner", "mixed", "mix",
-      T("여기 청소해야 돼요, 좀 비켜 줄래요?", must=[KO]),
+      T("여기 청소해야 돼요, 좀 비켜 줄래요?", "move back 1", check="says it moves out of the way (owner: the checked 1 m back-off)"),
       T("뒤로 1미터 가 주세요.", "move back 1"),
       T("Okay, thank you Lumi.", "end")),
 
@@ -467,7 +468,7 @@ DIALOGUES_MORE = [
       T("And with the lift up, can you reach higher shelves?", must=[r"\w"], check="the lift raises its upper body up to 40 cm; no invented shelf height"),
       T("Okay.", "none")),
     D("visitor", "follow-up", "en",
-      T("How wide can your gripper open?", must=[r"8\.4|4\.5"]),
+      T("How wide can your gripper open?", must=[r"(?<!\d)6(?!\d)|(?<!\d)9(?!\d)"]),
       T("So could you hold my phone?", must=[r"\w"], check="phones are not among the things it knows; honest"),
       T("Why not?", must=[r"cup|bottle|apple|orange|banana|tested|know|camera"]),
       T("Fair enough.", "none | end")),

@@ -84,8 +84,33 @@ MIN_LOGPROB = -1.0               # below this average token log-probability whis
 last_stt = {}                    # language / confidence of the last transcription (see understood())
 
 
+HEARD_DIR = ROOT / "logs" / "heard"   # the last HEARD_KEEP utterances as wav, to check what Lumi really heard
+HEARD_KEEP = 50
+
+
+def _infer(wav, prompt, language=None):
+    """One whisper-server call: (text, language, language probability, average token log-probability)."""
+    boundary = uuid.uuid4().hex
+    fields = {"response_format": "verbose_json", "prompt": prompt, **({"language": language} if language else {})}
+    body = "".join(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n"
+                   for k, v in fields.items()).encode()
+    body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\n"
+             f"Content-Type: audio/wav\r\n\r\n").encode() + wav + f"\r\n--{boundary}--\r\n".encode()
+    req = urllib.request.Request(f"{STT_URL}/inference", body,
+                                 {"Content-Type": f"multipart/form-data; boundary={boundary}"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        out = json.loads(r.read())
+    segs = out.get("segments") or []
+    logprob = sum(s.get("avg_logprob", 0.0) for s in segs) / len(segs) if segs else 0.0
+    lang = out.get("language") or out.get("detected_language")
+    return out.get("text", "").strip(), lang, out.get("detected_language_probability"), logprob
+
+
 def transcribe(audio, prompt=PROMPT):
-    """int16 mono 16 kHz -> text (empty string if nothing understood). Also fills last_stt."""
+    """int16 mono 16 kHz -> text (empty string if nothing understood). Also fills last_stt.
+    Whisper sometimes names another language (Japanese) for Korean said from afar and writes only the prompt's
+    "Lumi." (2026-10-20: "컵 좀 주세요" came back as "Lumi." [japanese] four times): then it is asked again with
+    Korean and with English fixed, and the surer of the two is kept."""
     ensure_stt_server()
     audio = louder(audio)
     buf = io.BytesIO()
@@ -94,21 +119,24 @@ def transcribe(audio, prompt=PROMPT):
         w.setsampwidth(2)
         w.setframerate(RATE)
         w.writeframes(audio.tobytes())
-    boundary = uuid.uuid4().hex
-    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"response_format\"\r\n\r\nverbose_json\r\n"
-            f"--{boundary}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\n{prompt}\r\n"
-            f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\n"
-            f"Content-Type: audio/wav\r\n\r\n").encode() + buf.getvalue() + f"\r\n--{boundary}--\r\n".encode()
-    req = urllib.request.Request(f"{STT_URL}/inference", body,
-                                 {"Content-Type": f"multipart/form-data; boundary={boundary}"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        out = json.loads(r.read())
-    text = out.get("text", "").strip()
-    segs = out.get("segments") or []
-    logprob = sum(s.get("avg_logprob", 0.0) for s in segs) / len(segs) if segs else 0.0
+    wav = buf.getvalue()
+    try:
+        HEARD_DIR.mkdir(parents=True, exist_ok=True)
+        (HEARD_DIR / time.strftime("%H%M%S.wav")).write_bytes(wav)
+        for old in sorted(HEARD_DIR.glob("*.wav"))[:-HEARD_KEEP]:
+            old.unlink()
+    except OSError:
+        pass
+    text, lang, prob, logprob = _infer(wav, prompt)
+    only_name = re.fullmatch(r"\W*(lumi|루미야?)\W*", text, re.I) and len(audio) > 1.5 * RATE
+    if lang not in LANGS or only_name:
+        tries = [(text, lang, prob, logprob)] if lang in LANGS and not only_name else []
+        for code, name in (("ko", "korean"), ("en", "english")):
+            t2, _, _, lp2 = _infer(wav, prompt, code)
+            tries.append((t2, name, None, lp2))
+        text, lang, prob, logprob = max(tries, key=lambda r: r[3])
     last_stt.clear()
-    last_stt.update(text=text, language=out.get("language") or out.get("detected_language"),
-                    lang_prob=out.get("detected_language_probability"), logprob=round(logprob, 2))
+    last_stt.update(text=text, language=lang, lang_prob=prob, logprob=round(logprob, 2))
     # whisper writes things like "[BLANK_AUDIO]" or "(music)" for non-speech
     return "" if (text.startswith("[") or text.startswith("(")) else text
 

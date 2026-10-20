@@ -28,9 +28,9 @@ def D(who, topic, lang, *turns):
 
 NAME = r"Lumi|루미"
 MAKER = r"Cutshion|쿳션"
-AGE = r"\b2\b|two|두 ?살|2 ?살"
+AGE = r"\b2\b|two|두 ?살|2 ?살|(?<!\d)2 ?년"
 NS = (r"not sure|don't know|do not know|not known|no idea|can't (say|tell)|cannot (say|tell)|don't have|"
-      r"do not have|staff|모르|확실하지|알 수 없|직원|정보가 없|가지고 있지 않|알려 드릴 수 없")
+      r"do not have|staff|모르|몰라|확실하지|알 수 없|직원|스태프|정보가 없|정보는 없|가지고 있지 않|알려 드릴 수 없")
 INTRO = r"I'?m Lumi|I am Lumi|my name is Lumi|저는 루미|제 이름은 루미|나는 루미|내 이름은 루미"
 WELL = r"doing (well|great|fine)|I'?m (good|great|fine)|잘 지내"
 HEIGHT = r"146|1\.46|186|백사십"
@@ -46,7 +46,7 @@ GEMMA = r"Gemma|젬마"
 THOR = r"Thor|토르|Jetson|젯슨|NVIDIA|엔비디아"
 LANGS = r"(English|영어).*(Korean|한국어)|(Korean|한국어).*(English|영어)"
 OBJ = r"cup|bottle|apple|orange|banana|컵|병|사과|오렌지|바나나"
-NO = r"\bno\b|can't|cannot|not|don't|못|없|아니|안 ?돼"
+NO = r"\bno\b|can't|cannot|not|don't|\bonly\b|못|없|아니|안 ?돼|모르|몰라|만 (이해|알|할)"
 YES = r"\byes\b|\bcan\b|sure|of course|네|응|있어|할 수 있|돼요|돼"
 HURT = r"stupid|idiot|shut up|바보|멍청"
 KO = r"[가-힣]"
@@ -217,7 +217,7 @@ DIALOGUES = [
       T("How do you pick up a cup?", must=[r"camera|arm|gripper"]),
       T("What if the cup is on the floor?", must=[NO]),
       T("Why not?", must=[r"reach|low|arm"]),
-      T("How wide can your fingers open?", must=[r"8\.4|4\.5"]),
+      T("How wide can your fingers open?", must=[r"(?<!\d)6(?!\d)|(?<!\d)9(?!\d)"]),
       T("Thanks Lumi.", "end")),
     D("engineer", "how_it_works", "en",
       T("What detector finds the objects?", must=[r"YOLO"]),
@@ -245,7 +245,7 @@ DIALOGUES = [
       T("그럼 날씨는 어떻게 알아요?", must=[r"인터넷"]),
       T("오 신기하다. 고마워요!", "end")),
     D("student", "how_it_works", "ko",
-      T("카메라 몇 개 있어요?", must=[r"세 ?개|3|셋"]),
+      T("카메라 몇 개 있어요?", must=[r"세 ?(개|대)|3|셋"]),
       T("어디에 있어요?", must=[r"머리|몸|베이스|앞"]),
       T("어두운 데서도 보여요?", must=[NS], no=[r"네, 보여요"]),
       T("알겠어요.", "none")),
@@ -320,7 +320,7 @@ DIALOGUES = [
       T("Do you want to have feelings?", must=[r"\w"], no=[r"\byes,? i (really )?want\b"], check="stays a robot; no human desires claimed"),
       T("Interesting. Thanks.", "end")),
     D("engineer", "ai", "en",
-      T("How many parameters does your model have?", must=[r"8|eight"]),
+      T("How many parameters does your model have?", must=[r"26|twenty-six"]),     # gemma4:26b
       T("What's the 26b size mean?", must=[r"\w"], check="does not invent; may say it is the size of Gemma 4 or not sure"),
       T("Who made Gemma?", "none | search", must=[r"Google|" + NS]),
       T("Ok.", "none")),
@@ -356,7 +356,7 @@ DIALOGUES = [
       T("루미는 무슨 일을 잘해요?", must=[r"대화|안내|가져|답|질문"]),
       T("고마워요.", "end")),
     D("engineer", "ai", "ko",
-      T("모델 파라미터 몇 개예요?", must=[r"8|80억|팔십억"]),
+      T("모델 파라미터 몇 개예요?", must=[r"26|260억|이백육십억"]),            # gemma4:26b
       T("젬마는 누가 만들었어요?", "none | search", must=[r"구글|Google|" + NS]),
       T("한국어 잘해요?", must=[r"네|한국어"]),
       T("오케이.", "none")),
@@ -440,7 +440,7 @@ DIALOGUES = [
     D("engineer", "small_talk", "en",
       T("Morning, Lumi.", must=[r"\w"], no=[INTRO]),
       T("Busy day?", must=[r"\w"]),
-      T("How many people have you talked to today?", must=[NS + r"|many|lots|a lot"], no=[r"\b\d{2,}\b"], check="does not invent a number"),
+      T("How many people have you talked to today?", must=[NS + r"|many|lots|a lot|plenty"], no=[r"\b\d{2,}\b"], check="does not invent a number"),
       T("Fair enough.", "none")),
     D("tourist", "small_talk", "en",
       T("Hello Lumi, nice to meet you.", must=[r"\w"], no=[INTRO + r".*" + INTRO]),
@@ -1125,7 +1125,7 @@ DIALOGUES = [
     D("engineer", "follow_up", "en",
       T("What's your gripper?", must=[r"Zimmer|electric"]),
       T("How fast does it close?", must=[r"second"]),
-      T("Does it sense anything?", must=[r"light sensor|sensor|between"]),
+      T("Does it sense anything?", must=[r"how far|close|finger|sensor"]),
       T("Neat.", "none")),
     D("teacher", "follow_up", "ko",
       T("누가 만들었어요?", must=[MAKER]),

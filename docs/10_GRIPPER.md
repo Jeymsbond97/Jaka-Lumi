@@ -10,9 +10,9 @@ Everything in sections 1–6 was measured or set on our robot. Section 7 lists t
 
 | Part | What it is |
 |---|---|
-| Gripper | **Zimmer GEP2013IO-05-B** (label on the housing, serial 01-00061615): electric 2-jaw parallel gripper, digital I/O version. Datasheet values for the GEP2013 family: **13 mm stroke per jaw**, **gripping force 90–360 N** in four levels, **mass about 0.54 kg** without fingers. Rotary switch "Funct" 1–4 = force level (level 4 = 360 N); it is on **1**. Green LED = powered |
+| Gripper | **Zimmer GEP2013IO-05-B** (label on the housing, serial 01-00061615): electric 2-jaw parallel gripper, digital I/O version. Datasheet values for the GEP2013 family: **13 mm stroke per jaw**, **gripping force 90–360 N** in four levels, **mass about 0.54 kg** without fingers. Rotary switch "Funct" 1–4 = force level (level 4 = 360 N); the owner found it on 2 and set it to **1** on 2026-10-19; a paper cup is still squeezed flat at 1. Green LED = powered |
 | Fingers | Long stainless-steel fingers with curved tips on L-shaped brackets, made for cups and glasses. Fingertips are about 265 mm from the flange face; the fingers sit beside the flange axis, not on it (about 8 cm off, estimated from photos) |
-| Finger sensor | **MISUMI** optical (photoelectric) sensor, yellow/black housing, mounted on one finger and looking forward. The red light is its emitter and is always on. The indicator LED on its back turns red when something is in front of it and blue when nothing is |
+| Finger sensor | **MISUMI** optical (photoelectric) sensor, yellow/black housing, on the side of one finger mount. It sees what is **below the gripper**, not an object between the fingers (2026-10-19: closes on three cups and a tape roll left DI_1 at 0). The red light is its emitter and is always on. The indicator LED on its back turns red when something is in front of it and blue when nothing is |
 | Cable | Gripper and sensor are both wired to the arm's M8 tool connector (TIO), see [04_ARM.md §8](04_ARM.md#8-tool-io-connector-m8-8-pin-tio-v3) |
 
 The rotary switch sets the gripping force. Even level 1 (~90 N) is far more than a plastic cup needs: the software must not close on objects that cannot take it (see [15_PICK_AND_PLACE.md](15_PICK_AND_PLACE.md) §3.5).
@@ -25,10 +25,30 @@ The rotary switch sets the gripping force. Even level 1 (~90 N) is far more than
 |---|---|---|---|
 | **DO_1** | controller → gripper | **Close** | 1 = close |
 | **DO_2** | controller → gripper | **Open** | 1 = open |
-| **AI_1** | gripper → controller | **Finger position** (analog, 0–10 V, read as 0–4096) | ~160 open · 4100–4200 closed on nothing · ~3500 closed on a cup's wide part · in between while moving |
-| **DI_1** | sensor → controller | **Object in front of the fingers** | 1 = object, 0 = nothing |
+| **AI_1** | gripper → controller | **Finger position** (analog, 0–10 V, read as 0–4096) | 100–160 open · 4100–4200 closed on nothing · in between while moving or holding; inner gap in mm: §2.1 |
+| **DI_1** | sensor → controller | **Something below the gripper** | 1 = object, 0 = nothing; never set by an object held between the fingers |
 | DI_2 | | not connected | always 0 |
 | AI_2 | | not connected | constant ~489 (floating input) |
+
+### 2.1 AI_1 and the gap between the fingers
+
+The finger shape and the inner gaps open / closed were measured with a tape on 2026-10-19 (photos and table in
+[`docs/gripper/`](gripper/README.md)): tips 88 → 59 mm, belly (widest point of the round hook) 96 → 70 mm, neck
+73 → 47 mm, shank 66 → 39 mm. AI_1 reads 100–160 fully open and 4100–4200 closed on nothing. Taking the gap as linear
+in AI_1, `gripper.gap_mm(ai, where)` gives the width held; `state()["gap_mm"]` is the belly gap.
+
+| Object (2026-10-19 unless dated) | AI_1 settled | Belly gap from the line |
+|---|---|---|
+| 82 mm LS metal cup (2026-10-13) | 2189–2310 | 81–83 mm (checks the line) |
+| tape roll | ~700 | 92 mm |
+| cup 3 | ~2590 | 80 mm |
+| cup 2 | ~2990 | 78 mm |
+| cup 1 | ~3570 | 74 mm |
+| a smaller cup, first try | 3500 at 0.4 s, then ~4160 | slipped out: nothing held |
+
+Plastic cups give a little, so their gap reads somewhat under their real diameter. The value right after closing
+overshoots (cup 1: up to 3850 in the first second, then 3570): read it about 1 s after the close. The belly closes
+to 70 mm: a round object narrower than that is not squeezed by the hook.
 
 **All tool I/O must be set to PNP.** In Cobo π → I/O → Tool(S), open the ⋮ menu of each DI / DO and choose PNP. With the factory setting NPN the gripper does not move and the sensor is not read.
 
@@ -48,6 +68,8 @@ Both ends of a signal have to use the same type. If one side expects PNP and the
 - **Never switch both outputs on at the same time.** That commands open and close together. Always switch the other output off first.
 - A closed gripper holding nothing reads 4100–4200 on AI_1, with about ±50 noise. When it closes on an object, the fingers stop earlier and AI_1 stays lower. In the cup test, the wide part of a cup stopped the fingers at ~3500.
 - A small or soft object gives no reliable reading. A thin plastic cup gripped at its narrow end gave way, and the fingers closed fully (~4150) as if nothing were there.
+- **A close cannot be stopped half way.** With DO_1 switched off at AI_1 2730 the fingers still went on to 4190 (2026-10-19). A gentler close from software is not possible with these outputs.
+- Paper cups are squeezed flat by the close and then read as closed on nothing (~4160), three tries on 2026-10-19.
 
 ---
 
@@ -171,8 +193,7 @@ The collision limits shown with it are still the loose defaults (force 100 %, TC
 | Download the GEP2013IO-05-B operating manual | Confirm stroke, force per switch level and the AI_1 output scaling |
 | Weigh the complete tool (gripper, fingers, brackets, plate, sensor) and correct the payload | The payload is set from an estimate, see below |
 | TCP offset | Kept in our code, not in Cobo π, and measured during the camera calibration (the fingers are off the flange axis, a tape measure is not accurate enough) |
-| Calibrate AI_1 against finger opening in mm | So that the vision system can check whether an object fits (see [15_PICK_AND_PLACE.md](15_PICK_AND_PLACE.md)) |
-| Teach the finger sensor's range | It decides when the gripper is close enough to an object to close |
+| Check the AI_1 → mm line with more rigid objects of known width | Only one rigid point (82 mm metal cup) confirms it so far (§2.1) |
 | A hand-over signal | AI_1 cannot feel a pull (§3); a force reading or a touch sensor would let Lumi open when the person takes it |
 
 ---

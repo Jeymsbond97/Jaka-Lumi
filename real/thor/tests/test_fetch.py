@@ -103,7 +103,7 @@ for yaw in (-60.0, 10.0, 95.0):
 
 # ---------- fake base, arm, gripper and camera ----------
 calls = []
-CUP = {"name": "apple", "colour": "red", "x": -150.0, "y": 600.0, "top_mm": -260.0, "width_mm": 70.0,
+CUP = {"name": "apple", "colour": "red", "x": -150.0, "y": 600.0, "top_mm": -260.0, "width_mm": 76.0,
        "seen": 8, "spread": 1.0}
 hand = {"holding": False, "closed": False}
 base = {"pose": (0.0, 0.0, 0.0), "polls": 0, "on_poll": None}
@@ -135,11 +135,13 @@ fetch.agv.request = lambda cmd, **kw: (calls.append(("joy", cmd.split("linear_ve
 room = {"clear": lambda x, y: 1.0, "probe": lambda x, y: (float("inf"), float("inf"))}
 fetch.agv.probe = lambda x, y: room["probe"](x, y)
 fetch.AXIS_SPEED, fetch.COAST_S = 100.0, 0.0
-fetch.motion.go = lambda name, *a, **k: calls.append(("pose", name))
+arm = {"j": [5.0] * 6}                                                     # the fake arm's joints: away from every pose
+fetch.motion.go = lambda name, *a, **k: (calls.append(("pose", name)), arm.update(j=list(fetch.motion.poses()[name])))
 fetch.motion.stop = lambda: calls.append(("arm stop",))
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [0] * 6, "look": [0] * 6}
+fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
 fetch.motion.tcp = lambda: [0.0] * 3 + tilt["rpy"]                    # the flange as the fake kine_forward says
-skills._joints = lambda: [0.0] * 6
+skills._joints = lambda: arm["j"]
+skills.FRESH_WAIT_S = 0.0                                                  # never wait for the live camera files
 skills.home_joints = lambda: [0.0] * 6
 up_rpy = list(skills.GRASP_RPY)
 tilt = {"rpy": up_rpy}
@@ -149,28 +151,31 @@ fetch.gripper.open_ = lambda: (calls.append(("open",)), hand.update(holding=Fals
 skills.find = lambda name, colour=None, seen=None: (calls.append(("find", name)), found["obj"])[1] if found["obj"] \
     else (_ for _ in ()).throw(skills.SkillError("I can't see a thing."))
 skills.reachable_pick = fake_reachable
-skills.look = lambda frames=None: []
+skills.look = lambda frames=None, **kw: []
 
 
 def fake_pick(obj, wp, ja):
     calls.append(("pick", obj["name"]))
+    arm.update(j=[5.0] * 6)
     hand.update(holding=True, closed=True)
     skills._held.update(top_mm=obj["top_mm"], x=obj["x"], y=obj["y"])
 
 
 def fake_place(wp):
     calls.append(("place",))
+    arm.update(j=[5.0] * 6)
     hand.update(holding=False, closed=False)
     skills._held.clear()
 
 
 skills._do_pick = fake_pick
 skills._do_place = fake_place
-skills._line = lambda name, pose: calls.append(("line", name))
-fetch.motion.move_linear = lambda target=None, **kw: calls.append(("line", "straight"))
+skills._line = lambda name, pose: (calls.append(("line", name)), arm.update(j=[5.0] * 6))
+fetch.motion.move_linear = lambda target=None, **kw: (calls.append(("line", "straight")), arm.update(j=[9.0] * 6))
 skills.on_table = lambda spots, table: []                                 # no live depth frames in a test
 surface = {"z": -403.0}                     # what the fake depth camera sees: the proven table
 skills.surface_heights = lambda pts, guess_z=-400.0: [surface["z"]] * len(pts)
+skills.flat_points = lambda pts, guess_z=-400.0, camera="torso", T=None: [(p[0], p[1], surface["z"]) for p in pts]
 skills.surface_points = lambda pts, guess_z=-400.0, **kw: [None] * len(pts)    # never the live depth file
 fetch.head_cam.base_from_head = lambda yaw, pitch: None                    # head camera checks off (own test below)
 fetch.objects.latest = lambda camera="torso": {"age_s": None, "objects": [], "head_pose": None}
@@ -198,6 +203,7 @@ def run(fn, *a):
 def reset():
     fetch._state.update(status="idle", holding=False, step="")
     base["polls"], base["on_poll"] = 0, None
+    arm.update(j=[5.0] * 6)
     found["obj"], reach["ok"] = CUP, True
     hand.update(holding=False, closed=False)
     fetch.HOLD_CHECK_S = 1.0
@@ -231,8 +237,9 @@ assert st["status"] == "done" and not st["holding"] and ("place",) in calls and 
 speeds = []
 real_go = fetch.motion.go
 fetch.motion.go = lambda name, speed="slow", *a, **k: (speeds.append((name, speed)), calls.append(("pose", name)))
+arm.update(j=[5.0] * 6)
 fetch._pose("look")
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [0] * 6, "look": [0] * 6}
+fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
 tilt["rpy"] = up_rpy
 fetch._pose_holding("carry")
 assert speeds == [("look", skills.EMPTY_SPEED), ("carry", skills.HOLDING_SPEED)], speeds
@@ -250,22 +257,22 @@ st = run(fetch.start, ok)
 assert st["status"] == "failed" and "way there" in st["log"][-1] and ("cancel",) in calls, st
 fetch.agv.status, fetch.STUCK_S, fetch.DRIVE_POLL_S = real_status, 30.0, 0.01
 
-# ---------- a table 10 cm higher: lift up before the pick, back down before driving ----------
+# ---------- a table 3 cm higher: lift up before the pick, back down before driving ----------
 reset()
-surface["z"], body["lift"] = -303.0, 75.0
+surface["z"], body["lift"] = -373.0, 75.0
 st = run(fetch.start, ok)
 lifts = [c[1] for c in calls if c[0] == "lift"]
-assert st["status"] == "holding" and lifts[:2] == [175.0, 75.0], (lifts, calls)    # at p1 up for the pick, down to drive
-assert calls.index(("lift", 175.0)) < next(i for i, c in enumerate(calls) if c[0] == "pick")
+assert st["status"] == "holding" and lifts[:2] == [105.0, 75.0], (lifts, calls)    # at p1 up for the pick, down to drive
+assert calls.index(("lift", 105.0)) < next(i for i, c in enumerate(calls) if c[0] == "pick")
 surface["z"] = -1060.0                                                       # the floor: never fitted
 assert not fetch._fit_lift(-1060.0) and body["lift"] == 75.0
 st = run(fetch.place)                                    # only floor in view: never put down, search all round
 assert st["status"] == "failed" and ("place",) not in calls and st["holding"], st["log"][-3:]
-surface["z"] = -303.0
+surface["z"] = -373.0
 st = run(fetch.place)                                                        # done: back to the usual lift
 assert st["status"] == "done" and body["lift"] == 75.0, (st, body)
 surface["z"] = -1060.0
-body["lift"], found["obj"] = 175.0, None                                      # raised and nothing in view ...
+body["lift"], found["obj"] = 105.0, None                                      # raised and nothing in view ...
 found_after = {"n": 0}
 real_find = skills.find
 def find_low(name, colour=None, seen=None):
@@ -278,8 +285,8 @@ reset()
 st = run(fetch.start, {**ok, "source": "here", "dest": "here"})
 lifts = [c[1] for c in calls if c[0] == "lift"]
 turns = [c for c in calls if c[0] == "go_point"]
-assert st["status"] == "holding" and lifts[0] == 0.0 and len(turns) == fetch.SEARCH_TURNS, (st, calls)  # ... a whole
-assert calls.index(("lift", 0.0)) > max(i for i, c in enumerate(calls) if c[0] == "go_point")  # turn high, then low
+assert st["status"] == "holding" and lifts[0] == 0.0 and len(turns) == 1, (st, calls)   # ... a base turn up there,
+assert calls.index(("lift", 0.0)) > max(i for i, c in enumerate(calls) if c[0] == "go_point")  # then the lift down
 skills.find = real_find
 surface["z"] = -403.0
 fetch._set(holding=False, status="idle")
@@ -320,8 +327,8 @@ found["obj"] = None
 st = run(fetch.start, ok)
 turns = [c for c in calls if c[0] == "go_point"]
 assert st["status"] == "failed" and "looked all around" in st["log"][-1], (st, calls)
-assert len(turns) == 3 * fetch.SEARCH_TURNS and not any(c[0] == "pick" for c in calls), calls  # whole turn per lift
-assert [c[1] for c in calls if c[0] == "lift"][:2] == [0.0, 250.0], calls                  # here, down, up
+assert len(turns) == 2 and not any(c[0] == "pick" for c in calls), calls     # one search: a base turn at each lift
+assert [c[1] for c in calls if c[0] == "lift"] == [0.0, 75.0], calls           # here (75), the other end, back to drive
 # ---------- not found on the charger: no turning ----------
 reset()
 found["obj"], base["charging"] = None, True
@@ -459,7 +466,7 @@ def width_check(obj, start=None, accept=None):
 skills.reachable_pick = width_check
 reset()
 fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2}))
-wide_far = {**CUP, "name": "cup", "x": -69.0, "y": 1142.0, "width_mm": 88.0}
+wide_far = {**CUP, "name": "cup", "x": -69.0, "y": 1142.0, "width_mm": 98.0}
 wide_near = {**wide_far, "x": -100.0, "y": 600.0, "width_mm": 79.0}
 skills.find = lambda name, colour=None, seen=None: wide_near if any(c[0] == "joy" for c in calls) else wide_far
 st = run(fetch.start, {**ok, "object": "cup", "source": "here", "dest": "here"})
@@ -480,7 +487,7 @@ fetch._set(holding=True, status="holding")
 skills._held.update(top_mm=-260.0, x=-150.0, y=600.0, base=None, table=-403.0)
 chair = {"name": "chair", "colour": "orange", "x": -120.0, "y": 640.0, "top_mm": -150.0, "seen": 8, "spread": 1.0}
 real_look = skills.look
-skills.look = lambda frames=None: [chair, {**chair, "colour": "black", "x": 300.0}]
+skills.look = lambda frames=None, **kw: [chair, {**chair, "colour": "black", "x": 300.0}]
 surface["z"] = -703.0                                                      # a seat 30 cm below a table
 st = run(fetch.place, None, {"name": "chair", "colour": "orange"})
 assert st["status"] == "failed" and "lower than a table" in st["log"][-1] and st["holding"], st["log"][-3:]
@@ -489,6 +496,21 @@ surface["z"] = -403.0                                                      # a s
 skills.on_table = lambda spots, table: list(spots)[:1]
 st = run(fetch.place, None, {"name": "chair", "colour": "orange"})
 assert st["status"] == "done" and ("place",) in calls, st["log"][-4:]
+# "the grey table": the cameras call it a white sink (flat, table height) -> on it; nothing named in view -> any table
+sink = {"name": "sink", "colour": "white", "x": -160.0, "y": 760.0, "top_mm": -400.0, "seen": 8, "spread": 1.0}
+for seen in ([chair, sink], []):
+    reset()
+    hand.update(holding=True, closed=True)
+    fetch._set(holding=True, status="holding")
+    skills._held.update(top_mm=-260.0, x=-150.0, y=600.0, base=None, table=-403.0)
+    skills.look = lambda frames=None, seen=seen, **kw: seen
+    fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2}))
+    said = []
+    st = run(fetch.place, lambda en, ko: said.append(en), {"name": "dining table", "colour": "grey"})
+    assert st["status"] == "done" and ("place",) in calls, st["log"][-4:]
+    this = st["log"][max(i for i, l in enumerate(st["log"]) if "placing" in l):]          # this run's lines
+    assert any("grey table at (-160, 760)" in l for l in this) == bool(seen), this         # the white sink is it
+    assert any("couldn't find the grey table, so I put it on the table here" in w for w in said) == (not seen), said
 skills.look, skills.on_table = real_look, real_on_table
 fetch._set(holding=False, status="idle")
 hand.update(holding=False, closed=False)
@@ -498,7 +520,7 @@ fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2}))
 base["pose"] = (0.0, 0.0, 0.0)
 stool = {"name": "chair", "colour": "grey", "x": 265.0, "y": 2390.0, "top_mm": -400.0, "seen": 8, "spread": 1.0}
 real_look2 = skills.look
-skills.look = lambda frames=None: [stool]
+skills.look = lambda frames=None, **kw: [stool]
 o, w = fetch.teach_thing("chair", "yellow")
 assert fetch.colour_of(stool) == "yellow"
 b_now = fetch._rot(-90.0) @ (np.array(w) - [1.0, 1.0])                    # the base moved to (1, 1) and turned 90 deg
@@ -515,7 +537,8 @@ fetch.KNOWN_FILE.unlink()
 # ---------- which heights the arm can work at: a lift for each, none for a floor or a low seat ----------
 body["lift"] = 75.0
 assert fetch.lift_for(-403.0) == 75.0                     # the proven table: the lift stays
-assert fetch.lift_for(-303.0) == 175.0                    # 10 cm higher: lift up by as much
+assert fetch.lift_for(-373.0) == 105.0                    # 3 cm higher: lift up by as much
+assert fetch.lift_for(-303.0) == 105.0                    # 10 cm higher: only to the lift limit (camera cable)
 assert fetch.lift_for(-603.0) == 0.0                      # 20 cm lower: lift down to 0, reachable there (IK map)
 assert fetch.lift_for(-703.0) is None and fetch.lift_for(-1060.0) is None    # a seat 30 cm lower, the floor
 
@@ -536,63 +559,100 @@ calls.clear()
 assert fetch._turn(30) is False and not any(c[0] == "go_point" for c in calls)
 skills.surface_points = lambda pts, guess_z=-400.0, **kw: [tuple(np.array(p) * 3) for p in pts]   # only far behind them
 assert fetch.depth_hits(30) is None
-# only the head camera, turned to the side of the turn, sees something in the arm's way: no turn, head back after
+# only the head camera, turned to the side of the turn, sees something in the arm's way: no turn; the head stays there
 heads = []
-real_head_move, real_from_head = fetch.head.moveto, fetch.head_cam.base_from_head
-fetch.head.moveto = lambda pos, **kw: heads.append(tuple(pos[2:]))
+real_head_move, real_from_head, real_status = fetch.head.moveto, fetch.head_cam.base_from_head, fetch.head.status
+hp = {"waist": -15.0, "yaw": 0.0, "pitch": 0.0}
+fetch.head.status = lambda: [body["lift"], hp["waist"], hp["yaw"], hp["pitch"]]
+def head_move(pos, **kw):
+    if abs(pos[0] - body["lift"]) > 0.5:
+        calls.append(("lift", pos[0]))
+    if (pos[2], pos[3]) != (hp["yaw"], hp["pitch"]):
+        heads.append(tuple(pos[2:]))
+    body["lift"] = pos[0]
+    hp.update(waist=pos[1], yaw=pos[2], pitch=pos[3])
+fetch.head.moveto = head_move
 fetch.head_cam.base_from_head = lambda yaw, pitch: np.eye(4)
-fetch.HEAD_SETTLE_S = 0.0
 skills.surface_points = lambda pts, guess_z=-400.0, camera="torso", T=None: \
     [tuple(p) if camera == "head" else None for p in pts]
 calls.clear()
 assert fetch._turn(-30) is False and not any(c[0] == "go_point" for c in calls)
-assert heads == [(-fetch.HEAD_SIDE_DEG, fetch.HEAD_LOW_PITCH), (0.0, 0.0)], heads
-# the head camera finds the cup to the left (seen twice at the same place): the base turns to it and drives in
+assert heads == [(-fetch.HEAD_SIDE_DEG, fetch.HEAD_LOW_PITCH)], heads           # no move back: the next look turns it
 skills.surface_points = lambda pts, guess_z=-400.0, **kw: [None] * len(pts)
-heads.clear()
+
+# ---------- the search (_look_around), one for picking and placing ----------
+# (a) ahead with both cameras, (b) waist and head together to the busier side step by step, then the other side,
+# (c) the base turns towards that side and all again, (d) the other lift end and all again
+fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2, "waist_deg": -15.0}))   # the front: -15
+real_blocked, real_side, real_turn, real_find_any = fetch._sweep_blocked, fetch.first_side, fetch._turn, fetch._find_any
+blocked, views, base_turns = set(), [], []
+fetch._sweep_blocked = lambda deg, what: round(fetch._waist_turn() + deg) in blocked          # by where it would end
+fetch.first_side = lambda: -1                                                 # more unmapped things on the right
+fetch._turn = lambda deg, holding=False, why="": base_turns.append((deg, body["lift"])) or deg not in blocked_turns
+blocked_turns = set()
+def seen_here(at=None):
+    views.append((round(fetch._waist_turn()), round(hp["yaw"])))
+    return "it" if views[-1] == at else None
+body["lift"], hp["waist"], hp["yaw"] = 75.0, -15.0, 0.0
+assert fetch._look_around(seen_here) is None
+side = [(-60, 0), (-120, 0), (-120, -60), (60, 0), (120, 0), (120, 60)]      # the head turns the last 60 deg
+assert views == [(0, 0)] + side + [(0, 0)] + side + [(0, 0)] + side + [(0, 0)] + side, views
+assert base_turns == [(-180.0, 75.0), (-180.0, 0.0)], base_turns              # towards the busy side, at each lift
+assert hp["waist"] == -15.0                                                   # nothing: the waist back at the front
+# found at a view: the waist and the head stay where it was seen
+views.clear(); base_turns.clear()
+body["lift"] = 75.0
+assert fetch._look_around(lambda: seen_here((120, 0))) == "it" and round(fetch._waist_turn()) == 120 and not base_turns
+# a waist turn whose sweep is not clear is left out: the head turns further instead
+views.clear(); hp["waist"] = -15.0
+blocked = {120}
+fetch._look_around(lambda: seen_here((60, 120)))
+assert views[-1] == (60, 120) and (60, 60) in views, views
+blocked = set()
+# a half turn of the base refused: a quarter turn; on the charger: no base turn at all
+views.clear(); base_turns.clear(); body["lift"] = 75.0
+blocked_turns = {-180.0}
+fetch._look_around(lambda: None)
+assert base_turns[:2] == [(-180.0, 75.0), (-90.0, 75.0)], base_turns
+blocked_turns = set()
+base_turns.clear()
+base["charging"] = True
+fetch._look_around(lambda: None)
+assert not base_turns
+base["charging"] = False
+# the waist never goes past the body's limit (+-140 absolute): the head turns the rest
+fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2, "waist_deg": -30.0}))
+hp["waist"] = -30.0
+assert fetch._waist_to(-120.0) and hp["waist"] == -140.0
+fetch._look_at(-180.0, lambda: None)
+assert hp["waist"] == -140.0 and round(hp["yaw"]) == -70, hp
+hp["waist"] = -15.0
+fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2, "waist_deg": -15.0}))
+
+# ---------- picking: the head camera sees the cup far away -> the base goes there, the torso camera picks it up ------
 sight = {"n": 0}
-def head_sees(camera="torso"):
+def head_sees(camera="torso"):                                  # the cup to the left, seen twice at about one place
     sight["n"] += 1
-    yaw = heads[-1][0] if heads else 0.0
-    cup = {"name": "cup", "colour": "white", "position_mm": [-900.0 + sight["n"] % 2 * 20, 700.0, -380.0]}
-    return {"age_s": 0.1, "objects": [cup] if yaw == fetch._head_yaws(1)[1] else [], "head_pose": None}
+    cup = {"name": "cup", "colour": "white", "position_mm": [-900.0 + sight["n"] % 2 * 20, 1700.0, -380.0]}
+    return {"age_s": 0.1, "objects": [cup] if camera == "head" and round(hp["yaw"]) == 60 else [], "head_pose": None}
 fetch.objects.latest = head_sees
-real_find_any, real_straight = fetch._find_any, fetch._straight_clear
-fetch._find_any = lambda task: CUP
-fetch._straight_clear = lambda d, speed=None: calls.append(("straight", round(d, 2))) or d
-calls.clear()
-assert fetch._head_search({"object": "cup", "colour": "white"}, 1) == CUP
-assert heads[0] == (0.0, fetch.HEAD_LOW_PITCH) and heads[1] == (fetch._head_yaws(1)[1], fetch.HEAD_LOW_PITCH)
-assert heads[-1] == (0.0, 0.0), heads                                        # the head is back where it was
-assert any(c[0] == "go_point" for c in calls), calls                        # turned to face it
-assert any(c[0] == "straight" for c in calls), calls                        # then straight towards it
-# a colour that does not match: nothing found, the base does not move
-heads.clear(); calls.clear()
-assert fetch._head_search({"object": "cup", "colour": "red"}, 1) is None
-assert not any(c[0] in ("go_point", "straight") for c in calls) and heads[-1] == (0.0, 0.0)
-assert fetch._head_yaws(-1) == [0.0, -60.0, -120.0, -180.0, 60.0, 120.0, 180.0]           # the busier side first, as far as it turns
-# nothing anywhere: head both sides, base half round, head again; then the lift to its other end and all again
-order = []
-real_hs, real_turn, real_side, real_lift = fetch._head_search, fetch._turn, fetch.first_side, fetch._lift_to
-fetch._head_search = lambda task, side, say=None: order.append(("head", side))
-fetch._turn = lambda deg, holding=False, why="": order.append(("turn", deg)) or True
-fetch.first_side = lambda: -1
-fetch._lift_to = lambda mm: order.append(("lift", mm))
-fetch._find_any = lambda task: None
-body["lift"] = 75.0
-assert fetch._look_around({"object": "cup"}) is None
-half = [("turn", -60.0)] * fetch.BASE_HALF_STEPS
-assert order == [("head", -1)] + half + [("head", -1), ("lift", 250.0), ("head", -1)] + half + [("head", -1)], order
-order.clear()
-body["lift"] = 250.0                                                         # up: it looks down low next
-fetch._look_around({"object": "cup"})
-assert ("lift", 0.0) in order, order
-fetch._head_search, fetch._turn, fetch.first_side, fetch._lift_to = real_hs, real_turn, real_side, real_lift
-body["lift"] = 75.0
-fetch._find_any, fetch._straight_clear = real_find_any, real_straight
+assert fetch._head_seen(lambda o: fetch._is_task(o, {"object": "cup", "colour": "red"})) is None   # not that colour
+hp["yaw"] = 60.0
+got = fetch._head_seen(lambda o: fetch._is_task(o, {"object": "cup", "colour": "white"}))
+assert got and got["head"] and abs(got["x"] + 890) < 1 and got["y"] == 1700.0, got
+hp["yaw"] = 0.0
+went = []
+real_go_to = fetch._go_to
+fetch._go_to = lambda thing, goal, tried, holding=False: (went.append((round(thing["x"]), goal)), calls.append(("joy", "0.05")))
+fetch._find_any = lambda task: CUP if any(c[0] == "joy" for c in calls) else None
+calls.clear(); views.clear()
+assert fetch._see({"object": "cup", "colour": "white"}) == CUP
+assert went == [(-890, fetch.PICK_ZONE_CENTRE)], went                       # once to where the head saw it
+fetch._go_to = real_go_to
 fetch.objects.latest = lambda camera="torso": {"age_s": None, "objects": [], "head_pose": None}
-fetch.head.moveto, fetch.head_cam.base_from_head = real_head_move, real_from_head
-skills.surface_points = lambda pts, guess_z=-400.0, **kw: [None] * len(pts)
+
+fetch._sweep_blocked, fetch.first_side, fetch._turn, fetch._find_any = real_blocked, real_side, real_turn, real_find_any
+fetch.head.moveto, fetch.head_cam.base_from_head, fetch.head.status = real_head_move, real_from_head, real_status
 skills.surface_points, skills.objects.base_from_camera = real_points, real_extr
 fetch.CALIB_FILE.unlink()
 
@@ -606,6 +666,31 @@ assert abs(fetch.arm_yaw() - (-96.2)) < 1e-9                                 # t
 assert np.allclose(fetch.arm_xy(), [0.1 * math.cos(math.radians(-10)), 0.1 * math.sin(math.radians(-10))])
 fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2}))      # not recorded: as measured
 assert fetch.arm_yaw() == -86.2
+fetch.CALIB_FILE.unlink()
+
+# the gripper finger between flange and grasp point is the hand itself, not something in its way
+grip = [np.array([-38.0, 329.0, 146.0]), np.array([-283.0, 281.0, 50.0]), np.array([-289.0, 282.0, -9.0])]
+assert fetch._near_hand([-119.0, 359.0, 61.0], grip) < fetch.SELF_MM < fetch._near_hand([-119.0, 600.0, 61.0], grip)
+
+# ---------- never a base move with the waist turned ----------
+fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2, "waist_deg": -15.0}))   # the front: -15
+waist = {"deg": -15.0}
+real_status, real_move = fetch.head.status, fetch.head.moveto
+real_blocked, real_find_any = fetch._sweep_blocked, fetch._find_any
+fetch.head.status = lambda: [75.0, waist["deg"], 0.0, 0.0]
+fetch.head.moveto = lambda pos, **kw: waist.update(deg=pos[1])
+fetch._sweep_blocked = lambda deg, what: round(fetch._waist_turn() + deg) in blocked          # by where it would end
+waist["deg"], blocked = 45.0, {0}
+try:                                                                       # the way back is blocked: no base move
+    fetch._drive_to({"marker": "p1"}, None)
+    raise AssertionError("drove with the waist turned")
+except fetch.FetchError:
+    pass
+blocked.clear()
+calls.clear()
+fetch._drive_to({"marker": "p1"}, None)
+assert waist["deg"] == -15.0 and ("go", "p1") in calls                      # the waist turned back first
+fetch.head.status, fetch.head.moveto, fetch._sweep_blocked, fetch._find_any = real_status, real_move, real_blocked, real_find_any
 fetch.CALIB_FILE.unlink()
 
 # ---------- first search turn: towards the side with things the map does not have ----------
@@ -634,7 +719,7 @@ for how, want in (("here", "failed"), ("gone", "failed")):
         assert st["status"] == "failed" and ("pick", "apple") not in calls and not turns, st["log"]
         assert "move it a little" in st["log"][-1], st["log"][-1]
     else:                 # gone from where it was: the whole search, then "can't see"
-        assert st["status"] == "failed" and "not where I saw" not in st["log"][-1] and len(turns) >= fetch.SEARCH_TURNS, st["log"]
+        assert st["status"] == "failed" and "not where I saw" not in st["log"][-1] and len(turns) >= 2, st["log"]   # the whole search
     fetch._set(holding=False, status="idle")
 # not seen by depth either (out of view): back off, turn both ways, then the whole search
 reset()
@@ -646,7 +731,7 @@ skills.find, skills.reachable_pick, where["how"] = real_find, fake_reachable, "u
 fetch._set(holding=False, status="idle")
 
 # ---------- give: nobody takes it -> keep holding; a pull -> open ----------
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [0] * 6, "look": [0] * 6, "give": [0] * 6}
+fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6, "give": [-6] * 6}
 fetch.GIVE_WAIT_S = 0.3
 reset()
 st = run(fetch.start, ok)
@@ -658,7 +743,7 @@ fetch.GIVE_WAIT_S = 5.0
 threading.Timer(0.2, fetch.release_now).start()                            # "thank you" / Release
 st = run(fetch.give)
 assert st["status"] == "done" and not st["holding"] and ("open",) in calls, (st, calls)
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [0] * 6, "look": [0] * 6}
+fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
 
 # ---------- another process holds it: give / place here take it over ----------
 reset()
@@ -704,14 +789,17 @@ assert fetch.tilt_along("carry") < 1e-6
 z_along = {"look": -500.0}                     # flange z at the end of the move; it starts at 0
 skills._ask = lambda name, **a: {"errorCode": "0", "cartPosition": [0, 0, z_along.get(name_of(a), 0.0)] + up_rpy}
 name_of = lambda a: "look" if a["jointPosition"][0] > 0 else None
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [0] * 6, "look": [10.0] + [0] * 5}
+fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [10.0] + [0] * 5}
 calls.clear()
 try:
     fetch._pose("look")
     raise AssertionError("move down to the table accepted")
 except fetch.FetchError:
     assert not calls
+arm.update(j=[-5.0] * 6)
 fetch._pose("ready")
+assert calls == [("pose", "ready")], calls
+fetch._pose("ready")                                                          # there already: no move
 assert calls == [("pose", "ready")], calls
 # ---------- place spots: the pick spot only while the base stands where it picked ----------
 seen_table = {"spots": None}
@@ -726,7 +814,7 @@ assert (-160.0, 600.0) not in tries and tries and seen_table["table"] == -402.0,
 fetch.place_spots({**held, "table": None}, (1.0, 2.0, 0.5), [cup_near])
 assert seen_table["table"] == -405.0                                          # from the other cup: -340 - 65
 # ---------- missions (docs/17): steps in order, moves checked, receive by the finger sensor ----------
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [0] * 6, "look": [0] * 6, "give": [0] * 6}
+fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6, "give": [-6] * 6}
 fetch.MOVE_SPEED, fetch.RECEIVE_DI_S, fetch.GIVE_POLL_S = 100.0, 0.05, 0.01
 real_state, real_close = fetch.gripper.state, fetch.gripper.close
 fetch.gripper.state = lambda: {**hand, "object_in_front": hand.get("front", False),
@@ -833,4 +921,37 @@ threading.Timer(0.3, fetch.stop).start()
 st = run(fetch.run_steps, [P(do="go", to="p1")], say)
 assert st["status"] == "stopped", st
 fetch.gripper.state, fetch.gripper.close = real_state, real_close
+
+# what Lumi holds is kept from the pick until the hand opens ("Put the white cup on the table")
+fetch._set(holding=True, held_object={"object": "cup", "colour": "white"}, task={"steps": []})
+assert fetch.held_name() == "the white cup"
+fetch._set(task={"steps": [{"do": "go", "to": "exit"}]}, status="holding")   # another task: still held
+assert fetch.held_name() == "the white cup"
+fetch._state.update(holding=False, held_object=None)                        # a restarted process: from the file
+fetch._adopt()
+assert fetch._state["held_object"] == {"object": "cup", "colour": "white"} and fetch.held_name() == "the white cup"
+fetch._set(holding=False)                                                    # put down / given / dropped
+assert fetch.held_name() == "something" and fetch.state()["held_object"] is None
+skills._held["what"] = {"object": "cup", "colour": "white"}                  # picked, then the state lost the name
+fetch._set(holding=True)                                                     # (taken over from the hand)
+assert fetch.held_name() == "the white cup"
+fetch._set(holding=False)
+skills._held.clear()
+
+# the lift is never asked above its limit (head camera cable, robot/head.py LIFT_MAX_MM)
+assert max(fetch.LIFT_RANGE + fetch.LIFT_TRIES + (fetch.LIFT_DRIVE_MM,)) <= fetch.head.LIFT_MAX_MM == 105.0
+assert fetch.head.AXIS_LIMITS[0] == (0.0, fetch.head.LIFT_MAX_MM)
+body["lift"] = 75.0
+assert all(fetch.lift_for(z) is None or fetch.lift_for(z) <= 105.0 for z in range(-700, 0, 10))
+fetch._clear()
+fetch._lift_to(250.0)
+assert body["lift"] == 105.0, body
+# a drive starts with the head looking ahead, wherever it was turned
+moves, real_status, real_move = [], fetch.head.status, fetch.head.moveto
+fetch.head.status = lambda: [75.0, -15.0, -120.0, 20.0]
+fetch.head.moveto = lambda pos, **kw: moves.append(list(pos))
+fetch.head_ahead()
+assert moves == [[75.0, -15.0, *fetch.HEAD_AHEAD]], moves
+fetch.head.status, fetch.head.moveto = real_status, real_move
+
 print("fetch ok")

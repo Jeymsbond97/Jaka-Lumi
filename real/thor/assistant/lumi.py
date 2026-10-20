@@ -62,6 +62,7 @@ VENV_PY = os.path.join(VENV, "bin", "python")
 if os.path.exists(VENV_PY) and os.path.realpath(sys.prefix) != os.path.realpath(VENV):
     os.execv(VENV_PY, [VENV_PY, os.path.abspath(__file__)] + sys.argv[1:])
 
+import random
 import re
 
 from robot import agv
@@ -75,6 +76,7 @@ from robot import head
 from audio import mic
 from robot import motion
 from audio import mouth
+from audio import sing
 from robot import nav
 from manipulation import skills
 from assistant import web
@@ -127,15 +129,23 @@ CHANGE_WORDS = re.compile(r"\b(put|bring|take|go|place|instead|desk|table|chair|
 ELSEWHERE = re.compile(r"(으로|로)\s*(가져|갖다)|\b(to the|instead|over there)\b", re.I)   # bring it somewhere else
 GIVE_ME = re.compile(r"\b(give|hand|mine|for me|to me|i'?ll take it|i will take it|i can take it)\b|주세요|줘|내 거|"
                      r"제 거|제가 받을게|받을게", re.I)
-MOVING_ACTIONS = {"go_to", "come", "move", "turn", "arm", "pick", "put", "move_object", "fetch", "give", "place", "wave"}
+MOVING_ACTIONS = {"go_to", "come", "move", "turn", "arm", "pick", "put", "move_object", "fetch", "give", "place", "wave",
+                  "lift"}
+LIFT_VEL = 20                       # speed ratio % for a lift move asked by voice (head.VEL is 40)
+LIMIT_SAY = {"yaw": (f"I can turn my head up to {head.AXIS_LIMITS[2][1]:g} degrees each way.",
+                     f"고개는 좌우로 {head.AXIS_LIMITS[2][1]:g}도까지 돌릴 수 있어요."),
+             "pitch": (f"I can tilt my head from {-head.PITCH_RANGE[0]:g} degrees down to {head.PITCH_RANGE[1]:g} degrees up.",
+                       f"고개는 아래로 {-head.PITCH_RANGE[0]:g}도, 위로 {head.PITCH_RANGE[1]:g}도까지 움직여요."),
+             "lift": (f"For now I can raise my body only up to {head.LIFT_MAX_MM:g} millimetres.",
+                      f"지금은 몸을 {head.LIFT_MAX_MM:g}밀리미터까지만 올릴 수 있어요.")}   # a number asked for was past the range
 DONE_TALK = re.compile(r"\b(bye+|goodbye|see you|never ?mind|nothing|that'?s (all|it)|no thanks|thanks|thank you|"
                        r"okay|ok|fine|alright|cool|whatever)\b|안녕히|잘 ?가|됐어|괜찮아|아니야|고마워|감사|그래|네|수고|알았어|"
                        r"그게 ?다|빠이|바이|나중에|안녕\s*[.!]?$", re.I)
 TALK_RECENT_S = 20.0                # s; someone spoke with Lumi this recently: what they say next is to Lumi too
 COMPANY_Q = re.compile(r"\b(cutshion|barista robot|drawing robot|your (maker|makers|company|ceo|price)|(this|the|that|what|which) company|"
                        r"ceo of (it|this|the company)|founder of (it|this)|mega ?coffee|"
-                       r"sonovictus|omron|borgwarner|bogate|cnt tech|seed round|how much (do|does) (you|it|this|lumi) cost)\b|"
-                       r"쿳션|컷션|커션|메가커피|소노빅터스|(이|그|너희|루미) ?회사|회사 ?(대표|이름|어디)|대표님|바리스타|드로잉|(너|루미|이 로봇) ?가격", re.I)     # never looked up online: from the notes only
+                       r"sonovictus|omron|borgwarner|bogate|cnt tech|seed round|target market|business model|(your|cutshion'?s?) awards?|how much (do|does) (you|it|this|lumi) cost)\b|"
+                       r"쿳션|컷션|커션|메가커피|소노빅터스|받은 상|수상|(이|그|너희|루미) ?회사|회사 ?(대표|이름|어디)|대표님|바리스타|드로잉|(너|루미|이 로봇) ?가격", re.I)     # never looked up online: from the notes only
 VENUE_Q = re.compile(r"\b(here|conference|keynote|booths?|exhibitors?|restrooms?|toilets?|bathrooms?|venue|tickets?|"
                      r"admission|entrance fee|lunch break|who is speaking|speakers today)\b|\bthis (event|show|fair|expo|building)\b|"
                      r"여기|행사|부스|화장실|입장료|입장권|키노트|발표자|몇 ?시까지|운영 ?시간|이 건물", re.I)   # this event / building
@@ -143,7 +153,9 @@ ABOUT_LUMI = re.compile(r"\b(you|your|yourself|lumi|battery|charging|payload|gri
                         r"배터리|충전|센서|카메라|라이다|그리퍼|가반하중|팔 ?길이|무게|키가|속도|마이크", re.I)   # Korean drops "you"
 COMMAND_START = re.compile(r"^\s*(please\s+)?(go|come|take|bring|throw|put|give|pick|drive|move|turn|jump|dance|fly|"
                            r"push|hit|kick|open|close|grab|carry|follow|show)\b", re.I)   # an order, not a question
-EMPTY_HAND = re.compile(r"\b(give|hand) (it|that|this)( (over|back))?( to me)?\b|\bhand (it )?over\b|"
+EMPTY_HAND = re.compile(r"\b(give|hand|pass) (it|that|this)( (over|back|here))?( to me)?\b|\bhand (it )?over\b|"
+                        r"\bcan i have (it|that|this)\b|(그거|이거|그것|그걸|이걸)\s*(이제|이리|좀|빨리)?\s*(나|저)?(한테|에게)?\s*"
+                        r"(줘|주세요|건네)|"
                         r"\b(put|place|set) (it|that|this) (down|on the table)\b|(그거|그것|이거|그걸|이걸)\s*(나한테|저한테|나|저)?\s*"
                         r"(줘|주세요|건네)|들고 ?있는 ?(거|것)을?\s*(나|저)?(한테|에게)?\s*(줘|주세요)|^\s*건네\s*(줘|주세요)|테이블에\s*(놔|놓아|둬)|내려\s*(놔|놓아)", re.I)
 EMPTY_HAND_SAY = {"en": "I'm not holding anything right now.", "ko": "지금은 손에 아무것도 들고 있지 않아요."}
@@ -151,8 +163,19 @@ ASK_PREFIX = re.compile(r"\b(do|did) you (know|happen to know)\b|\b(can|could) y
                         r"아세요|알아요|알아\?", re.I)          # "do you know who won?" is not about Lumi
 ASKS_MORE = re.compile(r"\?|\b(but|can|could|what|how|where|why|when|who)\b|근데|그런데|뭐|어떻게|어디|언제|누구", re.I)
 FOREIGN_SCRIPT = re.compile(r"[\u0400-\u04ff\u4e00-\u9fff\u3040-\u30ff]")   # Cyrillic, Chinese, Japanese
-NOT_KNOWN = {"en": "I'm sorry, I don't have that information. A staff member can help you.",
-             "ko": "죄송해요, 그 정보는 없어요. 직원분께 여쭤봐 주세요."}
+UNSURE_LOOKUP = False      # look up what the model says it is not sure of: on for gemma4:e4b, which said "not sure"
+                           # instead of choosing search; gemma4:26b chooses search itself, and its "not sure" answers
+                           # (2026-10-19 checks: 11 of 11) were about Lumi, Cutshion or the venue, never a lookup
+NOT_KNOWN = {"en": ["I'm sorry, I don't have that information. A staff member can help you.",
+                    "That one I don't know, sorry. A staff member here can tell you.",
+                    "I'm not sure about that. Please ask a staff member."],
+             "ko": ["죄송해요, 그 정보는 없어요. 직원분께 여쭤봐 주세요.",
+                    "그건 저도 잘 몰라요. 직원분께 물어봐 주시겠어요?",
+                    "아쉽지만 그건 제가 알 수 없어요. 직원분이 알려 드릴 거예요."]}   # said when a lookup is refused
+
+
+def not_known(lang):
+    return random.choice(NOT_KNOWN[lang])
 TALK_ASK_S = 15.0                   # s of silence while halted for someone -> "Can I go on with my task?", again -> go on
 FAREWELL_ONLY = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright|lumi|루미야?)[\s,.!]+)?(?:go on|you can go|i see|good|very good|"
                            r"good job|great job|nice job|well done|got it,? thanks?|got it,? thank you|thanks,? got it|"
@@ -167,7 +190,9 @@ STATUS_Q = re.compile(
     r"(?! (?:tonight|tomorrow|later|this weekend|after|for (?:a )?(?:living|work)))|\bwhatcha doing\b|"
     r"\bwhat (?:is it )?you(?:'re| are) doing\b|\bwhat are you supposed to be doing\b|"
     r"\bwhat(?:'?s| is) your (?:current )?(?:task|mission)\b|\bwhat(?:'?s| is) your (?:current job|job (?:right )?now)\b|"
-    r"\bwhat (?:task|job|mission) are you (?:doing|on)\b|\bwhich task are you\b|"
+    r"\bwhat (?:task|job|mission) are you (?:doing|on|running)\b|\bwhich task are you\b|"
+    r"\bare you doing (?:a|any) (?:job|task)\b|"
+    r"그리퍼에 ?(?:뭐|무엇|뭔가)|어디 ?가려고|\bwhat'?s going on,? (?:lumi|robot)\b|\bwho sent you\b|\bwhat(?:'?s| is) (?:the|your) plan (?:right )?now\b|"
     r"\bwhat (?:were you told|did (?:they|someone|somebody) (?:ask|tell) you) to do\b|"
     r"\b(?:are|r) (?:you|u) (?:busy|free|available|working|on duty|on (?:a|your) (?:task|mission|way)|in the middle of something|"
     r"doing (?:something|anything|a delivery)|working on something|delivering|leaving)\b|^\s*(?:you )?busy\s*\??\s*$|\bis lumi busy\b|"
@@ -182,7 +207,7 @@ STATUS_Q = re.compile(
     r"\bis your hand empty\b|\bis there (?:something|anything) in your hand\b|\bis that an? \w+ in your hand\b|"
     r"\bdo you have (?:a cup|something in your hand|anything in your hand)\b|\bwho is that (?:\w+ )?for\b|\bis that for me\b|"
     + _STATUS_P + r"(?:뭐|뭘) ?(?:해(?![줄줘주봐볼도야서라])|하니|하냐|함|하고 ?(?:있|계)|하는 ?(?:중|거))|일하고 ?있|(?:뭐|뭘|무슨 (?:일|작업)을?) ?하고 ?(?:있|계)|"
-    r"무슨 (?:일|작업)을? ?하는 ?중|지금 무슨 (?:일|작업)을? ?해|(?:작업|일하는|배달|배달하는|심부름|쉬는) ?중이|"
+    r"무슨 (?:일|작업)을? ?하는 ?중|뭐 ?하느라|수행 ?중인 (?:작업|일)|지금 무슨 (?:일|작업)을? ?해|(?:작업|일하는|배달|배달하는|심부름|쉬는) ?중이|"
     r"지금 (?:바빠|바쁘|한가)|^(?:루미 )?바빠|바쁘세요|^(?:지금 )?한가해|(?:임무|맡은 일|하는 일|할 일)(?:이|가|은)? ?(?:뭐|있)|"
     + _STATUS_P + r"어디(?:로|에)? ?(?:가|가요|가세요|가니)[\s?.!]*$|어디(?:로)? ?가(?:고 ?있|는)|어디로 ?이동|목적지|어디까지 ?가|"
     r"다음에 어디|(?:충전하러|집에) 가는 (?:거|중)|어디로 가져가|어디 갔다 와|"
@@ -190,8 +215,8 @@ STATUS_Q = re.compile(
     r"(?:컵|병|사과|바나나|오렌지)(?:을|를)? ?들고 ?있(?:어|니|나요|어요)?\?|손이 ?비어|뭐 ?가져가는|그거 ?(?:누구 ?거|나 ?주는)", re.I)
 NOT_STATUS_NOW = re.compile(r"\b(tonight|after work|weekend|tomorrow|later today|for fun|in your free time)\b|주말|쉬는 날|"
                             r"저 사람|우리|내일|퇴근|나중에", re.I)    # not about what Lumi is doing now
-FAREWELL_WORDS = re.compile(r"\b(thanks?|thank you|bye|goodbye|see you|see ya|that'?s all|good night)\b|(?<=\S)[\s.,!]+안녕[\s.!~]*$|고마워|감사|안녕히|잘 ?가|"
-                            r"다음에|수고하세요|잘 ?있어|바이바이|i (have|need) to go|gotta go|i'?m leaving|"
+FAREWELL_WORDS = re.compile(r"\b(thanks?|thank you|bye|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|see ya|that'?s all|good night)\b|(?<=\S)[\s.,!]+안녕[\s.!~]*$|고마워|감사|안녕히|잘 ?가|"
+                            r"다음에|수고하세요|잘 ?있어|잘 ?있게|바이바이|빠이|(?<![가-힣])바이(?![가-힣])|땡큐|(?<![가-힣])간다[\s.!~]*$|i (have|need) to go|gotta go|i'?m leaving|"
                             r"nice (talking|meeting|chatting)( (to|with))? you|(was|been) nice to meet you|good night|take care|들어가세요|"
                             r"가 ?볼게요|갈게요|이만|나중에 봐요|또 봐요|좋은 하루|(^|\s)(나|저|우리|저희) (이제 )?(집에 )?(가|간다|가요|갑니다)[\s.!]*$",
                             re.I)
@@ -210,7 +235,8 @@ ARM_REACH_PROGRAM = "arm_reach.jks"   # Cobo π program for "reach out your hand
 STUCK_DRIVE_S = 20.0               # s "running" without moving -> the drive is cancelled and Lumi says so
 MODES_FILE = "/dev/shm/lumi_modes.json"   # written by api/server.py: {"greeter", "patrol", "wave", "drive"}
 CMD_FILE = "/dev/shm/lumi_cmd.json"       # written by api/server.py: {"id", "cmd": go | go_point | cancel | calibrate
-                                          # | fetch | fetch_give | fetch_place | fetch_stop | fetch_carry | fetch_release | fetch_steps}
+                                          # | fetch | fetch_give | fetch_place | fetch_stop | fetch_carry | fetch_release | fetch_steps
+                                          # | fetch_pause | fetch_resume}
 CALIB_FILE = "/dev/shm/lumi_calib.json"   # progress of a calibration session, for the dashboard
 CALIB_S = 120.0                    # s a calibration session lasts
 CALIB_NEAR = 2.0                   # m; the speaker for a calibration sample is the nearest person within this
@@ -563,6 +589,7 @@ class Lumi:
         self.closing_pending = None      # time of a weak closing word ("okay", "got it"): silence after it ends the talk
         self.lang = "en"
         self.skill_thread = None         # pick / put / move_object running in the background
+        self.last_song = None            # the song sung last ("another song" is a different one)
         self.mic = mic.get()
         self.modes = Modes(args)
         self.cmd_id = None
@@ -620,8 +647,10 @@ class Lumi:
         if action == "look" and target == "me":
             angle = self.current.angle if self.current else self.voice_angle
             self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), 10)
-        elif action == "look" and target in LOOK:
-            self.turn_head(*LOOK[target])
+        elif action == "look" and target.split()[0:1] and target.split()[0] in LOOK:
+            self.look(target)
+        elif action == "lift":
+            self.lift(target)
         elif action == "wave":
             threading.Thread(target=self.wave, daemon=True).start()   # while the reply is spoken
         elif action == "stop":
@@ -644,6 +673,29 @@ class Lumi:
         elif action in ("give", "place"):
             if self.fetch_status() == "holding":
                 self.fetch_finish(action)
+
+    def look(self, target):
+        """'left', 'left 30', 'down small' (brain.head_goal): the head, cut to its range. Returns "yaw" / "pitch"
+        when a number asked for was past the range, else None."""
+        cur = safe(head.status)
+        if cur is None:
+            return None
+        yaw, pitch, limited = brain_mod.head_goal(target, cur[2], cur[3], LOOK)   # the body's full range (AXIS_LIMITS):
+        threading.Thread(target=lambda: safe(head.moveto, [cur[0], cur[1], yaw, pitch]),   # head.turn() keeps
+                         daemon=True).start()                                              # to YAW_LIMIT
+        return limited
+
+    def lift(self, target):
+        """'up', 'down', 'up small', 'up 50' (mm; brain.lift_goal): the lift, slowly, cut to 0..head.LIFT_MAX_MM.
+        Returns True when a number asked for was cut."""
+        cur = safe(head.status)
+        if cur is None:
+            return False
+        mm, limited = brain_mod.lift_goal(target, cur[0], head.LIFT_MAX_MM)
+        log(f"  lift {cur[0]:.0f} -> {mm:.0f} mm")
+        threading.Thread(target=lambda: safe(lambda: head.moveto([mm, cur[1], cur[2], cur[3]], LIFT_VEL)),
+                         daemon=True).start()
+        return limited
 
     def move_by(self, action, target):
         """'move forward 1' / 'move left 0.5' / 'turn around 180' / 'turn left 90', relative to where Lumi stands.
@@ -736,7 +788,8 @@ class Lumi:
             return
         status = self.fetch_status()
         if status == "holding":
-            self.fetch_say("I'm holding something, where should I put it first?", "뭔가 들고 있어요. 먼저 어디에 둘까요?")
+            from tasks import fetch
+            self.fetch_say(f"I'm holding {fetch.held_name()}, where should I put it first?", "뭔가 들고 있어요. 먼저 어디에 둘까요?")
             return
         if status == "running":
             self.fetch_say("I'm still doing a task. Say stop to cancel it.", "아직 일하는 중이에요. 멈추려면 멈춰라고 하세요.")
@@ -759,6 +812,46 @@ class Lumi:
             self.patrol = None
         self.fetch_say("Okay, I stopped.", "네, 멈췄어요.")
         self.keep_listening()
+
+    # ---------- singing (audio/sing.py) ----------
+    def sing_song(self, text):
+        """Sing a song for these words, the head moving with it. Blocks like speech; "stop" ends it at once, any
+        other request ends it and is answered next ("sing another song" sings a different one)."""
+        if self.skill_busy() or self.mission_running():   # the head and the speaker belong to the task now
+            self.fetch_say("Sorry, I'm on a task right now. I can sing when I've finished.",
+                           "죄송해요, 지금 다른 일을 하고 있어요. 끝나면 불러 드릴게요.")
+            return
+        song = sing.choose(text, self.lang, self.last_song)
+        if song is None:                                   # a song we don't have: say which ones we know
+            mouth.say(sing.unknown_reply(self.lang))
+            self.keep_listening()
+            return
+        self.last_song = song
+        self.brain.history.append((text, f"ACTION: sing {song}"))
+        log(f"  singing {song}")
+        done = sing.sing(song, abort=self.song_abort)
+        log(f"  song {'finished' if done else 'stopped'}")
+        self.keep_listening()
+
+    def song_abort(self):
+        """While singing (clip mic only, like barge_in): "stop" / "그만" ends the song; another clear request ends
+        it and is answered next (pending_text). The song's own words and unclear sounds are ignored."""
+        if self.interrupted():
+            return True
+        u = self.mic.next(0.0)
+        if u is None or not getattr(u, "during_speech", False) or u.seconds < 0.25:
+            return False
+        text = (ears.transcribe(u.mono) or "").strip()
+        if not text or self.own_echo(text) or not ears.understood(BARGE_IN_LOGPROB):
+            return False
+        if sing.stop_words(text):
+            log(f"  stop singing: {text!r}")
+            return True
+        if brain_mod.is_closing(text):                     # "thank you": often whisper's guess on music
+            return False
+        log(f"  song interrupted: {text!r}")
+        self.pending_text = text
+        return True
 
     # ---------- someone talks to Lumi on a mission ----------
     def mission_running(self):
@@ -978,7 +1071,8 @@ class Lumi:
         elif held:
             en, ko = f"I'm holding {held} and waiting for what to do with it.", "물건을 들고 다음 지시를 기다리고 있어요."
         else:
-            return "I'm talking with you. I'm not doing any task right now.", "지금은 이야기하고 있어요. 하고 있는 일은 없어요."
+            return ("I'm talking with you. I'm not doing any task right now, and my hand is empty.",
+                    "지금은 이야기하고 있어요. 하고 있는 일은 없고, 손도 비어 있어요.")
         if held and (running or self.traveling()):
             en += f" I'm holding {held}."
         return en, ko
@@ -1130,6 +1224,12 @@ class Lumi:
                 self.patrol.pause()
                 self.patrol = None
             safe(agv.cancel)
+        elif cmd == "fetch_pause":
+            from tasks import fetch
+            if fetch.pause():
+                self.mission_hold, self.asked_go_on = "safety", False   # goes on only when told (dashboard or voice)
+        elif cmd == "fetch_resume":
+            self.resume_mission()
         elif cmd in ("fetch", "fetch_give", "fetch_place", "fetch_stop", "fetch_carry", "fetch_release", "fetch_steps"):
             from tasks import fetch                      # dashboard tasks are confirmed there: no read-back
             if cmd == "fetch":
@@ -1344,6 +1444,17 @@ class Lumi:
             log("  conversation over - driving on")
             self.patrol.wait_until = time.time() + 0.5
 
+    def go_offered(self, place):
+        """Drive to a place the visitor just agreed to; the conversation stays open."""
+        en = self.lang == "en"
+        self.brain.history.append((self.heard, f"ACTION: go_to {place}"))
+        if not self.modes.drive:
+            mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
+            return
+        self.start_trip(place)
+        mouth.say(f"Okay, I'm going to {place}." if en else f"네, {place}로 갈게요.")
+        self.keep_listening()
+
     def quick_command(self, text):
         """A command the keyword rules recognise for sure: confirm with a ready phrase and act, no LLM wait."""
         rule = brain_mod.intent(text, self.markers)
@@ -1352,13 +1463,13 @@ class Lumi:
                            "죄송해요, 지금 다른 일을 하고 있어요. 끝나면 도와드릴게요.")
             return True
         if not rule or rule[0] not in ("go_to", "come", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put",
-                                       "move_object", "fetch"):
+                                       "move_object", "fetch", "look", "lift", "wave"):
             return False
         action, target = rule
         en = self.lang == "en"
         log(f"  action {action} {target} (keyword rule)")
         if action == "search" and not_online(text):          # "is Cutshion listed on the stock market?"
-            mouth.say(NOT_KNOWN[self.lang])
+            mouth.say(not_known(self.lang))
             return True
         if action in ("weather", "search"):                    # look it up at once, one LLM call for the answer
             self.look_up(text, action, target if action == "weather" else self.brain.search_query(target))
@@ -1372,6 +1483,18 @@ class Lumi:
             return True
         if action in ("pick", "put", "move_object"):
             self.object_task(action, target)
+            return True
+        if action == "wave":
+            mouth.say("Okay!" if en else "네!")
+            threading.Thread(target=self.wave, daemon=True).start()
+            return True
+        if action == "look":
+            limited = self.act("look", "me") if target == "me" else self.look(target)
+            mouth.say(LIMIT_SAY[limited][0 if en else 1] if limited else ("Okay." if en else "네."))
+            return True
+        if action == "lift":
+            limited = self.lift(target)
+            mouth.say(LIMIT_SAY["lift"][0 if en else 1] if limited else ("Okay." if en else "네."))
             return True
         if action == "fetch":
             self.fetch_request(target)
@@ -1450,6 +1573,10 @@ class Lumi:
             return
         if self.fetch_voice(text):                         # before the closing words: "thank you" while giving
             return
+        place = consent_place(text, self.brain, self.markers)
+        if place:                                          # "p3로 갈 수 있어요?" ... "그럼 가 보세요."
+            self.go_offered(place)
+            return
         if self.fetch_status() not in ("running", "holding") and empty_hand_request(text):   # nothing held
             mouth.say(EMPTY_HAND_SAY[self.lang])
             self.keep_listening()
@@ -1465,13 +1592,16 @@ class Lumi:
                 self.closing_pending = time.time()
                 self.keep_listening()
             return
+        if sing.asked(text):                               # "sing a song", "노래 불러 줘", "sing another song"
+            self.sing_song(text)
+            return
         if self.quick_command(text):
             log(f"  done at once ({time.time() - t:.1f} s)")
             return
         if self.brain.is_lookup_follow_up(text):           # "tell me more" about something looked up just now
             self.look_up(text, "search", self.brain.search_query(text), t)
             return
-        about = self.brain.topic(text)
+        about, repeating = self.brain.topic(text), self.brain.again(text)
         gen = self.brain.respond_stream(text, self.markers, now=self.now_doing()[0])
         head_ = next(gen)
         log(f"  action {head_['action']} {head_['target']} ({time.time() - t:.1f} s)")
@@ -1483,12 +1613,16 @@ class Lumi:
         if head_["action"] == "search" and not_online(about):
             gen.close()                                    # about Cutshion or this place: the notes say it or nobody does
             log("  search refused: a company or venue question")
-            mouth.say(NOT_KNOWN[self.lang])
+            mouth.say(not_known(self.lang))
             return
         if head_["action"] in ("weather", "search"):
             gen.close()
             target = head_["target"] if head_["action"] == "weather" else self.brain.search_query(head_["target"])
             self.look_up(text, head_["action"], target, t)
+            return
+        if head_["action"] == "sing":                     # "can you sing?" ... "yes": a real song, not lines
+            gen.close()
+            self.sing_song(text)
             return
         if head_["action"] == "quiet":
             gen.close()
@@ -1500,16 +1634,16 @@ class Lumi:
             return
         if head_["action"] not in ("none", "end"):
             self.act(head_["action"], head_["target"])
-        first = [True]
+        unlogged = [True]                                  # not "first": that name is the first sentence below
 
         def timed():
             for sentence in gen:
-                if first[0]:
+                if unlogged[0]:
                     log(f"  first sentence after {time.time() - t:.1f} s")
-                    first[0] = False
+                    unlogged[0] = False
                 yield sentence
         first = next(gen, None)
-        if head_["action"] in ("none", "sing") and look_up_unsure(about, first, text):
+        if head_["action"] in ("none", "sing") and not repeating and look_up_unsure(about, first, text):
             gen.close()                                    # the model does not know: look it up instead
             log(f"  not sure ({first[:60]!r}) - looking it up")
             self.look_up(text, "search", self.brain.search_terms(text), t)
@@ -1844,10 +1978,31 @@ def look_up_unsure(about, first, text=None):
     """The model's first sentence says it does not know: look it up online? Not when the question (about: the words
     with the question before a short follow-up) is about Lumi, Cutshion or this place, nor when the reply already
     points to a staff member, nor for an order ("throw the cup", "go to the kitchen"). text: the words just said."""
-    if not first or not brain_mod.UNSURE.search(first) or re.search(r"staff|cutshion|직원|쿳션|문의", first, re.I):
+    if not UNSURE_LOOKUP or not first or not brain_mod.UNSURE.search(first) or \
+            re.search(r"staff|cutshion|직원|쿳션|문의", first, re.I):
         return False
     return not (not_online(about) or REQUEST.search(about) or COMMAND_START.search(text or about) or
                 ABOUT_LUMI.search(ASK_PREFIX.sub("", about)))
+
+
+CONSENT = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright|yes|yeah|sure|then|so|good)[\s,.!]+)*(?:go ahead|go|yes,? go|please do|"
+                     r"do it|go on then|off you go|then go|please go)[\s.!]*$|"
+                     r"^\s*(?:그럼|네|응|그래|좋아요?)?[\s,.]*(?:가 ?보세요|가 ?봐요?|가세요|가 ?주세요|가 ?줘요?|그렇게 해 ?(?:줘|주세요|요)?|"
+                     r"가 ?봐 ?주세요)[\s.!~]*$", re.I)   # yes to "shall I go to p3?" / "p3로 갈 수 있어요?"
+
+
+def consent_place(text, brain, markers):
+    """The marker of the last exchange (exactly one named in the question or the answer) when the words now are a
+    plain yes / "go ahead" / "그럼 가 보세요": Lumi goes there and the talk goes on (owner, 2026-10-19)."""
+    if not brain.history or not CONSENT.match(text or ""):
+        return None
+    asked, answer = brain.history[-1]
+    offer = (re.split(r"(?<=[.!])\s+", answer.strip()) or [""])[-1]      # Lumi's own "shall I go to p3?"
+    last = asked if any(brain_mod.named_place(asked, m, markers) for m in markers) else (offer if "?" in offer else "")
+    named = {m for m in markers if brain_mod.named_place(last, m, markers)}
+    if named == {"home", "dock2"}:
+        return None
+    return named.pop() if len(named) == 1 else None
 
 
 def empty_hand_request(text):

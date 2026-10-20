@@ -22,14 +22,16 @@ import time
 from assistant import brain
 from assistant import steps
 from assistant import lumi
+from audio import sing
 from assistant.lumi import FAREWELL_WORDS, STATUS_Q
 from tests.conversation_cases import CASES
 from tests.status_cases import NOT_STATUS, STATUS
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-NOW = "I'm talking with you. I'm not doing any task right now."
-NOW_KO = "지금은 이야기하고 있어요. 하고 있는 일은 없어요."     # lumi.now_doing() with nothing running
-QUICK = {"go_to", "come", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put", "move_object", "fetch"}
+NOW = "I'm talking with you. I'm not doing any task right now, and my hand is empty."
+NOW_KO = "지금은 이야기하고 있어요. 하고 있는 일은 없고, 손도 비어 있어요."     # lumi.now_doing() with nothing running
+QUICK = {"go_to", "come", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put", "move_object", "fetch",
+         "look", "lift", "wave"}   # lumi.quick_command
 TALK = {"about_self", "date_time", "chat", "action:none"}      # the LLM only talks: action none
 WD_KO = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
 
@@ -43,10 +45,14 @@ def markers():
                 'p7', 'p8', 'p9']
 
 
+HOUR_SLACK_S = 300           # s; a reply's hour may be the one before the check runs
+
+
 def fill(pattern):
-    t = time.localtime()
+    t, p = time.localtime(), time.localtime(time.time() - HOUR_SLACK_S)   # "It is 10:59." checked at 11:00
     for k, v in {"{wd}": time.strftime("%A", t), "{wdk}": WD_KO[t.tm_wday], "{d}": str(t.tm_mday),
-                 "{mon}": time.strftime("%B", t), "{h24}": str(t.tm_hour), "{h12}": str(t.tm_hour % 12 or 12),
+                 "{mon}": time.strftime("%B", t), "{h24}": f"{t.tm_hour}|{t.tm_hour:02d}|{p.tm_hour}|{p.tm_hour:02d}",
+                 "{h12}": f"{t.tm_hour % 12 or 12}|{p.tm_hour % 12 or 12}",
                  "{y}": str(t.tm_year)}.items():
         pattern = pattern.replace(k, v)
     return pattern
@@ -73,22 +79,26 @@ def rules_route(text, lang, marks):
         return "action:end", "", None, ""
     if brain.is_closing(text):
         return ("action:end" if FAREWELL_WORDS.search(text) else "chat"), "", None, ""
+    if sing.asked(text):                                         # lumi.sing_song: a real song plays
+        return "action:sing", "", None, ""
     rule = brain.intent(text, marks)
     if rule and rule[0] in QUICK:
         a, tgt = rule
         if a == "search" and lumi.not_online(text):              # lumi.quick_command refuses it
-            return "none", lumi.NOT_KNOWN[lang], None, ""
+            return "none", lumi.not_known(lang), None, ""
         return (a if a in ("weather", "search") else f"action:{a} {tgt}".strip()), "", None, ""
     return None
 
 
-def llm_route(action, target, words, text, about, lang):
+def llm_route(action, target, words, text, about, lang, repeating=False):
     """(route, reply) for the LLM's action line and first sentence, the way lumi.answer() acts on them."""
     if action == "search" and lumi.not_online(about):
-        return "none", lumi.NOT_KNOWN[lang]
-    if action in ("weather", "search", "unclear"):
+        return "none", lumi.not_known(lang)
+    if action in ("weather", "search"):
+        return action, ""                                   # lumi.answer() closes the stream and looks it up
+    if action == "unclear":
         return action, " ".join(words)
-    if action in ("none", "sing") and lumi.look_up_unsure(about, words[0] if words else "", text):
+    if action in ("none", "sing") and not repeating and lumi.look_up_unsure(about, words[0] if words else "", text):
         return "search(unsure)", " ".join(words)
     return ("none" if action == "none" else f"action:{action} {target}".strip()), " ".join(words)
 

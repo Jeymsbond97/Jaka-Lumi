@@ -102,7 +102,7 @@ From the aligned depth inside the object mask:
 
 1. Tuck → (base, lift, waist) → **open** the gripper.
 2. **Approach pose**: 10 cm before the grasp pose along the approach direction. Joint move, slow.
-3. **Linear move** in to the grasp pose, slower. The **finger sensor (DI_1)** must see the object before the fingers close. If it does not, stop, measure again, adjust once, then give up.
+3. **Linear move** in to the grasp pose, slower. The finger sensor (DI_1) looks below the gripper, not between the fingers, so it cannot confirm the object before the close (docs/10).
 4. **Close.** Read **AI_1** after the stroke:
    - near the fully closed value → **missed** or **too small / too soft**: open, back off, report.
    - stopped where the measured object width predicts (± tolerance) → **holding**.
@@ -149,7 +149,7 @@ Each stage ends with a test on the robot; the next starts only when it passes.
 | P4 ✅ | **Objects**: `objects.py` detects, colours, measures; `/objects` and a dashboard overlay | Cup / apple / bottle on a table: position ±1 cm, width ±5 mm |
 | P5 🟡 | **Reach planning**: `reach.py` with the MuJoCo model, lift / waist / base choice, clearance checks. Done on the robot without the model: grasp turned about the vertical (0…±60°), lift to the table's height (measured with depth), base shift, search by turning on the spot (`skills.py`, `tasks/fetch.py`, [16](16_FETCH_TASKS.md)) | For objects on the table, the plan says reachable or not reachable and why, and agrees with the real arm in 10 test placements |
 | P6 🟡 | **Pick**: `skills.pick` with sensor and AI_1 checks, failure handling. Live by fetch 2026-10-15: 4 of 4 grasps held (one from a box 12 cm higher, lift 193 mm) | 8 of 10 picks of a cup at different positions; every failure detected and reported |
-| P7 🟡 | **Place and give**: free-space search, hand-over. Live 2026-10-15: put down upright on the table and on the box (seen-table spots, lift fitted); hand-over opens only on "thank you" / Release (AI_1 can't feel a pull), Release not yet run live | Objects placed upright within ±2 cm; hand-over works with a person |
+| P7 🟡 | **Place and give**: free-space search, hand-over. Live 2026-10-15: put down upright on the table and on the box (seen-table spots, lift fitted); hand-over opens only on "thank you" / Release (AI_1 can't feel a pull), Release not yet run live. 2026-10-20 on a round table 1–5 cm lower than the proven one (lift at 0) no place spot was ever found after the base drove up to it: the grid's near rows were below the camera's view and the table, read "sink", counted as an obstacle; changed offline ([16](16_FETCH_TASKS.md) step 9), not yet live | Objects placed upright within ±2 cm; hand-over works with a person |
 | P8 🟡 | **Voice**: intents, object choice by the LLM on the image, spoken progress and reasons. Done in code: "pick up the (colour) cup", "move the cup", "put it down / back" (rules + LLM action), API `/skills/*`, dashboard button; not yet run live. Still open: choice among several objects by the LLM, "put it here" | "Find the red cup and put it here" works end to end with two cups on the table |
 | P9 🟡 | **Fetch with driving**: go to a marker, pick there, come back, give. Live 2026-10-15: drove with the cup towards p6, the base stalled on the way (cancelled), the cup stayed held | A cup is fetched from another table and handed over |
 
@@ -194,4 +194,54 @@ Findings:
 | 2026-10-13 (first) | 20 | 215–355 mm | 4.1 / 10.9 mm | (−242.8, 4.5, −40.0) | (−16.5, 4.0, 40.4) |
 | **2026-10-13 (in use)** | 30, 2 left out | 215–484 mm | **3.3 / 7.5 mm** | (−257.7, 13.7, −41.4) | (−20.0, −6.9, 44.6) |
 
-Lift and waist were not moved during the session. Whether the result holds at other lift / waist positions is still to check (the camera sits on the waist link; the arm base is expected to move with it).
+Lift and waist were not moved during the session. The lift does not change it: lift 75 → 150 mm moved a cup x +2, y −2, top −76 mm (2026-10-15; the camera sits on the arm's link).
+
+### Head camera (2026-10-19)
+
+Same marker and solver, `calib.py --camera head` (samples `data/calib_samples_head/`, result
+`data/camera_extrinsics_head.json`, with the body pose of the session). 30 samples at lift 0, waist −20.3°, head yaw 0°,
+pitch −5°: median 6.0 mm, max 14.2 mm; live check 8–16 mm at 5 arm positions. The head's yaw and pitch axes were
+then measured in the arm base frame with the arm holding the marker still (`vision/head_cam.py measure yaw|pitch`,
+yaw −30…0°, pitch −5…+4°, then `fit`): the model is within 11 mm / 1.4° of every pose seen.
+`head_cam.base_from_head(yaw, pitch)` gives the camera pose at any head pose (outside the measured range
+extrapolated); lift and waist carry the arm and the head together. Cross-check: a potted plant seen by both cameras
+came out 13 mm apart at head yaw +10°. Values: [06 §3](06_CAMERAS_AND_VISION.md).
+
+The camera service writes head depth (`/dev/shm/lumi_depth_head.npy`) and measures head-camera objects in the arm
+frame too (`objects.latest("head")`, each with the `head_pose` it was seen at); `objects.measure_all` takes the
+intrinsics and the transform, `skills.surface_points` the camera and the transform.
+
+### Base axis (measure-axis) again (2026-10-19)
+
+Arm yaw in the base frame with `tasks/fetch.py measure-axis` at waist −20.31°, two white cups on a table: −96.4,
+−94.9, −95.5° over three runs; kept −95.5° (median) in `data/fetch_calib.json` with `waist_deg` −20.31. One more run
+gave −136.4°: it had paired both cups with one; `_pairs` now matches each object once, nearest first over all pairs.
+A run with only a bowl (low score) gave −89.1°, not kept. The arm offset (0.114, −0.104) m from 2026-10-16 is kept.
+It replaces −86.2° (2026-10-14, no waist angle recorded). Fetch corrects the yaw and the offset by the waist turn
+since measure-axis (`fetch._waist_turn`; the waist axis is taken at the base centre).
+
+## 9. Grip widths (2026-10-19)
+
+Finger shape and inner gaps: [docs/gripper/](gripper/README.md); AI_1 → gap: [10 §2.1](10_GRIPPER.md). The camera's
+width of a cup reads about 8 mm under the width the fingers meet (white tumbler: camera 72–74 mm, circumference
+26.5–26.8 cm → 84–85 mm; red cup: camera 81 mm, gripper ~85 mm), so `skills.grip_width()` = camera width +
+`SEEN_UNDER_MM` (8) is compared with the limits:
+
+| Constant (`manipulation/skills.py`) | Value | Why |
+|---|---|---|
+| `MIN_WIDTH`, `MAX_WIDTH` | 61, 92 mm | belly opens to 96, tips close to 59; the tips open only to 88, so over 84 is the owner's call and not tried live |
+| `BELLY_MIN_MM` | 72 mm | thinner is held between the tips (the belly closes only to 70) |
+| `TIPS_GRASP_MM` | 0 mm | a tips grasp at the normal height; 25 mm higher left the tips at the rim and they closed on nothing |
+| `TIP_MM` | 60 mm | finger tips beyond the grasp point along the fingers (`FINGER_DIR`: they point down in the grasp, not along the flange z); used by `path_heights` and `fetch.arm_points_3d` |
+
+Picks with `skills.py pick` (owner at the STOP):
+
+| Object | Camera width | Result |
+|---|---|---|
+| white tumbler | 72–74 mm (84–85 real) | picked (AI_1 2265 holding), put back |
+| red cup | 81 mm (~85 by the gripper) | picked (AI_1 1764), put back |
+| small steel cup / steel bowl | 61–74 mm, position spread up to 17 mm (shiny) | knocked over once by a finger, refused once ("keeps changing"), missed once |
+| paper cup | 59–63 mm | missed 3 times: 25 mm higher (tips at the rim), at the normal height, then squeezed flat when taught by hand |
+
+Shiny metal gives unstable depth (width and position jump between frames). Paper cups are crushed by the close,
+which cannot be stopped half way (docs/10): they need another force setting or other fingers.

@@ -28,7 +28,7 @@ def ask(b, text, lang, marks):
         else:
             words.append(out)
     if head["action"] == "search" and lumi.not_online(about):      # lumi.answer() refuses it and says this
-        return "none (search refused)", lumi.NOT_KNOWN[lang]
+        return "none (search refused)", lumi.not_known(lang)
     return f"{head['action']} {head['target']}".strip(), " ".join(words)
 
 

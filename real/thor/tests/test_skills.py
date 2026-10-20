@@ -27,12 +27,13 @@ for yaw in (-30, 45):                                                      # a t
     p = dict(skills.plan_place(-200, 600, cup["top_mm"], yaw=yaw))["place"]
     assert np.allclose(np.array(p[:3]) + calib.rpy_matrix(*p[3:]) @ skills.GRASP_OFFSET, [-200, 600, g[2] + 3])
 
-for bad in (90, 30):
+for bad in (88, 30, 50):                      # seen widths: +SEEN_UNDER_MM over 92, under 61
     try:
         skills.plan_pick({**cup, "width_mm": bad})
         raise AssertionError(f"width {bad} accepted")
     except skills.SkillError:
         pass
+
 
 free = skills.spots((cup["x"], cup["y"]), [])
 assert free and all(np.hypot(x - cup["x"], y - cup["y"]) >= 60 for x, y in free)
@@ -89,3 +90,15 @@ skills.surface_points = lambda pts, guess_z=-400.0: [None] * len(pts)
 assert skills.hand_sees() == "unknown"
 assert len(skills.GRASP_YAWS) == 24 and set(skills.GRASP_YAWS) == set(range(-165, 181, 15))
 print("skills ok")
+
+# ---------- the fingers point straight down in the grasp (the tips: TIP_MM along them, below the grasp point)
+assert abs(np.linalg.norm(skills.FINGER_DIR) - 1.0) < 1e-9 and \
+    (calib.rpy_matrix(*skills.GRASP_RPY) @ skills.FINGER_DIR)[2] < -0.99
+# a cup thinner than the belly closes to is held between the tips: the arm stops TIPS_GRASP_MM higher
+thin = {**cup, "width_mm": 58.0}                                            # 66 mm at the fingers
+g_belly, g_tips = skills.plan_pick(cup)[1][1], skills.plan_pick(thin)[1][1]
+assert abs(g_tips[2] - g_belly[2] - skills.TIPS_GRASP_MM) < 1.0 and np.allclose(g_tips[:2], g_belly[:2], atol=1.0)
+skills._held.update(tips=True)
+d = skills.plan_place(-200, 600, thin["top_mm"])[1][1]                         # put down held the same way
+assert abs(d[2] - skills.plan_place(-200, 600, thin["top_mm"], tips=False)[1][1][2] - skills.TIPS_GRASP_MM) < 1.0
+skills._held.clear()

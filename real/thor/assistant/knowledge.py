@@ -22,7 +22,12 @@ INDEX = DOCS / "index.npz"
 EMBED_URL = "http://127.0.0.1:8095"
 LLAMA_SERVER = pathlib.Path.home() / "llama.cpp/build/bin/llama-server"
 BGE_M3 = pathlib.Path.home() / "models/bge-m3-Q8_0.gguf"
-CHUNK = 500            # characters per chunk (about 2-4 sentences)
+CHUNK = 320            # characters per chunk (about 2 sentences): one topic per vector
+LEAD_CHARS = 60        # start of a long paragraph repeated in front of its later pieces
+WORD_BONUS = 0.08      # added to the similarity per rare question word found in a chunk (names, numbers, terms)
+RARE_SHARE = 0.08      # a word in fewer than this share of all chunks counts as rare
+KO_PARTICLES = ("에서", "으로", "한테", "에게", "이랑", "은", "는", "이", "가", "을", "를", "에", "의", "도", "로", "랑",
+                "와", "과", "요")
 
 
 def _post(url, body, timeout=60):
@@ -64,19 +69,33 @@ def embed(texts):
 
 
 def chunks(text):
-    """Split on blank lines / headings, then pack paragraphs into ~CHUNK-character pieces."""
-    paras = [p.strip() for p in re.split(r"\n\s*\n|\n(?=#)", text) if p.strip()]
-    out, cur = [], ""
-    for p in paras:
-        if cur and len(cur) + len(p) > CHUNK:
+    """One chunk per paragraph (blank lines / headings); a paragraph longer than CHUNK is cut at sentence or line
+    ends into pieces of about CHUNK, each after the first starting with LEAD_CHARS of the paragraph's first
+    sentence, so "It handles up to 20 kg" still says which robot. Small chunks keep one topic per vector."""
+    out, head = [], ""
+    for para in (p.strip() for p in re.split(r"\n\s*\n|\n(?=#)", text)):
+        if para.startswith("#"):                    # a heading goes in front of every chunk of its section
+            head, _, para = para.partition("\n")
+            head = head.lstrip("# ").strip()
+            para = para.strip()
+        if not para:
+            continue
+        lead0 = f"{head}: " if head else ""
+        if len(para) <= CHUNK:
+            out.append(lead0 + para)
+            continue
+        lead = lead0 + re.split(r"(?<=[.!?。])\s+|\n", para, maxsplit=1)[0][:LEAD_CHARS]
+        cur = lead0
+        for sent in re.split(r"(?<=[.!?。요다])\s+|\n", para):
+            if cur and len(cur) + len(sent) > CHUNK:
+                out.append(cur)
+                cur = f"{lead} …"
+            cur = f"{cur} {sent}".strip()
+            while len(cur) > CHUNK * 2:             # very long text without sentence ends
+                out.append(cur[:CHUNK])
+                cur = cur[CHUNK - 50:]
+        if cur:
             out.append(cur)
-            cur = ""
-        cur = f"{cur}\n{p}".strip()
-        while len(cur) > CHUNK * 2:                 # very long paragraph (e.g. Chinese text without breaks)
-            out.append(cur[:CHUNK])
-            cur = cur[CHUNK - 50:]
-    if cur:
-        out.append(cur)
     return out
 
 
@@ -98,13 +117,34 @@ def build():
 _index = None
 
 
+def _words(text):
+    """Question words that can be matched literally: Latin words of 3+ letters, numbers, Korean words of 2+
+    syllables without a trailing particle ("소노빅터스에" -> "소노빅터스")."""
+    out = set()
+    for w in re.findall(r"[a-z0-9]{3,}|\d+|[가-힣]{2,}", text.lower()):
+        for pa in KO_PARTICLES:
+            if re.match("[가-힣]", w) and w.endswith(pa) and len(w) - len(pa) >= 2:
+                w = w[:-len(pa)]
+                break
+        out.add(w)
+    return out
+
+
 def search(question, k=4):
-    """[(score, source, text)] best matching chunks."""
+    """[(score, source, text)] best matching chunks: embedding similarity plus WORD_BONUS for each rare word of
+    the question the chunk contains (bge-m3 alone missed "Sonovictus" and "20 kg" in long mixed chunks)."""
     global _index
     if _index is None:
         _index = dict(np.load(INDEX, allow_pickle=True))     # all in memory: the file may be rebuilt meanwhile
+    if "lower" not in _index:
+        _index["lower"] = [str(t).lower() for t in _index["texts"]]
     q = embed([question])[0]
     scores = _index["vectors"] @ q
+    n = len(_index["lower"])
+    for w in _words(question):
+        has = np.array([w in t for t in _index["lower"]])
+        if 0 < has.sum() < RARE_SHARE * n:
+            scores = scores + WORD_BONUS * has
     best = np.argsort(-scores)[:k]
     return [(float(scores[i]), str(_index["sources"][i]), str(_index["texts"][i])) for i in best]
 

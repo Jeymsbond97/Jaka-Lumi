@@ -34,6 +34,8 @@ ROOT = Path(__file__).resolve().parents[1]      # the project folder
 TEACH = json.loads((ROOT / "data" / "grasp_teach.json").read_text())
 GRASP_RPY = TEACH["flange"][3:]                  # deg, flange orientation with the fingers around a cup
 GRASP_OFFSET = np.array(TEACH["tcp_offset_flange"])   # mm, cup axis 4 cm below the rim, in the flange frame
+FINGER_DIR = calib.rpy_matrix(*GRASP_RPY).T @ [0.0, 0.0, -1.0]   # along the fingers, flange frame (they point
+                                                 # straight down in the taught grasp)
 GRASP_YAWS = (0, *(s * a for a in range(15, 180, 15) for s in (-1, 1)), 180)   # deg; the taught grasp turned about
                                                  # the vertical, every 15 deg all the way round, nearest the taught one
                                                  # first (the cup stays upright at every one)
@@ -45,12 +47,22 @@ HOME_POSE = "look"                               # empty hand: picks start here 
                                                  # (high, out of the torso camera's view; ready if not taught)
 PATH_POINTS = 11                                 # points checked (kine_forward) on a joint move
 PATH_SAG_MM = 20.0                               # a joint move may take the gripper at most this much below both ends
-TIP_MM = 60.0                                    # finger tips this far beyond the grasp point along the tool axis
+TIP_MM = 60.0                                    # finger tips this far beyond the grasp point along the fingers
 BELOW_RIM_MM = 40.0                              # grasp this far below the object's top
 ABOVE_MM = 100.0                                 # approach / retreat height over the grasp pose
 LIFT_MM = 30.0                                   # first lift after closing, then check the grip again
 PLACE_EXTRA_MM = 3.0                             # put down this much higher than it was picked (same table)
-MIN_WIDTH, MAX_WIDTH = 45.0, 84.0                # mm; fingertip entry is 88 mm, the fingers close to ~62
+MIN_WIDTH, MAX_WIDTH = 61.0, 92.0                # mm: the hooks' belly goes round the cup (open 96), the tips close to
+                                                 # 59 (docs/gripper). The tips open only to 88: cups over 84 are the
+                                                 # owner's call (2026-10-19), not tried live yet
+SEEN_UNDER_MM = 8.0                              # the camera's width is this much under the width the fingers meet
+                                                 # (2026-10-19: 73 seen / 85 by tape, 81 seen / 85 by AI_1); the
+                                                 # limits here are the fingers', compared with grip_width()
+BELLY_MIN_MM = 72.0                              # thinner is held between the finger tips: the belly closes only to 70
+                                                 # (a 70 mm steel cup was missed there and knocked over, 2026-10-19)
+TIPS_GRASP_MM = 0.0                              # tips grasp: the arm stops this much higher (25 left the tips at the
+                                                 # rim of a 99 mm cup and they closed on nothing, 2026-10-19: same
+                                                 # height as the hooks grasp, the tips reach down the cup)
 FRAMES = 8                                       # camera frames looked at by find()
 FRAME_GAP_S = 0.2                                # s between them
 MIN_SEEN = 5                                     # an object must be in this many frames, at the same place
@@ -64,6 +76,8 @@ SPOT_DX = (-60, -90, -120, 60, 90, 120)          # mm; candidate offsets from th
 SPOT_DY = (0, -20, -40, 20)
 TABLE_RING_MM = 50.0                             # a place spot is checked at its centre and 8 points this far around
 TABLE_TOL_MM = 25.0                              # ... each must be table: depth within this of the table height
+TABLE_NEAR_RING_MM = 25.0                        # a ring point on the near side the camera can't see (below its view
+                                                 # at table height) is checked this far from the centre instead
 LOCATE_MM = 90.0                                 # locate(): looked for this far around where an object was last seen,
 LOCATE_STEP_MM = 15.0                            # ... on a grid this fine
 LOCATE_MIN_HITS = 4                              # ... with at least this many depth points above half its height
@@ -72,6 +86,16 @@ HAND_NEAR_MM = 60.0                              # ... depth no further than thi
 HAND_FAR_MM = 250.0                              # ... depth further than this behind one = nothing there (the room)
 NEAR_FRACTION = 0.7                              # depth nearer than this part of the expected one: something in front
                                                  # of the sight line (the gripper, the held cup), not the surface
+FLAT_DEG = 12.0                                  # flat_points(): the depth around a sight line's pixel must lie on a
+FLAT_PATCH = (3, 3)                              # plane leaning less than this (a table top, a seat, the floor; not a
+                                                 # chair's back, a table's edge, a person); the patch: 7 x 7 pixels 3 px
+                                                 # apart (px step, half width). Live 2026-10-20: of 2850 sight lines
+                                                 # 283 were level, the table among them as one clear height
+FLAT_MIN_FRACTION = 0.7                          # ... at least this part of the patch must have depth
+TABLE_MIN_POINTS = 6                             # a table height needs this many level points within TABLE_TOL_MM
+FRAME_LAG_S = 0.15                               # s; a frame written this long after a move ended was taken after it
+FRESH_WAIT_S = 2.0                               # s; at most this long waiting for such a frame (depth: every 0.5 s)
+FRESH_POLL_S = 0.02
 RETRIES = 4                                      # the controller now and then answers with nothing: ask again
 RETRY_S = 0.2
 OPEN_AI = gripper.CLOSED_AI                      # AI_1 below this after opening = released
@@ -79,6 +103,8 @@ OPEN_AI = gripper.CLOSED_AI                      # AI_1 below this after opening
 _held = {}                                       # what pick() holds: {"top_mm", "x", "y"} for place() / put_down()
 _cancel = threading.Event()                      # set by cancel(): the running skill makes no further move
 LOG = collections.deque(maxlen=40)               # last log lines, shown by the API
+moved_at = {}                                    # camera -> time its last move (lift, waist, base, head) ended:
+                                                 # frames written before that are not used (moved())
 
 
 class SkillError(RuntimeError):
@@ -103,18 +129,42 @@ def _go_on():
 
 
 # ---------- seeing ----------
-def look(frames=FRAMES):
+def moved(*cameras, after=0.0):
+    """A move of `cameras` (default: both; the lift, the waist and the base carry both) ended now (+ `after` s, e.g. the
+    base coasting): depth and detections are read from frames taken after it (fresh)."""
+    for c in cameras or ("torso", "head"):
+        moved_at[c] = time.time() + after
+
+
+def fresh(path, camera, after=0.0):
+    """Wait until the camera service has written `path` (a detection or depth file of `camera`) FRAME_LAG_S after the
+    camera's last move and after `after`, at most FRESH_WAIT_S. The file's time, or None when there is none."""
+    t = max(moved_at.get(camera, 0.0) + FRAME_LAG_S, after)
+    end = time.time() + FRESH_WAIT_S
+    while True:
+        try:
+            m = path.stat().st_mtime
+        except OSError:
+            m = None
+        if (m is not None and m >= t) or time.time() >= end:
+            return m
+        time.sleep(FRESH_POLL_S)
+
+
+def look(frames=FRAMES, ignore=IGNORE):
     """Detections over several frames, grouped by position: [{name, colour, x, y, top_mm, width_mm, height_mm, seen,
     spread}]
-    with medians of the detections that agree with the majority name. Raises when the camera is not live."""
+    with medians of the detections that agree with the majority name; classes in `ignore` left out. Raises when the
+    camera is not live."""
     camview.want(objects.CAMERA)
+    fresh(camview.det_path(objects.CAMERA), objects.CAMERA)
     groups, live = [], 0
     for i in range(frames):
         d = objects.latest()
         if d["age_s"] is not None and d["age_s"] < objects.STALE_S:
             live += 1
             for o in d["objects"]:
-                if o["name"] in IGNORE or not o.get("position_mm"):
+                if o["name"] in ignore or not o.get("position_mm"):
                     continue
                 x, y = o["position_mm"][:2]
                 g = next((g for g in groups if np.hypot(x - g[0]["x"], y - g[0]["y"]) < CLUSTER_MM), None)
@@ -144,7 +194,7 @@ def find(name="cup", colour=None, seen=None):
     """The nearest stable `name` (of `colour`) the torso camera sees, from look() (or `seen`, its result)."""
     seen = look() if seen is None else seen
     what = f"{colour + ' ' if colour else ''}{name}"
-    hits = [o for o in seen if o["name"] == name and (colour is None or o["colour"] == colour)]
+    hits = [o for o in seen if o["name"] == name and objects.same_colour(colour, o["colour"])]
     if not hits:
         raise SkillError(f"I can't see a {what}.")
     steady = [o for o in hits if o["seen"] >= MIN_SEEN and o["spread"] <= SPREAD_MM and o["top_mm"] is not None]
@@ -165,15 +215,15 @@ def rpy_of(R):
             math.degrees(math.atan2(R[1, 0], R[0, 0]))]
 
 
-def flange_for(x, y, z, yaw=0.0):
-    """Flange pose that puts the taught grasp point at (x, y, z) mm, the taught orientation turned by `yaw` deg
-    about the vertical."""
+def flange_for(x, y, z, yaw=0.0, tips=False):
+    """Flange pose that puts the taught grasp point (`tips`: the point between the finger tips) at (x, y, z) mm, the
+    taught orientation turned by `yaw` deg about the vertical."""
     if not yaw:
         R, rpy = calib.rpy_matrix(*GRASP_RPY), list(GRASP_RPY)
     else:
         R = _rz(yaw) @ calib.rpy_matrix(*GRASP_RPY)
         rpy = rpy_of(R)
-    f = np.array([x, y, z]) - R @ GRASP_OFFSET
+    f = np.array([x, y, z]) - R @ (GRASP_OFFSET + (TIPS_GRASP_MM * FINGER_DIR if tips else 0.0))
     return [float(v) for v in f] + rpy
 
 
@@ -187,21 +237,28 @@ def up(pose, dz):
     return [pose[0], pose[1], pose[2] + dz] + list(pose[3:])
 
 
+def grip_width(obj):
+    """mm the fingers will meet: the camera's width plus SEEN_UNDER_MM (None when not measured)."""
+    return None if obj.get("width_mm") is None else obj["width_mm"] + SEEN_UNDER_MM
+
+
 def plan_pick(obj, yaw=0.0):
     """Waypoints [(name, flange pose)] to pick `obj` (a find() result). Refuses objects of the wrong width."""
-    w = obj.get("width_mm")
+    w = grip_width(obj)
     if w is None or w > MAX_WIDTH:
         raise SkillError(f"The {obj['name']} is too big for my hand.")
     if w < MIN_WIDTH:
         raise SkillError(f"The {obj['name']} is too small for me to hold.")
-    grasp = flange_for(obj["x"], obj["y"], obj["top_mm"] - BELOW_RIM_MM, yaw)
+    grasp = flange_for(obj["x"], obj["y"], obj["top_mm"] - BELOW_RIM_MM, yaw, tips=w < BELLY_MIN_MM)
     return [("above", up(grasp, ABOVE_MM)), ("grasp", grasp), ("lift", up(grasp, LIFT_MM))]
 
 
-def plan_place(x, y, top_mm, start=None, yaw=0.0):
+def plan_place(x, y, top_mm, start=None, yaw=0.0, tips=None):
     """Waypoints to put down what was picked with its top at `top_mm`, centred at (x, y), the grasp turned by `yaw`.
-    `start`: the flange pose it is held at now (adds the lift to carry height there)."""
-    down = up(flange_for(x, y, top_mm - BELOW_RIM_MM, yaw), PLACE_EXTRA_MM)
+    `start`: the flange pose it is held at now (adds the lift to carry height there). `tips`: held between the tips
+    (default: as pick() holds it)."""
+    tips = _held.get("tips", False) if tips is None else tips
+    down = up(flange_for(x, y, top_mm - BELOW_RIM_MM, yaw, tips), PLACE_EXTRA_MM)
     steps = [("carry", [start[0], start[1], down[2] - PLACE_EXTRA_MM + ABOVE_MM] + list(start[3:]))] if start else []
     return steps + [("above place", up(down, ABOVE_MM)), ("place", down), ("release up", up(down, ABOVE_MM))]
 
@@ -235,6 +292,7 @@ def surface_points(points_xy, guess_z=-400.0, camera=objects.CAMERA, T=None):
     """(x, y, z) mm, arm base frame, where the torso depth camera's line of sight to each (x, y, guess_z) (or to each
     (x, y, z) given whole) meets a surface; None where the point is out of view or has no depth. Another camera:
     its name and its camera -> arm base transform T."""
+    fresh(camview.depth_path(camera), camera)
     d, intr = camview.depth(camera), camview.intrinsics(camera)
     T = objects.base_from_camera() if T is None else T
     if d is None or intr is None or T is None:
@@ -261,6 +319,58 @@ def surface_points(points_xy, guess_z=-400.0, camera=objects.CAMERA, T=None):
     return out
 
 
+def flat_points(points_xy, guess_z=-400.0, camera=objects.CAMERA, T=None):
+    """Like surface_points, but only where the camera sees a level surface (a table top, a seat, the floor): the depth
+    pixels around the sight line's pixel (FLAT_PATCH) lie on a plane leaning less than FLAT_DEG. (x, y, z) mm, arm base
+    frame, is the middle of that patch; None where it is not level (a chair's back, a table's edge, a person), out of
+    view or without depth."""
+    fresh(camview.depth_path(camera), camera)
+    d, intr = camview.depth(camera), camview.intrinsics(camera)
+    T = objects.base_from_camera() if T is None else T
+    if d is None or intr is None or T is None or not len(points_xy):
+        return [None] * len(points_xy)
+    K = np.array([[intr["fx"], 0, intr["cx"]], [0, intr["fy"], intr["cy"]], [0, 0, 1]])
+    dist, Ti = np.array(intr["dist"]), np.linalg.inv(T)
+    P = np.array([[p[0], p[1], guess_z] for p in points_xy], float)
+    cam = (Ti[:3, :3] @ P.T + Ti[:3, 3:4]).T
+    uv = np.round(cv2.projectPoints(cam, np.zeros(3), np.zeros(3), K, dist)[0].reshape(-1, 2)).astype(int)
+    step, half = FLAT_PATCH
+    off = np.array([(a, b) for a in range(-half, half + 1) for b in range(-half, half + 1)]) * step
+    px = uv[:, None, :] + off[None]
+    inside = (px[..., 0] >= 0) & (px[..., 0] < d.shape[1]) & (px[..., 1] >= 0) & (px[..., 1] < d.shape[0])
+    px = np.clip(px, 0, [d.shape[1] - 1, d.shape[0] - 1])
+    z = np.where(inside, d[px[..., 1], px[..., 0]], 0).astype(float)
+    n = cv2.undistortPoints(px.reshape(-1, 1, 2).astype(np.float64), K, dist).reshape(px.shape)
+    Q = np.stack([n[..., 0] * z, n[..., 1] * z, z], axis=-1) @ T[:3, :3].T + T[:3, 3]
+    level, out = math.cos(math.radians(FLAT_DEG)), []
+    for q, zz, ahead in zip(Q, z, cam[:, 2]):
+        q = q[zz > 0]
+        if ahead <= 0 or len(q) < FLAT_MIN_FRACTION * len(off):       # behind the camera, or too little depth
+            out.append(None)
+            continue
+        c = q.mean(axis=0)
+        normal = np.linalg.svd(q - c)[2][2]
+        out.append(tuple(float(v) for v in c) if abs(normal[2]) >= level else None)
+    return out
+
+
+def flat_top(points_xy, band, guess_z=-400.0, camera=objects.CAMERA, T=None):
+    """(height mm, [(x, y, z)]) of the level surface most of `points_xy`'s sight lines meet within `band` (low, high):
+    the largest group of flat_points within TABLE_TOL_MM of one height (as many: the higher), the median of it; None
+    when fewer than TABLE_MIN_POINTS agree. A chair's back or seat next to the table, its edge, the floor and the held
+    cup don't pull it off (live 2026-10-20 the median of every sight line read one table at -324 ... -555 mm)."""
+    hits = [q for q in flat_points(points_xy, guess_z, camera, T) if q is not None and band[0] <= q[2] <= band[1]]
+    if len(hits) < TABLE_MIN_POINTS:
+        return None
+    zs = np.array([q[2] for q in hits])
+    agree = np.abs(zs[:, None] - zs[None, :]) <= TABLE_TOL_MM
+    best = agree[int(np.argmax(agree.sum(axis=1) + zs * 1e-6))]
+    if best.sum() < TABLE_MIN_POINTS:
+        return None
+    group = [q for q, a in zip(hits, best) if a]
+    return float(np.median([q[2] for q in group])), group
+
+
 def locate(xy, top_mm, table_mm, width_mm, radius=LOCATE_MM):
     """An object last seen at `xy` (mm) with its top at `top_mm` on a table at `table_mm`, looked for with depth only
     (YOLO may miss it): ("here", obj) with its centre and top from what stands above half its height within
@@ -283,9 +393,8 @@ def locate(xy, top_mm, table_mm, width_mm, radius=LOCATE_MM):
 def hand_sees():
     """What the torso depth camera sees where a held object would be (on the cup's axis just below the grasp point,
     from the arm's joints now): "object", "empty", or "unknown" (out of view, no depth, the fingers in the way).
-    In look the place is in view (2026-10-16: pixel (558, 259), 264 mm away): an empty hand reads "empty" (the room
-    behind); a cup held there gave no depth at all ("unknown", too near for the camera), so a held object is left to
-    AI_1. The gripper's AI_1 alone can be wrong: a cup pulled out of the closed fingers left it at 162 ("open")."""
+    In the look taught 2026-10-20 the place is above the camera's view ("unknown": AI_1 decides); in the look before it
+    (pixel (558, 259), 264 mm away) an empty hand read "empty" and a held cup gave no depth ("unknown"). The gripper's AI_1 alone can be wrong: a cup pulled out of the closed fingers left it at 162 ("open")."""
     c = _ask("kine_forward", jointPosition=[float(v) for v in _joints()])["cartPosition"]
     R, f = calib.rpy_matrix(*c[3:]), np.array(c[:3])
     g = f + R @ GRASP_OFFSET
@@ -316,13 +425,20 @@ def table_near(obj):
 
 def on_table(spots_xy, table_mm=None):
     """The (x, y) spots where the torso depth camera sees table: the centre and TABLE_RING_MM around it, each within
-    TABLE_TOL_MM of `table_mm` (None: of each other). Points the camera can't see count as not table."""
-    ring = [(0.0, 0.0)] + [(TABLE_RING_MM * math.cos(a), TABLE_RING_MM * math.sin(a))
-                           for a in np.linspace(0, 2 * math.pi, 8, endpoint=False)]
+    TABLE_TOL_MM of `table_mm` (None: of each other). Points the camera can't see count as not table, but one on the
+    near side (y below the centre's) is checked again at TABLE_NEAR_RING_MM: the camera sees a table only from
+    y ~640 on, where the arm hardly reaches past y 700."""
+    angles = np.linspace(0, 2 * math.pi, 8, endpoint=False)
+    ring = [(0.0, 0.0)] + [(TABLE_RING_MM * math.cos(a), TABLE_RING_MM * math.sin(a)) for a in angles]
+    inner = [(0.0, 0.0)] + [(TABLE_NEAR_RING_MM * math.cos(a), TABLE_NEAR_RING_MM * math.sin(a)) for a in angles]
     guess = table_mm if table_mm is not None else -400.0     # only to find the pixels; the depth decides
     out = []
     for x, y in spots_xy:
         zs = surface_heights([(x + dx, y + dy) for dx, dy in ring], guess)
+        again = [i for i, z in enumerate(zs) if z is None and ring[i][1] < -1e-6]
+        if again:
+            for i, z in zip(again, surface_heights([(x + inner[i][0], y + inner[i][1]) for i in again], guess)):
+                zs[i] = z
         if None in zs:
             continue
         ref = table_mm if table_mm is not None else statistics.median(zs)
@@ -427,7 +543,7 @@ def path_heights(j0, j1):
         c = _ask("kine_forward", jointPosition=[float(v) for v in j0 + (j1 - j0) * k / (PATH_POINTS - 1)])["cartPosition"]
         R, f = calib.rpy_matrix(*c[3:]), np.array(c[:3])
         g = f + R @ GRASP_OFFSET
-        out.append(float(min(f[2], g[2], (g + R @ [0.0, 0.0, TIP_MM])[2])))
+        out.append(float(min(f[2], g[2], (g + R @ (TIP_MM * FINGER_DIR))[2])))
     return out
 
 
@@ -461,7 +577,9 @@ def reachable_pick(obj, start=None, accept=lambda waypoints, ja: True):
     for waypoints, ja in pick_options(obj, home_joints() if start is None else start):
         if accept(waypoints, ja):
             yaw = round(yaw_of(waypoints[1][1]))
-            log(f"grasp turned {yaw:+d} deg, wrist J5 {ja[4]:+.0f}" if yaw else f"grasp, wrist J5 {ja[4]:+.0f}")
+            how = "between the tips" if grip_width(obj) < BELLY_MIN_MM else "in the hooks"
+            log(f"grasp {how}, turned {yaw:+d} deg, wrist J5 {ja[4]:+.0f}" if yaw else
+                f"grasp {how}, wrist J5 {ja[4]:+.0f}")
             return waypoints, ja
     log(f"plan refused: no grasp turn reaches ({obj['x']:.0f}, {obj['y']:.0f})")
     return None
@@ -480,7 +598,8 @@ def plan_move(obj, to=None, seen=()):
     for pick, ja in pick_options(obj, start):      # the cup is put down turned as it was picked
         yaw = yaw_of(pick[1][1])
         for xy in tries:
-            rows = ik_chain(pick[1:] + plan_place(*xy, obj["top_mm"], start=pick[-1][1], yaw=yaw), ja)
+            rows = ik_chain(pick[1:] + plan_place(*xy, obj["top_mm"], start=pick[-1][1], yaw=yaw,
+                                                  tips=grip_width(obj) < BELLY_MIN_MM), ja)
             if not rows[-1][3]:
                 return xy, [["above", pick[0][1], ja, None]] + rows
             log(f"spot ({xy[0]:.0f}, {xy[1]:.0f}) grasp {yaw:+.0f} deg refused at {rows[-1][0]}: {rows[-1][3]}")
@@ -544,7 +663,8 @@ def _do_pick(obj, waypoints, ja):
     if not s["holding"]:
         _line("slipped, back down", grasp)
         _give_up("It slipped out of my hand.")
-    _held.update(top_mm=obj["top_mm"], x=obj["x"], y=obj["y"], yaw=yaw_of(grasp), table=table_z(obj))
+    _held.update(top_mm=obj["top_mm"], x=obj["x"], y=obj["y"], yaw=yaw_of(grasp), table=table_z(obj),
+                 tips=grip_width(obj) < BELLY_MIN_MM)
 
 
 def _do_place(waypoints):

@@ -28,12 +28,20 @@ lumi-wave/                      run with the venv: .venv/bin/python <folder>/<mo
 │   ├── mic.py                  always-on recording, utterances, barge-in
 │   ├── ears.py                 speech to text (whisper.cpp)
 │   ├── mouth.py                text to speech (Supertonic)
+│   ├── sing.py                 singing: choose a song, play it, move the head with it
+│   ├── sing_render.py          renders the public domain songs (data/songs/) in Lumi's voice
+│   ├── separate.py             the owner's songs: vocals / instrumental split (Demucs, runs in .venv-songs only)
+│   ├── cover.py                the owner's songs: the singer's vocal turned into Lumi's voice (Seed-VC, .venv-cover)
+│   ├── sing_mine.py            the owner's songs: part to sing, beats / head moves, mix over the instrumental
+│   ├── cover_check.py          judges a converted vocal: words, voice, melody, gaps (.venv-cover)
+│   ├── lumi_voice_set.py       Lumi's TTS voice clips to fine-tune the voice conversion
 │   └── doa.py                  direction of the voice
 ├── vision/                     cameras
 │   ├── camview.py              camera service (the only camera owner), RemoteDetector
 │   ├── person.py               YOLOv8n people (and objects) per frame
 │   ├── objects.py              objects in mm in the arm base frame
-│   ├── calib.py                torso camera → arm base calibration
+│   ├── calib.py                torso / head camera → arm base calibration
+│   ├── head_cam.py             head camera → arm base at any head yaw / pitch
 │   └── camera_test.py, camera_fps.py   diagnostics
 ├── robot/                      drivers for the hardware
 │   ├── agv.py, nav.py          base: drive, markers; where to stop in front of a person
@@ -49,9 +57,9 @@ lumi-wave/                      run with the venv: .venv/bin/python <folder>/<mo
 ├── data/                       taught and calibrated values (see Shared state)
 ├── knowledge/                  texts Lumi answers from
 ├── logs/                       every log file
-├── docs/, tools/               documentation; laptop scripts
+├── docs/, tools/               documentation (docs/gripper/: finger photos and sizes); laptop scripts
 ├── lumi-api.service            starts the API at boot (systemd user service)
-└── models/, whisper.cpp/, .venv/   local only (see Not in git)
+└── models/, whisper.cpp/, .venv/, .venv-songs/, .venv-cover/, data/songs/mine/   local only (see Not in git)
 ```
 
 Modules import each other by folder (`from robot import arm`, `from vision import camview`). The venv has `lumi_wave.pth` in its `site-packages` with the path of this folder, so any module runs directly, from any directory: `.venv/bin/python robot/gripper.py`.
@@ -122,8 +130,9 @@ Modules import each other by folder (`from robot import arm`, `from vision impor
 | `robot/drive_log.py` | Writes every base drive to the API log (start, on the way, standing still / seems stuck, arrived / failed / cancelled, E-stop, error codes), whoever drives; run by `api/server.py` | AGV status |
 | `vision/yolo_engine.py` | Builds the TensorRT engine from the ONNX model (run after a JetPack / TensorRT change) | TensorRT |
 | `vision/person.py` | YOLOv8s on the GPU (TensorRT engine `models/yolov8s.engine`); falls back to YOLOv8n on the CPU (ONNX, OpenCV DNN) when the engine does not load. People and the 80 COCO objects; distance from depth, angle from the box | TensorRT (`tensorrt-cu13`, `cuda-python`) |
-| `vision/objects.py` | Objects in the torso camera (YOLO COCO classes): colour, centre / top / width / height in the arm base frame from depth + `data/camera_extrinsics.json`; called by the camera service, served as `/objects` | camera service |
-| `vision/calib.py` | Torso camera → arm base calibration with the ArUco marker on the gripper (`collect`, `solve`, `check`), see [docs/15_PICK_AND_PLACE.md §8](../../docs/15_PICK_AND_PLACE.md) | camera service, arm controller |
+| `vision/objects.py` | Objects in the torso and head cameras (YOLO COCO classes): colour, centre / top / width / height in the arm base frame from depth + `data/camera_extrinsics.json` (head: `vision/head_cam.py`); called by the camera service, served as `/objects` | camera service |
+| `vision/calib.py` | Torso camera → arm base calibration with the ArUco marker on the gripper (`collect`, `solve`, `check`; `--camera head` for the head camera, own samples and result file), see [docs/15_PICK_AND_PLACE.md §8](../../docs/15_PICK_AND_PLACE.md) | camera service, arm controller |
+| `vision/head_cam.py` | Head camera → arm base at any head yaw / pitch (`base_from_head`): the head axes measured with the arm holding the marker still (`measure yaw`, `measure pitch`, `fit`, `check`) | camera service, arm controller, body API |
 | `vision/camera_test.py`, `camera_fps.py` | Diagnostics: list cameras and save a frame (to `logs/`); count full frames per second (USB 2 vs 3) | stop the camera service first |
 | `robot/agv.py` | Base: status, markers, go to marker / point, turn, cancel | AGV `192.168.10.10:31001` |
 | `robot/nav.py` | Where to stop in front of a person: free, reachable spot on the map | AGV map |
@@ -190,8 +199,12 @@ Logs are in `logs/`: `lumi.log` (assistant), `lumi_console.log` (its stderr), `a
 | Path | What | How it was made |
 |---|---|---|
 | `logs/` | all log files | written at run time |
-| `data/camera_extrinsics.json`, `data/calib_samples/`, `data/doa_*`, `data/volume.txt` | calibrations and settings of this robot | `vision/calib.py`, `audio/doa.py`, the dashboard |
+| `data/camera_extrinsics.json`, `data/calib_samples/`, `data/camera_extrinsics_head.json`, `data/calib_samples_head/`, `data/head_axes_*.json`, `data/doa_*`, `data/volume.txt` | calibrations and settings of this robot | `vision/calib.py`, `vision/head_cam.py`, `audio/doa.py`, the dashboard |
 | `.venv/` | Python 3.12 venv (plus `site-packages/lumi_wave.pth`, one line: the path of this folder): numpy, opencv-python-headless, pyorbbecsdk2, fastapi, uvicorn, supertonic, soundfile | wheels downloaded on a Mac and installed offline (the Thor's internet was too slow at the time) |
+| `data/songs/mine/` | the owner's licensed songs (MP3) and all made from them: vocals / instrumental, Lumi-voice vocal, words, rendered parts (`<name>.wav`, `.json`, `<name>/full_lumi.wav`), Lumi voice clips (`lumi_voice/`). Never copied off the robot; their lyrics go nowhere else | the owner; `audio/separate.py`, `audio/cover.py`, `audio/sing_mine.py`, `audio/lumi_voice_set.py` |
+| `.venv-songs/` | offline render venv only (never used by the robot's services): torch CPU, torchaudio, demucs 4.0.1, soundfile | `uv venv --python 3.12 .venv-songs`, `uv pip install --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match torch torchaudio demucs==4.0.1 soundfile numpy` |
+| `.venv-cover/` | offline render venv only (Python 3.10): torch 2.14 CUDA 13 (cu130 aarch64 wheels, runs on the Thor's GPU), torchaudio, Seed-VC's requirements, resemblyzer | `uv venv --python 3.10 .venv-cover`, `uv pip install --index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match torch torchaudio "numpy<2" scipy librosa huggingface-hub munch einops descript-audio-codec==1.0.0 pydub resemblyzer jiwer transformers==4.46.3 soundfile hydra-core pyyaml python-dotenv accelerate "setuptools<81"`; a `lumi_wave.pth` with this folder's path |
+| `models/seed-vc/` | Seed-VC (GitHub Plachtaa/seed-vc, GPL-3.0; a render tool, not part of the robot's software), its downloaded checkpoints, and `runs/lumi_f0_44k/ft_model.pth` (fine-tuned on Lumi's voice) | `git clone https://github.com/Plachtaa/seed-vc`; `train.py --config <snapshot>/config_dit_mel_seed_uvit_whisper_base_f0_44k.yml --pretrained-ckpt <snapshot>/DiT_seed_v2_uvit_whisper_base_f0_44k_bigvgan_pruned_ft_ema_v2.pth --dataset-dir data/songs/mine/lumi_voice/train --run-name lumi_f0_44k --batch-size 2 --max-steps 1000` |
 | `models/yolov8n.onnx` | fallback person / object detector (CPU) | `YOLO("yolov8n.pt").export(format="onnx", imgsz=640, opset=12, simplify=True)` |
 | `models/yolov8s.onnx` | source of the GPU engine (`ultralytics` export of `yolov8s.pt`, 640, opset 17) | `YOLO("yolov8s.pt").export(format="onnx", imgsz=640, opset=17)` |
 | `models/yolov8s.engine` | GPU detector, built on this Thor from `yolov8s.onnx` (640, FP32, opset 17, `ultralytics` export). A TensorRT engine only runs on the TensorRT version and GPU it was built with: rebuild after a JetPack or TensorRT change | `vision/yolo_engine.py models/yolov8s.onnx models/yolov8s.engine` (about 100 s) |
@@ -208,7 +221,7 @@ Orbbec cameras need the udev rule `SUBSYSTEM=="usb", ATTR{idVendor}=="2bc5", MOD
 
 ## Hardware notes
 
-- **Cameras**: two Gemini 2 L. **Torso** (SN CPA9B520037, USB 3, colour + depth): objects, pick and place, calibration, and people while the base drives (it always looks forward). **Head** (SN CPA9B52007A) sits behind a hub inside the head, shared with the mic array and the speaker. The hub was USB 2 and the camera reset while the speaker played; it was replaced by a USB 3 hub on 2026-10-15 (camera at 5 Gb/s, colour stream steady while speaking). Colour + depth on the head camera also hold while the speaker plays (`vision/camera_fps.py head`: 14.9 fps, no frame lost after the start). The camera service opens the head camera with depth when it is linked at USB 3 speed and colour only at USB 2 (`DEPTH_MIN_MBPS`, distance then from the torso camera). The head camera watches people while Lumi stands (it turns with the head); `assistant/lumi.py` falls back to the other camera while one gives no detections. Choose cameras by name (`head` / `torso`), never by index.
+- **Cameras**: two Gemini 2 L. **Torso** (SN CPA9B520037, USB 3, colour + depth): objects, pick and place, calibration, and people while the base drives (it always looks forward). **Head** (SN CPA9B52007A) sits behind a hub inside the head, shared with the mic array and the speaker. The hub was USB 2 and the camera reset while the speaker played; it was replaced by a USB 3 hub on 2026-10-15 (camera at 5 Gb/s, colour stream steady while speaking). Colour + depth on the head camera also hold while the speaker plays (`vision/camera_fps.py head`: 14.9 fps, no frame lost after the start). The camera service opens the head camera with depth when it is linked at USB 3 speed and colour only at USB 2 (`DEPTH_MIN_MBPS`, distance then from the torso camera). The head camera watches people while Lumi stands (it turns with the head); `assistant/lumi.py` falls back to the other camera while one gives no detections. The head camera is calibrated to the arm at any head pose (`vision/head_cam.py`, docs/15 §8); fetch uses it for the search and the turn check. Choose cameras by name (`head` / `torso`), never by index.
 - **Microphones**: head array AIUI-USB-MC (8 ch at 16 kHz, mics 0–5). A DJI Mic Mini receiver in a USB-A port (through a USB-C→A adapter; the Thor's USB-C ports are device-mode) is used automatically when present. It is 5–10× louder at 4–5 m. Keep its transmitter on the visitor, not on the robot.
 - **Speaker** volume 55 % (100 % is too loud for the office).
 - **Internet** comes from the Thor's own Wi-Fi (`wlP1p1s0` → company network, route metric 600). The robot LAN (`enP2p1s0`, gateway 192.168.10.9) has none.

@@ -3,8 +3,11 @@
     .venv/bin/python tests/dialogue_check.py              # 80 of them, every persona and topic (subset())
     .venv/bin/python tests/dialogue_check.py --all        # all dialogues -> logs/dialogue_check.md / .json
     .venv/bin/python tests/dialogue_check.py kid          # only dialogues whose persona or topic contains this
+    .venv/bin/python tests/dialogue_check.py 9,21,309     # only these dialogues (numbers as in the report)
     .venv/bin/python tests/dialogue_check.py --resume     # go on after a stop: dialogues in the .json are kept
     .venv/bin/python tests/dialogue_check.py --rescore    # judge the saved replies again (no LLM for the replies)
+    .venv/bin/python tests/dialogue_check.py --failed     # only the dialogues that failed in the saved .json
+    .venv/bin/python tests/dialogue_check.py --commands   # body commands in any wording (tests/dialogues_commands.py)
 
 Each turn goes the way lumi.answer() sends it (tests/conversation_check.rules_route: stop, status, mission,
 closing words, keyword rules; else brain.Brain().respond_stream). One Brain per dialogue keeps its history the
@@ -72,6 +75,10 @@ def run_turn(b, text, lang, marks):
     """(route, reply, first-sentence seconds or None, total seconds). Same order and history as lumi.answer()."""
     t0 = time.time()
     brain.FORCED_LANG["lang"] = lang
+    place = lumi.consent_place(text, b, marks)                      # "그럼 가 보세요" after "p3로 갈 수 있어요?"
+    if place:
+        b.history.append((text, f"ACTION: go_to {place}"))
+        return f"action:go_to {place}", "", None, time.time() - t0
     by_rule = rules_route(text, lang, marks)
     if by_rule:
         r = by_rule[0]
@@ -84,7 +91,7 @@ def run_turn(b, text, lang, marks):
             b.history.append((text, f"ACTION: {a[0]} {a[1] if len(a) > 1 else '-'}"))
         return r, by_rule[1], None, time.time() - t0
     set_examples(text, lang)
-    about = b.topic(text)                                           # before the turn is added to the history
+    about, repeating = b.topic(text), b.again(text)                 # before the turn is added to the history
     first, head, words = None, None, []
     for out in b.respond_stream(text, marks, now=NOW):
         if isinstance(out, dict):
@@ -93,7 +100,7 @@ def run_turn(b, text, lang, marks):
             words.append(out)
             first = first or time.time() - t0
     a, tgt = head["action"], head["target"]
-    r, reply = llm_route(a, tgt, words, text, about, lang)          # lumi.py looks an unsure answer up instead
+    r, reply = llm_route(a, tgt, words, text, about, lang, repeating)          # lumi.py looks an unsure answer up instead
     if a == "end":
         b.reset()
     return r, reply, first, time.time() - t0
@@ -196,15 +203,20 @@ def subset(chosen=()):
     return sorted(ids)
 
 
-def main(only=None, everything=False, resume=False):
+def main(only=None, everything=False, resume=False, failed=False):
     marks = markers()
     import numpy as np                                            # read the whole index now: a rebuild during the
     from assistant import knowledge                               # run would break np.load's lazy file reads
     with np.load(knowledge.INDEX, allow_pickle=True) as z:
         knowledge._index = {k: z[k] for k in z.files}
-    rows = json.loads(OUT_JSON.read_text()) if resume and OUT_JSON.exists() else []
+    saved = json.loads(OUT_JSON.read_text()) if (resume or failed) and OUT_JSON.exists() else []
+    rows = saved if resume else []
     done = {r["dialogue"] for r in rows}
-    if only:
+    if failed:
+        ids = sorted({r["dialogue"] for r in saved if r["problems"]})
+    elif only and re.fullmatch(r"[\d,]+", only):
+        ids = [int(x) for x in only.split(",") if x]
+    elif only:
         ids = [i for i, d in enumerate(DIALOGUES, 1) if only in d["who"] or only in d.get("topic", "")]
     else:
         ids = list(range(1, len(DIALOGUES) + 1)) if everything else subset(done)
@@ -303,7 +315,15 @@ def rescore():
 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    if "--rescore" in sys.argv:
+    if "--commands" in sys.argv:                          # its own set and report, the subset stays as it is
+        from tests.dialogues_commands import DIALOGUES_COMMANDS
+        DIALOGUES = DIALOGUES_COMMANDS
+        OUT_JSON, OUT_MD = ROOT / "logs" / "dialogue_commands.json", ROOT / "logs" / "dialogue_commands.md"
+        sys.argv.append("--all")
+    if {"-h", "--help"} & set(sys.argv):
+        print(__doc__.split("\n\n")[1])                      # the usage lines; never starts a run
+    elif "--rescore" in sys.argv:
         rescore()
     else:
-        main(args[0] if args else None, everything="--all" in sys.argv, resume="--resume" in sys.argv)
+        main(args[0] if args else None, everything="--all" in sys.argv, resume="--resume" in sys.argv,
+             failed="--failed" in sys.argv)

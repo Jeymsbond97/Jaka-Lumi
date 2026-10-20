@@ -55,3 +55,8 @@ real/thor/data/calib_samples_head/
 real/thor/data/camera_extrinsics_head.json
 real/thor/data/head_axes_*.json
 real/thor/data/known_things.json
+real/thor/.venv-*/
+real/thor/data/songs/
+real/thor/tests/data/
+# Gripper photos stay local (text in docs/gripper/README.md is tracked)
+docs/gripper/*.png

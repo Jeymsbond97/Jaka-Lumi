@@ -95,9 +95,17 @@ def start_assistant(no_arm=False, no_drive=False):
                             start_new_session=True).pid
 
 
-def robot_free():
-    if assistant_pids():
-        raise HTTPException(409, "The assistant (lumi.py) is running and owns the robot. POST /assistant/stop first.")
+def robot_free(manual=False):
+    """Refuse while the assistant owns the robot. manual: a hand control on the dashboard (jog, head, lift, gripper,
+    arm buttons), allowed beside Greeter while Lumi is not on a task or on patrol (Lumi may turn its head back to a
+    visitor afterwards)."""
+    if not assistant_pids():
+        return
+    from tasks import fetch
+    busy = fetch.state().get("status") in ("running", "waiting") or read_modes().get("patrol")
+    if not manual or busy:
+        raise HTTPException(409, "Lumi is busy with a task or on patrol: stop it first." if manual else
+                            "The assistant (lumi.py) is running and owns the robot. POST /assistant/stop first.")
 
 
 def tail(path, n):
@@ -142,14 +150,14 @@ class GoBody(BaseModel):
 
 
 class HeadBody(BaseModel):
-    yaw: float = Field(0, ge=-60, le=60, description="deg, clamped to +-60")
+    yaw: float = Field(0, ge=-180, le=180, description="deg")
     pitch: float | None = Field(None, ge=-5, le=35, description="deg; empty = keep the current pitch")
 
 
 class BodyBody(BaseModel):
-    lift_mm: float | None = Field(None, ge=0, le=300, examples=[150], description="lifting column, 0 = lowest")
+    lift_mm: float | None = Field(None, ge=0, le=head.LIFT_MAX_MM, examples=[75], description="lifting column, 0 = lowest")
     waist_deg: float | None = Field(None, ge=-140, le=140, description="waist rotation")
-    head_yaw_deg: float | None = Field(None, ge=-60, le=60)
+    head_yaw_deg: float | None = Field(None, ge=-180, le=180)
     head_pitch_deg: float | None = Field(None, ge=-5, le=35)
     speed: float = Field(15, ge=1, le=50, description="speed ratio %, slow by default")
 
@@ -198,6 +206,11 @@ def markers():
     return {"markers": agv.markers()}
 
 
+def fetch_head_ahead():
+    from tasks import fetch
+    fetch.head_ahead()                            # drives look ahead, wherever the head was turned
+
+
 @app.post("/agv/go", tags=["base"], summary="Drive to a marker (returns at once; watch /status move_status)")
 def go(body: GoBody):
     _route.stop()
@@ -207,6 +220,7 @@ def go(body: GoBody):
     if assistant_pids():
         send_to_assistant("go", marker=body.marker)
         return {"ok": True, "marker": body.marker, "by": "assistant"}
+    part(fetch_head_ahead)
     ok, msg = agv.go(body.marker)
     if not ok:
         raise HTTPException(502, f"AGV refused: {msg}")
@@ -290,15 +304,16 @@ def cancel():
 # ---------- head / arm ----------
 @app.post("/head/turn", tags=["body"], summary="Turn the head (slow); waits until the move ends")
 def head_turn(body: HeadBody):
-    robot_free()
-    head.turn(body.yaw, body.pitch)
+    robot_free(manual=True)
+    lift, waist, _, pitch = head.status()
+    head.moveto([lift, waist, body.yaw, pitch if body.pitch is None else body.pitch])   # +-180, not head.turn's YAW_LIMIT
     return {"body": dict(zip(["lift_mm", "waist_deg", "head_yaw_deg", "head_pitch_deg"],
                              (round(p, 2) for p in head.status())))}
 
 
 @app.post("/body/move", tags=["body"], summary="Lift / waist / head (slow); empty fields keep their value")
 def body_move(body: BodyBody):
-    robot_free()
+    robot_free(manual=True)
     cur = head.status()
     target = [cur[i] if v is None else v
               for i, v in enumerate((body.lift_mm, body.waist_deg, body.head_yaw_deg, body.head_pitch_deg))]
@@ -309,7 +324,7 @@ def body_move(body: BodyBody):
 
 @app.post("/arm/wave", tags=["arm"], summary="Wave (Cobo π program hand_shaking.jks); returns at once")
 def arm_wave():
-    robot_free()
+    robot_free(manual=True)
     if not arm.ready():
         raise HTTPException(409, "arm not ready: power/enable off, or a program is running")
     arm.start()
@@ -599,7 +614,7 @@ class ProgramBody(BaseModel):
 
 @app.post("/jog", tags=["control"], summary="Hold-to-move: call every ~150 ms while a button is held")
 def jog(body: JogBody):
-    robot_free()
+    robot_free(manual=True)
     try:
         jogger.hold(body.axis, body.direction, body.speed)
     except ValueError as e:
@@ -623,6 +638,7 @@ def map_info():
                 "theta": 2 * math.atan2(m["pose"]["orientation"]["z"], m["pose"]["orientation"]["w"])}
                for n, m in marks.items() if m.get("floor", 1) == cur["floor"]]
     return {"map_name": cur["map_name"], "floor": cur["floor"], **cur["info"], "markers": markers,
+            "main_dock": agv.dock_marker(),          # "home"; further docks (dock2) keep their names
             "maps": [{"name": n, "floors": f} for n, f in sorted(maps.items())]}
 
 
@@ -654,6 +670,7 @@ def go_point(body: PointBody):
     if assistant_pids():
         send_to_assistant("go_point", point=[body.x, body.y, body.theta])
         return {"ok": True, "by": "assistant"}
+    part(fetch_head_ahead)
     r = agv.request(f"/api/move?location={body.x:.3f},{body.y:.3f},{body.theta:.3f}")
     if r.get("status") != "OK":
         raise HTTPException(502, f"AGV refused: {r.get('error_message') or r}")
@@ -672,13 +689,13 @@ def arm_state():
 
 @app.post("/arm/power", tags=["arm"], summary="Arm power on / off")
 def arm_power(body: OnBody):
-    robot_free()
+    robot_free(manual=True)
     return arm.cmd("power_on" if body.on else "power_off")
 
 
 @app.post("/arm/enable", tags=["arm"], summary="Arm servo enable / disable")
 def arm_enable(body: OnBody):
-    robot_free()
+    robot_free(manual=True)
     return arm.cmd("enable_robot" if body.on else "disable_robot")
 
 
@@ -717,7 +734,7 @@ class NameBody(BaseModel):
 
 
 def _motion(fn, *args, **kw):
-    robot_free()
+    robot_free(manual=True)
     try:
         return {"ok": True, "joints": fn(*args, **kw)}
     except motion.MotionError as e:
@@ -771,13 +788,13 @@ def gripper_state():
 
 @app.post("/gripper/open", tags=["gripper"], summary="Open the gripper; returns the state after the stroke (~1.5 s)")
 def gripper_open():
-    robot_free()
+    robot_free(manual=True)
     return gripper.open_()
 
 
 @app.post("/gripper/close", tags=["gripper"], summary="Close the gripper (keep hands away); returns the state after")
 def gripper_close():
-    robot_free()
+    robot_free(manual=True)
     return gripper.close()
 
 
@@ -803,7 +820,7 @@ _skill = {"thread": None, "state": {"status": "idle"}}
 
 def _run_skill(name, fn, *args, **kw):
     """Run a skill in the background (it takes up to a minute); /skills/state shows how it goes, STOP ends it."""
-    robot_free()
+    robot_free(manual=True)
     if _skill["thread"] and _skill["thread"].is_alive():
         raise HTTPException(409, f"{_skill['state']['skill']} is still running")
     st = _skill["state"] = {"skill": name, "status": "running", "since": time.time()}
@@ -928,6 +945,8 @@ def task_parse(body: ParseBody):
                     "read_by": by, **_steps_said(got, markers)}
     if fetch.check_hand():                            # the camera sees the hand; a stale "holding" is forgotten
         return _held_parse(body, markers)
+    if brain.place_on(body.text) and not brain._mentions(body.text, markers).get("object"):   # "put it on the table"
+        return {"action": None, "task": None, "sentence": "–", "problems": ["My hand is empty, I'm not holding anything."]}
     fields, read_by = brain.fetch_from_text(body.text, markers) if body.text.strip() else ({}, "rules")
     task = {"object": fields.get("object"), "colour": fields.get("colour"),
             "source": fields.get("source") or body.source or "here", "dest": fields.get("dest") or body.dest,
@@ -1003,11 +1022,14 @@ def _held_parse(body, markers):
     then = "place" if on else brain.held_command(text) or ("place" if m.get("finish") == "place" else None)
     if then == "give" and named and not re.search(r"\b(give|hand)\b|줘|주세요|건네", t):
         then = None                                   # "bring it to p2" is a carry, not a hand-over
-    on_words = " ".join(w for w in (on.get("colour"), on["name"].replace("dining table", "table")) if w) if on else "table"
+    table = "dining table" if re.search(r"\bdin+(?:n|i)?ing\b|\bdinner table\b", t) else "table"   # as it was said
+    on_words = " ".join(w for w in (on.get("colour"), " or ".join(n.replace("dining table", table) for n in
+                                                                    [on["name"]] + on.get("alts", []))) if w) if on else "table"
     if dest is None:
         if then:
             return {"action": then, "task": {"on": on}, "problems": [], "choices": _choices(),
-                    "sentence": f"Hand {held} to you." if then == "give" else f"Put {held} on the {on_words} near me."}
+                    "sentence": f"Hand {held} to you." if then == "give" else
+                    f"Put {held} on the {on_words}." if on else f"Put {held} on the table near me."}
         return {"action": None, "task": None, "sentence": "–", "problems": [
             f"I'm holding {held}: say give it to me, put it on the table, or where to bring it."]}
     problems = _task_problems({"dest": dest, "object": "cup", "finish": "hold"})   # only the dest can be wrong
@@ -1032,8 +1054,13 @@ def task_give():
     return _fetch_call("give", "fetch_give")
 
 
+class TaskPlaceBody(BaseModel):
+    on: dict | None = Field(None, examples=[{"name": "chair", "colour": "orange"}],
+                            description="put it on this instead of a table: camera class and colour (or null)")
+
+
 @app.post("/tasks/place", tags=["tasks"], summary="Put the held object on the table in front")
-def task_place(body: PlaceBody | None = None):
+def task_place(body: TaskPlaceBody | None = None):
     on = body.on if body else None
     return _fetch_call("place", "fetch_place", None, on, on=on)
 
@@ -1054,16 +1081,30 @@ class CarryBody(BaseModel):
     on: dict | None = Field(None, description='put it on this instead of a table: {"name": camera class, "colour"}')
 
 
-class PlaceBody(BaseModel):
-    on: dict | None = Field(None, examples=[{"name": "chair", "colour": "orange"}],
-                            description="put it on this instead of a table: camera class and colour (or null)")
-
-
 @app.post("/tasks/carry", tags=["tasks"], summary="Bring the held object to a place, then keep holding it, put it on "
           "a table there or hand it over")
 def task_carry(body: CarryBody):
     return _fetch_call("carry_to", "fetch_carry", body.dest, body.then, None, body.on, dest=body.dest, then=body.then,
                        on=body.on)
+
+
+@app.post("/tasks/pause", tags=["tasks"], summary="Halt the task where it is (the base stops); /tasks/resume goes on")
+def task_pause():
+    from tasks import fetch
+    if assistant_pids():
+        send_to_assistant("fetch_pause")
+        return {"ok": True, "by": "assistant"}
+    return {"ok": fetch.pause(), "by": "api"}
+
+
+@app.post("/tasks/resume", tags=["tasks"], summary="Go on with a paused task")
+def task_resume():
+    from tasks import fetch
+    if assistant_pids():
+        send_to_assistant("fetch_resume")
+        return {"ok": True, "by": "assistant"}
+    fetch.resume()
+    return {"ok": True, "by": "api"}
 
 
 @app.post("/tasks/stop", tags=["tasks"], summary="Stop the fetch task, the base and the arm")

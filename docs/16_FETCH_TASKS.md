@@ -6,7 +6,7 @@ carries it to the destination and holds it, or puts it on the table there. This 
 work in [15_PICK_AND_PLACE.md](15_PICK_AND_PLACE.md); approaching far objects, lift / waist and obstacle-aware reach
 (stage C) and other place spots (D) come later.
 
-Status: written and tested without the robot (`tests/test_fetch.py`, `tests/test_fetch_intents.py`); not yet run live. Poses `look`, `carry` and `give` are taught; the base-axis angle is measured (−86.2°, `data/fetch_calib.json`). Table height at the destination is taken as the pick table's height (the camera service does not share depth yet). Tracked in [ROADMAP.md](ROADMAP.md).
+Status: written and tested without the robot (`tests/test_fetch.py`, `tests/test_fetch_intents.py`); not yet run live. Poses `look`, `carry` and `give` are taught; the base-axis angle is measured (−95.5° at waist −20.3°, `data/fetch_calib.json`). Table height at the destination is taken as the pick table's height (the camera service does not share depth yet). Tracked in [ROADMAP.md](ROADMAP.md).
 
 ---
 
@@ -46,7 +46,8 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
 3. The arm stays in `look`. Every move between named poses is checked first with `kine_forward`: the grasp point must stay above `MIN_POSE_Z` (−220 mm, table top ≈ −400) or above where it starts; otherwise the task fails before the arm moves.
 4. Look (`_search`): `skills.find(object, colour)` at the lift it has; not found → "Let me look around": turn on
    the spot by 30° (`SEARCH_TURN_DEG`, arm in `look`, the lift stays) and look again, 11 times (all the way round);
-   still not → the same whole turn at lift 0 mm, then at 250 mm (`LIFT_TRIES`, down first, then up). The first turn
+   still not → the same whole turn at lift 0 mm, then at 105 mm (`LIFT_TRIES` = `LIFT_RANGE`, down first, then up;
+   0–105 mm for now: the head camera cable, docs/03). The first turn
    goes towards the side where the base's lidar sees more things the map does not have (`first_side`: 3 angles ×
    3 distances each side, `/api/map/distance_probe` live < 0.3 m where the map is free for 0.5 m: tables, chairs,
    boxes; ~2 s), all later turns the same way. The torso detector looks at the whole frame and again at three crops
@@ -57,8 +58,22 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
    height 50–250 mm), and `find` still wants it in 5 of 8 frames at the same place. Never turns
    while charging (then only the lifts). Nothing anywhere → "I looked all around, but I can't see the cup", task failed. With "From: Here" (`"here"`) this is
    the whole search; with a marker / point it is done after driving there.
+   With the head camera calibrated (`data/camera_extrinsics_head.json` with its axes, and measure-axis done) the
+   search uses the head first (`_look_around`): the torso camera looks; then the head looks ahead and every 60° to one
+   side up to 180° (`HEAD_SCAN_STEP_DEG`, `HEAD_SCAN_MAX_DEG`, pitch −5° where it is calibrated), the side with more
+   unmapped things first (`first_side`), then to the other side (far things); then the waist turns 60° and 120° to
+   each side and the torso camera looks (`WAIST_SCAN_DEG`: near, low tables); then the base turns half round in 3
+   checked turns (`BASE_HALF_STEPS`) and head and waist look again; then the lift goes to its other end of
+   `LIFT_TRIES` (0 or 105 mm: down when it is above the middle, up when below) and all of it again. Still nothing:
+   the base moves (`SEARCH_MOVES`): turn 90° to the busier side and drive up to 0.5 m closer to its things, then back
+   off 0.3 m to see more; after each the head and waist look at both lifts. Every move goes through the checked
+   helpers (waist to the front, arm-sweep check, `line_hits` and `_straight_clear` for straight drives). On the
+   charger only the head, the waist and the lifts. Each head yaw is read
+   `HEAD_READS` times, a thing counts when seen twice within `HEAD_SAME_MM`. Found by the head: the base turns to face
+   it and drives straight (at most `HEAD_DRIVE_MAX_M` 3 m, checked like a reach), then the torso camera finds it.
+   Without the head calibration it is the 30° base-turning search above. Written 2026-10-19, not yet run live.
 4b. Table height: the depth surface on rings 80 / 110 mm around the object (`skills.table_near`). The lift is set to bring it as near the
-   proven −403 mm as 0–250 mm allows (`lift_for`; table 10 cm higher → lift 10 cm up, slow) and Lumi looks again. Any
+   proven −403 mm as 0–105 mm allows (250 with the longer head camera cable) (`lift_for`; table 10 cm higher → lift 10 cm up, slow) and Lumi looks again. Any
    surface that ends between −560 and −30 mm in the arm frame is worked on (`SURFACE_Z`, from the grasp IK: a table
    top +300 … −200 mm from ours at lift 0 reachable, −250 partly, −300 (a chair seat) not at all); lower ones (floor,
    low seats) are never fitted. The torso
@@ -110,25 +125,40 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
    - `hold`: stay in `look`, status `holding`; wait for "give" or "place".
    - `place`: in `look` (in `carry` the held cup covers the torso camera's view of the table), the same search as
      step 4 (the arm stays in `look` while the base turns), at each try (`_place_here`, `place_spots`): the pick spot itself when the
-     base has not moved since the pick (2 cm, 2°); then free spots of a grid (x −260…−60, y 640…700 mm) where the
+     base has not moved since the pick (2 cm, 2°); then free spots of a grid (x −260…−60, y 640…740 mm) where the
      torso depth camera sees table at the pick table's height, every one checked at its centre and 8 points 50 mm
-     around it (`skills.on_table`; the camera service writes `/dev/shm/lumi_depth_torso.npy`). At table height
-     the camera sees only y ≥ ~640 mm, nearer spots can't be checked and are never used after a drive. No spot →
+     around it (`skills.on_table`; the camera service writes `/dev/shm/lumi_depth_torso.npy`). The camera sees a
+     table at −403 mm only from y ≈ 640 mm, a lower one further (−414: ≈ 655, −457: ≈ 690); a ring point on the near
+     side below the view is checked 25 mm from the centre instead. Free: 110 mm from every thing seen standing on the
+     table; a box no higher than the table is the table itself under another name (a round white table read "sink"
+     and "chair"). No spot →
      "I can't see a free place on the table". Then straight to above the spot, put down, back to `look`.
      Nothing is put down unless the table in front is measured right then (`table_ahead`: at least 4 grid points
      at table height); the height the object was picked from is never taken instead (2026-10-16 the cup was put
      down at p9 on nothing).
      No spot in reach but a table seen further away (`far_table`: depth surface on a grid x −700…500, y 720…1600 mm
-     within 15 cm of the proven table height, the nearest point whose 50 mm ring is all table): the base brings that
-     point to (−160, 670) mm (`PLACE_GOAL`) the same way as for a pick (step 5, up to 5 moves), then the grid again.
-9a. "Put it on the orange chair" (`brain.place_on`, `fetch._put_on`): the named thing (table, chair, stool, sofa,
-    bench, bed; a colour if said) is searched like an object, its flat top measured with depth; within reach of the
-    lift it is approached and the object put on it, else Lumi says how much lower / higher it is than a table.
+     at a height some lift can work at, the point nearest (−160, 670) mm whose 50 mm ring is all table; every table
+     point is tried, the nearest ones lie on a round table's edge): the base brings that point to (−160, 670) mm
+     (`PLACE_GOAL`) the same way as for a pick (step 5, up to 5 moves), then the grid again.
+     A table lower than the proven one at lift 0 logs "table at −457 mm: the lift stays at 0 mm (its end)"; one the
+     lift is right for, without "(its end)".
+9a. "Put it on the orange chair" (`brain.place_on`, `fetch._put_on`): the named thing (table words, chair, stool,
+    sofa, or any class the cameras name: "the white sink"; a colour if said, grey / gray, purple, pink too) is searched
+    like an object, its flat top measured with depth; within reach of the lift it is approached and the object put
+    on it (spots around its centre, then place grid spots within 0.4 m of it at its top's height), else Lumi says
+    how much lower / higher it is than a table. The cameras label furniture badly (one white table was "white chair"
+    to one camera, "white sink" to the other): when no thing of the named class is in view but one of the named colour
+    is, under any class but small round things, with a flat top at a workable height, that one is used. "The grey
+    table" with no such thing in view: any table in view, as for "put it on the table". The dialog reads it back with
+    the held object: "Put the white cup on the grey table." With an empty hand a place command is refused at once.
     A thing's colour can be taught (`POST /objects/teach {"name": "chair", "colour": "yellow"}`: the nearest one
     seen, kept by its map place in `data/known_things.json`); within 0.5 m of that place it has that colour from
     any side (`colour_of`), since a colour read from the box changes with the view.
-    Before every turn on the spot the arm's sweep is checked against lidar + map (`turn_hits`, 0.10 m) and with the
-    torso depth camera at the arm's real height (`depth_hits`; the arm's own parts within 120 mm do not count).
+    Before every turn on the spot the arm's sweep is checked against lidar + map (`turn_hits`, 0.10 m), with the
+    torso depth camera at the arm's real height (`depth_hits`; the arm's own parts within 120 mm do not count), and
+    then with the head camera turned 60° to the side of the turn (`head_hits`, `HEAD_SIDE_DEG`, pitch −5°; the torso
+    camera sees only ahead, the arm sweeps to the side); the head goes back to where it was. Without the head
+    calibration only the first two decide. `head_hits` not yet run live.
 9b. What is in the hand is checked at every command (fetch, place, give, carry; `fetch._in_hand`): the torso depth
     camera looks at the cup's axis 30–70 mm below the grasp point, projected from the arm's joints
     (`skills.hand_sees`: depth within 60 mm of it = an object, more than 250 mm behind = empty); only when it
@@ -140,6 +170,10 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
     dialog's To) drives there first, then puts it down (step 9) or gives it (step 11) (`carry_to(dest, then)`,
     `POST /tasks/carry {"dest", "then": "place" | "give"}`). "put it on the table" alone puts it down where Lumi
     stands. A command while holding is never a new fetch: the object stays in the hand until it is put down or given.
+    What is held is remembered: a pick (also a mission's pick step) or a named receive stores `held_object`
+    (`{"object", "colour"}`) in the state file, kept across tasks and an API restart and cleared whenever `holding`
+    goes false (put down, given, dropped, hand opened). `fetch.held_name()` says it ("I'm holding the white cup",
+    "Put the white cup on the table near me."); "something" only when the hand was taken over without a pick.
 11. Give (while holding): `look` → `give` straight (IK-checked), say "Here you go. Hold it and say thank you.", open
     only on "thank you" (voice) or Release (dashboard Command dialog, `POST /tasks/release`), then `look`. Nobody
     releases within `GIVE_WAIT_S` 30 s: "I'll keep holding it", back to `look`, still `holding` (it is never dropped).
@@ -154,9 +188,13 @@ steady before and after (matched by class) is used; the yaw is fitted as an exac
 base's own turn during the drive (1.14° on the first 10 cm run). The base always drives back, also after an error. At
 `ready` the gripper covers the right part of the torso view, so objects there can disappear after the move. Result (2026-10-14, arm at `look`): the base
 drove 0.100 m forward, −0.003 m sideways and turned −1.25°; cup (−235, 1000) → (−261, 894) mm and chair (−862, 1280) →
-(−900, 1155) mm in the arm base frame. Fit with both: arm yaw in the base frame **−86.2°**, saved in
-`data/fetch_calib.json`. Single objects give −88.0° (cup), −85.0° (chair) and −89.2° (bowl, an earlier run): spread
-about ±2°, about 1 cm on a 30 cm shift. The drive back ended 3.5 mm from the start with −1.6° heading drift in total
+(−900, 1155) mm in the arm base frame. Fit with both: arm yaw in the base frame −86.2° (replaced 2026-10-19, below). Single objects give −88.0° (cup), −85.0° (chair) and −89.2° (bowl, an earlier run): spread
+about ±2°, about 1 cm on a 30 cm shift. The arm and both cameras sit on the waist and turn with it, so the waist angle
+of the run is kept too (`waist_deg`), and the arm yaw and the arm offset in the base frame are corrected by the waist
+turn since then (`fetch._waist_turn`; the waist axis is taken at the base centre, not measured). Run again
+2026-10-19 at waist −20.31° with two cups: −96.4, −94.9, −95.5°, kept **−95.5°** (median); objects are paired before /
+after one to one, nearest first (`_pairs`; a run that paired both cups with one gave −136.4°). Results:
+[15 §8](15_PICK_AND_PLACE.md). The waist-corrected base shift is not yet run live. The drive back ended 3.5 mm from the start with −1.6° heading drift in total
 (straight `joy_control` drives turn about 1° per 10 cm). Without `data/fetch_calib.json`, step 5 does not move the
 base and goes straight to asking the person.
 
@@ -184,7 +222,7 @@ listens 5 s:
 
 While a task runs: "stop" stops it; short progress is spoken ("Going to p1", "I've got it", "I'm here"). While
 holding: "give it to me" / "줘" → give; "put it on the table" / "테이블에 놔" → place; a new fetch → "I'm holding
-something, where should I put it first?".
+the white cup, where should I put it first?" (`held_name()`).
 
 ## 5. Dashboard
 
@@ -221,7 +259,7 @@ sentence, selects correct it: Object, Colour and At the end (hold / put on the t
 | `start(task, say=None)` | start in a background thread; `FetchError` when busy, holding something or invalid |
 | `give(say=None)`, `place(say=None)` | finish a `holding` task |
 | `stop()` | stop everything the runner does (base, arm, waiting) |
-| `state() -> dict` | `{"status", "step", "task", "holding", "log", "since"}`, read from `/dev/shm/lumi_task.json` so any process sees it |
+| `state() -> dict` | `{"status", "step", "task", "holding", "held_object", "log", "since"}`, read from `/dev/shm/lumi_task.json` so any process sees it |
 
 `say(en, ko)` is a callback for spoken progress (the assistant passes one that speaks in the current language).
 Status values: `idle`, `running`, `holding`, `done`, `failed`, `stopped`.

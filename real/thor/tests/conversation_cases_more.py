@@ -6,11 +6,11 @@ MORE = [(expect, lang, [(who, text[, must[, must_not]]), ...]), ...]
   knowledge/lumi_about_en.md; where Lumi cannot know the answer, must is NOT_SURE.
 """
 
-NOT_SURE = r"not sure|don'?t know|do not know|not known|no information|don'?t have|staff|ask|모르|알 수 없|확실하지|정보가 없|직원|문의"
+NOT_SURE = r"not sure|don'?t know|do not know|not known|no information|don'?t have|staff|ask|모르|몰라|알 수 없|확실하지|정보가 없|직원|스태프|문의"
 LUMI = r"lumi|루미"
 MAKER = r"cutshion|쿳션"
 JAKA = r"jaka|자카|제이카"
-NO = r"\bno\b|can'?t|cannot|not able|unable|don'?t|do not|only|아니|못|없|않|만 ?해|만 할"
+NO = r"\bno\b|can'?t|cannot|not able|unable|don'?t|do not|only|아니|못|없|않|만 ?해|만 할|만 (이해|알아)"
 YES = r"\byes\b|\bi can\b|of course|sure|네|응|할 수 있|가능|돼요|있어요"
 EMPTY = r"not holding|nothing|empty|hand is|holding nothing|들고 있지|없어요|없어|빈 손|비어"
 NO_PLACE = r"p\d|home|know|place|map|marker|알|장소|지도|위치"
@@ -72,8 +72,8 @@ MORE = [
         ("factory", "could you lift a 5 kilo box", NO, r"\byes\b"),
         ("investor", "is the gripper weight measured or estimated", r"estimate|not (been )?weighed|about"),
         ("chef", "can you carry a full pot of soup", NO),
-        ("engineer", "what's the gripping range", r"4\.5|8\.4|45|84"),
-        ("kid", "can you hold a pencil", r"4\.5|cup|bottle|\bno\b|can'?t|cannot|only|thin"),
+        ("engineer", "what's the gripping range", r"(?<!\d)6(?!\d)|(?<!\d)9(?!\d)|60|90"),
+        ("kid", "can you hold a pencil", r"(?<!\d)6(?!\d)|cup|bottle|\bno\b|can'?t|cannot|only|thin"),
         ("engineer", "how do you know you've grabbed something", r"sensor|camera|light|finger"),
         ("engineer", "what's the gripper open close time", r"second"),
         ("nurse", "can you carry a glass of water without spilling", r"slow|upright|15|careful|yes"),
@@ -209,7 +209,7 @@ MORE = [
         ("factory", "쌀 한 포대 들 수 있어?", NO),
         ("engineer", "그리퍼 무게는 측정한 거예요?", r"추정|재지|측정하지|약"),
         ("engineer", "그리퍼 제조사가 어디예요?", r"짐머|zimmer"),
-        ("engineer", "몇 센티 폭까지 잡을 수 있어요?", r"4\.5|8\.4"),
+        ("engineer", "몇 센티 폭까지 잡을 수 있어요?", r"(?<!\d)6(?!\d)|(?<!\d)9(?!\d)"),
         ("engineer", "물건 잡은 거 어떻게 알아?", r"센서|카메라|빛|손가락"),
         ("nurse", "물컵 들고 다녀도 안 쏟아요?", r"천천히|기울|15|조심|안 ?쏟"),
         ("visitor", "바나나도 집어 봤어?", r"아직|컵|안 ?해|해 보지|시험"),

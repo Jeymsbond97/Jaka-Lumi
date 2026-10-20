@@ -10,6 +10,7 @@ from tasks import fetch
 
 tmp = Path(tempfile.mkdtemp())
 fetch.STATE_FILE = tmp / "lumi_task.json"           # never the real /dev/shm file
+fetch.CALIB_FILE = tmp / "fetch_calib.json"         # never the robot's measured values (waist at the front)
 fetch.LOG_LINES = 1000
 fetch.WAIT_POLL_S = fetch.GIVE_POLL_S = 0.01
 fetch.RECEIVE_DI_S = 0.05
@@ -22,7 +23,7 @@ fetch.agv.pose = lambda: (0.0, 0.0, 0.0)
 fetch.agv.go = lambda m: (calls.append(("go", m)), (True, "OK"))[1]
 fetch.agv.go_point = lambda x, y, th: (calls.append(("go_point",)), (True, "OK"))[1]
 fetch.agv.cancel = lambda: calls.append(("cancel",))
-fetch._wait_drive = lambda watch_holding=False, again=None: None
+fetch._wait_drive = lambda watch_holding=False, again=None, goal=None: None
 fetch._lift_to = lambda mm: None
 fetch._pose = lambda name, speed=None: calls.append(("pose", name))
 fetch._line_holding = lambda name: calls.append(("line", name))
