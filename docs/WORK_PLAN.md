@@ -19,6 +19,10 @@ conversation / company / dialogues with all fixes was started at 19:45 (`logs/re
   place / give / hold / arm), pause / resume / replace, API `/tasks/parse` + `/tasks/steps`, dashboard step list,
   voice read-back (spoken yes only). Review findings (side / colour put-down, open while holding, checked move in
   pieces, stop first, explicit yes, validation) fixed.
+- [x] **Mission place / pick steps after the 2026-10-20 live test** (docs/16 step 4, 9, 9a): one search for both, a
+  table or thing seen is gone to at once, table heights from level depth only, "X or Y" / misspellings / "the lower
+  one", exactly what was said first, else the closest surface or object seen, said aloud; fixed pauses between
+  actions removed. Offline only; live list in ROADMAP Next 0-3.
 - [x] **Reading tests**: `tests/test_steps.py` 1158 / 1158 (rounds written blind by agents:
   `tests/steps_cases.py`, `steps_cases2.py`, `steps_cases3.py` named people, `steps_cases4.py` Korean speech levels).
 - [x] **People on the way** (docs/17 §4): `lumi.mission_talk`; `tests/test_mission_talk.py` passes;
@@ -259,6 +263,385 @@ Commanded looks use the body's full head yaw (`head.AXIS_LIMITS`, ±180°, also 
 `head.moveto`; `head.YAW_LIMIT` (±60°) stays for following people. --commands then 44 / 44. Not done: look and lift
 as mission steps (they need a step runner in tasks/fetch.py).
 
+## Commands in any wording (night 2026-10-20, agent A)
+
+Goal for the live test: any command or question a native English / Korean speaker says is the right action or a
+short question back, never a wrong motion. Inventory of what Lumi acts on (order in `lumi.answer()`): other script ->
+mission talk (on a mission) -> name only -> stop (`stop_order`) -> what the cameras see (`seeing.answer`, agent B) ->
+status (`status_question`) -> **the hand (`lumi.hand_command`: `brain.correction`, `brain.hand_request`)** -> mission
+(`read_mission`, steps.py: go, move, turn, pick, receive, say, place, give, hold, arm, wait) -> fetch / give / place
+while holding (`fetch_voice`) -> consent to go -> empty hand -> goodbye / closing words -> song -> keyword rules
+(`brain.intent`: quiet, stop, look incl. away, fetch, come, go_to, sing, wave, turn, make_way, move, put,
+move_object, pick, grip open / close, arm reach / fold, lift, weather, search) -> lookup follow-up -> the LLM's
+ACTION line (go_to, come, look, lift, move, turn, arm, wave, pick, put, move_object, fetch, give, place, receive,
+stop, quiet, sing, weather, search, end, unclear, none), each value checked in `Brain._action`.
+
+New: `brain.hand_request(text, holding, b=None, markers=(), whole=True)` -> `("receive", object or None)` |
+`("give", None)` | `("place", None | place_on() dict | {"pointed": True})` | `("refuse", (en, ko))` | None, any
+wording EN / KO / mixed, fillers and "루미야 / 혹시 / 저기" first; `lumi.receive_from_hand` (the camera first:
+`scene.person_holds` False -> "I don't see an apple in your hand", nothing moves; can't tell -> "Do you have
+something for me? Hold it out, please.", on only after yes / seen; then the receive step with `from_hand`);
+`brain.correction` ("no, the other one" right after a pick: the arm stops, "Which one do you mean?"; "no, the red
+one" picks that); look away (`HEAD_AWAY_DEG` 60°; "stop staring at me" is no stop); "pass me the cup" / "컵 좀 줘" =
+pick + give mission; every class of `skills.GRASPS` has words (`brain.OBJECTS`, not umbrella / 책; 공 / 칼 only as a
+word) and a pick / receive / mission of one the fingers can't take answers its reason (`skills.refusal`); "put it
+here / there" = where the person points. Bugs found: the LLM's pick target was always dropped and `object_task`
+then picked a cup ("pick the banana" by the LLM picked a cup); "grab the cup, thanks" ended the talk; "stop looking
+at me" stopped everything; "take the cup from me" drove "here" and picked from the table; "탁자에 놓아 주세요" opened
+the hand; "open your hand" while holding dropped it. LLM side: receive in the ACTION list, give / place / look away
+wordings, "never promise with none", questions ("손 펼 수 있어요?", "do you know how to wave?") and "I have an
+apple" / "my friend is over there" are no motion, its pick object must be a word said (no translating).
+Also (agent D's list): a short follow-up right after a lookup ("Where?", "몇 살이야?", "How tall is it?") is looked
+up, a bare "search ..." line is the search action, `lumi.VENUE_Q` refuses only when no place elsewhere is named
+("루브르 몇 시까지 해?" is looked up).
+
+Test set: `tests/command_cases.py` (templates x slots x fillers: 2523 cases, EN / KO / mixed, idle and holding,
+questions, jokes, things it can't do, near misses, ASR slips, rambling, corrections, slang), `tests/command_check.py`
+(rules only; `--llm` the rest through the real model; `--cached`). Right / missed (no motion) / wrong (a motion not
+asked for), before (old code, the first 958-case version) -> after (2523 cases, logs/command_check.md):
+
+| intent | before cases | right / missed / wrong | after cases | right / missed / wrong |
+|---|---|---|---|---|
+| receive (take from the hand) | 214 | 0 / 98 / 116 | 509 | 509 / 0 / 0 |
+| give | 67 | 53 / 14 / 0 | 242 | 242 / 0 / 0 |
+| place | 61 | 49 / 5 / 7 | 187 | 187 / 0 / 0 |
+| pass me (pick + give) | 72 | 7 / 57 / 8 | 201 | 201 / 0 / 0 |
+| pick | 164 | 156 / 0 / 8 | 460 | 460 / 0 / 0 |
+| hand open / close | 40 | 25 / 4 / 11 | 109 | 109 / 0 / 0 |
+| look (incl. away) | 55 | 37 / 2 / 16 | 101 | 100 / 1 / 0 |
+| arm, base, body, fetch, mission | 126 | 124 / 0 / 2 | 234 | 234 / 0 / 0 |
+| status, seeing | 30 | 30 / 0 / 0 | 166 | 166 / 0 / 0 |
+| can't do, questions, chat, near misses | 73 | 71 / 0 / 2 | 222 | 221 / 1 / 0 |
+| corrections, follow-ups, tricks | 21 | 13 / 4 / 4 | 21 | 21 / 0 / 0 |
+| mixed, ASR slips, rambling, slang | 35 | 24 / 8 / 3 | 71 | 68 / 3 / 0 |
+| **all** | **958** | **589 / 192 / 177** | **2523** | **2518 / 5 / 0** |
+
+296 of the 2523 went to the LLM. Left (no motion, a question back): "고개 돌려" (asks which way), "uh take the uh the
+cup" (unclear), "hand that to my colleague over there" (asks who), "chuck it on the table", "놀라지 마" (unclear).
+Not done: "put it next to the laptop" puts it on a free spot in front (no "next to" placing); a pointed "here" only
+in the quick path, not as a mission step; the dashboard Command box (`/tasks/parse`) does not use `hand_request` yet
+(agent D adds it).
+
+Checks after these changes (gemma4:26b, other agents' changes in too): dialogue subset **341 / 343 turns, 78 / 80
+dialogues** (was 338, 76; logs/dialogue_check_subset_b.md), conversation **1219 / 1241** all right, route 1230 (was
+1215, 1227; logs/conversation_check_b.md), company **365 / 368 + 60 / 62** (was 363 + 60), `--commands` **44 / 44**,
+every `tests/test_*.py` passes (test_steps 2035 / 2035). Harness: `conversation_check.rules_route` takes the hand
+route like lumi; a pick of a thing the fingers refuse counts as answered with the reason (conversation and dialogue
+checks); the expectation for "pick up my laptop" accepts "too big". Files: assistant/brain.py, assistant/lumi.py
+(hand_command, receive_from_hand, says_goodbye, stop_order, read_mission, object_task, VENUE_Q / OUTSIDE,
+_STATUS_P, act), assistant/steps.py, assistant/wording.py, assistant/fetch_dialog.py, tests/command_cases.py (new),
+tests/command_check.py (new), tests/test_intents.py, tests/test_steps.py, tests/test_fetch.py (refusal before the
+mission starts), tests/conversation_check.py, tests/conversation_cases.py, tests/conversation_cases_more.py,
+tests/dialogue_check.py, docs/14, docs/17, docs/WORK_PLAN.md, docs/ROADMAP.md.
+
+## Reply speed (night 2026-10-21, latency agent)
+
+From the end of speech to Lumi's first sound, a warm turn (measured offline today, parts one at a time; the runner
+and whisper were shared with four other agents' checks, so the numbers under load are higher):
+
+| Part | Before | Now | How |
+|---|---|---|---|
+| End-of-speech wait (`mic.END_SILENCE`) | 0.6 s | 0.6 s | kept: in 76 recorded utterances (logs/heard) 9 had pauses of 0.48–0.57 s inside; 0.5 s would cut ~10 % of them for 0.1 s |
+| Whisper (large-v3-turbo q5_0, GPU) | 0.4–0.6 s idle, 0.9–1.6 s with the GPU busy | same | `audio_ctx` (whisper's shorter encoder window) tried: turbo writes garbage and falls back to slow retries (16 of 16 clips wrong); not used |
+| Rules before the LLM (lumi.answer checks, knowledge search, examples) | ~60 ms | same | measured, small |
+| Route (action line): prompt processing | ~560 tokens warm (~0.65 s); ~4700 after any other prompt (3.7–5.0 s) | ~460 tokens in both cases (~0.5 s) | `brain.warm` / `llm_direct.prefill`: before each listen the next prompt's start (system + turns kept) is sent with n_predict 0; checked token for token (/tokenize) that it is the start of the next prompt |
+| First sentence (generation) | +0.15–0.4 s | same | |
+| TTS of the first sentence | 0.5–1.9 s (CPU) | 0.07–0.13 s | `audio/tts_gpu.py`: vector estimator + vocoder as TensorRT engines; the sound differs from the CPU's 50–100x less than two CPU runs with other noise |
+| Total, warm | ~2.6–3.1 s | ~2.0 s | |
+| Total, right after a lookup / farewell / mission read-back / picture | ~5.5–7 s | ~2.0 s (when the prefill finished while the person spoke: cold prefill ~3.5 s) | |
+
+Accuracy: the routing prompt is the same string as before (`brain.route_system`, checked equal); the prefill only
+changes what is cached. TTS: same voice (spectral distance GPU-CPU 0.01–0.02 against 0.7–1.2 between two CPU runs).
+`tests/test_*.py` pass except `test_followup.py` 139 / 185 ("why don't you wave?", "it would be great if you could
+wave" -> llm): wave rules, not from this work. command_check / dialogue_check were not re-run here (their reports in
+logs/ belong to the commands and conversation agents; nothing in the routing changed).
+
+Not done, for the other agents:
+- **ASR agent**: whisper is now the biggest part after the fixed 0.6 s wait. Ideas with numbers to check in
+  `tests/asr_check.py`: (1) start transcribing when the speech has been quiet 0.3 s (`mic.Segmenter` knows it) and
+  keep the result when the utterance then ends without new speech: ~0.3 s sooner; 32 of 76 utterances had an inner
+  pause of 0.3 s or more, so the early run is often thrown away (whisper is busy 0.4 s for nothing then). (2) The
+  f16 large-v3-turbo may be faster on the GPU than q5_0 (not downloaded). `audio_ctx`: no (above).
+- **Conversation agent**: the ~460 tokens a question still costs are its notes (150–350 tokens, `NOTES_K` 3) and
+  examples (120–180, `EXAMPLES_K` 4) and the time line (44): each 100 tokens fewer is ~0.1 s.
+- A second Ollama slot is not needed with the prefill (and would mean restarting Ollama).
+- Live check: ROADMAP Next 0a-4.
+
+## Commands, second night (2026-10-21 night, commands agent)
+
+New sets (not in yesterday's): `tests/command_cases2.py` (771 single commands on the conference map: every
+ability in polite / casual / 반말 / 존댓말 / 하십시오체, indirect, negation, conditions, corrections inside the
+sentence, fillers, code-mixing, whisper's spellings), `tests/steps_cases7.py` (148 missions of 2-5 steps EN / KO /
+mixed + 5 with corrections + read-backs, 10 for the LLM pass), `tests/test_mission_route.py` (the same through
+`lumi.read_mission` and the Greeter-only rule). Checks: `tests/command_check.py --new` (`--old` yesterday's set,
+`--cached` re-checks saved action lines with today's `Brain._action`), `tests/steps_llm_check.py`.
+
+| group (new set) | cases | before: rules right / missed / wrong / to LLM | after, rules + gemma4:26b: right / missed / wrong |
+|---|---|---|---|
+| go to a marker | 220 | 106 / 0 / 0 / 114 | 220 / 0 / 0 |
+| not a drive now (negation, question, condition) | 110 | 5 / 5 / 5 / 95 | 104 / 6 / 0 |
+| corrections inside the sentence | 86 | 2 / 19 / 26 / 39 | 86 / 0 / 0 |
+| speech levels, slang, whisper spellings, "can you ...?" | 85 | 49 / 0 / 1 / 35 | 84 / 1 / 0 |
+| come, come back, follow (+ near misses) | 66 | 42 / 0 / 3 / 21 | 66 / 0 / 0 |
+| move, turn, again (+ near misses) | 49 | 35 / 6 / 0 / 8 | 49 / 0 / 0 |
+| look, lift, wave, bye (+ near misses) | 58 | 47 / 0 / 5 / 6 | 58 / 0 / 0 |
+| pick, held, hand, fetch | 53 | 41 / 1 / 0 / 11 | 53 / 0 / 0 |
+| missions, a part that is no step | 12 | 4 / 0 / 6 / 2 | 12 / 0 / 0 |
+| stop, speed (+ near misses) | 32 | 25 / 0 / 1 / 6 | 32 / 0 / 0 |
+| **all (new)** | **771** | **356 / 31 / 47 / 337** | **764 / 7 / 0** (170 by the LLM) |
+| yesterday's set (now 2756 cases) | 2756 | 2518 / 5 / 0 of 2523 | 2748 / 4 / 0, 4 not re-run |
+| blind set (`tests/command_cases3.py`, written by an agent from docs/14 + 17 only) | 451 | first run, rules: 311 / 3 / 20 / 117 | 446 / 3 / 0 (109 by the LLM), 1 not re-run |
+
+Missions on the conference map (`steps_cases7`, rules only): 86 / 142 before, **148 / 148** after (+ 5 / 5 with a
+correction, 3 / 3 read-backs EN + KO); the blind missions (`tests/steps_cases8.py`, 121, ~30 must stay unread):
+113 / 121 on the first run, **121 / 121** after (269 / 269 in test_steps with both); the LLM pass on wordings the rules leave a part of: 9 / 10 (the 10th, "let
+Sarah have it", is now read by the rules); the "?" ones stay unread. Yesterday's mission sets: test_steps
+2039 / 2039 unchanged, interrupt_check 288 / 301 (same).
+
+Wrong motions found and fixed: "go to start, sorry, I mean end" drove to start; "pick up the cup, no, the bottle" /
+"컵 집어, 아니 병" picked the cup; "앞으로 1미터, 아니 2미터 가" drove 1 m; "뒤로 1미터, 아니 50센티만 가 줘" drove
+forward (the LLM); "테이블 프론트 앞으로 가" drove 1 m forward instead of to table_front; "먼저 스테이지 가서 컵
+가져오고 그다음 여기로 와서 줘" came to the person (the come rule on a part); "go to the stage and wave / follow me /
+look left", "go to the stage and tell Sarah ..." drove and dropped the rest; "take the cup to the stage, not booth
+two" also drove to booth two; "after the talk ends, go to ..." / "내가 가라고 하면 ..." drove now (rules and LLM);
+"I saw you wave", "the wave was nice", "a new wave of visitors" waved; "shake hands with me" waved (the LLM too);
+"can I come closer?" / "come here often?" came; "제 말 따라와요?" followed; "왼쪽으로 45도 돌아" turned the head (LLM);
+"스테이지 가서 거기서 기다려" was a stop ("거기 서"); from the blind set: "손 흔들지 마" waved, "손님 오시면 손 흔들어
+주세요" and "my friend will come here soon" moved, "turn left at the corner and you'll find the restroom" turned; "Um, ..." / "Uh, ..." at the start was taken as a name by the
+new aside rule (147 of yesterday's commands lost their rule), "뒤돌아 봐" too.
+
+What changed: `brain.self_correct` (corrections, "never mind", a stop never rewritten, not on a mission),
+`brain.unfill` (fillers inside), `brain.LATER` (conditions / later, rules and the LLM's action), `brain.STOP_ASK`
+("can you stop?", "멈출 수 있어?"), go / come / follow / turn / wave / lift wordings in `brain.INTENTS`,
+`hand_request` Korean endings, the action prompt (conditions, the last of a correction, handshake), `driving`
+"again" / "a bit more" after a turn, `lumi.read_mission` (a part that is a command but no step is asked),
+`lumi.FETCH_STOP`, `steps.py` (fillers, splits, -고 나서 / -ㄴ 다음에 / -시-, comma-less clauses, people and places in
+any order, "갔다 와", "not booth two", read-back names with spaces).
+
+Left: "how far is the stage?" / "스테이지까지 얼마나 걸려요?" go to the camera's distance answer (`seeing.HOW_FAR`,
+conversation agent's file); `wording.norm` turns "to go home" into "to home" on a map with `home` ("I want you to
+go home" is then no drive; ASR agent's file); "look at me and wave" / "put it down and wave" do the first part
+only (look / lift / wave are no mission steps yet); "한 바퀴 돌아" turns 180° (a full 360° spin is a navigation goal
+equal to the start, not driven); "booth number two", "go to booth to" (whisper) are asked; the dashboard Command box (`/tasks/parse`) does not apply
+`self_correct`; "take the cup and put it back" is asked.
+
+## Commands, leftovers of the second night (2026-10-22, commands agent)
+
+| leftover | before | after |
+|---|---|---|
+| "look at me and wave", "웨이브 하고 나 봐", "나 보고 손 흔들어", "lift yourself up and wave"; holding "put it down and wave"; "go to p5 and tell me the weather", "고개 들고 몇 시야?" | the first part only (look / place), or asked | owner's decision: every part in order (`assistant/chain.py` plan, `lumi.chain_run` / `chain_wait`): steps next to each other one mission, keyword commands by `quick_command`, questions by `answer`; a refused part says why, the rest goes on; after a failed mission part the driving / hand parts are said as not done; "stop" / new words end it. `brain.hand_request` leaves "X and <command>" to it; "웨이브 해" is a wave. Self-check `tests/test_chain.py` |
+| "한 바퀴 돌아", "spin around", "turn all the way around", "do a 360" | LLM, turn around 180 | rule `turn left 360` (right: "오른쪽으로 한 바퀴"); `lumi.move_by` runs it through `fetch.run_steps`, `fetch._do_step` makes two 180° turns, each arm sweep checked (one 360° goal is the start pose: navigation does nothing). In a mission: step `turn 360`, read back "turn all the way around" / "한 바퀴 돌고" |
+| dashboard Command box (`/tasks/parse`) | no `self_correct` | applied first, as by voice; "never mind" → "Taken back: nothing to do.", unsure → "Which one did you mean?" |
+| "take the cup and put it back", "컵 집었다가 제자리에 놔" | asked | pick + place here (fetch puts it back where the pick was, `skills._held["base"]`); after a drive still asked |
+| "루미야 너 월급 받아?" | receive | talk (`brain.PAID_Q`: 월급 / 전화 / 칭찬 ... 받, "너 ... 받아?") |
+| "컵 가져다 줘" | mission pick + give | checked right: the cup in front, handed over ("컵을 집고 건네줄게요."), the same as "pass me the cup"; "컵 가져와" stays the plain fetch |
+| "출구로 가" (LLM: go_to exit, not said) | "이 지도에는 that라는 곳이 없어요" | "이 지도에는 출구라는 곳이 없어요 ..." (the Korean word as said, 이라는 after a final consonant: 주방이라는); English "a place called that" |
+| "Let's go P5 (point).", "Let's go P9." | LLM, 1.4–4.5 s | rule go_to (let's / lets, a trailing "point"); also "스테이지로 가 줬으면 좋겠어" (the later-check took "줬으면" for a condition) |
+| `command_check.py` seeing guess | "how far is the stage?" counted as seeing | `seeing.answer(text, frames=[])` itself decides (None = not seeing) |
+
+Command check (`--cached`, rules + saved LLM lines; the ~40 cases without a saved line asked one at a time, 3 s apart):
+yesterday's set 2748 → 2747 right / 5 missed, new set 762 → 844 right of 848 (77 new cases, 26 of them chains and
+near misses), blind 448 → 447 / 451; all 4038 right / 11 missed / 1 wrong / 5 not run of 4055. The three that
+turned ("스테이지로 가야 해" -> goodbye: the one wrong; "그만 쳐다봐", "thanks, that's all" -> talk) come from the
+conversation agent's new closing words (`talk_fate`), not from this work. Missions (`test_steps`, conference map): 284 / 284 (15 new).
+Old expectations "spin around" / "한 바퀴 돌아" → turn around changed to turn 360 (command_cases 1-3,
+conversation_cases_more, dialogues_commands).
+
+Live fix (13:48, Command box): "let's go exit point and go p9 point" went to the LLM (12.5 s) and came back a fetch
+with no object; now `steps._go` / `_place` take "X point" / "X 포인트" / "X 지점" after any marker and "first X then Y",
+and `/tasks/parse` returns "I didn't understand: ..." instead of a fetch when no object is named (no LLM). Voice reads
+the same as a mission. Cases: test_steps (owner's map), steps_cases7, command_cases2, test_fetch_place.
+
+Command box = voice (owner, 2026-10-22): `lumi.route(text, markers, brain, holding, seen, last, chain_ok)` is the
+one routing both use (and `tests/command_check.rules`); `/tasks/parse` turns its result into the dialog's plan:
+mission or keyword drive / turn / arm / pick -> steps (`/tasks/steps`), a fetch only with an object named, look / lift
+/ wave / come / follow / stop / chains -> `action: "command"` (Start: `/tasks/command`, the assistant answers it as
+heard), questions and talk -> shown, nothing to start; rules while typing, the LLM on Enter. `tests/test_command_box.py`
+46 / 46 the same by voice and in the box.
+
+Left: `conversation_cases_more.py` expects "출구로 가" → go_to exit, against the rule that a word is never translated
+into a place (it is refused with the word as said); "booth number two" / "go to booth to" (whisper) still asked;
+"bus stop", "look write" go to the LLM (unclear). Not live-tested: the 360° turn (Patrol on, off the charger, the arm
+goes to `look` first like every task turn).
+
+## What Lumi hears (night 2026-10-21, speech-to-text agent)
+
+What went wrong in `logs/lumi.log` (2026-10-13 … 10-21) and the 50 clips in `logs/heard/`:
+
+- **The prompt's "Lumi." for sounds that are no speech**: whisper wrote "Lumi." / "Hey Lumi." for claps, thuds, music,
+  "はい" (13 of 15 "Lumi." in logs/heard; without the prompt they read `*clap*`, `*gunshot*`, `はい`). They woke Lumi
+  or became a turn ("Lumi." [japanese] four times for "컵 좀 주세요").
+- **Own-voice filter dropped the owner's words**: a clip-mic utterance that shared 60 % of its words with anything Lumi
+  said in the last 30 s was dropped, also when said seconds after Lumi stopped: "Lumi." after the greeting, "Can you
+  see me?" after "I can't see you", "Just follow me." (~20 times).
+- **Korean tagged English or Japanese, written in Latin letters**: "나 따라와" → "Natarawa.", "돌아와" → "Torawa.";
+  asked again, the old mixed prompt kept it in Latin letters; forced to English, Korean comes back translated.
+- **Name and marker slips**: Cutshion → "Kutchen", "coaching company", 커션; "p3로 가 줘" → "p3로 가죠", "P3. 로가줘";
+  "go to piece six", "Look last", "Doc T"; "오늘 난시가 어때요?".
+- Mixed sentences lose a part ("Lumi, 이리 와" → "Lumi."); short Korean words far away stay the hardest (below).
+- Not hearing faults, for the commands agent: "Let's go P5 (point)." / "Let's go P9." (the owner's usual wording) are
+  heard right but go to the LLM (1.4–4.5 s) instead of a rule.
+
+Bench: `tests/asr_check.py` makes spoken cases with the Supertonic voices (F1–F5, M1–M5, speed 0.85–1.15), puts them
+in a room (near = clip mic: echo 0.15 s, 28 dB; far = head array: echo 0.5 s, 12 dB, three other people talking),
+sends them through `ears.transcribe()` on its own whisper-server (port 8097 / 8098, never the live 8096), and through
+Lumi's routing (`tests/command_check.rules`). Right = the same route as the written text (and for questions nearly
+the same words), the spoken language, understood. Sets: `asr_cases.py` (322 × 2 rooms), `asr_cases2.py` (127 × 2,
+the owner's wording and polite Korean, kept apart to check the fixes), `asr_cases3.py` (96: noise, "uh", people
+talking not to Lumi; right = no wake word, no motion). Real clips: `--heard` (text only, never committed).
+
+| Set | Before | After |
+|---|---|---|
+| 1, EN near / far | 148 / 113 of 161 | 149 / 114 |
+| 1, KO near / far | 89 / 39 of 135 | 109 / 56 |
+| 1, mixed near / far | 10 / 5 of 26 | 16 / 7 |
+| 1, all | 404 of 644 (63 %) | 451 (70 %) |
+| 2 (new words), EN / KO / mixed | 84 / 93 / 8 of 104 / 130 / 20 | 87 / 97 / 11 |
+| 2, all | 185 of 254 (73 %) | 195 (77 %) |
+| 3, not to Lumi | 82 of 96 (11 of 12 noise clips woke Lumi) | 93 (0) |
+| Real clips, false "Lumi." | 5 of 50 passed | 0 (the 3 real calls kept) |
+| Whisper time per call, GPU busy | q5_0 1.36 s median | f16 1.00 s |
+
+Changes (each measured on its own; offline replays of all three transcriptions per case in
+`logs/asr_check/collect*.json`):
+- `lumi.talk_turn`: on the clip mic the word match counts only for an utterance recorded while Lumi talked.
+- `ears`: a name-only text is checked once without the prompt (`CALL_ONLY`, `lumi_like`); retries in one language use
+  `LANG_PROMPT`; another language named → Korean and English fixed, Hangul `KO_BONUS` 0.3; English with a word no
+  dictionary has (`/usr/share/dict/words`) → Korean too (`ODD_KO_BONUS`); Hangul tagged English is Korean;
+  "Lumi야" → 루미야; `SLIPS` (Cutshion, 쿳션, 날씨); the f16 model. Tried and left out: an English/Korean-close retry
+  (0 of 898 better, two translated), always both languages for short clips (+11 of 644 for two more calls per clip),
+  other prompts (none, "Lumi.", with Cutshion / p8, "…루미야, 안녕하세요.", Korean retry prompt with the name first: within ±3,
+  or hallucinated), beam 5 (+3 of 254, slower).
+- `wording.ASR_SLIPS` and the "piece six" rule; `lumi.WAKE` takes "Lumia".
+
+Left: short Korean commands far away (KO far 56 of 135: "그만" → "Come on.", "나 봐" → "Naba."); mixed sentences
+(23 of 52); a far wake word with people talking (7 of 12); TTS voices are not the owner's accent, so the live check
+decides. **To use it**: the whisper-server keeps the q5_0 model until it is started again (stop its process once,
+`ps -eo pid,args | grep "[w]hisper-server"`; the API starts it again with f16 on the next listen).
+Not done: transcribing after 0.3 s of quiet (speed agent's idea): the f16 model already saves ~0.35 s.
+
+## Web answers without OpenAI (night 2026-10-21, web agent)
+
+Free search + gemma4:26b only (`tests/web_check.py` sets `web.openai_ready` false; the key was never read). New set
+`tests/web_cases2.py`: 191 questions + 28 dialogues (56 turns), none from yesterday's: weather (Korean cities,
+tomorrow, rain), news, prices / rates, sports results, people, places (hours, distances), dates / holidays,
+definitions, follow-ups, and 22 that must not go online. `web_check.py new` -> logs/web_check2.md.
+
+| Set | Before | After | Notes |
+|---|---|---|---|
+| New set (247 turns) | 213 / 247; answer in the fetched text 146 | **230 / 247**; in the text 157 | weather tomorrow / 모레 9 wrong before, 0 now |
+| Yesterday's set (225) | 201 / 225 (yesterday's run) | 203 / 225 | first try with 1200-char pages: 197 (lost Apple 1976, "지금 대통령" from a 2024 page); 1500 chars + news first fixed it |
+| Prompt tokens read per looked-up turn (one user, warm), dialogues | median 3710, 90 % 4913 | median 2354 without the warm-up, ~1500 with it (new set 1573, 90 % 2168) | ~1300 tokens/s: ~1.0–1.7 s less to the first sentence |
+| Visitor's wait after a lookup | "Let me check." played, then fetch, then the LLM | the LLM starts while "Let me check." plays | ~1 s less (TTS of the phrase overlaps fetch + prompt) |
+| First sentence, wall clock | 18.4 s median | 13.4 s median | **not comparable**: the runner was shared with 3–5 other agents' checks all night (a 15-token Ollama call took 30 s once); the token count above is the number to trust |
+
+What changed (`assistant/web.py`, `brain.respond_from` / `LOOKUP_ANSWER`, `lumi.look_up`):
+- Weather now and 7 days ahead, today and tomorrow named (`WEATHER_DAYS`).
+- English questions about a person, share, index or team also ask Naver with the Korean word of its answer box
+  ("Taylor Swift 나이", "Nvidia 주가", "KBO 순위", `web.ko_box_query`): LeBron's height, Apple's stock, Nasdaq,
+  LAFC's last games came from those boxes. Not for opening hours ("Louvre 영업시간" gives Korean shops).
+- "How far": straight-line distance between the named places (open-meteo geocoder, places under 50 000 people
+  refused, airports fixed); "100 dollars", "1만 엔" worked out in won.
+- News headlines only for questions about what changes (`NEWSY`), put before the web pages; Naver's places-nearby
+  blocks and disclaimers cut; pages 1500 chars.
+- `respond_from` uses the routing system prompt (cached; the next turn's routing stays cached); an action line it
+  writes instead of the answer ("search New York weather") is dropped; the answer is made while "Let me check."
+  plays (`Lumi._looked_up`). A coworker's salary is declined before any lookup.
+
+Still wrong, for the owners of those parts:
+- **Routing / intents**: "How many people live there?" and "Who is the CEO of OpenAI?" went to talk (none) and
+  were not looked up; the LLM wrote "search ..." without "ACTION:" on talk turns ("search I'll look that up");
+  "리플 지금 얼마야?" → "I don't know what 리플 is" (talk).
+- **Follow-ups**: "몇 살이야?" after a Korean answer ("샘 올트먼") searches without the name (`NAMES` is English
+  only); "내일 비 와?" after Jeju's weather looks up Seoul; "How much is a ticket?" after Lotte World is refused as
+  a venue question (`lumi.not_online`).
+- Not on the free pages: Seoul subway's last train, flight times, Changdeokgung's closing day, English opening
+  hours (the Korean question gets Naver's place box).
+
+## Reading conversation in context (night 2026-10-21, conversation agent)
+
+The owner saw "What about my jeans?" / "what about shoes?" after a clothes question and "what about you?" answered
+wrong (fixed in `seeing._follow_up` on 2026-10-21 noon, live since 18:31). New sets, written as a linguist of English
+and Korean would read the turns (ellipsis, anaphora, the question turned back, topic shifts, corrections, back-channels,
+confirmation questions, teasing / jokes / compliments, indirect requests against ability questions, Korean endings
+-지 / -네 / -잖아 / -거든 / -더라 / -는데, honorifics, mixed EN / KO, asides to someone nearby, thanks against goodbye,
+repeated questions, answers to Lumi's own questions): `tests/dialogues_prag_en.py` (114 dialogues, 365 turns),
+`tests/dialogues_prag_ko.py` (119, 392), run with `tests/dialogue_check.py --pragmatics`; `tests/followup_cases_more.py`
+(286 routing cases after seeing / clothes / object answers, lookups and the weather, in `tests/test_followup.py`).
+
+Failure kinds found: (1) seeing follow-ups about the thing just seen ("where is it?", "무슨 색이야?", "몇 개야?") and
+clothes fragments with words around the noun ("jeans too?", "and below?", "바지 color는?", "청바진?") fell to the LLM;
+the thread outlived a goodbye or a turn between; "루미는 무슨 옷 입었어?" described the visitor; (2) words said to
+someone else ("Hey Jake, come see this", "민수야 이리 와 봐", "Okay kids, say thank you") moved Lumi or ended the talk;
+(3) "Yes." / "몰라" after Lumi's question called unclear; "해 봐" after "손 흔들 줄 알아?" and "doing it again" after a
+wave did nothing, while "손 흔들 줄 알아?" itself waved (the history also kept the model's "wave" instead of what was
+done); (4) 26b now and then writes the bare action word ("none", "search") without "ACTION:": the word was spoken
+("search I'll look that up"); (5) fragments and subject-less questions read as about Lumi or a price ("얼마?" after the
+investment, "how heavy can it lift?" after TUSK, "Which one?" after "my language model is local"); (6) thanks-only
+("Lovely, thanks!", "고마워요~", "감사요") ended the talk, "Cheers, that's everything." did not; (7) reactions after a
+lookup ("wow, that many?", "I didn't know that") and "what time is it?" after the weather were searched.
+
+| set | before (HEAD of 2026-10-21 evening) | after |
+|---|---|---|
+| pragmatics, every 3rd dialogue (78 dialogues, 255 turns) | 230 turns, 58 dialogues | **247 turns, 70 dialogues** |
+| follow-up routing (`test_followup.py`, 233 + 286 new) | 233/233 + 212/286 | **519/519** |
+| dialogue subset (80 dialogues; a closing "Thanks." now counts as the end, lumi ends after the silence) | 341/343, 78/80 (2026-10-20) | **340/344, 76/80** (left: "Which algorithm?", "What about your cameras?" after wiping, "Photo? With you? Ok?" once unclear, one judge call on feelings) |
+| company | 365/368 + 60/62 | **365/368 + 60/62** |
+| conversation (all right / route right) | 1219 / 1230 (2026-10-20); 1204 / 1222 with yesterday's code on today's cases | 1203 / 1218 (the misses left: missions and fetch wordings, "look at the floor", place refusals worded without "map") |
+
+Changes: `brain.to_someone_else` (in `intent`, `_action`, `lumi.says_goodbye`); a bare action word on the first line
+is the action line; the history keeps the action done; `DO_IT` / `AGAIN` in `Brain._after`; `ABILITY_Q` "줄 알아";
+`has_meaning` takes yes / no / maybe / 글쎄요 / 몰라; `Brain._fragment_hint` (a fragment of up to `FRAGMENT_WORDS`
+words gets the last answer's first sentence); lookups: `REACTION`, `NOW_Q`, a company word no longer blocks a lookup
+follow-up ("who's the CEO?" after Samsung); haha / ㅋㅋ / ㅇㅋ back-channels; umbrella / 우산 only as a question; more
+offers dropped (`HELP_OFFER`: "궁금한 게 더 있으시면…", "feel free to ask"); SYSTEM: same-property ellipsis, they / 걔 /
+거기, subject-less questions, turned-back questions on any topic, Korean endings, yes / no answers, asides, teasing,
+ability against request, 반말 asked for. `seeing`: `_it_answer`, `TAIL`, `WHERE_ON_ME`, socks / bottoms / genes,
+"not X, Y" / "X 말고 Y", glasses / hat after clothes, `BYE`, `ABOUT_LUMI`, "오른쪽쪽" fixed. `lumi`: cheers / "that's
+everything" end, thanks-only waits (`THANKS_REST`). `talk_examples`: turned_back, aside, answer, hint_tease.
+`tests/dialogue_check.py`: `--pragmatics`, a closing expected as the end passes as "chat".
+
+Left: "And charging?" after the battery answers how it charges (the charging time is unknown); "Ha, you got the
+reference?" (a film joke) misread; "오 노래?" starts a song; "루미야 너 월급 받아?" is a receive (RECEIVE_ASK 받,
+commands agent); praise compared to a grandchild taken without modesty; "Which algorithm?" after an invented "learning
+from demonstration" claim; "What about your cameras?" after "can I wipe you with a wet cloth?" answers about the
+cameras, not wiping them; the cooking robot's places ("Where is it used?") not found in the notes; command_check's
+seeing guess counts "how far is the stage?" as seeing (5 cases; `seeing.answer` itself says None).
+
+## Leftovers of web answers and context, closings by context (2026-10-22, conversation / web agent)
+
+| check | before | after |
+|---|---|---|
+| web leftovers (`tests/web_check.py` dialogues, targeted) | CEO of OpenAI talk / searched by chance, "How many people live there?" not sure, 리플 "don't know", "몇 살이야?" without the name, Jeju → Seoul rain, ticket refused | all routed right (rules; Ottawa / Canberra population, 리플 1,807원, 샘 올트먼 41, Jeju 100 % rain tomorrow, 경복궁 입장료 3,000원); English opening hours / Lotte World and Louvre tickets are still not on the free pages |
+| follow-up routing (`tests/test_followup.py`) | 519 | **551 / 551** (32 new) |
+| closings in context, blind set `tests/closing_cases.py` (69) | 62 / 69 | **69 / 69** |
+| ... second blind set written after the change (30) | 29 / 30 | **30 / 30** |
+| pragmatics, full set (233 dialogues, 757 turns; 239 / 769 with 6 new) | 722 / 757 turns, 199 / 233 dialogues | 730 / 769, 205 / 239 (code of b435e56); the 34 failed dialogues again with the later fixes: 77 / 108 turns (was 69) |
+| `command_check --cached` | 0 wrong | 0 wrong (9 missed, none from this work) |
+
+Closings (owner's principle: understood by context, not by phrase lists): `lumi.talk_fate` "end" only for goodbyes
+in any context (`CLEAR_BYE`, `RELEASE`: bye, see you, I have to go, 수고하세요, 안녕히 계세요, you can go);
+okay / thanks / that's it / 됐어요 / 오케이 땡큐 are "close": the LLM reads them with the turns before. Its end stands
+when its words take leave (`lumi.kept_goodbye`); "You're welcome." keeps the talk open and 8 s of silence ends it.
+`brain._action` no longer drops a model end for want of farewell words (only a question is no goodbye). Cost: these
+words now wait for the LLM (~2 s live; 5.5 s median in the checks with the GPU shared) instead of an instant
+"You're welcome." / silent wait; 59 of the 69 cases asked the LLM (40 before).
+
+Lookups: `INTENTS` search (office holders not Cutshion's, coin prices, population), `Brain.search_query` (Korean
+names `KO_NAME`, "there" after a talk answer `NAMED_BEFORE` / `CAP_WORD`, a nameless short question after a lookup),
+`Brain.weather_place`, `Brain.lookup_about` + `lumi.lookup_refused` (a follow-up of a lookup is not a venue
+question; Cutshion never online), `NONE_LINE` / `LOOKUP_PEEK` / `SPOKEN_TARGET` ("search ..." without ACTION).
+Conversation: `SING_ECHO` / `SONG_TALK` ("오 노래?", "노래 좋아해?"), `SAME_ABOUT` / `KO_SAME_ABOUT` hint ("What about
+your cameras?", "카메라는요?"), talk examples (the film reference, charging, cameras, "Okay."), knowledge: the
+learning algorithm is not known, "thank you 해" is an aside, "I wonder if it's going to rain" is the weather.
+
+Left: "Okay." after an answer still gets "You're welcome." now and then (45, 58); "이제 됐어" right after a song ends
+the talk (audio/sing STOP has no 됐어); "Lumi, ask me if I want to hear a song" sings (`sing.SING` "want to hear a
+song"); "Is Seoul nice?" / "Even for the weather?" looked up; "How long on a charge?" read as the charging time in
+the last rerun (example fixed after it, 9b7abdb, not re-run); fragments over 4 words ("How much does it weigh?" after
+the arm). Commands agent: "say hi with your arm" (no wave), "move your hand a little for me" (arm reach). The
+dialogue subset and company checks were stopped for the owner's live test: tonight's big run.
+
 ## Next (in order)
 
 0. Re-runs started 2026-10-16 ~19:55 with all fixes (`logs/recheck_all.log`): conversation_check, company_check,
@@ -297,4 +680,4 @@ tests/voice_check.py (new), tests/llm_bench.py, tests/status_cases.py, tests/con
 tests/conversation_check.py, tests/dialogues.py, tests/dialogue_check.py, tests/company_cases.py,
 tests/company_check.py (new, agents), assistant/company_examples.py, tests/conversation_cases_more.py, tests/company_cases_more.py, tests/dialogues_more_a.py, tests/dialogues_more_b.py (new, agents), tests/company_check.py, docs/14, docs/17_MISSIONS.md (new), docs/WORK_PLAN.md (this), docs/14, docs/TUNING.md,
 docs/ROADMAP.md, README.md, CLAUDE.md, assistant/wording.py (new), tests/steps_cases5.py (new), tests/test_places.py (new), tests/steps_cases6.py (new), tests/test_fetch_wait.py (new),
-tests/test_mission_wait.py (new), docs/TUNING.md. Not synced: logs/, models, knowledge/index.npz.
+tests/test_mission_wait.py (new), docs/TUNING.md, audio/tts_gpu.py (new), audio/mouth.py, assistant/llm_direct.py, tests/test_mouth.py, tests/command_cases2.py (new), tests/steps_cases7.py (new), tests/test_mission_route.py (new), tests/steps_llm_check.py (new), tests/command_cases3.py (new), tests/steps_cases8.py (new), assistant/driving.py, tests/test_driving.py, tests/command_check.py, tests/command_cases.py, audio/ears.py, assistant/wording.py, tests/asr_check.py, tests/asr_cases.py, tests/asr_cases2.py, tests/asr_cases3.py, tests/test_ears.py (new), README.md, assistant/seeing.py, assistant/talk_examples.py, tests/dialogues_prag_en.py (new), tests/dialogues_prag_ko.py (new), tests/followup_cases_more.py (new), tests/followup_cases.py, tests/dialogue_check.py, docs/14_VOICE_ASSISTANT.md, tests/closing_cases.py (new), tests/closing_check.py (new), tests/test_web.py, tests/web_check.py, tests/web_cases2.py, tests/conversation_check.py, tests/test_fetch_intents.py, tests/test_followup.py. Not synced: logs/, models (now also `models/ggml-large-v3-turbo.bin`), knowledge/index.npz.

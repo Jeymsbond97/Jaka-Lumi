@@ -1,22 +1,24 @@
 # Lumi on the Jetson Thor
 
-This folder (`~/Dev/lumi-wave`) is the software of our JAKA Lumi robot and runs on the robot's Jetson Thor. It also holds the project's documentation, so work can continue from here. The owner develops on a Mac, where the git repository lives (GitHub `Jeymsbond97/Jaka-Lumi`, folder `real/thor/`). This folder is a deployed copy: the code at the top level, the documentation in `docs/` and `tools/`, refreshed from the Mac with `tools/thor_sync/sync.sh`. There is no git here.
+This folder (`~/Dev/lumi-wave`) is the software of our JAKA Lumi robot and runs on the robot's Jetson Thor. It also holds the project's documentation, so work can continue from here. The owner develops on a Mac, where the git repository lives (GitHub `Jeymsbond97/Jaka-Lumi`, folder `real/thor/`). This folder is a deployed copy: the code at the top level, the documentation in `docs/` and `tools/`, refreshed from the Mac with `tools/thor_sync/sync.sh`. This folder is also a git repository of its own (`.gitignore` keeps the local-only files below out); the owner pushes it with their own account to Gitea `james/lumi` (backend-dev.podosee.com).
 
-## Where we are (2026-10-19, end of day)
+## Where we are (2026-10-21, evening)
 
 Milestone: **pick and place by voice** ("Lumi, find the red cup, take it and put it here"), plan in [docs/15_PICK_AND_PLACE.md](docs/15_PICK_AND_PLACE.md), stages P0–P9; fetch tasks in [docs/16_FETCH_TASKS.md](docs/16_FETCH_TASKS.md); missions in [docs/17_MISSIONS.md](docs/17_MISSIONS.md).
 
 | Area | State |
 |---|---|
-| **lumi-api** | **Not restarted**: the robot still runs the old code. Everything below marked "written" waits for the restart (with the owner) |
+| **lumi-api** | Restarted 2026-10-21 18:31 with all of the day's code (reply speed, re-id, follow fix, Greeter = in place / Patrol = base + waist, dashboard hand controls only when idle or paused, arm pose graph, any marker name, Korean city weather, back-channels, songs, tests never write logs). Voice, follow and the switches not live-tested after this restart |
+| Arm, live 2026-10-21 | Slow first, owner at the STOP: from a free-drive pose to `look` by two checked moves; taught `wave_out`, `wave_start`, `wave` (= `wave_start` with J3 −14.7°). Wave = look → wave_out → wave_start, 2 swings back to back, stays at `wave_start`; down wave_start → wave_out → look. Moves one at a time (`SETTLE_S` 0.3 s, `JOINT_ACCEL_FACTOR` 1.5, route 40 °/s, `ARRIVE_SPEED` "normal" into `wave_start`); software STOP empties the controller queue. Down 7.8 s, up 10.8 s, swings 7.0 s |
+| Gitea | `james/lumi` (private): clean snapshots only, pushed with `tools/gitea_push.sh` after each finished piece (tests first); the work log, plans, results and CLAUDE.md stay on the Thor |
 | LLM | `gemma4:26b` (benchmark 2026-10-19, logs/llm_bench.md); Qwen models removed; `gemma4:e4b` kept for colleagues |
 | Conversation | Checks on gemma4:26b (2026-10-20): company 362/368 + 60/62, conversation 1205/1241, dialogue subset 329/343 turns (70/80), `--all` 1791/1904 turns (385/479; was 1760, 355); details in docs/WORK_PLAN.md |
 | Gripper / picks | Zimmer GEP2013IO-05-B; finger sizes in `docs/gripper/`, AI_1 → gap (docs/10 §2.1); widths 61–92 mm (camera width + 8). Live 2026-10-19: white tumbler and red cup picked and put back; steel cups / bowl unstable (shiny), paper cups crushed |
 | Arm, reach, fetch | P2–P5 done and live (docs/15, docs/16); P6 / P7 / P9 live for pick, put back, drive holding in `look`; put on a named thing, far table, give with Release written, not live |
 | Cameras | Both at 5000M. Torso calibrated (3.3 mm). Head calibrated at any head pose (`vision/head_cam.py`, 6.0 mm) |
-| Written, not live | 2026-10-20: lift limit 105 mm, dashboard head yaw ±180, `held_object` (Lumi names what it holds), search base moves (`SEARCH_MOVES`). Head search and `head_hits` in fetch; waist-corrected base shift (measure-axis −95.5° at waist −20.3°); missions with wait steps and spoken marker names (docs/17, WORK_PLAN); conversation fixes |
+| Written, not live | 2026-10-20 evening (after the owner's live place test): one search for pick and place (`fetch._look_around`: ahead with both cameras, waist + head to each side, one base turn, the other lift end), a table / thing seen is gone to at once, table heights from level depth only (`skills.flat_top`), named things exact first else the closest surface (said aloud), "X or Y" / misspellings / "the lower one", fixed pauses removed (ROADMAP Next 0-3). Earlier 2026-10-20: lift limit 105 mm, dashboard head yaw ±180, `held_object` (Lumi names what it holds). Head camera finds and `head_hits` in fetch; waist-corrected base shift (measure-axis −95.5° at waist −20.3°); missions with wait steps and spoken marker names (docs/17, WORK_PLAN); conversation fixes |
 | Docks | `home` = marker `Home`; `dock2` at (0.967, 8.412) has a charger; robot charging there |
-| **Next** | (0) Restart `lumi-api` with the owner, then live: missions from the Command dialog, the head search and `head_hits`, the waist-corrected base shift (ROADMAP Next 0, 0a). (1) Thin / soft cups (paper cups crushed: other force or fingers); cups 85–92 mm untried; side entry for small things discussed, not built. (2) Voice live with the speaker reconnected ("USB Audio Device" on its own hub). (3) Arm collision sensitivity in Cobo π with the owner. Read docs/WORK_PLAN.md for the conference work |
+| **Next** | (0) "Follow me" live: robot off the charger, Greeter + Patrol on, arm at `look` and enabled, stand beside it (ROADMAP 0a-1); then voice tests with Greeter only on the charger (in-place commands; base / waist refused) and with Patrol. (1) Arm: look → carry → give → carry → look live, slow first; a safer `tuck` (look → tuck refused, 175 mm from the head); measure the head to replace `HEAD_CLEAR_MM` 250 (estimate); maybe S-curve (`set_motion_planner`) with the owner in Cobo π. (2) Conference: new map with new marker names (the code reads any name), Wi-Fi profile (phone hotspot first). (3) Older items: placing / search (ROADMAP 0-3), thin cups, collision limits in Cobo π. Read docs/WORK_PLAN.md for the conference work |
 
 Untested live: the voice-assistant changes of 2026-10-13 (🟡 in [docs/14_VOICE_ASSISTANT.md](docs/14_VOICE_ASSISTANT.md)), Korean gripper commands, the own-voice filter and the 15 s voice session. The full Next list is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -62,7 +64,13 @@ In the docs, `real/thor/<path>` means `<path>` in this folder (for example `real
 - **DI_1 looks below the gripper**, not between the fingers: it is never set by a held object.
 - **The camera's width of a cup reads ~8 mm under** the width the fingers meet (`skills.SEEN_UNDER_MM`, `grip_width`).
 - **Shiny metal cups give unstable depth**: width 61–74 mm and position jumping up to 17 mm between frames; one was knocked over by a finger.
+- **A table's height is its level top, never the median of all depth there**: white chairs' backs and seats next to a round table pulled the median 60–110 mm low (one table read −324 … −555 mm, 2026-10-20); `skills.flat_top` keeps only level depth patches and the biggest group.
 - **`skills.py pick` and `put_down` run from the CLI are separate processes**: `_held` (grasp turn, height) is lost between them.
+- **Queued joint moves back to back (no wait) shake the whole robot** at every via-point and reversal: the route stops and settles at each pose; only the wave swings run queued.
+- **The controller runs long joint moves far slower than commanded**: J1 60° at 25–40 °/s took 7–8 s.
+- **`stop_program` empties the controller's motion queue** (checked live: the next queued move did not run).
+- **The taught grasp point is the hooks' belly centre**; the finger tips are 28 mm further along the tool axis (owner's free-drive pose on a 66 mm can, `data/grasp_tips_teach.json`). The tips grasp (61–72 mm) missed twice live even with that offset (2026-10-22): it is off (`skills.MIN_WIDTH` 72); objects 72–92 mm go into the belly from above.
+- **Cobo π programs (`hand_shaking.jks`, `arm_reach.jks`) run from wherever the arm is**: started from `look`, the wave went through the head (2026-10-21). Never start a stored program without a checked route from a known pose.
 
 ## Documentation
 
@@ -97,7 +105,8 @@ Passwords: `docs/private/ACCESS.md`.
 - UI looks like a finished product: short labels, no hint or explanation texts. Docs describe the project as it is, never "moved from" / "before it was".
 - Poses are taught by the owner by hand; check them (limits, cup tilt along the path) and save. Arm moves only when the owner asks; the first run of a new motion slow, the owner at the STOP.
 - The owner may ask for parallel agents: give each clear file ownership; agents never move the robot or restart services.
-- **Changes made here must reach the Mac repository.** The Mac session pulls this folder when the owner says "yangila" there (it diffs, copies, commits and pushes). So keep files here tidy and complete; mention at the end of a session which files changed. Runtime files (`data/camera_extrinsics.json`, `data/calib_samples/`, `data/doa_*`, `data/volume.txt`, `logs/`, `models/`, `whisper.cpp/`, `.venv`, `.venv-songs`, `.venv-cover`, `data/songs/mine/`) stay local and are not copied. `data/songs/mine/` holds the owner's licensed songs and everything made from them (instrumental, vocals, lyrics, renders): never copy it, and never put their lyrics into code, docs, tests or knowledge files.
+- The repo is pushed to Gitea `james/lumi` (private) by the owner's account; only finished work is pushed.
+- **Changes made here must reach the Mac repository.** The Mac session pulls this folder when the owner says "yangila" there (it diffs, copies, commits and pushes). So keep files here tidy and complete; mention at the end of a session which files changed. Runtime files (`data/camera_extrinsics.json`, `data/calib_samples/`, `data/doa_*`, `data/volume.txt`, `data/speech_speed.txt`, `logs/`, `models/`, `whisper.cpp/`, `.venv`, `.venv-songs`, `.venv-cover`, `data/songs/mine/`, `tests/data/scene_carrying_jacket_*`, `tests/data/scene_white_shirt_*` (test frames with people)) stay local and are not copied. `data/songs/mine/` holds the owner's licensed songs and everything made from them (instrumental, vocals, lyrics, renders): never copy it, and never put their lyrics into code, docs, tests or knowledge files.
 
 ## Safety (always)
 
