@@ -916,6 +916,43 @@ threading.Timer(0.1, lambda: (hand.update(front=True), fetch.release_now())).sta
 st = run(fetch.run_steps, [P(do="receive", object="cup", from_hand=True)], say)
 assert st["status"] == "holding" and not [l for l, t in reach_to if l == "to the hand"], (st, reach_to)
 fetch._set(holding=False, status="idle")
+# "reach out to me": to give along the pose graph (via carry), then 150 mm towards their nearer seen hand
+ahead = lambda mm, side=0.0: [g0[0] + mm, g0[1] + side, g0[2]]
+scene["person_in_front"] = {"position_mm": ahead(900.0), "hands": {"left": {"position_mm": ahead(600.0, 100.0),
+                            "distance_m": 1.1}, "right": {"position_mm": ahead(400.0), "distance_m": 0.9}}}
+turns = []
+real_turn = fetch._turn
+fetch._turn = lambda deg, holding=False, why="": turns.append(deg) or deg < 90
+
+
+def reached(angle=0.0):
+    reach_to.clear()
+    reset()
+    st = run(fetch.reach, angle, say)
+    return st, [t[:3] for l, t in reach_to if l == "to the hand"]
+
+
+st, moves = reached()
+assert st["status"] == "done" and poses() == ["carry", "give"] and not turns, (st, poses())
+assert len(moves) == 1 and np.allclose(moves[0], [fetch.RECEIVE_REACH_MM, 0, 0]), moves
+scene["person_in_front"]["hands"]["right"]["position_mm"] = ahead(180.0)          # stops RECEIVE_SHORT_MM before it
+assert np.allclose(reached()[1][0], [80.0, 0, 0])
+scene["person_in_front"]["hands"] = {"left": None, "right": {"position_mm": None, "distance_m": None}}
+scene["person_in_front"]["position_mm"] = ahead(fetch.REACH_BODY_MM + 60.0)      # no hand seen: REACH_BODY_MM before
+assert np.allclose(reached()[1][0], [60.0, 0, 0])                                 # the body
+scene["person_in_front"]["position_mm"] = ahead(fetch.REACH_BODY_MM + 10.0)      # too short a move: left out
+st, moves = reached()
+assert st["status"] == "done" and poses()[-1] == "give" and not moves, (st, moves)
+scene["person_in_front"] = None                                                   # nobody seen: the hand at give
+st, moves = reached()
+assert st["status"] == "done" and poses()[-1] == "give" and not moves, (st, moves)
+st, moves = reached(40.0)                                     # to the side (Patrol): the base turns first, by the
+assert turns == [40.0 + fetch._waist_turn()] and poses()[-1] == "give", (turns, poses())   # waist's offset too
+turns.clear()
+said.clear()
+st, moves = reached(120.0)                                    # the turn refused (charger, sweep): the arm stays
+assert st["status"] == "failed" and not poses() and said[-1] == fetch.TURN_TO_PERSON[0], (st, said)
+fetch._turn = real_turn
 fetch._line_rows, fetch._scene = real_line_rows, real_scene
 hand["front"] = False
 # the cup is in the hand but nobody says okay: the hand never closes (their fingers may be in it)

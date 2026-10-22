@@ -157,6 +157,8 @@ POINT_STEPS_MM = (0, -50, 50, -100, 100)   # "put it here" with pointing: spots 
 RECEIVE_REACH_MM = 150.0     # receive from a hand: the open hand moves at most this far from give towards it ...
 RECEIVE_SHORT_MM = 100.0     # ... and stops this far before it (the person puts it in; estimates, first run slow)
 RECEIVE_MIN_MM = 20.0        # ... a shorter move is left out
+REACH_BODY_MM = 300.0        # "reach out to me" with no hand of theirs seen: the hand stops this far before their body
+                             # (estimate, first run slow); a seen hand: RECEIVE_SHORT_MM before it
 PICK_TRIES = 2               # a pick that missed or slipped is looked for and tried again once (docs/15 §3.5)
 MISSES = ("I missed it.", "It slipped out of my hand.")   # skills._do_pick's reasons for those
 
@@ -2142,19 +2144,18 @@ def _move(direction, m, holding):
                              f"앞에 뭔가 있어서 {done:.2f}미터에서 멈췄어요.")
 
 
-def _reach_to_hand():
-    """From give, the open hand straight towards the thing in the person's hand (scene.object_in_hand, arm frame), at
-    give's height: at most RECEIVE_REACH_MM, stopping RECEIVE_SHORT_MM before it. Nothing when the camera can't say
-    where it is or the straight line fails IK: the hand stays at give."""
-    p = (_scene("object_in_hand") or {}).get("position_mm")
+def _reach_to_hand(p, short=RECEIVE_SHORT_MM):
+    """From give, the hand straight towards the point p (arm frame mm: the thing in the person's hand, their hand or
+    body), at give's height: at most RECEIVE_REACH_MM, stopping `short` before it. Nothing when p is None (the camera
+    can't say where it is) or the straight line fails its checks (_line_rows): the hand stays at give."""
     if not p:
-        log("the hand with the object is not seen: holding my hand out at give")
+        log("the person's hand is not seen: holding my hand out at give")
         return
     f = np.array(motion.tcp(), float)
     g = f[:3] + calib.rpy_matrix(*f[3:]) @ skills.GRASP_OFFSET
     d = np.array(p[:2], float) - g[:2]
     dist = float(np.linalg.norm(d))
-    step = min(RECEIVE_REACH_MM, dist - RECEIVE_SHORT_MM)
+    step = min(RECEIVE_REACH_MM, dist - short)
     if step < RECEIVE_MIN_MM:
         return
     target = list(f)
@@ -2186,7 +2187,7 @@ def _receive(name, say, wait_s=None, at=None, from_hand=False):
         raise FetchError("My hand does not open.", "손이 안 열려요.")
     _pose("give")
     if from_hand:
-        _reach_to_hand()
+        _reach_to_hand((_scene("object_in_hand") or {}).get("position_mm"))
     _release.clear()
     if wait_s:                                   # a long wait: talk around it is no "okay" until DI_1 saw something
         _step("receiving", say, f"Please put the {thing} in my hand." if name else "Please put it in my hand.",
@@ -2231,6 +2232,47 @@ def _receive(name, say, wait_s=None, at=None, from_hand=False):
          held_object={"object": name, "colour": None} if name else None)
     _say(say, "Thank you, I've got it.", "고마워요, 받았어요.")
     _line_holding(LOOK_POSE)
+
+
+TURN_TO_PERSON = ("I can't turn to you here. Please stand in front of me.", "여기서는 돌 수 없어요. 제 앞에 서 주세요.")
+
+
+def _person_point():
+    """(position_mm, how far before it to stop) of what "reach out to me" goes towards: the seen hand of the person
+    in front nearest the camera, else their body (scene.person_in_front); (None, 0) when neither has depth."""
+    p = _scene("person_in_front") or {}
+    hands = [h for h in (p.get("hands") or {}).values() if h and h.get("position_mm")]
+    if hands:
+        return min(hands, key=lambda h: h["distance_m"] or 9.0)["position_mm"], RECEIVE_SHORT_MM
+    return p.get("position_mm"), REACH_BODY_MM
+
+
+def reach(angle=0.0, say=None):
+    """Hold the hand out to the person ("reach out to me", "손 내밀어"): first, when `angle` (deg, + left, waist
+    frame: the person tracker's) is not 0, a base turn on the spot to face them (_turn: Patrol only, the waist to the
+    front, its arm sweep checked), then the arm along the pose graph to give
+    (arm_route, every move checked), then at most RECEIVE_REACH_MM straight towards their hand or body
+    (_person_point, _reach_to_hand). The arm stays out; "fold" brings it back to look."""
+    if "give" not in motion.poses():
+        raise FetchError("I haven't learned how to reach out yet.", "아직 손 내미는 법을 못 배웠어요.")
+    _adopt()
+    with _lock:
+        if _busy():
+            raise FetchError("I'm busy with another task.", "다른 일을 하고 있어요.")
+    _clear()
+    _set(status="running", step="reaching out")
+
+    def run():
+        try:
+            if angle and not _turn(angle + _waist_turn(), why="to the person"):
+                raise FetchError(*TURN_TO_PERSON)
+            _pose("give")
+            _reach_to_hand(*_person_point())
+            _set(status="done", step="")
+            log("reached out")
+        except Exception as e:
+            _fail(e, say)
+    _launch(run)
 
 
 def _arm(pose):

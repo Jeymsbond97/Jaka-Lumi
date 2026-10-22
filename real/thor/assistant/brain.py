@@ -263,8 +263,10 @@ You can also move. Decide if the visitor asks you to do something:
   metre" / "1미터 뒤로 가" / whisper's "let's bake one meter" -> move back 1: straight back, no turning). At most 3 metres.
 - turn <left|right|around> <degrees>: turn the whole body ("turn around" -> turn around 180,
   "turn left" -> turn left 90, "spin around" / "한 바퀴 돌아" -> turn left 360).
-- arm <reach|fold|open|close>: stretch your arm forward ("reach out your hand"), fold it back, or open / close
-  your hand (the gripper: "open your hand", "grab it", "let go").
+- arm <reach|fold|open|close>: reach: hold your hand out to the visitor, in any words ("reach out to me", "give me
+  your hand", "hand out please", "offer me your hand", "손 내밀어", "나한테 손 줘", "손 좀 줘 봐", "팔 뻗어"); fold: fold
+  it back; open / close: your hand, the gripper ("open your hand", "spread your fingers", "let go", "release", "손 펴",
+  "놔" -> arm open; "close your hand", "close the gripper", "grip", "make a fist", "손 쥐어", "그리퍼 닫아" -> arm close).
 - wave: wave your hand ("wave", "shake your hand", "say hi with your hand"). "Hello Lumi!" said to you or "say
   hello" / "hello 해 봐" is talk (none): say the word itself ("Hello!").
 - pick <colour> <object>: pick up an object from the table in front of you ("pick up the white cup" -> pick white cup,
@@ -275,11 +277,11 @@ You can also move. Decide if the visitor asks you to do something:
 - fetch <colour> <object> from <marker|here> to <marker|here> <hold|place>: bring an object from one place to
   another ("bring me the apple from p1" -> fetch apple from p1 to here hold, "take the cup from p2 to home and put
   it on the table" -> fetch cup from p2 to home place). Leave out what the visitor did not say; never guess a word.
-- give: hand over the object you are holding, to whoever is meant ("give it to me", "hand it to her", "저 사람한테
-  줘"); if your hand is empty you will say so.
+- give: hand over the object you are holding, to whoever is meant ("give it to me", "hand it to her", "return it to
+  me", "저 사람한테 줘", "그거 돌려줘"); if your hand is empty you will say so.
 - place: put the object you are holding down ("put it here", "put it on that table", "여기 놔").
-- receive: take something the visitor holds out to you ("take this from my hand", "hold this", "here you go",
-  "이거 받아", "드릴게요", "내 손에 있는 거 가져가"). Your camera checks their hand first; never pretend you took it.
+- receive: take something the visitor holds out to you ("take this from my hand", "hold this", "hang on to this",
+  "here you go", "이거 받아", "이거 들어 줘", "이것 좀 쥐고 있어", "드릴게요", "내 손에 있는 거 가져가"). Your camera checks their hand first; never pretend you took it.
 - stop: stop moving (also "stop Lumi", "stop it", "freeze", "멈춰", "그만 가"). Use quiet only when they say
   stop TALKING ("stop talking", "be quiet", "그만 말해").
 - end: the visitor says goodbye or ends the conversation ("good night", "I have to go", "잘 가", "이제 갈게요").
@@ -300,7 +302,7 @@ Short Korean commands are commands: "컵 가져다 줘" -> fetch cup, "컵 옮�
   action, or say you can't, or ask what they mean.
 - A condition or a later time is no order now ("when I say go, go to p1", "after the talk, come here", "if I
   wave, follow me", "내가 가라고 하면 가", "나중에 와"): none, say you'll do it when they ask. In "go to p1, no, p2" /
-  "p1로 가, 아니 p2로" the last one counts. "Shake hands with me" is a handshake you can't do: none, offer a wave.
+  "p1로 가, 아니 p2로" the last one counts. "Shake hands with me" is a handshake you can't do: none, offer a wave; "give me your hand" / "손 줘" is arm reach.
 - unclear: you did not understand what the visitor said or wants: ask them to repeat.
 - none: only talk.
 For weather and search only write the action line; the answer is made after the lookup.
@@ -481,6 +483,8 @@ def lift_goal(target, mm, top=105.0):
     return got, bool(n and n != "small" and got != want)
 
 
+LET_GO = r"^\W*(?:drop it|release(?: it)?)\W*$|^\W*(?:(?:그거|이거|그것|이것|손|손을|손에서)\s*)?(?:좀\s*)?(?:이제\s*)?(?:놔|놓아)\s*(?:줘|주세요|요|도 ?돼(?:요)?)?\W*$"
+# "drop it", "놔", "손 놔", "이제 놔도 돼" alone: open the hand (with something in it: put it down, hand_request)
 INTENTS = [   # (action, pattern) checked in order on what the visitor said
     ("quiet", r"\b(be quiet|keep quiet|quiet please|stop talking|shut up|silence|be silent|stop greeting)\b|조용히|그만 말|"
               r"시끄러워|말하지 마|인사 ?(그만|하지 ?마)"),
@@ -542,11 +546,15 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
                     rf"|(?:({_COL})\s*)?({_OBJ})\s*(?:을|를)?\s*옮겨"),
     ("pick", rf"\b(?:pick up|pick|take|grab|get|lift|hold) (?:up )?(?:me )?(?:the |that |this |a |an |my |your )?(?:({_COL}) )?({_OBJ})s?\b"
              rf"|(?:({_COL})\s*)?({_OBJ})\s*(?:을|를)?\s*(?:좀\s*)?(?:잡아|집어|들어)"),
-    ("grip_open", r"\b(open (your )?(hand|gripper|fingers)|open it|let (it )?go|drop it)\b|손을? ?(펴|벌려|열어)|손 ?open|^\W*(?:이제\s*)?놓아\W*$"),
-    ("grip_close", r"\b(close (your )?(hand|gripper|fingers)|close it|make a fist|clench (your )?(fist|hand)|grab (it|this)|grip (it|this))\b"
-                   r"|손을? ?(쥐|오므려|닫아)|주먹 ?(을 )?쥐|잡아|손 ?close"),
+    ("grip_open", r"\b(open (your |the )?(hand|gripper|fingers|claw)|open it|let (it )?go|drop it|hand open|loosen your grip)\b|손을? ?(펴|벌려|열어)|손 ?open|(그리퍼|집게)(를|을)? ?(좀 )?(열어|벌려|펴)|"
+                  + LET_GO),
+    ("grip_close", r"\b(close (your |the )?(hand|gripper|fingers|claw)|close it|make a fist|clench (your )?(fist|hand)|grab (it|this)|grip (it|this)|"
+                   r"hand closed?|squeeze (your )?(hand|fingers)( shut)?)\b|^\W*grip\W*$"
+                   r"|손을? ?(쥐|오므려|닫아)|주먹 ?(을 )?쥐|잡아|손 ?close|(그리퍼|집게)(를|을)? ?(좀 )?(닫아|오므려)"),
     ("arm", r"\b(reach out|stretch (out )?your (arm|hand)|put your (arm|hand) (out|forward)|hand forward|"
-            r"hold out your (arm|hand)|extend your (arm|hand))\b|팔을? ?(뻗|내밀)"
+            r"hold out your (arm|hand)|extend your (arm|hand)|give me your hand|offer me your hand|"
+            r"(put|hold|stick) your (arm|hand) out|reach (out )?(to|toward|towards|for) me)\b|팔을? ?(뻗|내밀)"
+            r"|손을? ?(좀 )?(내밀|뻗)|^\W*(?:(?:나|저)(?:한테|에게)?\s*)?손 ?(?:을 )?(?:좀 )?(?:줘|주세요|줄래요?|줘 ?봐)\W*$"
             r"|\bfold (?:up )?your arm\b|\b(?:put|take) your arm (?:down|away|back)\b|\btuck your arm\b|팔을? ?(?:좀 )?(?:접|내려|거둬)"),
     ("lift", LIFT_WORDS),
     ("weather", r"\bweather\b|\bforecast\b|\b(will it|is it going to) rain\b|(?<!your )(?<!cpu )(?<!gpu )\btemperature\b(?!.*\b(your|you|cpu|gpu|battery|motor|body)\b)|날씨|비 ?(?:와|올|오나|온대)|기온"
@@ -1182,14 +1190,14 @@ RECEIVE_EN = re.compile(
     rf"|\b(?:take|grab|get|accept|receive)\s+(?:(?:the|this|that|a|an|my)\s+)?(?:\w+\s+)?\w+\s+(?:from (?:me|my hands?)|i'?m holding|in my hand)\b"
     rf"|\b(?:take|grab)\s+my\s+(?:(?:{_COL})\s+)?(?:{_OBJ})s?\b"
     rf"|(?:^|[\s,.!])hold\s+(?:{_IT}|this \w+|my \w+)\b(?!\s+(?:up|out|on|thought)\b)(?! for me while)"
-    rf"|\bhere(?: you go| it is|'?s (?:the|a|my|your) \w+(?: \w+)?)\b|^\W*here\W+(?:take|hold|catch)\b"
+    rf"|\bhang on to (?:{_IT})\b|\bhere(?: you go| it is|'?s (?:the|a|my|your) \w+(?: \w+)?)\b|^\W*here\W+(?:take|hold|catch)\b"
     rf"|\bi(?:'ll| will|'m going to| want to| wanna|'d like to| would like to)\s+(?:give|hand)\s+you\b"
     rf"|\bi(?:'m| am)\s+(?:giving|handing)\s+you\b|\bi (?:have|got|brought) (?:something|a \w+|this|it) for you\b", re.I)
 RECEIVE_KO = re.compile(
     r"(?<!에서 )(?<!한테 )(?<!한테서 )(?<!에게서 )받아(?!들|서 ?(?:가|와)| ?적)|받으세요|받아요|받을래|"
     r"(?:드릴게|드릴께|줄게|줄께|드리려고|주려고|드릴 ?거|줄 ?거)(?!.*(?:줘|주세요))|"
     rf"(?:{_THIS_KO}(?:\s*(?:{_COL}))?(?:\s*(?:{_OBJ}))?(?:을|를)?|(?:내|제) 손에 (?:있는|든) (?:거|것|(?:\S+\s+)?\S+))\s*(?:좀\s*)?"
-    r"(?:가져가|들고 ?있어|잡아(?!당)|맡아)", re.I)
+    r"(?:가져가|들고 ?있어|쥐고 ?있어|들어 ?줘|들어 ?주세요|잡아(?!당)|맡아)", re.I)
 PAID_Q = re.compile(r"(?<![가-힣])(?:월급|연봉|급여|보너스|월세|세금|전화|문자|메일|연락|칭찬|사랑|상|점수|인기|스트레스|대접|교육|"
                     r"훈련|충전|수리|검사|업데이트)(?:을|를|은|는|도|이|가)?\s*(?:많이 |잘 |자주 |얼마나 )?받|"
                     r"^\W*(?:너|넌|너는|루미는?|당신은?)\s.*받(?:아|아요|니|나요|냐|았어|으세요)?\s*\?\s*$")   # a question about Lumi
@@ -1201,7 +1209,7 @@ GIVE_EN = re.compile(
 GIVE_KO = re.compile(
     rf"^\W*(?:{_THIS_KO}|(?:\S+\s+)?(?:{_OBJ}))?(?:을|를)?\s*(?:좀\s*)?(?:이제\s*)?(?:이리|여기|빨리)?\s*(?:좀\s*)?"
     rf"(?:{_KO_WHO}(?:한테|에게|께)|(?:나|저)(?=\s))?\s*(?:좀\s*)?(?:{_THIS_KO}(?:을|를)?\s*)?(?:좀\s*)?"
-    r"(?:줘|주세요|줘요|주라|건네 ?줘|건네 ?주세요|건네|드려|드려요|드리세요|주실래요|줄래요?|주시겠어요|주십시오|주실 수 있어요|"
+    r"(?:줘|주세요|줘요|주라|건네 ?줘|건네 ?주세요|건네|돌려 ?줘|돌려 ?주세요|넘겨 ?줘|넘겨 ?주세요|넘겨|드려|드려요|드리세요|주실래요|줄래요?|주시겠어요|주십시오|주실 수 있어요|"
     r"내놔|내놓아|내놓으세요)(?:\s*봐요?)?\s*[.!?~]*$"
     rf"|^\W*{_KO_WHO}\s*(?:줘|줘요|주세요)\W*$", re.I)
 PLACE_EN = re.compile(
@@ -1211,6 +1219,7 @@ PLACE_EN = re.compile(
 PLACE_KO = re.compile(r"(?<!내)(?<!그냥 )(?<!가만히 )(?<!내버려 )(?:놔|놓아|놓으|둬|두세요|올려 ?놔|올려 ?놓|내려 ?놔|내려 ?놓|내려 ?줘|내려 ?주세요|내려 ?둬)"
                       r"(?:으십시오|으세요|으시겠어요)?\s*(?:줘|주세요|요|줄래요?|주시겠어요|주실래요|주십시오|줄 수 있어요?|주실 수 있어요)?\s*[.!?~]*$")
 OPEN_HAND = re.compile(r"\bopen (?:your |the )?(?:hand|gripper|fingers)\b|\bopen it\b|\blet (?:it )?go\b|"
+                       r"^\W*release(?: it)?\W*$|\bloosen your grip\b|(?:놔|놓아)도 ?돼|"
                        r"손을? ?(?:좀 )?(?:펴|벌려|열어)|손 ?open|hand open", re.I)
 HAND_Q = re.compile(r"^\W*(?:what|how|why|when|where|which|who|do|does|did|is|are|was|were|have you|has)\b|"
                     r"\b(?:things|stuff|objects)\b|물건들|"                     # "and take things from me?": in general
@@ -1261,6 +1270,8 @@ def hand_request(text, holding, b=None, markers=(), whole=True):
                      r"this\b|whoever\b)[a-z]+", t):
             return None                                  # "give it to Mina": a named person, the mission reader's
         return ("give", None)
+    if not holding and re.search(LET_GO, t):
+        return None                                      # "놔", "drop it" with the hand empty: open it (intent)
     if (PLACE_EN.search(t) or PLACE_KO.search(t)) and "팔" not in t and not re.fullmatch(r"\W*leave (?:it|that|this)\W*", t):
         # not "팔 거둬" / "팔 내려" (the arm), not a bare "leave it" (never mind)
         if named and not holding:

@@ -170,5 +170,35 @@ moved.clear()
 L.act("go_to", "p3")
 assert moved == ["start_trip"]
 follow.stop, fetch.stop = real_follow_stop, real_fetch_stop
+
+# ---------- "reach out to me": toward the person; Greeter never turns the base for it, asks them in front ----------
+assert lumi.reach_turn(None, True) is None and lumi.reach_turn(10.0, False) == 0.0
+assert lumi.reach_turn(-35.0, True) == -35.0 and lumi.reach_turn(35.0, False) is None
+reached = []
+real_reach = fetch.reach
+fetch.reach = lambda angle=0.0, say=None: reached.append(angle)
+L.fetch_finish = lambda how, **k: moved.append(how)
+L.skill_thread, L.voice_trusted = None, False
+person = types.SimpleNamespace(angle=35.0)
+L.vision = types.SimpleNamespace(present=lambda t: False, near_angle=lambda a, d=25: None, only_person=lambda: person)
+for patrol, angle, want in ((False, 35.0, None), (True, 35.0, [35.0]), (False, -12.0, [0.0]), (True, -12.0, [0.0])):
+    L.modes.patrol, person.angle = patrol, angle
+    reached.clear(), said.clear(), moved.clear()
+    got = L.reach_out(False)
+    if want is None:                                     # nothing moves, not even the head
+        assert got is None and not reached and said == [lumi.STAND_IN_FRONT_SAY[0]] and not moved, (angle, said)
+    else:
+        assert got and reached == want and moved == ["head"], (patrol, angle, reached, moved)
+L.vision = None                                          # nobody seen, the voice's direction not trusted: ask
+reached.clear(), said.clear()
+assert L.reach_out(False) is None and not reached and said == [lumi.STAND_IN_FRONT_SAY[0]]
+L.voice_trusted, L.voice_angle, L.modes.patrol = True, -50.0, True   # heard from the right: turn to the voice
+assert L.reach_out(False) and reached == [-50.0]
+moved.clear(), reached.clear(), said.clear()
+L.fetch_status = lambda: "holding"
+assert lumi.Lumi.arm_pose(L, "reach") is None and moved == ["give"] and not reached   # holding: hand it over
+assert lumi.Lumi.arm_pose(L, "open") is None and said == [lumi.brain_mod.REFUSE_OPEN[0]]   # never dropped
+L.fetch_status = lambda: None
+fetch.reach = real_reach
 print(f"switches ok: {len(BASE)} base phrases refused with Greeter only, {len(IN_PLACE)} in place done; "
       "arm off asks; Patrol allows all; stop always")
