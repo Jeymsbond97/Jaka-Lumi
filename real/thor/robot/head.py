@@ -7,6 +7,7 @@
 """
 import json
 import sys
+import threading
 import urllib.request
 
 BODY = "http://192.168.10.90:5000/api/extaxis"
@@ -22,6 +23,9 @@ LIFT_MAX_MM = 105.0
 # the bottom stop).
 AXIS_LIMITS = ((0.0, LIFT_MAX_MM), (-140.0, 140.0), (-180.0, 180.0), (-5.0, 35.0))
 
+_one = threading.Lock()          # one moveto at a time: overlapping calls hang the body API
+owners = ()                      # threads that own the body now (tasks/follow.py); empty: anyone may move it
+
 
 def _call(path, body=None, timeout=2):
     data = None if body is None else json.dumps(body).encode()
@@ -31,11 +35,15 @@ def _call(path, body=None, timeout=2):
 
 
 def moveto(pos, vel=VEL, acc=ACC, timeout=30):
-    """Move all four body joints; every value is clamped into AXIS_LIMITS. Blocks until the motion ends."""
+    """Move all four body joints; every value is clamped into AXIS_LIMITS. Blocks until the motion ends (and while
+    another thread's moveto runs). None, nothing sent, when other threads own the body (`owners`)."""
+    if owners and threading.current_thread() not in owners:
+        return None                                        # ponytail: skipped silently, the owner turns it back
     pos = [max(lo, min(hi, float(p))) for p, (lo, hi) in zip(pos, AXIS_LIMITS)]
-    if not all(j["enable"] for j in _call("status")):      # off after a controller power cycle; moveto needs them on
-        _call("enable", {"enable": 1})
-    return _call("moveto", {"pos": pos, "vel": vel, "acc": acc}, timeout=timeout)
+    with _one:
+        if not all(j["enable"] for j in _call("status")):  # off after a controller power cycle; moveto needs them on
+            _call("enable", {"enable": 1})
+        return _call("moveto", {"pos": pos, "vel": vel, "acc": acc}, timeout=timeout)
 
 
 def status():
