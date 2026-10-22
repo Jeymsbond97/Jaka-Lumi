@@ -306,7 +306,7 @@ RS485 channel 1 (on the DO pins, high speed): Modbus RTU grippers, JAKA torque s
 
 ---
 
-## 10. Motion over TCP 10001: measured 2026-10-13
+## 10. Motion over TCP 10001: measured
 
 | Fact | Detail |
 |---|---|

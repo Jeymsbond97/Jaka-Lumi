@@ -1,6 +1,6 @@
 # 12. Sources and downloads
 
-Every place information came from, what it contains, and whether it was read. Collected 2026-10-04.
+Every place information came from, what it contains, and whether it was read.
 
 ---
 

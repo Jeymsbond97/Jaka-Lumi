@@ -1,8 +1,125 @@
-# Lumi onboard software (Jetson Thor)
+# Lumi
 
-Everything that runs on the robot's NVIDIA Jetson Thor (`192.168.10.240`). It covers the robot API with Swagger and the web dashboard, the camera service with person detection, and the voice assistant (`assistant/lumi.py`), which greets visitors, talks with them in English and Korean and drives where it is told. It also holds the device drivers for the base, body, arm and gripper.
+Software for our **JAKA Lumi** robot. It runs on the NVIDIA Jetson AGX Thor mounted on the robot and makes Lumi an office assistant: it talks with people in English and Korean, drives where it is told, and picks up and puts back a cup by voice.
 
-On the Thor this folder is `~/Dev/lumi-wave`, with the real-robot documentation copied next to the code (`docs/`, `tools/`, `CLAUDE.md`). `tools/thor_sync/sync.sh` on the Mac refreshes it.
+**Contents:** [About the robot](#about-the-robot) · [Getting started](#getting-started) · [Hardware](#hardware) · [Folder layout](#folder-layout) · [Run](#run) · [Deploying a change](#deploying-a-change) · [Not in git](#not-in-git-local-on-the-thor) · [Pitfalls](#pitfalls) · [Documentation](#documentation)
+
+---
+
+## About the robot
+
+The JAKA Lumi is a **mobile manipulator**: a robot arm on a body that drives, sold by JAKA as an "embodied AI platform". From the floor up:
+
+- a **mobile base** (AGV) with two drive wheels, a lidar and its own navigation computer: it keeps a map of the office, drives to named places (markers) on it and charges itself on a dock;
+- a **lifting column** that raises the upper body, and a **waist** that turns it left and right;
+- a **head** that turns and nods, with a camera, a microphone array and a speaker in it;
+- a **6-joint arm** (JAKA Mini 2) on the side of the column, with a **Zimmer electric gripper** and long steel fingers made for cups;
+- a second camera on the **torso**, looking at the table in front of the arm;
+- the **Jetson AGX Thor** computer, which runs everything in this repository: speech recognition, the language model, the voice, camera detection and the control of every part.
+
+Each part has its own controller on the robot's network; this software talks to all of them directly (no ROS, no vendor SDK). Numbers and models: [Hardware](#hardware).
+
+### What Lumi can do
+
+- **Talk in English and Korean.** Wake it by name ("Lumi", "Hi Lumi", "루미야") from anywhere; it finds who called by voice direction and camera and answers in English or Korean. Follow-up questions keep the topic, and it can be interrupted while it speaks.
+- **Answer questions**, from its own knowledge and from the internet: date and time, weather, Wikipedia, news.
+- **Greet people.** In Greeter mode it greets a person who stops in front of it and asks how it can help.
+- **Go to places.** "Come here" brings it to about 1 m in front of the caller; "go to p2", "go home" to a marker on the office map. In Patrol mode it drives its round and stops only for a person in its path. It goes to the charger on low battery.
+- **Pick up a cup and put it back.** It finds the cup with the torso camera, plans the grasp, picks it, can drive holding it, and puts it back where it was.
+- **Stop on "stop" / "멈춰"**: the base, the arm and its own speech.
+
+---
+
+## Getting started
+
+### 1. Connect to the robot
+
+All of Lumi's parts share one network, the **robot LAN** (`192.168.10.x`). It has no internet; the Thor reaches the internet over its own Wi-Fi to the office network.
+
+- **Wi-Fi**: join the robot's own Wi-Fi `Lumi<serial>` (2.4 GHz) or `Lumi<serial>-5G`; the serial is on the robot's name plate. Password: **ask the robot's owner**.
+- **Cable**: plug into the gigabit RJ45 port on the back of the base.
+- Your computer must get a `192.168.10.x` address. If it gets `10.5.5.x`, set one by hand as described in [docs/02 §2](../../docs/02_NETWORK_AND_ACCESS.md).
+- Check: `ping 192.168.10.240` (the Thor), then open the dashboard below.
+- **SSH to the Thor**: `ssh <user>@192.168.10.240`. User name and password: **ask the robot's owner**.
+
+### 2. Pages and services
+
+| What | Address | For |
+|---|---|---|
+| **Dashboard** | http://192.168.10.240:8100/view | Everyday use: cameras, map, Greeter / Patrol, STOP |
+| **Robot API** (Swagger) | http://192.168.10.240:8100/docs | Every endpoint of this software with "Try it out": status, base, body, arm, gripper, skills, tasks, cameras, assistant |
+| API health | http://192.168.10.240:8100/health | `{"ok": true}` while the API runs |
+| Camera picture | http://192.168.10.240:8100/camera/torso.jpg (or `head.jpg`) | Latest frame of one camera; `/camera/<name>.mjpg` is a live stream |
+| **Cobo π** (arm controller) | https://192.168.10.90 | Arm power, enable, jog, safety settings, tool I/O, programs. Accept the self-signed certificate. Login: **ask the robot's owner** |
+| Body page and API | http://192.168.10.90:5000 | Lift, waist, head: enable / disable / reset / stop, joint table; the API is under `/api/extaxis/` ([docs/03](../../docs/03_BODY_LIFT_WAIST_HEAD.md)) |
+| Arm JSON port | `192.168.10.90:10001` (TCP) | The arm controller's command port, used by `robot/arm.py` and `robot/gripper.py` |
+| **Base panel** (AGV) | http://192.168.10.10:9001 | Map, markers, no-go lines, manual driving, soft E-stop, battery. Use Chrome. The map builder opens on port 8809 |
+| Base API | `192.168.10.10:31001` (TCP) | The base's command port, used by `robot/agv.py` ([docs/05](../../docs/05_AGV_BASE.md)) |
+
+Used only by the API, on the Thor itself: whisper speech-to-text `:8096`, the embedding server `:8095`, Ollama `:11434`. Other services on the Thor (`:8000`, `:8001`, `:8090`, `:3080`) belong to colleagues.
+
+### 3. Switch Lumi on
+
+Open the dashboard, http://192.168.10.240:8100/view. Both switches are off after every reboot.
+
+- **Greeter**: Lumi stays in place and talks with people. Stand in front of it or call it by name ("Lumi", "Hi Lumi", "루미야"), then ask in English or Korean. A wireless clip mic on the person hears far better than the head microphones at a distance.
+- **Patrol**: Lumi also drives and uses the arm: everything that moves.
+- **■ STOP** in the top bar stops the base, the arm, the body and the assistant at once.
+
+### 4. Safety
+
+- **Ask before moving anything** (base, lift, waist, head, arm, gripper). People work next to the robot.
+- Someone stands at a **stop** while anything new runs: the red **E-stop on the column** (cuts arm power, stops the lift), the dashboard **■ STOP**, or "stop" / "멈춰". The first run of any new arm motion is slow and watched.
+- **No hands near the gripper fingers** when it may close: it closes with 90 N or more and cannot be stopped half way.
+- The arm sticks out past the base (about 0.44 m from its centre in `look`) and the base's navigation does not know it: keep the arm's sweep and the base's path clear. The lidar does not see glass or low, black or shiny things.
+- **Never restart the API or the assistant while the base drives**: check `curl -s localhost:8100/status` → `base.move_status` first. Stopping the assistant cancels the drive.
+- Do not change controller, base or network settings without the owner (the arm's mounting in Cobo π must stay as it is: the arm is side-mounted). The arm's collision limits are still the loose defaults: no arm work close to people.
+- Do not push the base while it is on; do not drive with the manual charging cable plugged in.
+
+Full rules: [docs/11_SAFETY.md](../../docs/11_SAFETY.md).
+
+### 5. For developers
+
+The code runs on the Thor (it needs the robot's hardware); the self-checks also run on any Linux machine with the venv. Repository URL and access: ask the robot's owner.
+
+```bash
+git clone <repo-url> ~/Dev/lumi-wave
+cd ~/Dev/lumi-wave
+
+# Python 3.12 venv, with this folder on its path (modules import each other by folder)
+uv venv --python 3.12 .venv
+uv pip install --python .venv numpy opencv-python-headless pyorbbecsdk2 fastapi uvicorn supertonic soundfile
+uv pip install --python .venv tensorrt-cu13 cuda-python      # GPU detection, on the Thor
+echo "$PWD" > .venv/lib/python3.12/site-packages/lumi_wave.pth
+
+for t in tests/test_*.py; do .venv/bin/python $t || echo "FAILED: $t"; done   # self-checks, nothing moves
+
+systemctl --user restart lumi-api                     # after a change; check the base is not driving first
+tail -f logs/api.log logs/lumi.log                    # robot log, assistant log
+```
+
+Models, whisper.cpp and calibration files are local to the Thor: [Not in git](#not-in-git-local-on-the-thor). What to restart after a change: [Deploying a change](#deploying-a-change).
+
+---
+
+## Hardware
+
+Lumi is 510 × 510 mm on the floor, 1460–1860 mm tall (with the lift), 95.6 kg, with 12 degrees of freedom: 2 drive wheels, lift, waist, head yaw and pitch, 6 arm joints. Full specifications and sources: [docs/01_HARDWARE.md](../../docs/01_HARDWARE.md).
+
+| Part | What it is | Key facts | How we reach it | Doc |
+|---|---|---|---|---|
+| **Base (AGV)** | Differential-drive base with its own navigation computer, lidar SLAM | 2 × 160 W hub motors; 0.6 m/s default, 1.2 m/s max (joystick command ±0.5 m/s, ±1.0 rad/s); turning radius 307 mm; needs a 700 mm passage. 24 V 45 Ah Li-ion, about 10 h; contact charging on a dock | TCP API of the base, over the robot LAN | [05](../../docs/05_AGV_BASE.md) |
+| Base sensors | Used by the base's own navigation | 2D lidar 0.02–10 m, 240°, 30 Hz; front 3D camera 0.35–2 m; 5 ultrasonic sensors 0.03–0.55 m; 6-axis IMU; infrared; bumper. The lidar does not see glass | Base API (map, distance probe) | [05](../../docs/05_AGV_BASE.md) |
+| **Body** | Lifting column, waist turn, head yaw, head pitch | Lift 0–400 mm in hardware, 0–300 mm in the API; **our code holds it at 0–105 mm** (the head camera's cable is too short). Waist ±160° hardware, ±140° API. Head yaw ±180° (about 6 s per 90°), pitch −5…+35° | HTTP API on the arm controller | [03](../../docs/03_BODY_LIFT_WAIST_HEAD.md) |
+| **Arm** | JAKA Mini 2, 6 joints, mounted on the side of the column | Payload 2 kg, reach 580 mm, repeatability ±0.1 mm, 9.9 kg, max tool speed 1 m/s, 48 V. Controller (MiniCab) inside the base, web UI Cobo π. In the `look` pose the hand is ~0.44 m from the base centre, past the base edge | JSON port of the arm controller | [04](../../docs/04_ARM.md) |
+| **Gripper** | Zimmer GEP2013IO-05-B electric parallel gripper with long steel cup fingers | 13 mm stroke per jaw, 90–360 N in four levels (set to level 1), ~0.54 kg, ~1 s per stroke. Inner gap open → closed: tips 88 → 59 mm, round hook 96 → 70 mm. Software grips 61–92 mm wide objects | Arm tool I/O (all PNP): DO_1 close, DO_2 open (never both), AI_1 finger position, DI_1 optical sensor looking below the gripper | [10](../../docs/10_GRIPPER.md), [gripper/](../../docs/gripper/README.md) |
+| **Head camera** | Orbbec Gemini 2 L RGB-D, front of the head | Colour used at 1280 × 720, depth 0.02–10 m (brochure 0.2–10 m), colour FoV 94° × 68°. Turns with the head; watches people while Lumi stands. Calibrated to the arm at any head pose: median 6.0 mm | USB 3, through a USB 3 hub in the head shared with the microphones and speaker | [06](../../docs/06_CAMERAS_AND_VISION.md) |
+| **Torso camera** | Orbbec Gemini 2 L RGB-D, under the handle on the column | Same link as the arm base, so its calibration holds at any lift and waist angle: median 3.3 mm. Sees objects for picking, the table, the path while driving | USB 3 | [06](../../docs/06_CAMERAS_AND_VISION.md) |
+| **Microphones** | iFlytek AIUI XF-USB-MC ring array in the head; optional DJI Mic Mini wireless clip mic | Array: 8 channels at 16 kHz (6 mics), SNR > 70 dB, 3–5 m. Voice direction is computed by our code (SRP-PHAT). The clip mic is used automatically when its receiver is plugged in and hears 5–10× better at 4–5 m | USB audio | [07](../../docs/07_VOICE_AND_AUDIO.md) |
+| **Speaker** | USB speaker in the head ("USB Audio Device") | Volume 55 % in the office; set from the dashboard or by voice | USB audio | [07](../../docs/07_VOICE_AND_AUDIO.md) |
+| **Computer** | NVIDIA Jetson AGX Thor Developer Kit | Blackwell GPU, 2070 TOPS (INT8) by spec; measured 14 CPU cores and 122 GB memory shared by CPU and GPU; JetPack R38.4, CUDA 13.0. Runs the LLM, speech, detection and all control | Ethernet to the robot LAN; its own Wi-Fi for the internet (the robot LAN has none) | [08](../../docs/08_NVIDIA_THOR.md) |
+
+Safety: E-stop buttons on the column and in the base; the arm's collision limits in Cobo π are still the factory defaults. Read [docs/11_SAFETY.md](../../docs/11_SAFETY.md) before moving anything.
 
 ---
 
@@ -10,155 +127,22 @@ On the Thor this folder is `~/Dev/lumi-wave`, with the real-robot documentation 
 
 ```
 lumi-wave/                      run with the venv: .venv/bin/python <folder>/<module>.py
-├── api/                        robot API and dashboard
-│   ├── server.py               FastAPI :8100, Swagger /docs, dashboard /view, supervisor of the assistant
-│   ├── control.py              hold-to-move for the dashboard
-│   └── dashboard.html          the single-page dashboard
-├── assistant/                  the voice assistant
-│   ├── lumi.py                 main loop: tracking, greeting, conversation, commands, patrol, wake word
-│   ├── brain.py                answers (knowledge + gemma4), actions, rule-based intents
-│   ├── llm_direct.py           gemma4 straight on the runner Ollama started for it (~0.5 s less a request)
-│   ├── steps.py                missions: a command of several steps -> checked steps, read-back
-│   ├── driving.py              short drives and drive speed as said ("20센티 뒤로", "a tiny bit", "faster", "again")
-│   ├── wording.py              marker names and numbers as said (피쓰리, point three, 일 미터) -> written
-│   ├── fetch_dialog.py         voice read-back of fetch tasks and missions
-│   ├── talk_examples.py        620+ example exchanges (EN / KO); the closest few go with each question to the LLM
-│   ├── interrupt_examples.py   example replies to people met on a mission (added to those while on a task)
-│   ├── knowledge.py            knowledge base (RAG) over knowledge/
-│   └── web.py                  date / time, weather, Wikipedia, news
-├── audio/                      microphones and speaker
-│   ├── mic.py                  always-on recording, utterances, barge-in
-│   ├── ears.py                 speech to text (whisper.cpp)
-│   ├── mouth.py                text to speech (Supertonic)
-│   ├── sing.py                 singing: choose a song, play it, move the head with it
-│   ├── sing_render.py          renders the public domain songs (data/songs/) in Lumi's voice
-│   ├── separate.py             the owner's songs: vocals / instrumental split (Demucs, runs in .venv-songs only)
-│   ├── cover.py                the owner's songs: the singer's vocal turned into Lumi's voice (Seed-VC, .venv-cover)
-│   ├── sing_mine.py            the owner's songs: part to sing, beats / head moves, mix over the instrumental
-│   ├── cover_check.py          judges a converted vocal: words, voice, melody, gaps (.venv-cover)
-│   ├── lumi_voice_set.py       Lumi's TTS voice clips to fine-tune the voice conversion
-│   └── doa.py                  direction of the voice
-├── vision/                     cameras
-│   ├── camview.py              camera service (the only camera owner), RemoteDetector
-│   ├── person.py               YOLOv8n people (and objects) per frame
-│   ├── reid.py                 knowing a person again: face embedding, else clothes colours
-│   ├── objects.py              objects in mm in the arm base frame
-│   ├── calib.py                torso / head camera → arm base calibration
-│   ├── head_cam.py             head camera → arm base at any head yaw / pitch
-│   └── camera_test.py, camera_fps.py   diagnostics
-├── robot/                      drivers for the hardware
-│   ├── agv.py, nav.py          base: drive, markers; where to stop in front of a person
-│   ├── head.py                 head yaw / pitch through the body API
-│   ├── arm.py                  arm controller JSON commands
-│   ├── motion.py               checked arm motion: named poses, joint and straight moves
-│   └── gripper.py              Zimmer gripper
-├── manipulation/
-│   ├── skills.py               pick / place / move an object
-│   └── wave.py                 the checked wave (asked for, empty hand, from look)
-├── tasks/
-│   ├── fetch.py                fetch tasks: drive, find, pick, carry, hold / place / give (docs/16)
-│   └── follow.py               "follow me": follow a person with the base until a stop word
+├── api/                        robot API (FastAPI :8100, Swagger /docs) and the dashboard (/view)
+├── assistant/                  the voice assistant: main loop (lumi.py), answers (brain.py), knowledge, web lookups
+├── audio/                      microphones, speech to text, text to speech, voice direction
+├── vision/                     camera service (the only camera owner), detection, objects in mm, calibration
+├── robot/                      one driver per piece of hardware: base, body, arm, gripper; checked arm motion
+├── manipulation/               pick and place skills
+├── tasks/                      whole jobs made of skills, driving and talking
 ├── tests/                      self-checks without the robot
-├── data/                       taught and calibrated values (see Shared state)
+├── data/                       taught and calibrated values
 ├── knowledge/                  texts Lumi answers from
-├── logs/                       every log file
-├── docs/, tools/               documentation (docs/gripper/: finger photos and sizes); laptop scripts
-├── lumi-api.service            starts the API at boot (systemd user service)
-└── models/, whisper.cpp/, .venv/, .venv-songs/, .venv-cover/, data/songs/mine/   local only (see Not in git)
+├── logs/                       every log file and debug picture
+├── docs/, tools/               documentation; scripts run from a laptop
+└── lumi-api.service            starts the API at boot (systemd user service)
 ```
 
-Modules import each other by folder (`from robot import arm`, `from vision import camview`). The venv has `lumi_wave.pth` in its `site-packages` with the path of this folder, so any module runs directly, from any directory: `.venv/bin/python robot/gripper.py`.
-
----
-
-## Architecture
-
-```
-                         browser / Swagger  http://192.168.10.240:8100/view  /docs
-                                     │
- systemd lumi-api ──> api/server.py (FastAPI :8100) ───────── supervises ──> assistant/lumi.py
-                       │   │   │                                             │   │   │   │
-       /dev/shm/lumi_det_*.json, lumi_cam_*.jpg  <── vision/camview.py       │   │   │   └ brain.py ── Ollama gemma4 :11434
-                       │   │                       (only camera owner,       │   │   │       ├ knowledge.py ── bge-m3 :8095
-                       │   │                        person.py YOLOv8n)       │   │   │       └ web.py ── internet (Wi-Fi)
-                       │   └ api/control.py (hold-to-move)                   │   │   └ audio/mouth.py ── Supertonic TTS ── speaker
-                       │                                                     │   └ audio/ears.py ── whisper.cpp :8096
-                       │                                                     │       └ audio/mic.py (head array + clip mic) ── doa.py
-                       └──────── robot/: agv · head · arm · motion · gripper · nav ──┘
-                                       │         │         │         │
-                                AGV .10:31001  body .90:5000  arm controller .90:10001
-```
-
-- **`api/server.py`** is the entry point. It starts at boot, starts the camera service, whisper (:8096) and the embedding server (:8095), loads the LLM, and runs `assistant/lumi.py` while the Greeter or Patrol switch is on (restarting it if it dies). Commands from the dashboard (go, route, cancel, calibrate) are forwarded to the assistant while it runs (`/dev/shm/lumi_cmd.json`), so it can stop for people on the way; otherwise the API drives itself.
-- **`vision/camview.py --serve`** is the **only** program that opens the Orbbec cameras (two openers make the SDK reset the devices). It runs detection on both cameras and shares the results through `/dev/shm`; everybody else uses `camview.RemoteDetector`.
-- **`assistant/lumi.py`** is the assistant: tracks people, greets, listens, answers, obeys commands. Its behaviour is specified in [docs/14_VOICE_ASSISTANT.md](../../docs/14_VOICE_ASSISTANT.md).
-- Modules talk to the hardware directly over the robot LAN; no ROS, no vendor SDK on the Thor (the shipped `jkrc.so` is x86-only).
-
-### Shared state
-
-| Path | Written by | Read by | Content |
-|---|---|---|---|
-| `/dev/shm/lumi_modes.json` | api | lumi | `greeter`, `patrol`, `wave`, `drive` switches |
-| `/dev/shm/lumi_cmd.json` | api | lumi | dashboard command `{id, cmd: go | go_point | cancel | calibrate}` |
-| `/dev/shm/lumi_det_<cam>.json` | camview | lumi, api | people per frame (box, distance, angle) |
-| `/dev/shm/lumi_cam_<cam>.jpg/.json` | camview | api | latest picture for the dashboard |
-| `/dev/shm/lumi_focus_<cam>.json` | lumi | camview | person drawn red (the one Lumi talks to) |
-| `/dev/shm/lumi_raw_<cam>.jpg`, `lumi_intr_<cam>.json` | camview | calib, objects | full-size camera JPEG; colour intrinsics |
-| `/dev/shm/lumi_task.json` | tasks/fetch (API or assistant) | api, assistant, dashboard | fetch task state, also what is held |
-| `data/fetch_calib.json` | `tasks/fetch.py measure-axis` | tasks/fetch | angle between the arm base frame and the base (local) |
-| `data/volume.txt` | api `/volume` | mouth | speaker volume % |
-| `data/doa_calib.json`, `data/doa_samples.npz` | doa | doa | voice-direction calibration |
-| `data/mic_source.txt` (optional) | you | mic | `auto` / `head` / `clip` |
-| `data/proxy.txt` (optional) | you | web | HTTP proxy for internet lookups |
-| `data/camera_extrinsics.json`, `data/calib_samples/` | calib | objects, skills | camera pose in the arm base frame; calibration samples (local, not in git) |
-| `data/arm_poses.json` | motion `teach` | motion | taught joint poses (in git) |
-| `data/grasp_teach.json` | taught by hand | skills | flange orientation and finger point around a cup (in git) |
-
----
-
-## Modules
-
-| Module | Job | Hardware / service |
-|---|---|---|
-| `api/server.py` | Robot API + Swagger (`/docs`), dashboard (`/view`), camera streams, supervisor of the assistant | all |
-| `api/dashboard.html` | The single-page dashboard served at `/view` | |
-| `api/control.py` | Hold-to-move for the dashboard: base `joy_control`, head / waist / lift steps, arm relative joint moves | base, body, arm |
-| `assistant/lumi.py` | Voice assistant: tracking, greeting, conversation, commands, patrol, wake word | all |
-| `assistant/brain.py` | Answers: knowledge search + Ollama `gemma4:26b`, streamed, with an `ACTION:` line; rule-based intents | Ollama :11434 |
-| `assistant/llm_direct.py` | Chat with `gemma4` on the llama-server Ollama runs for it (found in `/proc`), the prompt rendered as Ollama does, so both share its prompt cache; `None` when not found, then `brain` asks Ollama | the runner's port, Ollama :11434 |
-| `assistant/knowledge.py` | Knowledge base (RAG): `knowledge/**/*.md` → bge-m3 vectors → `knowledge/index.npz` | llama-server :8095 |
-| `assistant/web.py` | Date / time, weather (open-meteo, cached), Wikipedia + Google News lookups | internet |
-| `assistant/seeing.py` | Spoken answers about what Lumi sees ("do you see a cup?", "what am I holding?", "what colour is my shirt?"), English and Korean, from `vision/scene.py` | camera service |
-| `audio/mic.py` | Always-on microphone: head array (8 ch) and wireless clip mic, cut into utterances, barge-in | AIUI mic, DJI Mic Mini |
-| `audio/ears.py` | Speech to text: whisper.cpp server (GPU, `large-v3-turbo`), language and confidence | whisper :8096 |
-| `audio/mouth.py` | Text to speech: Supertonic-3 (EN / KO, voice F1), sentence by sentence, cache | USB speaker |
-| `audio/doa.py` | Voice direction from the 6-mic ring (SRP-PHAT), self-calibrating from the camera | |
-| `vision/camview.py` | Camera service: owns both cameras, detection, `/dev/shm` results, `RemoteDetector` | Orbbec (USB) |
-| `robot/drive_log.py` | Writes every base drive to the API log (start, on the way, standing still / seems stuck, arrived / failed / cancelled, E-stop, error codes), whoever drives; run by `api/server.py` | AGV status |
-| `vision/yolo_engine.py` | Builds the TensorRT engine from the ONNX model (run after a JetPack / TensorRT change) | TensorRT |
-| `vision/person.py` | YOLOv8s on the GPU (TensorRT engine `models/yolov8s.engine`); falls back to YOLOv8n on the CPU (ONNX, OpenCV DNN) when the engine does not load. People and the 80 COCO objects; distance from depth, angle from the box | TensorRT (`tensorrt-cu13`, `cuda-python`) |
-| `vision/reid.py` | Knowing a person again: face embedding (YuNet + SFace, OpenCV, CPU, ~10 ms per near person) when a face is seen, else a clothes-colour signature; `People` whom Lumi has greeted, in memory only (no picture, nothing on disk) | camera service (adds `look` / `face` to each person) |
-| `vision/objects.py` | Objects in the torso and head cameras (YOLO COCO classes): colour, centre / top / width / height in the arm base frame from depth + `data/camera_extrinsics.json` (head: `vision/head_cam.py`); called by the camera service, served as `/objects` | camera service |
-| `vision/scene.py` | What the cameras see now, as facts: things by class / colour with distance and side, people, the person in front (pose, clothes colours, gesture, what is in each hand, pointing target), a gemma4 look at the picture for the rest; docs/06 §7 | camera service, Ollama (VLM only) |
-| `vision/pose.py` | YOLO11s-pose on the GPU (TensorRT engine `models/yolo11s-pose.engine`): 17 body keypoints per person | TensorRT |
-| `vision/calib.py` | Torso camera → arm base calibration with the ArUco marker on the gripper (`collect`, `solve`, `check`; `--camera head` for the head camera, own samples and result file), see [docs/15_PICK_AND_PLACE.md §8](../../docs/15_PICK_AND_PLACE.md) | camera service, arm controller |
-| `vision/head_cam.py` | Head camera → arm base at any head yaw / pitch (`base_from_head`): the head axes measured with the arm holding the marker still (`measure yaw`, `measure pitch`, `fit`, `check`) | camera service, arm controller, body API |
-| `vision/camera_test.py`, `camera_fps.py` | Diagnostics: list cameras and save a frame (to `logs/`); count full frames per second (USB 2 vs 3) | stop the camera service first |
-| `robot/agv.py` | Base: status, markers, go to marker / point, turn, cancel | AGV `192.168.10.10:31001` |
-| `robot/nav.py` | Where to stop in front of a person: free, reachable spot on the map | AGV map |
-| `robot/head.py` | Head yaw / pitch through the body API | `192.168.10.90:5000` |
-| `robot/arm.py` | Arm controller JSON commands (read-only ones retried), Cobo π programs (load / play / stop) | `192.168.10.90:10001` |
-| `robot/motion.py` | Checked arm motion: named poses (`tuck`, taught `ready` in `data/arm_poses.json`), joint moves with limits and ±360° unwrapping, IK-checked straight moves, stop | arm controller `kine_inverse`, `joint_move`, `moveL` |
-| `robot/gripper.py` | Zimmer gripper: open / close / state (DO_1, DO_2, AI_1, DI_1), see [docs/10_GRIPPER.md](../../docs/10_GRIPPER.md) | tool I/O via the arm controller |
-| `manipulation/skills.py` | Pick and place: `plan` (dry run with IK for every waypoint), `pick`, `put_down` (back or a free spot), `move` an object to a spot or a free place; `cancel()` stops a running skill for good; the grasp taught in `data/grasp_teach.json`; refuses objects of the wrong width and unreachable plans with a spoken-style reason. Called by the CLI, the API (`/skills/*`, in the background) and the assistant (voice) | motion, gripper, objects |
-| `tasks/fetch.py` | Fetch tasks ([docs/16_FETCH_TASKS.md](../../docs/16_FETCH_TASKS.md)): drive to the source, find, shift the base if out of reach, pick, `carry`, drive to the destination, hold / place / give; state in `/dev/shm/lumi_task.json`; run by the API or the assistant | base, arm, gripper, camera service |
-| `tasks/follow.py` | "Follow me": follows the person's track with `joy_control` (gap 1 m, speed cap, each command checked with lidar + map for the base and the arm), arm in `look`, waist front, head ahead; ends on a stop word, "I lost you", or something in the way; a thread with a stop event (`stop()` sends 0 at once) | base, arm (look), assistant's person tracks |
-| `assistant/fetch_dialog.py` | Voice fetch: ask what is missing, read the task back, start on yes or silence, take corrections; read-back of a mission | |
-| `assistant/talk_examples.py` | Example exchanges by topic (greeting, name, age, jokes, kids, business...) in English and Korean; `pick()` gives the few closest to what was said, which go with the question to the LLM so the replies fit and vary | |
-| `assistant/steps.py` | Missions ([docs/17_MISSIONS.md](../../docs/17_MISSIONS.md)): a command of several steps -> checked steps (rules, then the LLM with every value checked against the words), `check` against the hand and the map, read-back EN / KO | Ollama :11434 (only for what the rules leave) |
-| `tests/test_*.py` | Self-checks without the robot: objects, skills, intents, fetch runner and missions, fetch voice parsing and dialog, mission reading (783 commands, `steps_cases*.py`), camera choice | |
-| `tests/voice_check.py` | Mission commands spoken by the TTS, heard by whisper, read again (needs the whisper server; nothing moves) | whisper :8096 |
-| `knowledge/` | `lumi_about_en.md` (visitor facts, in git); `jaka_zh/` and `index.npz` are local | |
+Modules import each other by folder (`from robot import arm`, `from vision import camview`). The venv has `lumi_wave.pth` in its `site-packages` with the path of this folder, so any module runs directly from any directory: `.venv/bin/python robot/gripper.py`.
 
 ---
 
@@ -169,30 +153,29 @@ Always with the venv (the system Python has no OpenCV):
 ```bash
 cd ~/Dev/lumi-wave
 .venv/bin/python api/server.py                  # normally started at boot
-.venv/bin/python assistant/lumi.py              # assistant in the terminal (stop the dashboard's Greeter/Patrol first)
+.venv/bin/python assistant/lumi.py              # assistant in the terminal (switch the dashboard's Greeter/Patrol off first)
 .venv/bin/python assistant/lumi.py --no-camera --no-drive
 .venv/bin/python assistant/brain.py --act       # type questions, see answers and actions
 .venv/bin/python audio/ears.py                  # speak, see the text
 .venv/bin/python audio/mouth.py "Hello"         # Lumi says it
 .venv/bin/python robot/gripper.py               # gripper state
-.venv/bin/python robot/motion.py                # joints, TCP, named poses; robot.motion go ready
+.venv/bin/python robot/motion.py                # joints, TCP, named poses
 .venv/bin/python vision/objects.py --watch      # what the torso camera sees, in mm
 .venv/bin/python manipulation/skills.py plan cup   # dry run of a pick and place (nothing moves)
 .venv/bin/python assistant/web.py weather Seoul
 .venv/bin/python assistant/knowledge.py build   # after changing knowledge/
 .venv/bin/python vision/camview.py --stop       # free the cameras for camera_test / camera_fps
-for t in tests/test_*.py; do .venv/bin/python $t; done
 ```
 
-Boot: the user service `lumi-api` ([lumi-api.service](lumi-api.service), installed in `~/.config/systemd/user/`, linger on, so no login is needed) starts `api/server.py` 20 s after boot and restarts it 5 s after it dies. Restarting the API does not stop the camera service, whisper or a running assistant.
+At boot the user service `lumi-api` ([lumi-api.service](lumi-api.service), installed in `~/.config/systemd/user/`, linger on, so no login is needed) starts `api/server.py` 20 s after boot and restarts it 5 s after it dies. Restarting the API does not stop the camera service, whisper or a running assistant. The assistant runs only while Greeter or Patrol is switched on in the dashboard; both are off after a reboot on purpose.
 
 ```bash
 systemctl --user status lumi-api       # running? since when?
-systemctl --user restart lumi-api      # after changing api/, robot/ or manipulation/
+systemctl --user restart lumi-api      # after changing api/, robot/, manipulation/ or tasks/
 systemctl --user stop lumi-api         # stays stopped until start or the next boot
 ```
 
-Logs are in `logs/`: `lumi.log` (assistant), `lumi_console.log` (its stderr), `api.log`, `camview.log`, `whisper_server.log`, `embed_server.log`. The dashboard's Settings → Logs shows the robot log (`api.log`: tasks, arm, base, tracebacks) or the assistant log, with the latest errors on top.
+Logs are in `logs/`: `lumi.log` (assistant), `lumi_console.log` (its stderr), `api.log`, `camview.log`, `whisper_server.log`, `embed_server.log`. The dashboard's Settings → Logs shows the robot log or the assistant log, latest errors on top.
 
 ---
 
@@ -200,51 +183,74 @@ Logs are in `logs/`: `lumi.log` (assistant), `lumi_console.log` (its stderr), `a
 
 1. Check that the robot is not driving: `curl -s localhost:8100/status` → `base.move_status` must not be `running`. **Restarting the assistant cancels a drive in progress.**
 2. Edit, then `.venv/bin/python -m py_compile <file>`.
-3. Restart what uses the file: `assistant/`, `audio/` modules → switch Greeter/Patrol off and on in the dashboard (the API restarts the assistant); `api/` → `systemctl --user restart lumi-api`; `vision/camview.py`, `vision/person.py`, `vision/objects.py` → `vision/camview.py --stop` then `--serve`. `robot/` and `manipulation/` are used by all of them: restart the API, and the assistant if it runs.
+3. Restart what uses the file:
+   - `assistant/`, `audio/` → switch Greeter/Patrol off and on in the dashboard (the API restarts the assistant);
+   - `api/` → `systemctl --user restart lumi-api`;
+   - `vision/camview.py`, `person.py`, `objects.py` → `vision/camview.py --stop`, then `--serve`;
+   - `robot/`, `manipulation/`, `tasks/` are used by all of them: restart the API, and the assistant if it runs.
 4. Watch `logs/lumi.log` / Settings → Logs.
 
 ---
 
 ## Not in git (local on the Thor)
 
-| Path | What | How it was made |
+| Path | What | How it is made |
 |---|---|---|
-| `logs/` | all log files | written at run time |
-| `data/camera_extrinsics.json`, `data/calib_samples/`, `data/camera_extrinsics_head.json`, `data/calib_samples_head/`, `data/head_axes_*.json`, `data/doa_*`, `data/volume.txt` | calibrations and settings of this robot | `vision/calib.py`, `vision/head_cam.py`, `audio/doa.py`, the dashboard |
-| `.venv/` | Python 3.12 venv (plus `site-packages/lumi_wave.pth`, one line: the path of this folder): numpy, opencv-python-headless, pyorbbecsdk2, fastapi, uvicorn, supertonic, soundfile | wheels downloaded on a Mac and installed offline (the Thor's internet was too slow at the time) |
-| `data/songs/mine/` | the owner's licensed songs (MP3) and all made from them: vocals / instrumental, Lumi-voice vocal, words, rendered parts (`<name>.wav`, `.json`, `<name>/full_lumi.wav`), Lumi voice clips (`lumi_voice/`). Never copied off the robot; their lyrics go nowhere else | the owner; `audio/separate.py`, `audio/cover.py`, `audio/sing_mine.py`, `audio/lumi_voice_set.py` |
-| `.venv-songs/` | offline render venv only (never used by the robot's services): torch CPU, torchaudio, demucs 4.0.1, soundfile | `uv venv --python 3.12 .venv-songs`, `uv pip install --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match torch torchaudio demucs==4.0.1 soundfile numpy` |
-| `.venv-cover/` | offline render venv only (Python 3.10): torch 2.14 CUDA 13 (cu130 aarch64 wheels, runs on the Thor's GPU), torchaudio, Seed-VC's requirements, resemblyzer | `uv venv --python 3.10 .venv-cover`, `uv pip install --index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match torch torchaudio "numpy<2" scipy librosa huggingface-hub munch einops descript-audio-codec==1.0.0 pydub resemblyzer jiwer transformers==4.46.3 soundfile hydra-core pyyaml python-dotenv accelerate "setuptools<81"`; a `lumi_wave.pth` with this folder's path |
-| `models/seed-vc/` | Seed-VC (GitHub Plachtaa/seed-vc, GPL-3.0; a render tool, not part of the robot's software), its downloaded checkpoints, and `runs/lumi_f0_44k/ft_model.pth` (fine-tuned on Lumi's voice) | `git clone https://github.com/Plachtaa/seed-vc`; `train.py --config <snapshot>/config_dit_mel_seed_uvit_whisper_base_f0_44k.yml --pretrained-ckpt <snapshot>/DiT_seed_v2_uvit_whisper_base_f0_44k_bigvgan_pruned_ft_ema_v2.pth --dataset-dir data/songs/mine/lumi_voice/train --run-name lumi_f0_44k --batch-size 2 --max-steps 1000` |
-| `models/yolov8n.onnx` | fallback person / object detector (CPU) | `YOLO("yolov8n.pt").export(format="onnx", imgsz=640, opset=12, simplify=True)` |
-| `models/yolov8s.onnx` | source of the GPU engine (`ultralytics` export of `yolov8s.pt`, 640, opset 17) | `YOLO("yolov8s.pt").export(format="onnx", imgsz=640, opset=17)` |
-| `models/yolov8s.engine` | GPU detector, built on this Thor from `yolov8s.onnx` (640, FP32, opset 17, `ultralytics` export). A TensorRT engine only runs on the TensorRT version and GPU it was built with: rebuild after a JetPack or TensorRT change | `vision/yolo_engine.py models/yolov8s.onnx models/yolov8s.engine` (about 100 s) |
-| `models/face_detection_yunet_2023mar.onnx`, `models/face_recognition_sface_2021dec.onnx` | face detector and face embedding for `vision/reid.py` (without them only the clothes are used) | github.com/opencv/opencv_zoo `models/face_detection_yunet/`, `models/face_recognition_sface/` |
+| `logs/` | all log files and debug pictures | written at run time |
+| `data/camera_extrinsics*.json`, `data/calib_samples*/`, `data/doa_*`, `data/volume.txt`, `data/speech_speed.txt` | calibrations and settings of this robot | `vision/calib.py`, `audio/doa.py`, the dashboard |
+| `.venv/` | Python 3.12 venv with `site-packages/lumi_wave.pth` (the path of this folder): numpy, opencv-python-headless, pyorbbecsdk2, fastapi, uvicorn, supertonic, soundfile, tensorrt-cu13, cuda-python | |
+| `models/yolov8s.onnx`, `models/yolov8s.engine` | GPU detector. The engine only runs on the TensorRT version and GPU it was built with: rebuild after a JetPack or TensorRT change | `YOLO("yolov8s.pt").export(format="onnx", imgsz=640, opset=17)`; `vision/yolo_engine.py models/yolov8s.onnx models/yolov8s.engine` (~100 s) |
+| `models/yolov8n.onnx` | CPU fallback detector | `YOLO("yolov8n.pt").export(format="onnx", imgsz=640, opset=12, simplify=True)` |
+| `models/yolo11s-pose.onnx`, `.engine` | pose keypoints for `vision/pose.py` | ultralytics export, then `vision/yolo_engine.py` |
+| `models/face_detection_yunet_2023mar.onnx`, `models/face_recognition_sface_2021dec.onnx` | face detector and embedding for `vision/reid.py` (without them only clothes are used) | github.com/opencv/opencv_zoo |
 | `models/ggml-large-v3-turbo-q5_0.bin` | whisper model | Hugging Face `ggerganov/whisper.cpp` |
 | `models/supertonic3/` | TTS model | Hugging Face `Supertone/supertonic-3` |
 | `whisper.cpp/` | v1.9.5, built with CUDA | `cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=110 -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 12 --target whisper-server whisper-cli` |
 | `~/models/bge-m3-Q8_0.gguf` | embedding model for the knowledge base | Hugging Face |
-| `knowledge/jaka_zh/` | 13 JAKA product texts (Chinese) from JAKA's voice service | vendor |
+| `knowledge/index.npz` | knowledge vectors | `assistant/knowledge.py build` |
 | Ollama `gemma4:26b` | LLM | `ollama pull gemma4:26b` |
+| `docs/private/` | company-internal notes (access, vendor manuals, screenshots) | kept off git |
 
-Orbbec cameras need the udev rule `SUBSYSTEM=="usb", ATTR{idVendor}=="2bc5", MODE="0666"` in `/etc/udev/rules.d/99-orbbec.rules`.
-
----
-
-## Hardware notes
-
-- **Cameras**: two Gemini 2 L. **Torso** (SN CPA9B520037, USB 3, colour + depth): objects, pick and place, calibration, and people while the base drives (it always looks forward). **Head** (SN CPA9B52007A) sits behind a hub inside the head, shared with the mic array and the speaker. The hub was USB 2 and the camera reset while the speaker played; it was replaced by a USB 3 hub on 2026-10-15 (camera at 5 Gb/s, colour stream steady while speaking). Colour + depth on the head camera also hold while the speaker plays (`vision/camera_fps.py head`: 14.9 fps, no frame lost after the start). The camera service opens the head camera with depth when it is linked at USB 3 speed and colour only at USB 2 (`DEPTH_MIN_MBPS`, distance then from the torso camera). The head camera watches people while Lumi stands (it turns with the head); `assistant/lumi.py` falls back to the other camera while one gives no detections. The head camera is calibrated to the arm at any head pose (`vision/head_cam.py`, docs/15 §8); fetch uses it for the search and the turn check. Choose cameras by name (`head` / `torso`), never by index.
-- **Microphones**: head array AIUI-USB-MC (8 ch at 16 kHz, mics 0–5). A DJI Mic Mini receiver in a USB-A port (through a USB-C→A adapter; the Thor's USB-C ports are device-mode) is used automatically when present. It is 5–10× louder at 4–5 m. Keep its transmitter on the visitor, not on the robot.
-- **Speaker** volume 55 % (100 % is too loud for the office).
-- **Internet** comes from the Thor's own Wi-Fi (`wlP1p1s0` → company network, route metric 600). The robot LAN (`enP2p1s0`, gateway 192.168.10.9) has none.
-- **Base**: `/api/make_plan` and `accessible_point_query` do not check real paths; `nav.py` uses the map image instead. The lidar does not see glass: closed glass doors need a no-go line in the AGV panel.
-- **Body**: `/stop` does not stop a `moveto`, so hold-to-move uses small steps.
+The Orbbec cameras need the udev rule `SUBSYSTEM=="usb", ATTR{idVendor}=="2bc5", MODE="0666"` in `/etc/udev/rules.d/99-orbbec.rules`.
 
 ---
 
 ## Pitfalls
 
-- `pkill -f <pattern>` / `pgrep -f` over SSH also match the SSH command line that contains the pattern and kill your own shell. Look up the PID first, or build the pattern from pieces.
-- Never open the cameras from a second program while `camview.py --serve` runs.
+- **Never open the cameras from a second program** while the camera service runs. After `vision/camview.py --stop` / `--start` the torso camera may not be found for a few seconds while it re-enumerates: wait and start again.
+- **Check the USB speed after any cable work** (`/sys/bus/usb/devices/*/speed` must say 5000 for the cameras). A head camera opened at USB 2 stays colour-only until the camera service is restarted.
+- **Never call `tasks/fetch.py` functions from a second process while the API runs**: its log writes that process's empty state over `/dev/shm/lumi_task.json`, and the held object is forgotten.
+- After a controller power cycle the body axes are disabled and every move times out; `robot/head.py` enables them. All tool I/O must be PNP in Cobo π, or the gripper does not move.
+- The base drives into a table's margin and reports "succeeded" without moving; the last part of a reach is a straight checked drive. Drives with the arm in `carry` stall (the base's 3D camera sees the hand): drive in `look`.
+- The base's planning API does not check real paths, so `robot/nav.py` uses the map image. Closed glass doors need a no-go line in the base's web panel.
+- The body API's `/stop` does not stop a `moveto`, so hold-to-move uses small steps.
+- `pkill -f` / `pgrep -f` also match your own shell's command line: find the PID with `ps -eo pid,args | grep "[n]ame"` and kill that.
 - Headless Chrome screenshots of the dashboard: do not use `--timeout` (it freezes the page's JavaScript).
-- Other projects on this Thor belong to colleagues (`~/Dev/lumi_edu` :8000/:8090, `lumi-vision-api` :8001, docs :3080). Do not touch them.
+- Other projects and services on this Thor belong to colleagues (`~/Dev/lumi_edu`, `lumi-vision`, `lumi_voice_app`, services on :8000, :8001, :8090, :3080). Do not touch them.
+
+Every value meant to be tuned by hand, with its file: [docs/TUNING.md](../../docs/TUNING.md).
+
+---
+
+## Documentation
+
+| Document | Content |
+|---|---|
+| [00 Start here](../../docs/00_START_HERE.md) | From zero to developing on the robot: install, power on, connect, first tests |
+| [01 Hardware](../../docs/01_HARDWARE.md) | Every specification, connectors, lights, model files |
+| [02 Network and access](../../docs/02_NETWORK_AND_ACCESS.md) | Connecting a computer; web pages, apps |
+| [03 Body: lift, waist, head](../../docs/03_BODY_LIFT_WAIST_HEAD.md) | The four body joints, their API and ranges |
+| [04 Arm](../../docs/04_ARM.md) | Cobo π, SDK, units, settings, tool connector |
+| [05 Mobile base](../../docs/05_AGV_BASE.md) | Mapping, markers, driving, navigation API |
+| [06 Cameras and vision](../../docs/06_CAMERAS_AND_VISION.md) | Orbbec cameras, intrinsics, calibration, scene understanding |
+| [07 Voice and audio](../../docs/07_VOICE_AND_AUDIO.md) | Microphone array, speaker, voice direction |
+| [08 Jetson Thor](../../docs/08_NVIDIA_THOR.md) | The AI computer, setup, what runs on its GPU |
+| [09 ROS 2, teleop, simulators](../../docs/09_ROS2_TELEOP_AND_SIM.md) | Vendor ROS 2, MoveIt 2, Isaac Sim, VR teleoperation |
+| [10 Gripper](../../docs/10_GRIPPER.md) | The Zimmer gripper: signals, PNP, measurements |
+| [Gripper fingers](../../docs/gripper/README.md) | Finger shape and measured gaps, photos |
+| [11 Safety](../../docs/11_SAFETY.md) | Stop buttons and rules; read before any motion |
+| [12 Sources](../../docs/12_SOURCES.md) | Where each fact came from; downloads |
+| [Tuning](../../docs/TUNING.md) | Speeds, distances, thresholds with their file |
+| [docs/README.md](../../docs/README.md) | Index of the reference docs |
+
+Company-internal notes (access, vendor manuals, screenshots) are kept off git.

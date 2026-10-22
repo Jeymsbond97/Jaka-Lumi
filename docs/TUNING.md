@@ -3,7 +3,7 @@
 Every value here is a constant at the top of its file, with a comment on what it means. Change it there, then restart
 what uses it (README "Deploying a change"): `systemctl --user restart lumi-api` for the API and fetch (check
 `curl -s localhost:8100/status` → `base.move_status` is not `running` first), `.venv/bin/python vision/camview.py --stop`
-and `--start` for the detector. Line numbers are those of 2026-10-16; search the name if they moved.
+and `--start` for the detector. Line numbers may move; search the name.
 
 ## Arm speed
 
@@ -26,7 +26,7 @@ and `--start` for the detector. Line numbers are those of 2026-10-16; search the
 |---|---|---|---|
 | `tasks/fetch.py` | `SURFACE_Z` | −560 … −30 mm | Arm-frame heights (after the lift) of surfaces the arm picks from / puts on; outside: refused (floor, low seats) |
 | `tasks/fetch.py:64` | `LIFT_VEL` | 20 % | Lift speed in fetch |
-| `robot/head.py` | `LIFT_MAX_MM` | 105 mm | **Temporary** (2026-10-20): highest lift anything moves to (the head camera cable is too short). Set back to 250 when the longer cable is in; `fetch.LIFT_RANGE`, `LIFT_TRIES` and the dashboard jog follow it |
+| `robot/head.py` | `LIFT_MAX_MM` | 105 mm | **Temporary**: highest lift anything moves to (the head camera cable is too short). Set back to 250 when the longer cable is in; `fetch.LIFT_RANGE`, `LIFT_TRIES` and the dashboard jog follow it |
 | `tasks/fetch.py:62` | `LIFT_DRIVE_MM` | 75 mm | Lift height for every drive and at every task's end |
 | `tasks/fetch.py:96` | `AXIS_SPEED` | 0.05 m/s | Straight drives with `joy_control` (the last part of a reach, measure-axis) |
 | `tasks/fetch.py:71` | `STRAIGHT_MAX_M` | 0.6 m | A reach needing a longer drive than this goes by navigation; shorter ones turn on the spot and drive straight |
@@ -36,7 +36,7 @@ and `--start` for the detector. Line numbers are those of 2026-10-16; search the
 | `tasks/fetch.py` | `ARM_CLEAR_M`, `SWEEP_STEP_DEG` | 0.10 m, 10° | Before turning on the spot: flange, grasp point and finger tips must stay this far from anything the lidar / map shows, checked every this many degrees |
 | `tasks/fetch.py:90–91` | `STUCK_S`, `STUCK_M` | 30 s, 0.1 m | A navigation drive that has not moved this far in this time is cancelled |
 | `tasks/follow.py` | `FOLLOW_GAP_M` | 1.0 m | "Follow me": camera distance kept to the person; nearer, the base stands still |
-| `tasks/follow.py` | `FOLLOW_MAX_MS`, `SPEED_GAIN`, `ACCEL_MS2` | 0.15 m/s (first live runs), 0.8 /s, 0.4 m/s² | Follow speed cap (estimate), m/s per m beyond the gap, speed-up limit |
+| `tasks/follow.py` | `FOLLOW_MAX_MS`, `SPEED_GAIN`, `ACCEL_MS2` | 0.15 m/s, 0.8 /s, 0.4 m/s² | Follow speed cap (estimate), m/s per m beyond the gap, speed-up limit |
 | `tasks/follow.py` | `TURN_GAIN`, `TURN_MAX_RS`, `TURN_DEAD_DEG`, `TURN_ONLY_DEG` | 1.0, 0.5 rad/s, 5°, 30° | Turning toward the person: gain, cap, no turn within, no forward beyond (turn first) |
 | `tasks/follow.py` | `STALE_S`, `LOST_S` | 0.5 s, 2 s | No fresh sighting: stand still; none for this long: "I lost you" |
 | `tasks/follow.py` | `RELOCK_DEG`, `RELOCK_M` | 25°, 0.8 m | A lost track is swapped for a fresh one this near the person's last angle and distance (estimates) |
@@ -60,7 +60,7 @@ and `--start` for the detector. Line numbers are those of 2026-10-16; search the
 | `manipulation/skills.py` | `BELLY_MIN_MM` | 72 mm | Thinner objects are held between the finger tips (the belly closes only to 70 mm) |
 | `manipulation/skills.py` | `TIPS_GRASP_MM` | 0 mm | For those the arm stops this much higher (25 was too high: the tips closed above the cup) |
 | `manipulation/skills.py` | `TIP_CLEAR_MM`, `ROUND_BITE_MM` | 10, 10 mm | Round things (apple, orange, ball): the finger tips (`TIP_MM` 60, not measured) stay this far above the table; the grasp point at least this far below the top, else refused. Estimates |
-| `manipulation/skills.py` | `GRASPS` | cup upright; apple, orange, sports ball round; the rest refused | Which classes are picked and how (docs/15 §10) |
+| `manipulation/skills.py` | `GRASPS` | cup upright; apple, orange, sports ball round; the rest refused | Which classes are picked and how |
 | `tasks/fetch.py` | `PICK_TRIES` | 2 | A missed / slipped pick is tried this often |
 | `manipulation/skills.py` | `SEEN_UNDER_MM` | 8 mm | Added to the camera's width to get the width the fingers meet (`grip_width`), which the limits above are compared with |
 | `tasks/fetch.py` | `HEAD_READS`, `HEAD_SAME_MM` | 4, 120 mm | Head camera frames read per view; a thing counts when seen at least twice within this distance |
@@ -71,7 +71,7 @@ and `--start` for the detector. Line numbers are those of 2026-10-16; search the
 | `tasks/fetch.py` | `DRIVE_POLL_S`, `DRIVE_START_S` | 0.2 s, 3 s | Base status reads while driving; a drive not seen "running" counts as over after the second (at once when it reports "succeeded" at the goal pose) |
 | `tasks/fetch.py:98` | `GIVE_WAIT_S` | 30 s | Giving: no "thank you" / Release by then, keep holding it |
 
-## Missions (docs/17)
+## Missions
 
 | File | Name | Now | What it does |
 |---|---|---|---|
@@ -79,7 +79,7 @@ and `--start` for the detector. Line numbers are those of 2026-10-16; search the
 | `tasks/fetch.py` | `MOVE_SPEED` | 0.10 m/s | Speed of a mission `move` (straight, joy_control); estimate |
 | `tasks/fetch.py` | `SHORT_MOVE_M` | 0.10 m | A shorter `move` goes at `AXIS_SPEED` (measured exact at 10 cm) |
 | `tasks/fetch.py` | `SPEED_STEP`, `SPEED_MIN`, `SPEED_MAX` | 0.2, 0.4, 1.6 | "Faster" / "slower" by voice: step and limits as parts of the normal speed (moves `MOVE_SPEED` × it; estimate) |
-| `tasks/fetch.py` | `NAV_SPEED_MPS`, `NAV_TURN_RADS` | 0.3 m/s, 0.3 rad/s | Navigation's own limits (`/api/get_params` 2026-10-21) = normal; voice only lowers the linear one (`/api/set_params`) |
+| `tasks/fetch.py` | `NAV_SPEED_MPS`, `NAV_TURN_RADS` | 0.3 m/s, 0.3 rad/s | Navigation's own limits (`/api/get_params`) = normal; voice only lowers the linear one (`/api/set_params`) |
 | `assistant/driving.py` | `MOVE_MAX_M`, `MOVE_MIN_M` | 3 m, 0.01 m | Longest / shortest drive by voice; outside is refused with the limit |
 | `assistant/driving.py` | `TINY_M`, `SPAN_M`, `STEP_M`, `LITTLE_M`, `DEFAULT_M` | 0.05, 0.2, 0.5, 0.5, 1 m | "A tiny bit" / 살짝, 한 뼘, one step, "a little" / 조금, no amount said; estimates |
 | `tasks/fetch.py` | `RECEIVE_WAIT_S` | 30 s | `receive`: nothing put in the hand by then, the mission fails with the hand open |
@@ -114,7 +114,7 @@ and `--start` for the detector. Line numbers are those of 2026-10-16; search the
 | `vision/person.py:34` | `OBJECT_SCORE` | 0.35 | Lowest YOLO score for an object |
 | `vision/person.py:35` | `WEAK_SCORE` | cup 0.05 | Lower score for cups, kept only when depth measures a cup-sized thing (`vision/objects.py` `WEAK`) |
 | `vision/objects.py:37` | `WEAK` | cup: width 40–110, height 50–250 mm | Size a weak cup box must have |
-| `vision/reid.py` | `FACE_SAME`, `SAME` | 0.30, 0.90 | Same person: face cosine (a track's first faces against the person's mean face) at least this; without both faces, clothes likeness at least this. Measured 2026-10-21 on the head camera: one person back 0.51–0.74 face, 0.48–0.97 clothes; other people ≤ 0.08 face, up to 0.86 clothes |
+| `vision/reid.py` | `FACE_SAME`, `SAME` | 0.30, 0.90 | Same person: face cosine (a track's first faces against the person's mean face) at least this; without both faces, clothes likeness at least this. Measured on the head camera: one person back 0.51–0.74 face, 0.48–0.97 clothes; other people ≤ 0.08 face, up to 0.86 clothes |
 | `assistant/lumi.py` | `FACE_FRAMES`, `FACE_WAIT_S` | 3, 1.0 s | Faces seen on a new track before Lumi decides who it is and greets; without them it waits at most this long after `HOLD_S`, then the clothes decide |
 | `vision/reid.py` | `FACE_MAX_M`, `FACE_SCORE` | 2.0 m, 0.85 | Faces are looked for only this close, and kept from this detector score (turned faces are not) |
 | `vision/reid.py` | `FORGET_S` | 600 s | Someone not seen this long is new again: the full greeting |

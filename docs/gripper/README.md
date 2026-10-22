@@ -1,7 +1,7 @@
 # Gripper fingers: shape and measured sizes
 
 Zimmer GEP2013IO-05-B parallel gripper on the arm flange (control: `robot/gripper.py`). It carries long stainless-steel fingers; this folder records their shape and inner sizes,
-measured by hand with a tape on 2026-10-19.
+measured by hand with a tape.
 
 ## Photos
 

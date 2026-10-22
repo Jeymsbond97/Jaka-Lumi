@@ -17,7 +17,7 @@ Units everywhere: **mm** for the lift, **degrees** for the others.
 
 Observation: the vendor's web-UI screenshot (`private/images/body-01-extaxis-web-ui.png`) shows joint 0 at **355** (mm), above the documented 300, with the waist at −140, head yaw 175 and pitch 34. So the API may accept more than 300 mm on some firmware. Stay within 0–300 mm until we have read the robot's own limit. The vendor demo config limits the lift to 0–200 mm.
 
-**Temporary lift limit (2026-10-20):** the head camera's cable is too short; a lift above ~105 mm pulls it out. All our code keeps the lift at 0–105 mm (`robot/head.py` `LIFT_MAX_MM`, used by `moveto()`'s clamp, `tasks/fetch.py` `LIFT_RANGE` / `LIFT_TRIES` and the dashboard jog). Back to 250 mm when the longer cable is in. The dashboard turns the head yaw over the full ±180°; the assistant's head tracking keeps `head.YAW_LIMIT` (±60°).
+**Temporary lift limit:** the head camera's cable is too short; a lift above ~105 mm pulls it out. All our code keeps the lift at 0–105 mm (`robot/head.py` `LIFT_MAX_MM`, used by `moveto()`'s clamp, `tasks/fetch.py` `LIFT_RANGE` / `LIFT_TRIES` and the dashboard jog). Back to 250 mm when the longer cable is in. The dashboard turns the head yaw over the full ±180°; the assistant's head tracking keeps `head.YAW_LIMIT` (±60°).
 
 Head pitch sign: not documented. **Verify** on the robot with a +10° move (which way does the head tilt?).
 
@@ -61,7 +61,7 @@ Base URL: `http://192.168.10.90:5000/api/extaxis` (old documents: `http://10.5.5
 
 Rules: enable first; every call sends all four values, so read `/status` and keep the joints you don't want to move at their current value.
 
-Seen on our robot (2026-10-15):
+Seen on our robot:
 
 - After a full power cycle of the controller all four joints read `"enable": false`; every dashboard jog of the head then timed out. `robot/head.py` `moveto()` enables them first when any is off.
 - At its bottom stop the head pitch reads −5.003°, just outside −5…35°; a `moveto` that sends it back is dropped (the colleagues' `lumi_voice_app` found the same for the lift at −0.003 mm). `moveto()` clamps every value into the API ranges.

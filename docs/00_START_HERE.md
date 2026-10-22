@@ -93,7 +93,7 @@ Your Mac ──Wi-Fi "Lumi<serial>"──> robot network 192.168.10.x
 
 Neither `192.168.10.90` (arm controller) nor `192.168.10.10` (AGV navigation PC) is meant for our code; the onboard computer is.
 
-1. Find the onboard computer's IP ([13 §5](13_TO_VERIFY_ON_ROBOT.md#5-thor-on-the-robot-network)): router page `http://192.168.10.79` → connected devices, or `nmap -sn 192.168.10.0/24` from the Mac.
+1. Find the onboard computer's IP: router page `http://192.168.10.79` → connected devices, or `nmap -sn 192.168.10.0/24` from the Mac.
 2. `ssh <user>@<ip>` (credentials in [private/ACCESS.md](private/ACCESS.md)).
 3. Check the USB devices are there: `lsusb | grep -i -E "2bc5|orbbec"` (two Gemini 2 L) and `arecord -l` (AIUI-USB-MC).
 4. Write code from the Mac with VS Code **Remote-SSH** (code lives and runs on the onboard computer), or keep it in this repo and `git pull` / `rsync` it there.
@@ -156,8 +156,6 @@ Write the results into section 9 ("Robot facts").
 
 ## 9. Robot facts (fill in on the robot)
 
-Procedures for finding each value: [13_TO_VERIFY_ON_ROBOT.md](13_TO_VERIFY_ON_ROBOT.md).
-
 | Fact | Value | Date |
 |---|---|---|
 | Arm controller version | | |
@@ -194,5 +192,4 @@ Procedures for finding each value: [13_TO_VERIFY_ON_ROBOT.md](13_TO_VERIFY_ON_RO
 | [10_GRIPPER.md](10_GRIPPER.md) | gripper options, wiring, Modbus commands, install checklist |
 | [11_SAFETY.md](11_SAFETY.md) | stop devices and rules |
 | [12_SOURCES.md](12_SOURCES.md) | every source and download link |
-| [13_TO_VERIFY_ON_ROBOT.md](13_TO_VERIFY_ON_ROBOT.md) | unknown facts and how to find them |
 | [private/ACCESS.md](private/ACCESS.md) | passwords, internal IPs, NAS (local only) |

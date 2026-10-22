@@ -22,7 +22,7 @@ Why Thor: JAKA's table ([01_HARDWARE.md](01_HARDWARE.md#6-main-ai-computer-optio
 
 ## 2. Connect
 
-SSH from a computer on the same network as the Thor: `ssh <user>@<thor-ip>`, port 22 (use `ssh -X` for GUI programs such as OrbbecViewer or RViz). When the Thor is mounted on the robot it is on the robot network (`192.168.10.x`); find its address as in [13 §5](13_TO_VERIFY_ON_ROBOT.md#5-thor-on-the-robot-network). Our addresses and login: [private/THOR_COMPANY_SETUP.md](private/THOR_COMPANY_SETUP.md) and [private/ACCESS.md](private/ACCESS.md) (local only).
+SSH from a computer on the same network as the Thor: `ssh <user>@<thor-ip>`, port 22 (use `ssh -X` for GUI programs such as OrbbecViewer or RViz). When the Thor is mounted on the robot it is on the robot network (`192.168.10.x`); find its address on the router page `http://192.168.10.79` (connected devices) or with `nmap -sn 192.168.10.0/24`. Our addresses and login: [private/THOR_COMPANY_SETUP.md](private/THOR_COMPANY_SETUP.md) and [private/ACCESS.md](private/ACCESS.md) (local only).
 
 ---
 
@@ -84,7 +84,7 @@ Installation and layout of the company's voice-assistant containers: [private/TH
 - Mind the GPU memory: the voice model takes about 80 GB; leave room for vision models.
 - Keep our code in this repo and mount it into a container (`-v $PWD:/work`), like the vendor compose files do.
 
-Measured on our Thor (2026-10-16, `lumi-thor`, JetPack R38.4, CUDA 13.0, driver 580):
+Measured on our Thor (`lumi-thor`, JetPack R38.4, CUDA 13.0, driver 580):
 
 - 14 CPU cores (aarch64), 122 GB memory shared by CPU and GPU.
 - On the GPU: Ollama (`gemma4:e4b` 8B Q4 at ~50 tokens/s, ~4 GB; `qwen3-vl:8b` takes 44 GB at its default 262k

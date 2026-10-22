@@ -32,3 +32,13 @@ __pycache__/
 # test frames with people in them: local only, never in git
 tests/data/scene_carrying_jacket_*
 tests/data/scene_white_shirt_*
+
+# Work log, plans and test results: local only
+CLAUDE.md
+docs/ROADMAP.md
+docs/WORK_PLAN.md
+docs/13_TO_VERIFY_ON_ROBOT.md
+docs/14_VOICE_ASSISTANT.md
+docs/15_PICK_AND_PLACE.md
+docs/16_FETCH_TASKS.md
+docs/17_MISSIONS.md

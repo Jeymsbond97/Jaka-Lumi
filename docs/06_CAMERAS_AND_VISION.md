@@ -104,7 +104,7 @@ The torso camera and the arm both sit on the waist link, so its calibration stay
 
 Mount poses from the sensors URDF: see [01_HARDWARE.md](01_HARDWARE.md#7-kinematic-model-files).
 
-### Head camera on our robot (measured 2026-10-19)
+### Head camera on our robot (measured)
 
 - Link: USB 3 (5000M in `/sys/bus/usb/devices/*/speed`) after the owner's cable work. When the camera service had
   opened it earlier at USB 2 it ran colour only; it gets depth only after a service restart
@@ -193,7 +193,7 @@ Vendor prompt to the VLM (translated): "Please box the N kinds of objects A and 
 4. Head camera: compute its pose from the URDF chain (`link_4` → `Camera3_Link`) with the body joint angles from `/api/extaxis/status`, verify against the torso camera on a common target.
 5. Person / face detection on the head camera for "look at the speaker" ([07_VOICE_AND_AUDIO.md](07_VOICE_AND_AUDIO.md)).
 
-## 7. Scene understanding (`vision/scene.py`, measured 2026-10-20)
+## 7. Scene understanding (`vision/scene.py`)
 
 What the cameras see, as facts for the conversation and the skills. It reads the camera service's files (raw JPEG,
 aligned depth, people and objects with arm-frame positions from `objects.py`) and runs a pose model on the raw frame.
