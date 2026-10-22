@@ -1,15 +1,11 @@
-"""Wave the hand when someone asks for it. A greeting never moves the arm.
+"""Wave the hand when someone asked for it. A greeting never moves the arm.
 
-The arm waves only from a known start pose (START_POSES: `look`, where the robot stands). It goes through the taught
-poses ROUTE (first the hand away from the head, then up), swings one wrist joint about the last of them and comes back
-the same way. Before anything moves, every joint move of that sequence is checked: joint limits, no joint turning
-further than motion.MAX_TRAVEL, and at PATH_POINTS points along it (kine_forward) the gripper (flange -> grasp point ->
-finger tips) stays HEAD_CLEAR_MM from the head's turning centre (vision/head_cam.py). Refused, with the reason in
-English and Korean: the arm off or busy, the base driving, a task running, something in the hand, the arm anywhere
-else (after free drive, in carry or give), a pose not taught, a move too near the head.
-
-The Cobo π program hand_shaking.jks is not used: it ran from wherever the arm was and hit the head from `look`
-(2026-10-21).
+The arm goes up along the pose graph (manipulation/arm_route.py: from `look` to `wave_start`, the hand away from the
+head, then `wave`, raised), swings one wrist joint there and STAYS at `wave`: the next arm task takes it back down
+the same way (wave -> wave_start -> look). Before anything moves, every joint move is checked (arm_route.check_moves:
+limits, travel, the gripper clear of the head, no dip). Refused, with the reason in English and Korean: the arm off or
+busy, the base driving, a task running, something in the hand, the arm at no known pose (after free drive), a pose not
+taught, a move too near the head.
 
     python manipulation/wave.py check      # plan and check from where the arm is now; moves nothing
     python manipulation/wave.py run        # wave (slow; the owner at the STOP)
@@ -18,30 +14,21 @@ Teach the route first, arm moved by hand in Cobo π: python robot/motion.py teac
 """
 import sys
 
-import numpy as np
-
-from manipulation import skills
+from manipulation import arm_route, skills
 from robot import agv, arm, gripper, motion
-from vision import calib, head_cam
 
-START_POSES = ("look",)              # the wave starts and ends only at one of these (motion.poses())
-ROUTE = ("wave_start", "wave")       # taught poses from the start: the hand away from the head, then raised
-AT_POSE_DEG = 3.0                    # deg; the arm is at a pose when every joint is this close
+TOP = "wave"                         # the raised pose (arm_route.EDGES: look - wave_start - wave)
 WAVE_JOINT = 4                       # joint index swung at the raised pose (4 = J5); check on the first slow run
 WAVE_DEG = 15.0                      # deg each way from the raised pose
 WAVE_SWINGS = 2                      # times there and back
-WAVE_SPEED = "slow"                  # motion.JOINT_SPEED; the route and the swings
-PATH_POINTS = 21                     # points checked (kine_forward) on every joint move
-HEAD_CLEAR_MM = 250.0                # mm the gripper keeps from the head's turning centre. Estimate: the head camera
-                                     # is 102 mm from it, the head's size is not measured. `look` keeps 327 mm, tuck 266
+WAVE_SPEED = arm_route.SPEED         # motion.JOINT_SPEED; the route and the swings
 
 # Why Lumi does not wave, (English, Korean)
 OFF = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")
 BUSY = ("I'm busy with my arm right now.", "지금 팔로 하는 일이 있어요.")
 DRIVING = ("I can't wave while I'm moving.", "움직이는 동안에는 손을 흔들 수 없어요.")
 HOLDING = ("I'm holding something, so I won't wave.", "손에 물건을 들고 있어서 손을 흔들지 않을게요.")
-UNKNOWN_POSE = ("My arm isn't in its usual place, so I won't wave. Please put it back first.",
-                "팔이 평소 자세가 아니어서 손을 흔들지 않을게요. 먼저 팔을 제자리로 해 주세요.")
+UNKNOWN_POSE = arm_route.UNKNOWN
 NOT_TAUGHT = ("I haven't learned how to wave safely yet.", "아직 안전하게 손 흔드는 법을 배우지 못했어요.")
 NEAR_HEAD = ("Waving would bring my hand too close to my head, so I won't.",
              "손이 머리에 너무 가까워져서 손을 흔들지 않을게요.")
@@ -70,33 +57,6 @@ def _holding():
     return seen == "object" if seen != "unknown" else bool(gripper.state()["holding"])
 
 
-def _seg_dist(c, a, b):
-    """mm from point c to the segment a-b."""
-    ab = b - a
-    t = min(1.0, max(0.0, float((c - a) @ ab) / float(ab @ ab))) if ab @ ab else 0.0
-    return float(np.linalg.norm(c - (a + t * ab)))
-
-
-def gripper_clearance(j, centre):
-    """Smallest distance (mm) from `centre` to the gripper (flange -> grasp point -> finger tips) at joints j."""
-    c = skills._ask("kine_forward", jointPosition=[float(v) for v in j])["cartPosition"]
-    R, f = calib.rpy_matrix(*c[3:]), np.array(c[:3], float)
-    g = f + R @ skills.GRASP_OFFSET
-    tip = g + R @ (skills.TIP_MM * skills.FINGER_DIR)
-    return min(_seg_dist(centre, f, g), _seg_dist(centre, g, tip))
-
-
-def move_clearance(j0, j1, centre):
-    """Smallest gripper distance (mm) to `centre` at PATH_POINTS points of the joint move j0 -> j1 (the controller
-    moves all joints together, in a straight line in joint space)."""
-    j0, j1 = np.array(j0, float), np.array(j1, float)
-    return min(gripper_clearance(j0 + (j1 - j0) * k / (PATH_POINTS - 1), centre) for k in range(PATH_POINTS))
-
-
-def _at(now, pose):
-    return max(abs(a - b) for a, b in zip(motion.nearest(pose, now), now)) <= AT_POSE_DEG
-
-
 def plan():
     """Joint targets of the whole wave from here, each move checked. Raises WaveError to refuse."""
     from tasks import fetch
@@ -109,45 +69,22 @@ def plan():
         raise WaveError(*DRIVING)
     if _holding():
         raise WaveError(*HOLDING)
-    now, poses = motion.joints(), motion.poses()
-    start = next((n for n in START_POSES if n in poses and _at(now, poses[n])), None)
-    if start is None:
-        log(f"wave refused: arm at {[round(v, 1) for v in now]}, not at {', '.join(START_POSES)}")
-        raise WaveError(*UNKNOWN_POSE)
-    if any(n not in poses for n in ROUTE):
-        log(f"wave refused: teach {', '.join(n for n in ROUTE if n not in poses)} first (robot/motion.py teach)")
-        raise WaveError(*NOT_TAUGHT)
-    route = [list(poses[n]) for n in ROUTE]
-    top, i = route[-1], WAVE_JOINT
-    swings = [top[:i] + [top[i] + s * WAVE_DEG] + top[i + 1:] for _ in range(WAVE_SWINGS) for s in (1, -1)]
-    seq, prev = [], now
-    for t in route + swings + [top] + route[-2::-1] + [poses[start]]:
-        motion.check(t)
-        t = motion.nearest(t, prev)                  # as move_joints will turn it
-        if max(abs(a - b) for a, b in zip(t, prev)) > motion.MAX_TRAVEL:
-            log(f"wave refused: {[round(v, 1) for v in prev]} -> {[round(v, 1) for v in t]} turns a joint too far")
-            raise WaveError(*NOT_TAUGHT)
-        seq.append(t)
-        prev = t
-    centre = head_cam.head_centre()
-    if centre is None:
-        raise WaveError(*UNSURE)
-    done = set()
-    for a, b in zip([now] + seq, seq):
-        key = frozenset((tuple(np.round(a, 1)), tuple(np.round(b, 1))))
-        if key in done:                              # the way back and the repeated swings: checked once
-            continue
-        done.add(key)
-        d = move_clearance(a, b, centre)
-        if d < HEAD_CLEAR_MM:
-            log(f"wave refused: {[round(v, 1) for v in a]} -> {[round(v, 1) for v in b]} brings the gripper "
-                f"{d:.0f} mm from the head (needs {HEAD_CLEAR_MM:.0f})")
-            raise WaveError(*NEAR_HEAD)
+    now = motion.joints()
+    try:
+        route = arm_route.plan(TOP, now=now)          # up along the graph ([] when it is up already)
+        start = route[-1][1] if route else now
+        top = motion.nearest(motion.poses()[TOP], start)
+        i = WAVE_JOINT
+        swings = [top[:i] + [top[i] + s * WAVE_DEG] + top[i + 1:] for _ in range(WAVE_SWINGS) for s in (1, -1)]
+        seq = [j for _, j in route] + arm_route.check_moves(start, ([] if route else [top]) + swings + [top])
+    except arm_route.RouteError as e:
+        raise WaveError(*{arm_route.UNKNOWN: UNKNOWN_POSE, arm_route.NOT_TAUGHT: NOT_TAUGHT,
+                          arm_route.BLOCKED: NOT_TAUGHT, arm_route.NEAR_HEAD: NEAR_HEAD}.get(e.args, UNSURE)) from e
     return seq
 
 
 def wave(on_start=None):
-    """Plan, check and wave; back at the start pose at the end. `on_start()` is called once the plan is checked.
+    """Plan, check and wave; the arm stays at TOP. `on_start()` is called once the plan is checked.
     Raises WaveError (refused) or motion.MotionError (stopped / failed while moving: the arm stays where it stopped)."""
     try:
         seq = plan()

@@ -86,6 +86,7 @@ from robot import motion
 from audio import mouth
 from audio import sing
 from robot import nav
+from manipulation import arm_route
 from manipulation import skills
 from manipulation import wave as wave_mod
 from assistant import web
@@ -1501,7 +1502,7 @@ class Lumi:
                 mouth.say(done[0] if en else done[1])
             except skills.SkillError as e:
                 log(f"  {action} {target}: {e}")
-                mouth.say(str(e) if en else "죄송해요, 지금은 할 수 없어요.")
+                mouth.say(e.args[0] if en else e.args[1] if len(e.args) > 1 else "죄송해요, 지금은 할 수 없어요.")
             except (motion.MotionError, ConnectionError, OSError) as e:
                 log(f"  {action} {target} stopped: {e}")
                 mouth.say("I stopped my arm." if en else "팔을 멈췄어요.")
@@ -1510,19 +1511,26 @@ class Lumi:
         self.keep_listening()
 
     def arm_pose(self, target):
-        """'reach': the Cobo π program ARM_REACH_PROGRAM (record it once); 'fold': the folded drive pose;
-        'open' / 'close': the gripper."""
+        """'reach': the Cobo π program ARM_REACH_PROGRAM (record it once), only from look; 'fold': tuck along the
+        pose graph (arm_route, checked first, moved in the background); 'open' / 'close': the gripper. True when
+        started, False when not learned, None when refused (the reason is said)."""
         if target in ("open", "close"):
             st = safe(gripper.open_ if target == "open" else gripper.close)
             log(f"  gripper {target}: {st}")
             return st is not None
-        if target == "fold":
-            return safe(lambda: motion.go("tuck", wait=False)) is not None
         try:
-            arm.start(ARM_REACH_PROGRAM)
+            if target == "fold":
+                seq = arm_route.plan("tuck", holding=self.fetch_status() == "holding")
+                threading.Thread(target=safe, args=(arm_route.move, seq), daemon=True).start()
+            else:
+                arm_route.start_program(ARM_REACH_PROGRAM)
             return True
+        except arm_route.RouteError as e:
+            log(f"  arm {target} refused: {e.args[0]}")
+            self.fetch_say(*e.args)
+            return None
         except Exception as e:
-            log(f"  arm reach: {e} (record {ARM_REACH_PROGRAM} in Cobo pi)")
+            log(f"  arm {target}: {e}" + (f" (record {ARM_REACH_PROGRAM} in Cobo pi)" if target == "reach" else ""))
             return False
 
     # ---------- dashboard commands, trips ----------
@@ -1969,10 +1977,11 @@ class Lumi:
             done = {"open": ("Okay, opening my hand.", "네, 손을 펼게요."), "close": ("Okay, closing my hand.", "네, 손을 쥘게요.")}
             if target in done:
                 mouth.say(done[target][0] if en else done[target][1])
-            if self.arm_pose(target):
+            ok = self.arm_pose(target)
+            if ok:
                 if target not in done:
                     mouth.say("Here you go." if en else "여기요.")
-            else:
+            elif ok is False:
                 mouth.say("Sorry, I haven't learned that arm movement yet." if en else "죄송해요, 그 팔 동작은 아직 못 배웠어요.")
             return True
         self.start_trip(target)                           # go_to: start driving, then say so

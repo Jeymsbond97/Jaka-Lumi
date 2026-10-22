@@ -12,13 +12,16 @@ and `--start` for the detector. Line numbers may move; search the name.
 | `robot/motion.py:29` | `JOINT_SPEED` | slow 10, normal 25 °/s | Joint move speeds. "normal" is also the dashboard's Arm pose card "Normal" |
 | `robot/motion.py:30` | `LINEAR_SPEED` | slow 20, normal 50 mm/s | Straight move speeds |
 | `robot/motion.py:31` | `ACCEL_FACTOR` | 3.0 | Acceleration = speed × this per second |
-| `manipulation/skills.py:40` | `EMPTY_SPEED` | "normal" | Arm with nothing in the hand: to `look`, home, the joint move to above a cup |
+| `manipulation/arm_route.py` | `SPEED` | "slow" | Every joint move along the pose graph (to `look`, `carry`, `give`, `tuck`, `wave_start`, `wave`), empty hand or holding; also the wave's swings |
+| `manipulation/skills.py:40` | `EMPTY_SPEED` | "normal" | Arm with nothing in the hand: the joint move from `look` to above a cup |
 | `manipulation/skills.py:42` | `HOLDING_SPEED` | "slow" | With an object in the hand, and the last 10 cm down onto an object and up from it |
 | `manipulation/skills.py:50` | `ABOVE_MM` | 100 mm | Height above the grasp from where the arm goes straight down (slow) |
 | `tasks/fetch.py:41` | `MAX_TILT_DEG` | 15° | How far a held cup may lean on any move |
-| `manipulation/wave.py` | `WAVE_JOINT`, `WAVE_DEG`, `WAVE_SWINGS`, `WAVE_SPEED` | J5 (index 4), 15°, 2, "slow" | The wave: the joint swung at the taught `wave` pose, how far each way, how many times there and back, joint speed of the route and the swings |
-| `manipulation/wave.py` | `HEAD_CLEAR_MM` | 250 mm | **Estimate**: the gripper (flange, grasp point, finger tips) keeps this from the head's turning centre (`head_cam.head_centre()`) on every wave move; the head camera is 102 mm from it, the head's size is not measured (`look` keeps 327 mm) |
-| `manipulation/wave.py` | `START_POSES`, `ROUTE`, `AT_POSE_DEG` | `look`; `wave_start`, `wave`; 3° | The wave starts only within this of a start pose and goes through the taught route poses |
+| `manipulation/wave.py` | `WAVE_JOINT`, `WAVE_DEG`, `WAVE_SWINGS` | J5 (index 4), 15°, 2 | The wave: the joint swung at the taught `wave` pose, how far each way, how many times there and back |
+| `manipulation/arm_route.py` | `HEAD_CLEAR_MM` | 250 mm | **Estimate**: the gripper (flange, grasp point, finger tips) keeps this from the head's turning centre (`head_cam.head_centre()`) on every pose-graph move, the wave and straight moves with an object; the head camera is 102 mm from it, the head's size is not measured (`look` keeps 327 mm; look → tuck passes at 175 mm and is refused) |
+| `manipulation/arm_route.py` | `EDGES` | give–carry, carry–look, look–wave_start, wave_start–wave, look–ready, look–tuck | The only joint moves between named poses |
+| `manipulation/arm_route.py` | `JOIN_DEG` | 20° | An arm at no pose (free drive, stopped half way) joins the graph by one checked joint move only when every joint is this close to a pose; else it does not move and asks to be brought near `look` |
+| `manipulation/arm_route.py` | `AT_POSE_DEG`, `EXACT_DEG` | 3°, 1° | At a pose for programs and `check` / further than 1° from the nearest pose a route first goes to it |
 
 ## Lift and base
 

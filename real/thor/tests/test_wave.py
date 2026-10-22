@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from assistant import lumi
-from manipulation import skills, wave
+from manipulation import arm_route, skills, wave
 from robot import agv, arm, gripper, motion
 from tasks import fetch
 from vision import head_cam
@@ -25,7 +25,7 @@ hand = {"holding": False}
 gripper.state = lambda: {"holding": hand["holding"]}
 base = {"move_status": "idle"}
 agv.status = lambda: dict(base)
-wave.log = lambda *a: None
+wave.log = arm_route.log = lambda *a: None
 
 
 class FakeArm:
@@ -67,17 +67,20 @@ def refused(reason):
     raise AssertionError(f"waved, expected {reason}")
 
 
-# ---------- from look: along the route, wave, back the same way; every move clear of the head ----------
+# ---------- from look: up along the graph, wave, and the arm stays up; every move clear of the head ----------
 a = use(FakeArm(LOOK))
 started = []
 wave.wave(on_start=lambda: started.append(len(a.sent)))
 assert started == [0]                                               # said before the first move
 top = POSES["wave"]
 up, down = top[:4] + [top[4] + wave.WAVE_DEG] + top[5:], top[:4] + [top[4] - wave.WAVE_DEG] + top[5:]
-assert a.sent == [POSES["wave_start"], top] + [up, down] * wave.WAVE_SWINGS + [top, POSES["wave_start"], LOOK], a.sent
+assert a.sent == [POSES["wave_start"], top] + [up, down] * wave.WAVE_SWINGS + [top], a.sent
 for j0, j1 in zip([LOOK] + a.sent, a.sent):
-    assert wave.move_clearance(j0, j1, HEAD) >= wave.HEAD_CLEAR_MM, (j0, j1)
-assert wave.move_clearance(LOOK, top, HEAD) < wave.HEAD_CLEAR_MM     # straight up from look would pass the head
+    assert arm_route.profile(j0, j1, HEAD)[0] >= arm_route.HEAD_CLEAR_MM, (j0, j1)
+assert arm_route.profile(LOOK, top, HEAD)[0] < arm_route.HEAD_CLEAR_MM     # straight up from look would pass the head
+a.sent.clear()
+wave.wave()                                                         # asked again while up: only the swings
+assert a.sent == [top] + [up, down] * wave.WAVE_SWINGS + [top], a.sent
 
 # ---------- a taught pose whose way passes the head: refused before anything moves ----------
 POSES["wave_start"] = [-15.0, 0.0, 40.0, 0.0, 0.0, 0.0]
@@ -99,10 +102,15 @@ refused(wave.HOLDING)
 skills.hand_sees = lambda: "unknown"
 assert a.sent == []
 
-# ---------- an unknown start (after free drive: the wrist the other way round), carry, give, base, power ----------
+# ---------- from carry (empty hand): down to look first, then up ----------
+POSES["carry"] = [30.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+a = use(FakeArm(POSES["carry"]))
+wave.wave()
+assert a.sent[:3] == [LOOK, POSES["wave_start"], top], a.sent
+del POSES["carry"]
+
+# ---------- an unknown start (after free drive: the wrist the other way round), base, power ----------
 a = use(FakeArm([-249.1, -90.9, -29.1, 14.6, -83.8, -33.0]))
-refused(wave.UNKNOWN_POSE)
-use(FakeArm([-280.6, -86.13, -2.58, -173.3, 85.86, 119.9]))         # carry
 refused(wave.UNKNOWN_POSE)
 use(FakeArm(LOOK, enable=False))
 refused(wave.OFF)

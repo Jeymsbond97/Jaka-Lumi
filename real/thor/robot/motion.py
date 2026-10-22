@@ -6,7 +6,7 @@ Every move is checked before it is sent: joint limits with a margin, and for lin
 and return early with an error when STOP was pressed or the controller stopped the arm.
 
     python robot/motion.py                     # joints, TCP, named poses
-    python robot/motion.py go tuck [normal]    # move to a named pose (slow by default)
+    python manipulation/arm_route.py goto look # to a named pose: only along the pose graph, checked
     python robot/motion.py teach ready         # save the arm's current joints as a named pose (move it in Cobo π first)
     python robot/motion.py line 0 0 30         # straight TCP move by dx dy dz mm (base frame), slow
     python robot/motion.py stop
@@ -229,8 +229,6 @@ if __name__ == "__main__":
             print("tcp   ", [round(v, 1) for v in tcp()])
             for k, v in poses().items():
                 print(f"pose {k:8s}", v)
-        elif a[0] == "go":
-            print(go(a[1], a[2] if len(a) > 2 else "slow"))
         elif a[0] == "teach":
             print(a[1], teach(a[1]))
         elif a[0] == "line":

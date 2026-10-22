@@ -709,17 +709,16 @@ def _prepare():
         log("opening the gripper")
         gripper.open_()
     if max(abs(a - b) for a, b in zip(_joints(), home_joints())) > 1.0:
-        log(f"going to {home()}")
-        motion.go(home(), EMPTY_SPEED)
+        from manipulation import arm_route
+        arm_route.goto(home())
 
 
 def _back_home():
-    """Joint move to the home pose; refused when it would take the gripper lower than where it is now."""
+    """From the table (out from home along the checked plan) straight back to the home pose: one joint move, checked
+    (arm_route: never lower than where it is now, clear of the head)."""
     _go_on()
-    if not joint_move_ok(_joints(), home_joints()):
-        raise SkillError("I can't get my arm back up safely from here.")
-    log(f"going to {home()}")
-    motion.go(home(), EMPTY_SPEED)
+    from manipulation import arm_route
+    arm_route.goto(home(), leaf=True)
 
 
 def _line(name, pose):

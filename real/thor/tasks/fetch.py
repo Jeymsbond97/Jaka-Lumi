@@ -21,6 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
+from manipulation import arm_route
 from manipulation import skills
 from robot import agv
 from robot import gripper
@@ -49,14 +50,10 @@ LOOK_POSE = "look"           # drives, turns, looks and waits here, also with an
                              # the torso view, too near for depth (ready if not taught). carry is only passed through after a
                              # pick: in carry the hand is ~0.3 m before the base's front, where its 3D camera seems to see
                              # it as an obstacle (every drive in carry stalled; the same drives in look went, 2026-10-16)
-MAX_TILT_DEG = skills.MAX_TILT_DEG   # deg; the held cup's axis may lean this far from vertical on ready <-> carry
-TILT_POINTS = 11             # points checked along a joint move (kine_forward)
+MAX_TILT_DEG = skills.MAX_TILT_DEG   # deg; the held cup's axis may lean this far from vertical on a straight move
 LINE_POINTS = 20             # points IK- and tilt-checked on a straight move with an object in the hand ...
 LINE_STEP_DEG = 25.0         # ... no joint may turn more than this between two of them (one IK branch all the way;
                              # near J5 = 0 J4 and J6 turn ~15 deg a step against each other, the cup hardly turns)
-# ponytail: fixed table height (top ~ -400 mm in the arm base frame, the 142 mm tumbler's top ~ -258);
-# use the measured table top instead when tables of other heights come in.
-MIN_POSE_Z = -220.0          # mm; a move between named poses must keep the grasp point above this (or above its start)
 PICK_ZONE_CENTRE = (-100.0, 580.0)   # mm, arm base frame: where the base brings an object out of reach. Next to the
                                      # successful picks (x -126..-178, y 579..613) and inside the reach at table height
                                      # (IK map 2026-10-16, top -330: grasps for x -200..100 at y <= 650, none further)
@@ -330,45 +327,21 @@ def _at_pose(name):
     return max(abs(a - b) for a, b in zip(j, motion.nearest(motion.poses()[name], j))) <= 1.0
 
 
-def _pose(name, speed=skills.EMPTY_SPEED):
-    """Joint move to pose `name`, refused when it would take the gripper down to the table. Empty hand: faster.
-    Nothing when it is there already."""
+def _pose(name, holding=False, leaf=False):
+    """Joint moves to pose `name` along the pose graph (manipulation/arm_route.py, slow), all checked before the first
+    one starts. `leaf`: the arm is on this task's own way out from look (arm_route.hops). Nothing when it is there."""
     _go_on()
     if _at_pose(name):
         return
-    start, low = lowest_along(name)
-    if low < min(MIN_POSE_Z, start - 10.0):
-        log(f"refused: on the way to {name} the gripper would go down to z {low:.0f} mm")
-        raise FetchError("My arm would go too close to the table, I stopped.", "팔이 테이블에 너무 가까워져서 멈췄어요.")
-    log(f"arm to {name}")
-    motion.go(name, speed)
+    try:
+        seq = arm_route.plan(name, holding, leaf)
+    except arm_route.RouteError as e:
+        raise FetchError(*e.args) from e
+    log(f"arm to {name}: {' -> '.join(n for n, _ in seq)}")
+    for n, _ in seq:
+        _go_on()
+        motion.go(n, arm_route.SPEED)
     _go_on()
-
-
-def _path(name):
-    """Flange poses (rotation, position) at TILT_POINTS points on the joint move from here to pose `name`."""
-    j0 = np.array(skills._joints())
-    j1 = np.array(motion.nearest(motion.poses()[name], list(j0)))
-    for k in range(TILT_POINTS):
-        c = skills._ask("kine_forward", jointPosition=[float(v) for v in j0 + (j1 - j0) * k / (TILT_POINTS - 1)])
-        c = c["cartPosition"]
-        yield calib.rpy_matrix(*c[3:]), np.array(c[:3])
-
-
-def lowest_along(name):
-    """(start z, lowest z) in mm of the grasp point on the joint move from here to pose `name`."""
-    z = [float((t + R @ skills.GRASP_OFFSET)[2]) for R, t in _path(name)]
-    return z[0], min(z)
-
-
-def tilt_along(name):
-    """Largest lean (deg) of the held cup's axis from vertical on the joint move from here to pose `name`."""
-    axis = calib.rpy_matrix(*skills.GRASP_RPY).T @ [0.0, 0.0, 1.0]      # cup axis in the flange frame
-    worst = 0.0
-    for R, _ in _path(name):
-        v = R @ axis
-        worst = max(worst, math.degrees(math.acos(float(np.clip(v[2], -1.0, 1.0)))))
-    return worst
 
 
 def _line_rows(target, label, start=None):
@@ -393,36 +366,46 @@ def _line_rows(target, label, start=None):
     if tilt > MAX_TILT_DEG:
         log(f"straight move {label}: the cup would lean {tilt:.1f} deg")
         raise FetchError("I can't move my arm there without spilling it.")
+    centre = head_cam.head_centre()
+    clear = min(arm_route.flange_clearance(r[1], centre) for r in rows) if centre is not None else 0.0
+    if clear < arm_route.HEAD_CLEAR_MM:
+        log(f"straight move {label}: the gripper would come {clear:.0f} mm from the head")
+        raise FetchError(*arm_route.NEAR_HEAD)
     return rows
 
 
 def _line_holding(name):
-    """With the object in the hand: straight to pose `name` (IK and tilt checked), then its exact joints. Nothing
-    when it is there already."""
+    """With the object in the hand: along the pose graph to pose `name` (arm_route.hops), a straight line to each
+    pose, all lines IK-, tilt- and head-checked before the first one starts; after each line the pose's exact joints.
+    Nothing when it is there already."""
     _go_on()
     if _at_pose(name):
         return
-    target =skills._ask("kine_forward", jointPosition=[float(v) for v in motion.poses()[name]])["cartPosition"]
-    _line_rows(target, f"to {name}")
-    log(f"arm to {name} (straight)")
-    motion.move_linear(target=target, speed=skills.HOLDING_SPEED, path_checked=True)
-    _go_on()
-    j = skills._joints()
-    if max(abs(a - b) for a, b in zip(j, motion.nearest(motion.poses()[name], j))) > 1.0:
-        _pose_holding(name)
+    try:
+        names = arm_route.hops(skills._joints(), name, leaf=True)
+    except arm_route.RouteError as e:
+        raise FetchError(*e.args) from e
+    lines, start = [], None
+    for n in names:
+        j = motion.poses()[n]
+        target = skills._ask("kine_forward", jointPosition=[float(v) for v in j])["cartPosition"]
+        _line_rows(target, f"to {n}", start)
+        lines.append((n, target))
+        start = (target, j)
+    for n, target in lines:
+        log(f"arm to {n} (straight)")
+        motion.move_linear(target=target, speed=skills.HOLDING_SPEED, path_checked=True)
+        _go_on()
+        if not _at_pose(n):                      # the pose's own joints (the line may end on another IK branch)
+            try:
+                arm_route.check_moves(skills._joints(), [motion.poses()[n]], holding=True)
+            except arm_route.RouteError as e:
+                raise FetchError(*e.args) from e
+            motion.go(n, skills.HOLDING_SPEED)
 
 
 def _look():
     return LOOK_POSE if LOOK_POSE in motion.poses() else "ready"
-
-
-def _pose_holding(name):
-    """Joint move with an object in the hand: refused when the cup would lean more than MAX_TILT_DEG."""
-    tilt = tilt_along(name)
-    log(f"tilt on the way to {name}: {tilt:.1f} deg")
-    if tilt > MAX_TILT_DEG:
-        raise FetchError("I can't move my arm there without spilling it.")
-    _pose(name, skills.HOLDING_SPEED)
 
 
 def _at(pose, goal):
@@ -2396,7 +2379,7 @@ def measure_axis(name=None):
     _stop.clear()
     j = skills._joints()
     if all(max(abs(a - b) for a, b in zip(j, motion.nearest(motion.poses()[n], j))) > 1.0 for n in {_look(), "ready"}):
-        sys.exit(f"put the arm in {_look()} first: python robot/motion.py go {_look()}")
+        sys.exit(f"put the arm in {_look()} first: python manipulation/arm_route.py goto {_look()}")
     steady = lambda seen: [o for o in seen if o["seen"] >= skills.MIN_SEEN and o["spread"] <= skills.SPREAD_MM
                            and (name is None or o["name"] == name)]
     before = steady(skills.look())

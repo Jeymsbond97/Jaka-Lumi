@@ -233,17 +233,15 @@ except fetch.FetchError:
 st = run(fetch.place)
 assert st["status"] == "done" and not st["holding"] and ("place",) in calls and poses()[-1] == "look", (st, calls)
 
-# ---------- arm speed: empty hand faster, with the object slow ----------
+# ---------- arm speed: every move along the pose graph at arm_route.SPEED, empty hand or holding ----------
 speeds = []
 real_go = fetch.motion.go
 fetch.motion.go = lambda name, speed="slow", *a, **k: (speeds.append((name, speed)), calls.append(("pose", name)))
-arm.update(j=[5.0] * 6)
-fetch._pose("look")
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
+arm.update(j=[0.5] * 6)
+fetch._pose("carry")
 tilt["rpy"] = up_rpy
-fetch._pose_holding("carry")
-assert speeds == [("look", skills.EMPTY_SPEED), ("carry", skills.HOLDING_SPEED)], speeds
-assert skills.EMPTY_SPEED != skills.HOLDING_SPEED
+fetch._pose("carry", holding=True)
+assert speeds == [("carry", fetch.arm_route.SPEED)] * 2 and fetch.arm_route.SPEED == "slow", speeds
 fetch.motion.go = real_go
 
 # ---------- a drive that turns on the spot without getting anywhere is cancelled ----------
@@ -753,9 +751,11 @@ fetch.GIVE_WAIT_S = 0.3
 reset()
 st = run(fetch.start, ok)
 assert st["status"] == "holding", st
+calls.clear()
 st = run(fetch.give)                                                       # nobody says thank you: kept
 assert st["status"] == "holding" and st["holding"] and ("open",) not in calls, (st, calls)
-assert calls.count(("line", "straight")) == 2 and "ready" not in poses()          # carry -> give -> carry, straight
+assert calls.count(("line", "straight")) == 4 and poses() == ["carry", "give", "carry", "look"], calls   # look ->
+                                                                           # carry -> give -> carry -> look, straight
 fetch.GIVE_WAIT_S = 5.0
 threading.Timer(0.2, fetch.release_now).start()                            # "thank you" / Release
 st = run(fetch.give)
@@ -792,32 +792,34 @@ assert ("cancel",) in calls
 tilted = calib.rpy_matrix(30, 0, 0) @ calib.rpy_matrix(*up_rpy)                  # turned 30 deg about base x
 ry = math.degrees(math.asin(-tilted[2, 0]))
 tilt["rpy"] = [math.degrees(math.atan2(tilted[2, 1], tilted[2, 2])), ry, math.degrees(math.atan2(tilted[1, 0], tilted[0, 0]))]
-assert abs(fetch.tilt_along("carry") - 30) < 0.5, fetch.tilt_along("carry")
+arm.update(j=[0.5] * 6)                                                       # at look: the route is look -> carry
 calls.clear()
 try:
-    fetch._pose_holding("carry")
+    fetch._pose("carry", holding=True)
     raise AssertionError("tilted move accepted")
-except fetch.FetchError:
-    assert not calls
+except fetch.FetchError as e:
+    assert not calls and e.args == fetch.arm_route.SPILL, (calls, e.args)
 tilt["rpy"] = up_rpy
-assert fetch.tilt_along("carry") < 1e-6
+fetch._pose("carry", holding=True)
+assert calls == [("pose", "carry")], calls
 
-# ---------- height check: a pose move must not take the gripper down to the table ----------
-z_along = {"look": -500.0}                     # flange z at the end of the move; it starts at 0
-skills._ask = lambda name, **a: {"errorCode": "0", "cartPosition": [0, 0, z_along.get(name_of(a), 0.0)] + up_rpy}
-name_of = lambda a: "look" if a["jointPosition"][0] > 0 else None
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [10.0] + [0] * 5}
+# ---------- height check: a pose move must not take the gripper down to the table on the way ----------
+skills._ask = lambda name, **a: {"errorCode": "0", "cartPosition": [0, 0, -500.0 if 0 < a["jointPosition"][0] < 10 else 0.0]
+                                 + up_rpy}
+fetch.motion.poses = lambda: {"look": [0] * 6, "carry": [10.0] + [0] * 5}
+arm.update(j=[0.0] * 6)
 calls.clear()
 try:
-    fetch._pose("look")
+    fetch._pose("carry")
     raise AssertionError("move down to the table accepted")
-except fetch.FetchError:
-    assert not calls
-arm.update(j=[-5.0] * 6)
-fetch._pose("ready")
-assert calls == [("pose", "ready")], calls
-fetch._pose("ready")                                                          # there already: no move
-assert calls == [("pose", "ready")], calls
+except fetch.FetchError as e:
+    assert not calls and e.args == fetch.arm_route.BLOCKED, (calls, e.args)
+skills._ask = lambda name, **a: {"errorCode": "0", "cartPosition": [0, 0, 0] + up_rpy}
+fetch._pose("carry")
+assert calls == [("pose", "carry")], calls
+fetch._pose("carry")                                                          # there already: no move
+assert calls == [("pose", "carry")], calls
+fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
 # ---------- place spots: the pick spot only while the base stands where it picked ----------
 seen_table = {"spots": None}
 skills.on_table = lambda spots, table: (seen_table.update(spots=list(spots), table=table), [s for s in spots if s[1] >= 680])[1]

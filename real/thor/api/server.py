@@ -37,6 +37,7 @@ from robot import gripper
 from robot import motion
 from vision import objects
 from robot import head
+from manipulation import arm_route
 from manipulation import skills
 from manipulation import wave
 from api.control import jogger
@@ -99,6 +100,7 @@ def start_assistant(no_arm=False, no_drive=False):
 BUSY_FILE = Path("/dev/shm/lumi_busy.json")    # written by lumi.py: {"busy": skill | follow | drive | wave | null}
 BUSY_MSG = "Busy with a task. Pause or stop it first."
 _waving = threading.Event()                     # /arm/wave runs here
+_posing = threading.Event()                     # /arm/pose, /arm/tuck run here
 
 
 def running_now():
@@ -115,6 +117,8 @@ def running_now():
         return "route"
     if _waving.is_set():
         return "wave"
+    if _posing.is_set():
+        return "arm"
     if lumi:
         try:
             what = json.loads(BUSY_FILE.read_text()).get("busy")
@@ -648,7 +652,7 @@ class OnBody(BaseModel):
 
 
 class ProgramBody(BaseModel):
-    program: str = Field(examples=["hand_shaking.jks"])
+    program: str = Field(examples=["arm_reach.jks"])
 
 
 @app.post("/jog", tags=["control"], summary="Hold-to-move: call every ~150 ms while a button is held")
@@ -738,27 +742,28 @@ def arm_enable(body: OnBody):
     return arm.cmd("enable_robot" if body.on else "disable_robot")
 
 
-@app.post("/arm/run", tags=["arm"], summary="Run a Cobo π program (.jks) once; returns at once")
+@app.post("/arm/run", tags=["arm"], summary="Run a Cobo π program (.jks) once, only from look; returns at once")
 def arm_run(body: ProgramBody):
     robot_free(manual=True)
     if not arm.ready():
         raise HTTPException(409, "arm not ready: power/enable off, or a program is running")
     try:
-        arm.start(body.program)
+        arm_route.start_program(body.program)
+    except arm_route.RouteError as e:
+        raise HTTPException(409, e.args[0])
     except RuntimeError as e:
         raise HTTPException(400, str(e))
     return {"ok": True, "program": body.program}
 
 
-@app.post("/arm/tuck", tags=["arm"], summary="Fold the arm beside the column (slow), e.g. before driving")
+@app.post("/arm/tuck", tags=["arm"], summary="Fold the arm beside the column along the pose graph (slow)")
 def arm_tuck():
-    return arm_pose(PoseBody(name="tuck", wait=False))
+    return arm_pose(PoseBody(name="tuck"))
 
 
 class PoseBody(BaseModel):
-    name: str = Field(examples=["ready"], description="tuck or a pose taught with /arm/teach")
-    speed: str = Field("slow", description="slow / normal")
-    wait: bool = Field(True, description="return when the arm is there (STOP ends the wait)")
+    name: str = Field(examples=["look"], description="a pose of the pose graph (manipulation/arm_route.py)")
+    speed: str = Field(arm_route.SPEED, description="slow / normal")
 
 
 class LineBody(BaseModel):
@@ -785,20 +790,24 @@ def arm_poses():
     return motion.poses()
 
 
-@app.post("/arm/pose", tags=["arm"], summary="Move to a named pose (checked joint move, slow by default)")
+@app.post("/arm/pose", tags=["arm"], summary="Go to a named pose along the pose graph (every joint move checked first; "
+                                            "returns when there)")
 def arm_pose(body: PoseBody):
     if body.speed not in motion.JOINT_SPEED:
         raise HTTPException(400, f"speed: {', '.join(motion.JOINT_SPEED)}")
     if body.name not in motion.poses():
         raise HTTPException(404, f"no pose {body.name}")
-    from tasks import fetch
-    j = motion.joints()
-    if not skills.joint_move_ok(j, motion.poses()[body.name]):
-        raise HTTPException(409, f"On the way to {body.name} the gripper would go lower than where it starts and ends: "
-                                 "move it up first.")
-    if gripper.state()["holding"] and (tilt := fetch.tilt_along(body.name)) > fetch.MAX_TILT_DEG:
-        raise HTTPException(409, f"Holding something: on the way to {body.name} it would tilt {tilt:.0f}°.")
-    return _motion(motion.go, body.name, body.speed, body.wait)
+    robot_free(manual=True)
+    _posing.set()
+    try:
+        return {"ok": True, "route": arm_route.goto(body.name, gripper.state()["holding"], speed=body.speed),
+                "joints": motion.joints()}
+    except arm_route.RouteError as e:
+        raise HTTPException(409, e.args[0])
+    except motion.MotionError as e:
+        raise HTTPException(409, str(e))
+    finally:
+        _posing.clear()
 
 
 @app.post("/arm/line", tags=["arm"], summary="Straight TCP move by dx / dy / dz mm (IK-checked first)")
@@ -868,7 +877,7 @@ def _run_skill(name, fn, *args, **kw):
         try:
             st.update(status="done", result=fn(*args, **kw))
         except skills.SkillError as e:
-            st.update(status="refused", reason=str(e))
+            st.update(status="refused", reason=e.args[0])
         except motion.MotionError as e:
             st.update(status="stopped", reason=str(e))
         except Exception as e:
