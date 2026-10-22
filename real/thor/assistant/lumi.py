@@ -2364,6 +2364,8 @@ class Lumi:
             return
         said = mouth.say_stream(itertools.chain([first] if first else [], gen), abort=self.speak_abort)
         log(f"lumi ({time.time() - t:.1f} s, voice after {mouth.last_voice - t:.1f} s): {said}")
+        if head_["action"] == "end" and fate == "close" and not kept_goodbye(said):
+            head_["action"] = "none"                       # "Okay, thanks." -> "You're welcome.": no goodbye said
         if head_["action"] in ("end", "go_to"):
             self.current, self.voice_until = None, 0.0     # stay quiet with this person until a new visit
         elif self.current is None:
@@ -2787,6 +2789,17 @@ def not_online(text):
     """Questions about Cutshion or this event / building: the notes say it or nobody does, never the internet."""
     return bool(COMPANY_Q.search(text) or VENUE_ONLY.search(text) or VENUE_Q.search(text) and not (OUTSIDE.search(text) or
                                                                                             OUTSIDE_NAME.search(text)))
+
+
+SAID_BYE = re.compile(r"\b(?:bye|goodbye|see you|take care|have a (?:good|nice|great|lovely) (?:day|one|time|visit)|enjoy (?:the|your)|"
+                      r"next time|come again|good luck)\b|안녕히|다음에|또 (?:봐|봬|만나|오세요|뵙)|좋은 하루|즐거운|조심히|들어가세요",
+                      re.I)   # Lumi's own words take leave
+
+
+def kept_goodbye(said):
+    """The model ended the talk on a closing word ("okay", "thanks"): only when its words said goodbye; "You're
+    welcome." alone keeps the talk open (silence then ends it)."""
+    return bool(SAID_BYE.search(said or ""))
 
 
 def lookup_refused(brain, target, about, text=""):

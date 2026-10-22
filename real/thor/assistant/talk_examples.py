@@ -828,7 +828,8 @@ _BANK = {
     "filler": {
         "en": [
             ("Hmm", "Take your time, I'm in no hurry."),
-            ("Okay", "Okay! Anything else?"),
+            ("Okay", "Good."),
+            ("Okay.", "Alright, glad that helped."),
             ("Ok", "Alright."),
             ("Umm", "No rush. I'm listening."),
             ("Uh huh", "Glad we agree."),

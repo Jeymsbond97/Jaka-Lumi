@@ -35,7 +35,7 @@ def route(lang, ctx, said):
     first = next(gen, "")
     secs = time.time() - t
     reply = " ".join([first] + list(gen))
-    if head["action"] == "end":
+    if head["action"] == "end" and (fate != "close" or lumi.kept_goodbye(reply)):   # as lumi.answer
         return "end", secs, reply
     return ("wait" if fate == "close" else "on"), secs, reply
 

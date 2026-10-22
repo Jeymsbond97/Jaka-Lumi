@@ -558,7 +558,7 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
             r"|\bfold (?:up )?your arm\b|\b(?:put|take) your arm (?:down|away|back)\b|\btuck your arm\b|팔을? ?(?:좀 )?(?:접|내려|거둬)"),
     ("lift", LIFT_WORDS),
     ("weather", r"\bweather\b|\bforecast\b|\b(will it|is it going to) rain\b|(?<!your )(?<!cpu )(?<!gpu )\btemperature\b(?!.*\b(your|you|cpu|gpu|battery|motor|body)\b)|날씨|비 ?(?:와|올|오나|온대)|기온"
-                r"|\b(cold|hot|warm|chilly) (outside|out)\b|\bumbrella\b(?=.*\?)|\b(?:need|bring|take)\b.*\bumbrella\b|우산(?=.*(?:\?|까|나요|니|냐))|밖에 ?(추|더)워"
+                r"|\b(?:going to|gonna) (?:rain|snow)\b|\b(cold|hot|warm|chilly) (outside|out)\b|\bumbrella\b(?=.*\?)|\b(?:need|bring|take)\b.*\bumbrella\b|우산(?=.*(?:\?|까|나요|니|냐))|밖에 ?(추|더)워"
                 r"|\bhow (hot|cold|warm) is it\b|\b(is it|will it be) (sunny|cloudy|windy|raining|snowing)\b|\bwill it snow\b"
                 r"|눈 ?(이 )?(와|올 ?까|오나|온대|오니)|(오늘|내일|밖|바깥)(은|에|이)? ?(덥|춥|더워|추워)"
                 r"|\b(coat|jacket) when i (leave|go out)\b|\bneed (a )?(jacket|coat)\b|\btyphoon\b|\b(foggy|humid|humidity)\b|\bis it windy\b"
@@ -575,6 +575,8 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
 ]
 SING_ECHO = re.compile(r"^\W*(?:(?:오+|아+|와|어|우와|oh+|ah+|ooh|wow|really)\W+)?(?:a\s+)?(?:노래|음악|songs?|singing|music)"
                        r"(?:요|이요|도)?\s*\?+\W*$", re.I)   # "오 노래?" after "I like singing": an echo, not a request
+SONG_TALK = re.compile(r"(?:무슨|어떤|뭔|어느)\s*(?:노래|곡)|노래\s*(?:를\s*)?(?:좋아|잘|싫어)|좋아하는\s*노래|"
+                       r"\b(?:like|love|enjoy|favou?rite)\b", re.I)   # asked about songs: answered as talk
 
 
 LATER = re.compile(r"^\s*(?:after|once|if|as soon as|before|unless|until)\b(?! (?:that|this|you (?:can|could|don'?t mind|would|"
@@ -601,7 +603,9 @@ ASIDE_EN = re.compile(r"^\W*(?i:(?:(?:hey|look|oh|wait|okay|ok|alright|now)\W+)?
                       r"Sure|Right|Hello|Come|Go|Then|And|But|Also|Here|There|Yeah|Nope|Cool|Nice|Maybe|Seoul|Korea|Um+|Uh+|Uhm|Er+m?|Hmm+|Ah+|Excuse|Actually|First|Just|Stop|Turn|Move|Take|Pick|Bring|Put|Give|Follow|Wave|Lift|Raise|Lower|Open|Close|Hold|Grab|Look|Let|Fine|Good|Great|Thank)\b)[A-Z][a-z]+, "
                       r"(?:come|look|see|check|watch|wait|stay|go|get|take a|it|this)\b")   # "Jake, come see this"
 ASIDE_KO = re.compile(r"^\W*(?:엄마|아빠|여보|자기야|오빠|언니|누나|형|얘들아|애들아|선생님|팀장님|부장님|과장님|대리님|사장님)(?:[\s,!~]|$)|"
-                      r"^\W*(?P<name>[가-힣]{2})(?P<v>아|야)[\s,!~]")
+                      r"^\W*(?P<name>[가-힣]{2})(?P<v>아|야)[\s,!~]|"
+                      r"(?:thank you|땡큐|고맙습니다|감사합니다|안녕하세요|인사)\s*(?:해야지|해|하세요|해 ?봐|드려야지|드려)[\s.!~]*$")
+                      # "thank you 해": a parent to a child
 NAME_END_A = set("민진현빈준윤연은인훈환석철영경정성혁원선린결율솔슬별곤완형명용웅숙옥란")   # last syllables of names (-아)
 NOT_NAME = {"루미", "아니", "그래", "진짜", "정말", "이거", "저거", "그거", "여기", "저기", "거기", "이쪽", "어서", "얼른", "제발", "그만", "뒤돌", "내려", "올려", "꺼내", "건네", "따라"}
 
@@ -675,8 +679,8 @@ def intent(text, markers=()):
             return ("weather", web.en_place(ko) if ko else "")
         if action == "search":
             return ("search", text)
-        if action == "sing" and SING_ECHO.match(text):
-            return None                                     # "오 노래?": asks back, the talk answers
+        if action == "sing" and (SING_ECHO.match(text) or SONG_TALK.search(text)):
+            return None                                     # "오 노래?", "노래 좋아해?": talk about songs, no song
         if action == "fetch":
             return ("fetch", text)                        # parse_fetch() reads the details
         if action == "spin":                              # all the way round: two checked half turns (lumi.move_by)

@@ -108,8 +108,8 @@ def llm_route(action, target, words, text, about, lang, repeating=False):
         return action, ""                                   # lumi.answer() closes the stream and looks it up
     if action == "unclear":
         return action, " ".join(words)
-    if action == "none" and lumi.talk_fate(text) == "close":   # "thanks" taken as heard: silence ends the talk
-        return "chat", " ".join(words)
+    if lumi.talk_fate(text) == "close" and (action == "none" or action == "end" and not lumi.kept_goodbye(" ".join(words))):
+        return "chat", " ".join(words)                      # "thanks" taken as heard: silence ends the talk
     if action in ("none", "sing") and not repeating and lumi.look_up_unsure(about, words[0] if words else "", text):
         return "search(unsure)", " ".join(words)
     return ("none" if action == "none" else f"action:{action} {target}".strip()), " ".join(words)

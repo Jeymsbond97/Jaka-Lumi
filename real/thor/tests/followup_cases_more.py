@@ -386,4 +386,8 @@ CASES_MORE = [
       "refused|llm", "the toilets of this building"),
     C([T("그럼 뭐 좋아해?", "저는 노래 부르는 걸 좋아해요.")], "오 노래?", "llm", "되묻는 말: 노래 시작 아님"),
     C([T("What do you like?", "I like singing.")], "Oh, a song?", "llm", "an echo, not a request"),
+    C([], "노래 좋아해?", "llm", "노래 얘기: 부르라는 말 아님"),
+    C([], "너 무슨 노래 부를 수 있어?", "llm|act:sing", "부를 수 있는 노래 목록 (lumi: 목록을 말함)"),
+    C([], "Hmm, I wonder if it's going to rain later.", "weather", "an indirect weather question"),
+    C([T("고마워 루미야", "천만에요!")], "thank you 해", "llm", "부모가 아이에게: 인사하라는 말, 끝 아님"),
 ]
