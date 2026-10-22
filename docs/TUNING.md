@@ -69,8 +69,10 @@ and `--start` for the detector. Line numbers may move; search the name.
 | `tasks/fetch.py` | `WIDTH_NEAR_MM` | 250 mm | A width further than this from the pick zone does not refuse a pick (far widths read ~8 mm too wide); measured again up close |
 | `manipulation/skills.py` | `MIN_WIDTH`, `MAX_WIDTH` | 61, 92 mm | Object widths the gripper takes (belly open 96, tips open 88 / close to 59; docs/gripper) |
 | `manipulation/skills.py` | `BELLY_MIN_MM` | 72 mm | Thinner objects are held between the finger tips (the belly closes only to 70 mm) |
-| `manipulation/skills.py` | `TIPS_GRASP_MM` | 0 mm | For those the arm stops this much higher (25 was too high: the tips closed above the cup) |
+| `manipulation/skills.py` | `TIPS_OFFSET` (`data/grasp_tips_teach.json` `tips_offset_flange`) | [−0.4, −4.6, 28.2] mm | For those the object's axis goes this far from the hooks' belly centre (flange frame, level, turned with the grasp): taught by the owner on a 66 mm can 2026-10-22 |
 | `manipulation/skills.py` | `TIP_CLEAR_MM`, `ROUND_BITE_MM` | 10, 10 mm | Round things (apple, orange, ball): the finger tips (`TIP_MM` 60, not measured) stay this far above the table; the grasp point at least this far below the top, else refused. Estimates |
+| `manipulation/skills.py` | `BELOW_SHOULDER_MM` | 80 mm | Bottles: the grasp point this far below where the body begins (the owner's taught tips grasp of a spray can, at its middle); the hand's lowest part (`TIP_MM` below) must stay `TIP_CLEAR_MM` above the table under it (`table_near`, else the bottle's lowest point seen) |
+| `vision/objects.py` | `SLICE_MM`, `BODY_PCT`, `BODY_FRACTION` | 10 mm, 75, 0.9 | A bottle's width profile (`objects.body`): slices this thick; its body as wide as this percentile of the slices; the body begins at the first slice from the top this much as wide (spray can: cap 43–53, body 58–61 seen) |
 | `manipulation/skills.py` | `GRASPS` | cup upright; apple, orange, sports ball round; the rest refused | Which classes are picked and how |
 | `tasks/fetch.py` | `PICK_TRIES` | 2 | A missed / slipped pick is tried this often |
 | `manipulation/skills.py` | `SEEN_UNDER_MM` | 8 mm | Added to the camera's width to get the width the fingers meet (`grip_width`), which the limits above are compared with |

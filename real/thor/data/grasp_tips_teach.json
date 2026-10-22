@@ -1,0 +1,35 @@
+{
+ "note": "tips grasp taught by the owner 2026-10-22 13:10: blue spray can (66 mm) between the finger tips, at its middle; owner's tape: finger plane 135 mm above the table (table seen at -396)",
+ "flange": [
+  53.537,
+  454.033,
+  -170.013,
+  81.572,
+  46.154,
+  -125.675
+ ],
+ "joints": [
+  -295.552,
+  -84.315,
+  -9.835,
+  -160.011,
+  62.563,
+  -259.164
+ ],
+ "can_seen": [
+  -186.0,
+  582.0
+ ],
+ "can_top": -152.0,
+ "table": -396.0,
+ "grasp_point_code": [
+  -163.2,
+  564.9,
+  -282.6
+ ],
+ "tips_offset_flange": [
+  -0.4,
+  -4.6,
+  28.2
+ ]
+}

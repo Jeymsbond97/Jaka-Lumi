@@ -1069,7 +1069,7 @@ assert moves == [[75.0, -15.0, *fetch.HEAD_AHEAD]], moves
 fetch.head.status, fetch.head.moveto = real_status, real_move
 
 # ---------- objects the fingers can't take: refused in words, before anything moves ----------
-assert "narrow" in fetch.validate({**ok, "object": "bottle"}, MARKERS)[0]
+assert "break" in fetch.validate({**ok, "object": "wine glass"}, MARKERS)[0]
 assert "thin" in fetch.validate({**ok, "object": "banana"}, MARKERS)[0]
 assert fetch.validate({**ok, "object": "giraffe"}, MARKERS)[0].startswith("Which object? I can pick up cup, apple")
 assert all(fetch.validate({**ok, "object": n}, MARKERS) == [] for n in fetch.PICKABLE)
@@ -1077,10 +1077,10 @@ assert fetch.describe({**ok, "object": "sports ball"}, "ko").startswith("p1 ìœ„ì
 reset()
 said.clear()
 try:                                         # steps.check refuses it before the mission starts (read-back included)
-    st = run(fetch.run_steps, [P(do="pick", object="bottle", colour=None)], say)
-    assert st["status"] == "failed" and "narrow" in said[-1], (st, said)
+    st = run(fetch.run_steps, [P(do="pick", object="wine glass", colour=None)], say)
+    assert st["status"] == "failed" and "break" in said[-1], (st, said)
 except fetch.FetchError as e:
-    assert "narrow" in str(e), e
+    assert "break" in str(e), e
 assert not any(c[0] in ("pick", "go_point", "find") for c in calls), calls
 
 # ---------- several of them: the chosen one out of reach (or the wrong size) -> another one here that is not ----------

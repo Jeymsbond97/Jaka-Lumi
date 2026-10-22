@@ -67,7 +67,7 @@ CASES = {
     "go to the middle and dance": "?",
     "if nobody is there, come back": "?",
     "go to the stage and if nobody is there, come back": "?",
-    "pick up the bottle and take it to the end": "?",
+    "pick up the bottle and take it to the end": "pick bottle | go end",
     "take the banana to the stage": "?",
     "move forward 5 meters and then turn left": "?",
     "go to the end and wait there for an hour": "?",
@@ -101,7 +101,7 @@ CASES = {
     "주방 갔다 와": "?",
     "스테이지 가서 손 흔들어": "?",
     "엔드 가서 춤춰": "?",
-    "병 들고 스테이지로 가": "?",
+    "병 들고 스테이지로 가": "pick bottle | go stage",
     # ---- Korean 해요체 ----
     "컵 들고 부스 투로 가서 제임스한테 줘요": "pick cup | go booth_2 | give 제임스",
     "스테이지로 가서 안녕하세요라고 말해 주세요": "go stage | say 안녕하세요",

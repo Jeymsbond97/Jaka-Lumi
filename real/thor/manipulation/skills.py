@@ -34,8 +34,13 @@ ROOT = Path(__file__).resolve().parents[1]      # the project folder
 TEACH = json.loads((ROOT / "data" / "grasp_teach.json").read_text())
 GRASP_RPY = TEACH["flange"][3:]                  # deg, flange orientation with the fingers around a cup
 GRASP_OFFSET = np.array(TEACH["tcp_offset_flange"])   # mm, cup axis 4 cm below the rim, in the flange frame
-FINGER_DIR = calib.rpy_matrix(*GRASP_RPY).T @ [0.0, 0.0, -1.0]   # along the fingers, flange frame (they point
-                                                 # straight down in the taught grasp)
+FINGER_DIR = calib.rpy_matrix(*GRASP_RPY).T @ [0.0, 0.0, -1.0]   # straight down in the taught grasp, flange frame:
+                                                 # the hand's lowest part is checked TIP_MM along it
+TIPS_TEACH = json.loads((ROOT / "data" / "grasp_tips_teach.json").read_text())
+TIPS_OFFSET = np.array(TIPS_TEACH["tips_offset_flange"])   # mm, flange frame: a thing held between the finger tips
+                                                 # has its axis this far from the grasp point (the hooks' belly
+                                                 # centre), almost along the flange z axis: the fingers lie level, the
+                                                 # hook ring goes down over the thing (taught on a 66 mm can 2026-10-22)
 GRASP_YAWS = (0, *(s * a for a in range(15, 180, 15) for s in (-1, 1)), 180)   # deg; the taught grasp turned about
                                                  # the vertical, every 15 deg all the way round, nearest the taught one
                                                  # first (the cup stays upright at every one)
@@ -47,24 +52,24 @@ HOME_POSE = "look"                               # empty hand: picks start here 
                                                  # (high, out of the torso camera's view; ready if not taught)
 PATH_POINTS = 11                                 # points checked (kine_forward) on a joint move
 PATH_SAG_MM = 20.0                               # a joint move may take the gripper at most this much below both ends
-TIP_MM = 60.0                                    # finger tips this far beyond the grasp point along the fingers
+TIP_MM = 60.0                                    # the hand's lowest part this far below the grasp point (estimate, kept
+                                                 # as a margin: the fingers lie level; the taught tips grasp had the
+                                                 # grasp point 113 mm above the table, owner's tape: finger plane 135)
 BELOW_RIM_MM = 40.0                              # grasp this far below the object's top
 ABOVE_MM = 100.0                                 # approach / retreat height over the grasp pose
 LIFT_MM = 30.0                                   # first lift after closing, then check the grip again
 MAX_TILT_DEG = 15.0                              # deg; a held cup's axis may lean this far from vertical on a joint
                                                  # move with it (place_options; tasks/fetch.py uses the same)
 PLACE_EXTRA_MM = 3.0                             # put down this much higher than it was picked (same table)
-MIN_WIDTH, MAX_WIDTH = 61.0, 92.0                # mm: the hooks' belly goes round the cup (open 96), the tips close to
-                                                 # 59 (docs/gripper). The tips open only to 88: cups over 84 are the
-                                                 # owner's call (2026-10-19), not tried live yet
+MIN_WIDTH, MAX_WIDTH = 72.0, 92.0                # mm: the hooks' belly goes round the cup (open 96, closed 70). The tips
+                                                 # grasp (61-72) missed twice live on a 66 mm can (2026-10-22): off by the
+                                                 # owner until it is checked; 61 brings it back. Over 84 is the owner's
+                                                 # call (2026-10-19), not tried live yet
 SEEN_UNDER_MM = 8.0                              # the camera's width is this much under the width the fingers meet
                                                  # (2026-10-19: 73 seen / 85 by tape, 81 seen / 85 by AI_1); the
                                                  # limits here are the fingers', compared with grip_width()
 BELLY_MIN_MM = 72.0                              # thinner is held between the finger tips: the belly closes only to 70
                                                  # (a 70 mm steel cup was missed there and knocked over, 2026-10-19)
-TIPS_GRASP_MM = 0.0                              # tips grasp: the arm stops this much higher (25 left the tips at the
-                                                 # rim of a 99 mm cup and they closed on nothing, 2026-10-19: same
-                                                 # height as the hooks grasp, the tips reach down the cup)
 FRAMES = 8                                       # camera frames looked at by find()
 FRAME_GAP_S = 0.2                                # s between them
 MIN_SEEN = 5                                     # an object must be in this many frames, at the same place
@@ -102,20 +107,26 @@ TIP_CLEAR_MM = 10.0                              # round things: the finger tips
                                                  # unmeasured estimate) stop at least this far above what it stands on
 ROUND_BITE_MM = 10.0                             # ... and the grasp point must stay at least this far below its top
                                                  # (estimate; neither tried live)
-UPRIGHT, ROUND = "upright", "round"              # how the cup fingers take a thing (GRASPS)
+BELOW_SHOULDER_MM = 80.0                         # bottles: grasp this far below where the body begins (objects.body):
+                                                 # the owner's taught tips grasp of a spray can, at its middle (2026-10-22,
+                                                 # grasp_tips_teach.json); the hand's lowest part (TIP_MM below) must
+                                                 # stay TIP_CLEAR_MM above the table (else its lowest point seen)
+UPRIGHT, ROUND, BODY = "upright", "round", "body"   # how the cup fingers take a thing (GRASPS)
 # Why a thing can't be picked, (English, Korean); {en} / {ko} = its name, {topic} = 은 / 는
-NARROW_TOP = ("The {en} is too narrow at the top for my fingers: they hold things 4 cm below the top.",
-              "{ko}{topic} 윗부분이 좁아서 제 손가락으로 잡을 수 없어요.")
 FRAGILE = ("I won't take the {en}: my hand closes too hard and it could break.", "{ko}{topic} 깨질 수 있어서 잡지 않을게요.")
 THIN = ("The {en} is too thin or flat for my fingers: they hold round things 6 to 9 cm wide.",
         "{ko}{topic} 너무 얇거나 납작해서 제 손가락으로 잡을 수 없어요.")
 SHALLOW = ("The {en} is too wide and shallow for my fingers.", "{ko}{topic} 너무 넓고 얕아서 잡을 수 없어요.")
 SOFT = ("The {en} is too soft: my hand would squeeze it flat.", "{ko}{topic} 너무 물렁해서 제 손이 눌러 버려요.")
 BIG = ("The {en} is too big for my hand.", "{ko}{topic} 제 손에 너무 커요.")
+SMALL = ("The {en} is too small for me to hold.", "{ko}{topic} 너무 작아서 잡을 수 없어요.")
+NO_BODY = ("I can't see the {en}'s body well enough to hold it.", "{ko}의 몸통이 잘 보이지 않아서 잡을 수 없어요.")
+SHORT_BODY = ("The {en}'s body is too short for my fingers: they would hit the table.",
+              "{ko}{topic} 몸통이 짧아서 제 손가락이 테이블에 닿아요.")
 GRASPS = {                                       # COCO class -> (Korean name, UPRIGHT / ROUND / why not) (docs/15 §10)
     "cup": ("컵", UPRIGHT),                      # the taught grasp 40 mm below the top; proven on cups 84-85 mm
     "apple": ("사과", ROUND), "orange": ("오렌지", ROUND), "sports ball": ("공", ROUND),   # at the equator: not live yet
-    "bottle": ("병", NARROW_TOP),                # 40 mm below the top is its neck: the fingers close on nothing
+    "bottle": ("병", BODY),                      # by the body below the neck (objects.body): not live yet
     "wine glass": ("와인잔", FRAGILE), "vase": ("꽃병", FRAGILE),    # level 1 is still ~90 N (docs/10)
     "bowl": ("그릇", SHALLOW),                   # a steel bowl was missed / knocked over (2026-10-19)
     "banana": ("바나나", THIN), "carrot": ("당근", THIN), "cell phone": ("휴대폰", THIN), "remote": ("리모컨", THIN),
@@ -191,8 +202,11 @@ def look(frames=FRAMES, ignore=IGNORE):
     camview.want(objects.CAMERA)
     fresh(camview.det_path(objects.CAMERA), objects.CAMERA)
     groups, live = [], 0
+    intr, T = camview.intrinsics(objects.CAMERA), objects.base_from_camera()
     for i in range(frames):
         d = objects.latest()
+        depth = camview.depth(objects.CAMERA) if any(GRASPS.get(o["name"], (None, None))[1] == BODY
+                                                     for o in d["objects"]) else None
         if d["age_s"] is not None and d["age_s"] < objects.STALE_S:
             live += 1
             for o in d["objects"]:
@@ -202,6 +216,8 @@ def look(frames=FRAMES, ignore=IGNORE):
                 g = next((g for g in groups if np.hypot(x - g[0]["x"], y - g[0]["y"]) < CLUSTER_MM), None)
                 row = {"name": o["name"], "colour": o.get("colour"), "x": x, "y": y, "top_mm": o.get("top_mm"),
                        "width_mm": o.get("width_mm"), "height_mm": o.get("height_mm")}
+                if GRASPS.get(o["name"], (None, None))[1] == BODY and depth is not None:
+                    row.update(objects.body(depth, o["box"], intr, T) or {})
                 if g:
                     g.append(row)
                 else:
@@ -214,11 +230,14 @@ def look(frames=FRAMES, ignore=IGNORE):
     for g in groups:
         name = statistics.mode(r["name"] for r in g)
         rows = [r for r in g if r["name"] == name]
-        med = {k: statistics.median(r[k] for r in rows if r[k] is not None) if any(r[k] is not None for r in rows)
-               else None for k in ("x", "y", "top_mm", "width_mm", "height_mm")}
+        med = {k: statistics.median(r[k] for r in rows if r.get(k) is not None)
+               if any(r.get(k) is not None for r in rows) else None
+               for k in ("x", "y", "top_mm", "width_mm", "height_mm", "shoulder_mm", "body_mm", "low_mm")}
         spread = max(np.hypot(r["x"] - med["x"], r["y"] - med["y"]) for r in rows)
         out.append({"name": name, "colour": statistics.mode(r["colour"] for r in rows), **med, "seen": len(rows),
                     "spread": round(float(spread), 1), "names": sorted({r["name"] for r in g})})   # every label there
+        if med["shoulder_mm"] is not None:            # a bottle: the table under it (its bottom is often out of view)
+            out[-1]["table_mm"] = table_near(out[-1])
     return sorted(out, key=lambda o: np.hypot(o["x"], o["y"]))
 
 
@@ -248,14 +267,14 @@ def rpy_of(R):
 
 
 def flange_for(x, y, z, yaw=0.0, tips=False):
-    """Flange pose that puts the taught grasp point (`tips`: the point between the finger tips) at (x, y, z) mm, the
-    taught orientation turned by `yaw` deg about the vertical."""
+    """Flange pose that puts the taught grasp point (`tips`: the point between the finger tips, TIPS_OFFSET from it)
+    at (x, y, z) mm, the taught orientation turned by `yaw` deg about the vertical."""
     if not yaw:
         R, rpy = calib.rpy_matrix(*GRASP_RPY), list(GRASP_RPY)
     else:
         R = _rz(yaw) @ calib.rpy_matrix(*GRASP_RPY)
         rpy = rpy_of(R)
-    f = np.array([x, y, z]) - R @ (GRASP_OFFSET + (TIPS_GRASP_MM * FINGER_DIR if tips else 0.0))
+    f = np.array([x, y, z]) - R @ (GRASP_OFFSET + (TIPS_OFFSET if tips else 0.0))
     return [float(v) for v in f] + rpy
 
 
@@ -270,25 +289,44 @@ def up(pose, dz):
 
 
 def grip_width(obj):
-    """mm the fingers will meet: the camera's width plus SEEN_UNDER_MM (None when not measured)."""
-    return None if obj.get("width_mm") is None else obj["width_mm"] + SEEN_UNDER_MM
+    """mm the fingers will meet: the camera's width (a bottle's: its body's) plus SEEN_UNDER_MM (None when not
+    measured). A 66 mm spray can's body read 58-60 (2026-10-22)."""
+    w = obj.get("body_mm") if obj.get("body_mm") is not None else obj.get("width_mm")
+    return None if w is None else w + SEEN_UNDER_MM
+
+
+def reason(why, name):
+    """(English, Korean) of a reason (NO_BODY, BIG, ...) about a `name`."""
+    ko = GRASPS.get(name, ("그건", None))[0]
+    topic = "은" if "가" <= ko[-1] <= "힣" and (ord(ko[-1]) - 0xAC00) % 28 else "는"
+    return why[0].format(en=name), why[1].format(ko=ko, topic=topic)
 
 
 def refusal(name):
     """(English, Korean) reason why the cup fingers can't pick a `name` (GRASPS), None when they can."""
-    ko, how = GRASPS.get(name, ("그건", None))
-    if how in (UPRIGHT, ROUND):
+    how = GRASPS.get(name, (None, None))[1]
+    if how in (UPRIGHT, ROUND, BODY):
         return None
-    en, k = how or ("I can't pick up a {en}.", "{ko} 잡을 수 없어요.")
-    topic = "은" if "가" <= ko[-1] <= "힣" and (ord(ko[-1]) - 0xAC00) % 28 else "는"
-    return en.format(en=name), k.format(ko=ko, topic=topic)
+    return reason(how or ("I can't pick up a {en}.", "{ko} 잡을 수 없어요."), name)
 
 
 def grasp_height(obj):
     """z (mm) of the grasp point for `obj`: BELOW_RIM_MM under the top of an upright thing (the proven cup grasp); the
     equator of a round one (a ball is as tall as it is wide), raised until the finger tips stay TIP_CLEAR_MM above
-    what it stands on. SkillError when that leaves less than ROUND_BITE_MM of it above the grasp point."""
-    if GRASPS.get(obj["name"], (None, UPRIGHT))[1] != ROUND:
+    what it stands on. SkillError when that leaves less than ROUND_BITE_MM of it above the grasp point. A bottle:
+    BELOW_SHOULDER_MM under where its body begins, refused when the hand's lowest part (TIP_MM below) would come
+    nearer than TIP_CLEAR_MM to the table under it (table_mm), or when that was not measured, to its lowest point
+    seen."""
+    how = GRASPS.get(obj["name"], (None, UPRIGHT))[1]
+    if how == BODY:
+        if obj.get("shoulder_mm") is None or obj.get("low_mm") is None:
+            raise SkillError(*reason(NO_BODY, obj["name"]))
+        z = obj["shoulder_mm"] - BELOW_SHOULDER_MM
+        floor = obj["low_mm"] if obj.get("table_mm") is None else obj["table_mm"]
+        if z - TIP_MM < floor + TIP_CLEAR_MM:
+            raise SkillError(*reason(SHORT_BODY, obj["name"]))
+        return z
+    if how != ROUND:
         return obj["top_mm"] - BELOW_RIM_MM
     tall = obj.get("height_mm") or grip_width(obj)
     bottom = obj["top_mm"] - tall
@@ -306,11 +344,18 @@ def plan_pick(obj, yaw=0.0):
         raise SkillError(*no)
     w = grip_width(obj)
     if w is None or w > MAX_WIDTH:
-        raise SkillError(f"The {obj['name']} is too big for my hand.")
+        raise SkillError(*reason(BIG, obj["name"]))
     if w < MIN_WIDTH:
-        raise SkillError(f"The {obj['name']} is too small for me to hold.")
-    grasp = flange_for(obj["x"], obj["y"], grasp_height(obj), yaw, tips=w < BELLY_MIN_MM)
-    return [("above", up(grasp, ABOVE_MM)), ("grasp", grasp), ("lift", up(grasp, LIFT_MM))]
+        raise SkillError(*reason(SMALL, obj["name"]))
+    z = grasp_height(obj)
+    grasp = flange_for(obj["x"], obj["y"], z, yaw, tips=w < BELLY_MIN_MM)
+    return [("above", up(grasp, clear_above(obj["top_mm"] - z))), ("grasp", grasp), ("lift", up(grasp, LIFT_MM))]
+
+
+def clear_above(below):
+    """How far above the grasp pose the hand comes down from and goes back up to, the object's top `below` mm over
+    the grasp point: ABOVE_MM, more when the finger tips would still be beside it (a bottle's neck)."""
+    return max(ABOVE_MM, below + TIP_MM)
 
 
 def plan_place(x, y, top_mm, start=None, yaw=0.0, tips=None, below=None):
@@ -321,7 +366,7 @@ def plan_place(x, y, top_mm, start=None, yaw=0.0, tips=None, below=None):
     below = _held.get("below", BELOW_RIM_MM) if below is None else below
     down = up(flange_for(x, y, top_mm - below, yaw, tips), PLACE_EXTRA_MM)
     steps = [("carry", [start[0], start[1], down[2] - PLACE_EXTRA_MM + ABOVE_MM] + list(start[3:]))] if start else []
-    return steps + [("above place", up(down, ABOVE_MM)), ("place", down), ("release up", up(down, ABOVE_MM))]
+    return steps + [("above place", up(down, ABOVE_MM)), ("place", down), ("release up", up(down, clear_above(below)))]
 
 
 def spots(pick_xy, others):
@@ -739,7 +784,9 @@ def _give_up(reason):
 def _do_pick(obj, waypoints, ja):
     """Pick with the planned joints `ja` above the object (pick_options)."""
     above, grasp, lift = (p for _, p in waypoints)
-    table = table_z(obj) if table_z(obj) is not None else table_near(obj)   # what put down needs: the object's height
+    table = obj.get("table_mm")                                      # a bottle's: look() measured it
+    if table is None:
+        table = table_z(obj) if table_z(obj) is not None else table_near(obj)   # what put down needs: the object's height
     log(f"it stands on a table at {table:.0f} mm" if table is not None else "the table under it is not in view")
     _prepare()
     _go_on()

@@ -37,19 +37,19 @@ for bad in (88, 30, 50):                      # seen widths: +SEEN_UNDER_MM over
 # ---------- the object table: what the cup fingers take, and why not ----------
 for name in ("cup", "apple", "orange", "sports ball"):
     assert skills.refusal(name) is None, name
-for name, word in (("bottle", "narrow"), ("wine glass", "break"), ("banana", "thin"), ("cell phone", "thin"),
+for name, word in (("wine glass", "break"), ("banana", "thin"), ("cell phone", "thin"),
                    ("book", "flat"), ("bowl", "shallow"), ("sandwich", "soft"), ("laptop", "big")):
     en, ko = skills.refusal(name)
     assert word in en and name in en and ko, (name, en, ko)
-assert skills.refusal("bottle")[1] == "병은 윗부분이 좁아서 제 손가락으로 잡을 수 없어요."           # 은 after a final consonant
+assert skills.refusal("vase")[1] == "꽃병은 깨질 수 있어서 잡지 않을게요."                       # 은 after a final consonant
 assert skills.refusal("banana")[1].startswith("바나나는 ")
 assert "giraffe" in skills.refusal("giraffe")[0]                                       # not in the table at all
 assert all(n in skills.objects.COCO for n in skills.GRASPS), [n for n in skills.GRASPS if n not in skills.objects.COCO]
 try:                                                                                   # refused before any geometry
-    skills.plan_pick({**cup, "name": "bottle"})
-    raise AssertionError("a bottle planned")
+    skills.plan_pick({**cup, "name": "wine glass"})
+    raise AssertionError("a wine glass planned")
 except skills.SkillError as e:
-    assert e.args == skills.refusal("bottle")
+    assert e.args == skills.refusal("wine glass")
 # a cup: the proven grasp, 40 mm below its top, whatever its height
 assert skills.grasp_height(cup) == cup["top_mm"] - skills.BELOW_RIM_MM
 assert skills.grasp_height({**cup, "height_mm": 80.0}) == cup["top_mm"] - skills.BELOW_RIM_MM
@@ -134,17 +134,33 @@ assert skills.hand_sees() == "unknown"
 assert len(skills.GRASP_YAWS) == 24 and set(skills.GRASP_YAWS) == set(range(-165, 181, 15))
 print("skills ok")
 
-# ---------- the fingers point straight down in the grasp (the tips: TIP_MM along them, below the grasp point)
+# ---------- FINGER_DIR is straight down in the grasp (the hand's lowest part: TIP_MM along it, below the grasp point)
 assert abs(np.linalg.norm(skills.FINGER_DIR) - 1.0) < 1e-9 and \
     (calib.rpy_matrix(*skills.GRASP_RPY) @ skills.FINGER_DIR)[2] < -0.99
-# a cup thinner than the belly closes to is held between the tips: the arm stops TIPS_GRASP_MM higher
+# the tips grasp is off (MIN_WIDTH 72, 2026-10-22): a 66 mm cup is refused; the checks below turn it back on
+try:
+    skills.plan_pick({**cup, "width_mm": 58.0})
+    raise AssertionError("66 mm cup planned with the tips grasp off")
+except skills.SkillError as e:
+    assert "too small" in e.args[0]
+skills.MIN_WIDTH = 61.0
+# a cup thinner than the belly closes to is held between the tips: its axis at the tips (TIPS_OFFSET from the
+# belly's centre, level, almost along the flange z axis), at every grasp turn
 thin = {**cup, "width_mm": 58.0}                                            # 66 mm at the fingers
-g_belly, g_tips = skills.plan_pick(cup)[1][1], skills.plan_pick(thin)[1][1]
-assert abs(g_tips[2] - g_belly[2] - skills.TIPS_GRASP_MM) < 1.0 and np.allclose(g_tips[:2], g_belly[:2], atol=1.0)
+for yaw in (0, -45, 90):
+    g_belly, g_tips = skills.plan_pick(cup, yaw)[1][1], skills.plan_pick(thin, yaw)[1][1]
+    Ry = calib.rpy_matrix(*g_tips[3:])
+    assert np.allclose(np.array(g_tips[:3]) + Ry @ (skills.GRASP_OFFSET + skills.TIPS_OFFSET), g, atol=1e-6)
+    shift = np.subtract(g_belly[:3], g_tips[:3])
+    assert 25 < np.hypot(*shift[:2]) < 32 and abs(shift[2]) < 3, (yaw, shift)            # 28 mm, level
 skills._held.update(tips=True)
 d = skills.plan_place(-200, 600, thin["top_mm"])[1][1]                         # put down held the same way
-assert abs(d[2] - skills.plan_place(-200, 600, thin["top_mm"], tips=False)[1][1][2] - skills.TIPS_GRASP_MM) < 1.0
+assert np.allclose(np.array(d[:3]) + R @ (skills.GRASP_OFFSET + skills.TIPS_OFFSET), [-200, 600, g[2] + 3])
 skills._held.clear()
+# the owner's taught tips grasp of the spray can (grasp_tips_teach.json): the same flange within a few mm, 2 deg
+t = skills.TIPS_TEACH
+f = skills.flange_for(*t["can_seen"], t["grasp_point_code"][2], skills.yaw_of(t["flange"]), tips=True)
+assert np.linalg.norm(np.subtract(f[:3], t["flange"][:3])) < 10, f
 
 # ---------- frames after a move: wait for one written after it ended, never longer than FRESH_WAIT_S ----------
 import tempfile
@@ -214,3 +230,81 @@ assert skills.place(-200.0, 600.0) == (-200.0, 600.0)
 assert lines_ == ["carry"] and turned[0][1][4] < 0 and abs(round(skills.yaw_of(turned[0][0][1][1]))) == 45, turned
 skills._held.clear()
 print("skills pick stores ok")
+
+# ---------- a bottle: held by its body, under where the neck widens (objects.body on a depth profile) ----------
+H_CAM, D_CAM = -100.0, 600.0                     # camera 300 mm above a table at z -400, the bottle's axis 600 mm ahead
+T_CAM = np.eye(4)
+T_CAM[:3, :3], T_CAM[:3, 3] = [[1, 0, 0], [0, 0, 1], [0, -1, 0]], [0.0, 0.0, H_CAM]   # looking along y, level
+INTR = {"fx": 600.0, "fy": 600.0, "cx": 320.0, "cy": 100.0, "dist": [0.0] * 5}
+BOX = (250, 120, 390, 420)
+
+
+def depth_of(radius):
+    """A level depth camera's frame of an upright round thing on a table at z -400: radius(z) mm, 0 = nothing."""
+    d = np.zeros((480, 640), np.uint16)
+    u, v = np.meshgrid(np.arange(BOX[0], BOX[2]), np.arange(BOX[1], BOX[3]))
+    xn, yn = (u - INTR["cx"]) / INTR["fx"], (v - INTR["cy"]) / INTR["fy"]
+    for t in np.arange(D_CAM - 60.0, D_CAM, 0.5)[::-1]:            # far to near: the nearest surface stays
+        z = H_CAM - t * yn
+        r = np.vectorize(radius)(z)
+        hit = (t * xn) ** 2 + (t - D_CAM) ** 2 <= r ** 2
+        d[v[hit], u[hit]] = round(t)
+    return d
+
+
+def bottle_r(body, shoulder=-230.0, neck=14.0, top=-150.0):
+    """A bottle: body radius up to `shoulder`, a 30 mm shoulder narrowing to the neck, the neck up to `top`."""
+    return lambda z: 0.0 if z < -400 or z > top else body if z <= shoulder else \
+        neck if z >= shoulder + 30 else body + (neck - body) * (z - shoulder) / 30
+
+
+from vision import objects
+prof = objects.body(depth_of(bottle_r(33.0)), BOX, INTR, T_CAM)                 # 66 mm body, 28 mm neck
+assert -232 <= prof["shoulder_mm"] <= -212 and 60 <= prof["body_mm"] <= 67 and prof["low_mm"] < -390, prof
+cup_prof = objects.body(depth_of(lambda z: 0.0 if z < -400 or z > -305 else 40.0 - (-305 - z) * 0.05), BOX, INTR, T_CAM)
+assert cup_prof["shoulder_mm"] >= -320, cup_prof                               # a cup: widest at its top, no neck
+
+skills._held.clear()
+bottle = {"name": "bottle", "colour": "blue", "x": -195.0, "y": 600.0, "top_mm": -150.0, "width_mm": 63.0,
+          "height_mm": None, "shoulder_mm": -203.0, "body_mm": 58.0, "low_mm": -365.0}      # the spray can 2026-10-22
+assert skills.refusal("bottle") is None and skills.grip_width(bottle) == 66.0             # its body, not the mid band
+z = skills.grasp_height(bottle)
+assert z == -203.0 - skills.BELOW_SHOULDER_MM and z - skills.TIP_MM >= bottle["low_mm"] + skills.TIP_CLEAR_MM
+(_, b_above), (_, b_grasp), (_, b_lift) = skills.plan_pick(bottle)
+assert np.allclose(np.array(b_grasp[:3]) + R @ (skills.GRASP_OFFSET + skills.TIPS_OFFSET), [bottle["x"], bottle["y"], z])
+assert np.isclose(b_above[2] - b_grasp[2], bottle["top_mm"] - z + skills.TIP_MM)   # tips come down from over its top
+assert np.isclose(b_lift[2] - b_grasp[2], skills.LIFT_MM)
+assert skills.grip_width(bottle) < skills.BELLY_MIN_MM < skills.grip_width({**bottle, "body_mm": 70.0})   # tips / belly
+way = dict(skills.plan_place(-130, 600, bottle["top_mm"], below=bottle["top_mm"] - z))
+assert np.isclose(way["release up"][2] - way["place"][2], bottle["top_mm"] - z + skills.TIP_MM)   # up over its top
+assert np.isclose(way["above place"][2] - way["place"][2], skills.ABOVE_MM)
+cup_way = dict(skills.plan_place(-130, 600, cup["top_mm"], below=skills.BELOW_RIM_MM))          # a cup: as before
+assert np.isclose(cup_way["release up"][2] - cup_way["place"][2], skills.ABOVE_MM)
+assert skills.grasp_height({**bottle, "low_mm": -300.0, "table_mm": -396.0}) == z    # bottom out of view: the table
+for bad, words in (({"body_mm": 50.0}, ("too small", "작아서")),
+                   ({"low_mm": -300.0}, ("hit the table", "테이블에 닿아요")),    # ... not measured: its lowest point                  # a too narrow body: 58 at the fingers
+                   ({"body_mm": 90.0}, ("too big", "너무 커요")),
+                   ({"shoulder_mm": -280.0}, ("hit the table", "테이블에 닿아요")),   # the tips would reach the table
+                   ({"shoulder_mm": None}, ("body well enough", "몸통이 잘"))):
+    try:
+        skills.plan_pick({**bottle, **bad})
+        raise AssertionError(f"bottle {bad} planned")
+    except skills.SkillError as e:
+        assert words[0] in e.args[0] and words[1] in e.args[1] and e.args[1].startswith("병"), (bad, e.args)
+
+# look(): the profile of each frame's bottle box, medians of them; nothing for a cup
+frames_ = [{"age_s": 0.1, "objects": [{"name": "bottle", "box": BOX, "colour": "blue", "position_mm": [-195, 600, -280],
+                                       "top_mm": -150, "width_mm": 63, "height_mm": 250},
+                                      {"name": "cup", "box": BOX, "colour": "white", "position_mm": [0, 600, -350],
+                                       "top_mm": -310, "width_mm": 76, "height_mm": 90}]}] * 2
+skills.camview.want = lambda name: None
+skills.fresh = lambda path, camera, after=0.0: None
+skills.objects.latest = lambda camera=objects.CAMERA: frames_[0]
+skills.camview.depth = lambda name, max_age=1.0: depth_of(bottle_r(33.0))
+skills.camview.intrinsics = lambda name: INTR
+skills.objects.base_from_camera = lambda: T_CAM
+skills.FRAME_GAP_S = 0.0
+got = {o["name"]: o for o in skills.look(frames=2)}
+assert got["bottle"]["shoulder_mm"] == prof["shoulder_mm"] and got["bottle"]["body_mm"] == prof["body_mm"], got
+assert got["cup"]["shoulder_mm"] is None and got["cup"]["body_mm"] is None
+print("skills bottle ok")

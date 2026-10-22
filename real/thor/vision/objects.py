@@ -38,6 +38,13 @@ WEAK = {"cup": ((40, 110), (50, 250))}   # name -> (width, height) mm ranges
 WIDEST = {"cup": 100}        # mm; a box measured wider is something else: a white plant pot read "cup" at 110 mm
                              # (2026-10-20); the widest cup the gripper takes reads ~84
 
+SLICE_MM = 10.0              # body(): a bottle's width is measured in height slices this thick
+SLICE_MIN_POINTS = 20        # ... a slice with fewer depth points is left out
+BODY_PCT = 75                # ... its body is as wide as this percentile of the slices' widths (the neck and the cap
+                             # are the narrow minority; the table's edge in the bottom slice the wide one)
+BODY_FRACTION = 0.9          # ... and begins at the first slice from the top this much as wide (a 66 mm spray can,
+                             # 2026-10-22: cap 43-53, body 58-63 seen)
+
 COCO = ("person bicycle car motorcycle airplane bus train truck boat traffic_light fire_hydrant stop_sign "
         "parking_meter bench bird cat dog horse sheep cow elephant bear zebra giraffe backpack umbrella handbag tie "
         "suitcase frisbee skis snowboard sports_ball kite baseball_bat baseball_glove skateboard surfboard "
@@ -89,24 +96,22 @@ def colour_name(bgr_pixels):
     return next(name for top, name in HUES if h < top)
 
 
-def measure(color, depth, box, intr, T, round_=False):
-    """3D facts of one box: colour, distance (m), centre, top, width, height (mm, arm base frame)."""
+def points(depth, box, intr, T):
+    """The depth pixels of the thing in `box` (within FG_MM of its core's depth): (core depth mm, their mask in the
+    box, (3, N) points mm in the arm base frame or None when too few / no calibration); (None, None, None) when the
+    box's core has too little depth."""
     x1, y1, x2, y2 = box
     d = depth[y1:y2, x1:x2]
-    out = {"colour": colour_name(color[y1:y2, x1:x2].reshape(-1, 3)), "distance_m": None, "position_mm": None,
-           "top_mm": None, "width_mm": None, "height_mm": None}
     h, w = d.shape
     core = d[h // 4:3 * h // 4, w // 4:3 * w // 4]
     core = core[core > 0]
     if core.size < MIN_POINTS:
-        return out
+        return None, None, None
     dc = float(np.median(core))
     mask = (d > 0) & (np.abs(d - dc) < FG_MM)
     vs, us = np.nonzero(mask)
-    out["colour"] = colour_name(color[y1:y2, x1:x2][mask])
-    out["distance_m"] = round(dc / 1000, 3)
     if len(vs) < MIN_POINTS or T is None or intr is None:
-        return out
+        return dc, mask, None
     if len(vs) > MAX_POINTS:
         pick = np.random.default_rng(0).choice(len(vs), MAX_POINTS, replace=False)
         vs, us = vs[pick], us[pick]
@@ -114,7 +119,21 @@ def measure(color, depth, box, intr, T, round_=False):
     K = np.array([[intr["fx"], 0, intr["cx"]], [0, intr["fy"], intr["cy"]], [0, 0, 1]])
     px = np.stack([us + x1, vs + y1], axis=1).astype(np.float64).reshape(-1, 1, 2)
     n = cv2.undistortPoints(px, K, np.array(intr["dist"])).reshape(-1, 2)
-    P = T[:3, :3] @ np.stack([n[:, 0] * z, n[:, 1] * z, z]) + T[:3, 3:4]    # (3, N) in the arm base frame
+    return dc, mask, T[:3, :3] @ np.stack([n[:, 0] * z, n[:, 1] * z, z]) + T[:3, 3:4]
+
+
+def measure(color, depth, box, intr, T, round_=False):
+    """3D facts of one box: colour, distance (m), centre, top, width, height (mm, arm base frame)."""
+    x1, y1, x2, y2 = box
+    out = {"colour": colour_name(color[y1:y2, x1:x2].reshape(-1, 3)), "distance_m": None, "position_mm": None,
+           "top_mm": None, "width_mm": None, "height_mm": None}
+    dc, mask, P = points(depth, box, intr, T)
+    if dc is None:
+        return out
+    out["colour"] = colour_name(color[y1:y2, x1:x2][mask])
+    out["distance_m"] = round(dc / 1000, 3)
+    if P is None:
+        return out
     bottom, top = np.percentile(P[2], EDGE_PCT)
     band = (P[2] > bottom + MID_BAND[0] * (top - bottom)) & (P[2] < bottom + MID_BAND[1] * (top - bottom))
     mid = P[:, band] if band.sum() >= MIN_POINTS // 2 else P
@@ -129,6 +148,31 @@ def measure(color, depth, box, intr, T, round_=False):
     out.update(position_mm=[round(float(v)) for v in centre], top_mm=round(float(top)), width_mm=round(width),
                height_mm=round(float(top - bottom)))
     return out
+
+
+def body(depth, box, intr, T):
+    """Width profile of an upright bottle in `box`, cut in SLICE_MM height slices: {"shoulder_mm": where its body
+    begins (the top of the first slice from the top down at least BODY_FRACTION as wide as the body), "body_mm": the
+    body's width (median of the slices below that), "low_mm": its lowest point seen}, mm in the arm base frame; None
+    when not measured. Seen widths, as width_mm."""
+    P = points(depth, box, intr, T)[2]
+    if P is None:
+        return None
+    sight = np.median(P[:2], axis=1) - T[:2, 3]
+    sight /= np.linalg.norm(sight) or 1.0
+    across = P[:2].T @ np.array([-sight[1], sight[0]])
+    low, top = np.percentile(P[2], EDGE_PCT)
+    slices = []                                       # (top z of the slice, width), from the top down
+    for z in np.arange(top, low, -SLICE_MM):
+        a = across[(P[2] <= z) & (P[2] > z - SLICE_MM)]
+        if len(a) >= SLICE_MIN_POINTS:
+            slices.append((float(z), float(np.subtract(*np.percentile(a, EDGE_PCT[::-1])))))
+    if not slices:
+        return None
+    wide = BODY_FRACTION * np.percentile([w for _, w in slices], BODY_PCT)
+    i = next(i for i, (_, w) in enumerate(slices) if w >= wide)
+    return {"shoulder_mm": round(slices[i][0]), "body_mm": round(float(np.median([w for _, w in slices[i:]]))),
+            "low_mm": round(float(low))}
 
 
 def measure_all(color, depth, boxes, intr=None, T=None):
