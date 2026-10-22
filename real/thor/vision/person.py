@@ -55,7 +55,8 @@ REBOOT_IF_STUCK_AGAIN_S = 15.0   # s; stuck again this soon after a reopen -> re
 REBOOT_WAIT_S = 6.0          # s for a rebooted camera to come back on USB
 MAX_REBOOTS_10MIN = 3        # more than this -> the camera rests UNSTABLE_PAUSE_S before trying again
 UNSTABLE_PAUSE_S = 60.0
-HEAD_POLL_S = 0.2            # s between head yaw reads (head camera only)
+HEAD_POLL_S = 0.1            # s between head yaw reads (head camera only; a status read takes ~5 ms). A turning head
+                             # (follow, ~40 deg/s estimated) moves ~4 deg in this time: a person's angle is off by up to that
 
 
 def _profile(pipeline, sensor, mode):

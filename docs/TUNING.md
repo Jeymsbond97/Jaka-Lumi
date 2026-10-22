@@ -46,13 +46,18 @@ and `--start` for the detector. Line numbers may move; search the name.
 | `tasks/fetch.py` | `SELF_MM` | 120 mm | Depth this near the arm's own points is the arm itself in the camera's view (turn check) |
 | `tasks/fetch.py` | `ARM_CLEAR_M`, `SWEEP_STEP_DEG` | 0.10 m, 10° | Before turning on the spot: flange, grasp point and finger tips must stay this far from anything the lidar / map shows, checked every this many degrees |
 | `tasks/fetch.py:90–91` | `STUCK_S`, `STUCK_M` | 30 s, 0.1 m | A navigation drive that has not moved this far in this time is cancelled |
-| `tasks/follow.py` | `FOLLOW_GAP_M` | 1.0 m | "Follow me": camera distance kept to the person; nearer, the base stands still |
-| `tasks/follow.py` | `FOLLOW_MAX_MS`, `SPEED_GAIN`, `ACCEL_MS2` | 0.15 m/s, 0.8 /s, 0.4 m/s² | Follow speed cap (estimate), m/s per m beyond the gap, speed-up limit |
-| `tasks/follow.py` | `TURN_GAIN`, `TURN_MAX_RS`, `TURN_DEAD_DEG`, `TURN_ONLY_DEG` | 1.0, 0.5 rad/s, 5°, 30° | Turning toward the person: gain, cap, no turn within, no forward beyond (turn first) |
-| `tasks/follow.py` | `STALE_S`, `LOST_S` | 0.5 s, 2 s | No fresh sighting: stand still; none for this long: "I lost you" |
-| `tasks/follow.py` | `RELOCK_DEG`, `RELOCK_M` | 25°, 0.8 m | A lost track is swapped for a fresh one this near the person's last angle and distance (estimates) |
-| `tasks/follow.py` | `HEAD_YAW_MAX`, `HEAD_PITCH`, `HEAD_STEP_DEG`, `HEAD_VEL` | 90°, 10°, 5°, 50 % | Head turned toward the person while following: yaw limit, fixed pitch, smallest move, speed |
-| `tasks/follow.py` | `BRAKE_S` | 0.5 s | Each follow command is checked where the base (`BASE_HALF_M + CLEAR_M`) and the arm (`ARM_CLEAR_M`) would be this much later |
+| `tasks/follow.py` | `FOLLOW_GAP_M`, `NEAR_STOP_M` | 1.0 m, 0.8 m | "Follow me": camera distance kept to the person (nearer: no forward); nearer than `NEAR_STOP_M` no turn either (estimate) |
+| `tasks/follow.py` | `FOLLOW_MAX_MS`, `SPEED_GAIN` | 0.5 m/s, 0.8 /s | Follow speed cap (joy_control's own clamp, docs/05; lower it for a first slow run); speed = their walking speed + this per m beyond the gap |
+| `tasks/follow.py` | `ACCEL_MS2`, `DECEL_MS2` | 0.5, 0.8 m/s² | Speeding up / slowing down limits (estimates); never faster than lets the base stop at the gap with `DECEL_MS2` |
+| `tasks/follow.py` | `TURN_GAIN`, `TURN_MAX_RS`, `TURN_ACCEL_RS2`, `TURN_DEAD_DEG`, `TURN_ONLY_DEG` | 1.5, 0.6 rad/s, 2.0 rad/s², 5°, 35° | Turning toward the person: gain, cap, change limit, no turn within, no forward beyond (turn first) |
+| `tasks/follow.py` | `STALE_S`, `COAST_S`, `LOST_S` | 0.4 s, 1.0 s, 3 s | A sighting older than `STALE_S` is not new; unseen, the base drives on toward where they should be for `COAST_S`, then slows; "I lost you" after `LOST_S` |
+| `tasks/follow.py` | `VEL_TAU_S`, `WALK_MAX_MS` | 0.5 s, 2 m/s | Walking-velocity filter time constant; faster estimates are noise |
+| `tasks/follow.py` | `JUMP_M`, `GATE_GROW_MS`, `SWITCH_M`, `RELOCK_LOOK` | 0.5 m, 0.7 m/s, 0.15 m, 0.6 | Keeping the person: a sighting further than `JUMP_M` (+ `GATE_GROW_MS` per s unseen) from where they should be is someone else; another track must be `SWITCH_M` nearer to be taken; clothes `reid.same` below `RELOCK_LOOK` never taken (estimates) |
+| `tasks/follow.py` | `HEAD_YAW_MAX`, `HEAD_PITCH`, `HEAD_STEP_DEG`, `HEAD_LEAD_S`, `HEAD_VEL` | 180°, 10°, 3°, 0.3 s, 50 % | Head on the person while following: yaw limit (the body API range; right behind it keeps the side it came from), fixed pitch, smallest move, sent where they will be this much later, speed |
+| `tasks/follow.py` | `BRAKE_S`, `BLOCKED_END_S` | 0.5 s, 5 s | Each command is checked where the base (`BASE_HALF_M + CLEAR_M`) and the arm (`ARM_CLEAR_M`) would be this much later; blocked this long: "Something is in my way" |
+| `tasks/follow.py` | `TICK_S`, `LOG_S` | 0.1 s, 1 s | Command rate (steady); `follow: v … w … driven … person … head … tick` line (driven = the base's real speed from its pose) in `logs/lumi_console.log` |
+| `assistant/lumi.py` | `MATCH_DEG_PER_M` | 10 °/m | Person tracking: each m of distance difference counts as this many degrees when a detection is given to a track (estimate) |
+| `vision/person.py` | `HEAD_POLL_S` | 0.1 s | Head yaw read this often by the camera service (a person's angle is off by the head's turn in this time) |
 | AGV panel `:9001` | navigation speed | AGV setting | Speed of drives to markers and points; an AGV setting, change only with the owner |
 
 ## Search and reach

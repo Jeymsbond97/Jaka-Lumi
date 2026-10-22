@@ -7,6 +7,7 @@
 import json
 import socket
 import sys
+import threading
 import time
 import uuid
 
@@ -14,27 +15,53 @@ AGV = ("192.168.10.10", 31001)
 DOCK_FALLBACK = "충전위치로"      # dock marker name on the old map; on any map the type-11 marker is used
 MARKERS_FRESH_S = 5.0            # known_markers() reads the list again after this long: a new map is seen within it
 _known = {"t": 0.0, "names": []}
+# One connection kept open per process: the base answers the first command on a new connection only after ~100 ms
+# (often 200-300), on an open one in 1-2 ms (robot_status) / 5-15 ms (distance_probe), measured 2026-10-22; an idle
+# connection still answered after 90 s.
+_conn = {"sock": None, "buf": ""}
+_conn_lock = threading.Lock()
+
+
+def _ask(command, tag, timeout):
+    s = _conn["sock"]
+    s.settimeout(timeout)
+    s.sendall(command.encode())
+    dec = json.JSONDecoder()
+    while True:
+        buf = _conn["buf"]
+        while buf.strip():                           # replies to earlier timed-out commands are skipped by uuid
+            try:
+                msg, end = dec.raw_decode(buf.lstrip())
+            except json.JSONDecodeError:
+                break
+            buf = _conn["buf"] = buf.lstrip()[end:]
+            if msg.get("uuid") == tag:
+                return msg
+        chunk = s.recv(65536)
+        if not chunk:                                # the base closed the connection: never loop forever
+            raise ConnectionError(f"AGV closed the connection ({command.split('?')[0]})")
+        _conn["buf"] += chunk.decode()
 
 
 def request(command, timeout=3.0):
     tag = uuid.uuid4().hex
     command += ("&" if "?" in command else "?") + f"uuid={tag}"
-    buf, dec = "", json.JSONDecoder()
-    with socket.create_connection(AGV, timeout=timeout) as s:
-        s.sendall(command.encode())
-        while True:
-            chunk = s.recv(65536)
-            if not chunk:                            # the base closed the connection: never loop forever
-                raise ConnectionError(f"AGV closed the connection ({command.split('?')[0]})")
-            buf += chunk.decode()
-            while buf.strip():
+    with _conn_lock:
+        for again in (True, False):
+            reused = _conn["sock"] is not None
+            try:
+                if not reused:
+                    _conn["sock"] = socket.create_connection(AGV, timeout=timeout)
+                    _conn["sock"].setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                return _ask(command, tag, timeout)
+            except OSError as e:
                 try:
-                    msg, end = dec.raw_decode(buf.lstrip())
-                except json.JSONDecodeError:
-                    break
-                buf = buf.lstrip()[end:]
-                if msg.get("uuid") == tag:
-                    return msg
+                    _conn["sock"].close()
+                except (OSError, AttributeError):
+                    pass
+                _conn.update(sock=None, buf="")
+                if not (again and reused) or isinstance(e, TimeoutError):   # an old connection died: once more
+                    raise
 
 
 def status():

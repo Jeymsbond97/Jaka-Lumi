@@ -107,7 +107,9 @@ LOST_S = 2.0                       # s not seen -> the person is gone (detection
 PROMPT_S = 12.0                    # s of silence before "How can I help you?"
 MAX_PROMPTS = 2
 TOO_CLOSE = 0.45                   # m, a running wave is stopped
-MATCH_DEG = 12.0                   # a detection belongs to the track with the closest angle within this
+MATCH_DEG = 12.0                   # a detection belongs to the track with the closest angle within this ...
+MATCH_DEG_PER_M = 10.0             # ... where each m of distance difference counts as this many deg: two people at
+                                   # about the same angle (one passing the followed person) keep their own tracks (estimate)
 OCCLUSION_DROP = 0.3               # m; while the arm moves, a sudden drop in distance is the arm in front of
                                    # the person, not the person moving: ignore it
 CLOSE_BOX = 0.85                   # a person is really closer than TOO_CLOSE only if the box is this tall (frame part)
@@ -450,7 +452,8 @@ class Vision(threading.Thread):
             with self.lock:
                 free = list(self.tracks)
                 for p in sorted(people, key=lambda p: p["distance_m"]):
-                    best = min(free, default=None, key=lambda t: abs(t.angle - p["angle_deg"]))
+                    best = min(free, default=None, key=lambda t: abs(t.angle - p["angle_deg"])
+                               + MATCH_DEG_PER_M * abs(t.distance - p["distance_m"]))
                     if best and abs(best.angle - p["angle_deg"]) < MATCH_DEG:
                         best.update(p, now, self.arm_watch, self.near_max)
                         free.remove(best)
@@ -541,15 +544,16 @@ class Vision(threading.Thread):
         return min(here, key=lambda t: t.distance, default=None)
 
     def follow_view(self, track):
-        """(distance m, angle deg, age s) of the person being followed (tasks/follow.py), None once the track is
-        gone. The distance is the nearer of the median and the newest reading: the median lags when they stop."""
+        """(distance m, angle deg, age s, clothes signature or None) of the person being followed (tasks/follow.py),
+        None once the track is gone. The distance is the nearer of the median and the newest reading: the median lags
+        when they stop."""
         with self.lock:
             if track not in self.tracks:
                 return None
-            return min(track.distance, track.history[-1]), track.angle, time.time() - track.last_seen
+            return min(track.distance, track.history[-1]), track.angle, time.time() - track.last_seen, track.look
 
     def follow_views(self):
-        """[(see, distance m, angle deg, age s)] of everyone in view: tasks/follow.py re-locks onto one of them."""
+        """[(see, distance m, angle deg, age s, look)] of everyone in view: tasks/follow.py re-locks onto one of them."""
         with self.lock:
             tracks = list(self.tracks)
         return [(lambda t=t: self.follow_view(t),) + v for t in tracks if (v := self.follow_view(t))]
@@ -2645,7 +2649,7 @@ class Lumi:
 
         if self.current and not self.vision.present(self.current):
             log(f"person #{self.current.id} left - stop talking")
-            self.current = self.vision.nearest_greeted()   # someone else still here?
+            self.current = None if following else self.vision.nearest_greeted()   # someone else still here?
             if self.current:
                 self.turn_head(HEAD_SIGN * self.current.angle)
             else:
@@ -2687,7 +2691,7 @@ class Lumi:
 
         if self.talk_turn():
             self.last_activity, self.prompts = time.time(), 0
-        elif (not self.interrupted() and time.time() - self.last_activity > PROMPT_S and self.prompts < MAX_PROMPTS):
+        elif (not following and not self.interrupted() and time.time() - self.last_activity > PROMPT_S and self.prompts < MAX_PROMPTS):
             log(f"silent for {PROMPT_S:.0f} s - prompt")
             mouth.say(PROMPT[self.lang], abort=self.interrupted)
             self.last_activity, self.prompts = time.time(), self.prompts + 1

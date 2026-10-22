@@ -18,6 +18,7 @@ lumi.LOG_FILE = "/dev/null"                         # keep the assistant's real 
 tmp = Path(tempfile.mkdtemp())
 fetch.STATE_FILE = tmp / "lumi_task.json"           # never the real /dev/shm file
 follow.TICK_S = 0.02
+follow.FOLLOW_MAX_MS = 0.5                       # the walks below are checked at the full clamp (joy_control 0.5)
 M = ["home", "p1", "p3"]
 
 
@@ -114,17 +115,22 @@ class World:
         return self.person + self.walk * min(time.time() - self.t0, self.walk_s)
 
     def see(self):
-        """What lumi.Vision.follow_view gives: (distance, angle deg + left, age s)."""
+        """What lumi.Vision.follow_view gives: (distance, angle deg + left, age s, look)."""
         if self.hidden:
             return None
-        x, y, th = self.pose()
-        px, py = self.person_at()
-        d = math.hypot(px - x, py - y)
+        d, a = self.sight(self.person_at())
         self.dist.append(d)
-        a = (math.degrees(math.atan2(py - y, px - x) - th) + 180) % 360 - 180
         if self.fov and abs(a - body.pos[2]) > HALF_FOV:
             return None
-        return d, a, 0.0
+        return d, a, 0.0, self.look
+
+    look = None
+
+    def sight(self, p):
+        """(distance, angle deg + left) of the map point p from the base now."""
+        x, y, th = self.pose()
+        a = (math.degrees(math.atan2(p[1] - y, p[0] - x) - th) + 180) % 360 - 180
+        return math.hypot(p[0] - x, p[1] - y), a
 
 
 said = []
@@ -142,7 +148,7 @@ def wait_end(s=3.0):
 
 
 # follows a person walking away, at most FOLLOW_MAX_MS, never inside the gap, turns toward them
-follow.FOLLOW_MAX_MS = 0.4                                                          # the walk below needs the full speed; the file value is tuned live
+MAX_MS, follow.FOLLOW_MAX_MS = follow.FOLLOW_MAX_MS, 0.4                              # a lower cap: reached and kept
 w = World(person=(2.2, 0.4), walk=(0.3, 0.05), walk_s=2.0)
 follow.start(w.see, say)
 time.sleep(6.0)
@@ -157,9 +163,10 @@ assert w.dist[-1] < follow.FOLLOW_GAP_M + 0.15, w.dist[-1]                      
 assert w.y > 0.1 and abs(w.see()[1]) < follow.TURN_DEAD_DEG + 1.0, (w.y, w.see())  # turned toward them
 assert w.cmds[-1][1:] == (0.0, 0.0)
 print(f"follow: ok (drove {w.x:.2f}, {w.y:.2f} m, top {max(vs):.2f} m/s, nearest {min(w.dist):.2f} m)")
+follow.FOLLOW_MAX_MS = MAX_MS
 
-# closer than the gap: stands still (no forward, no turn)
-w = World(person=(0.8, 0.3))
+# closer than NEAR_STOP_M: stands still (no forward, no turn)
+w = World(person=(0.6, 0.3))
 follow.start(w.see, say)
 time.sleep(0.5)
 follow.stop()
@@ -200,7 +207,7 @@ follow.stop()
 assert wait_end(0.5)
 print("restart: ok")
 
-# lost: no sighting for LOST_S -> "I lost you", the base stopped
+# lost: no sighting -> drives on toward where they were for COAST_S, slows to 0, after LOST_S "I lost you"
 said.clear()
 w = World(person=(3.0, 0.0))
 follow.start(w.see, say)
@@ -208,14 +215,17 @@ time.sleep(0.3)
 w.hidden, t_lost = True, time.time()
 assert wait_end(follow.LOST_S + 1.0)
 assert said == [follow.LOST[0]], said
-assert w.cmds[-1][1:] == (0.0, 0.0) and all(c[1:] == (0.0, 0.0) for c in w.cmds if c[0] > t_lost + 0.05)
+after = [c[1] for c in w.cmds if c[0] > t_lost + follow.COAST_S + 0.05]
+assert w.cmds[-1][1:] == (0.0, 0.0) and after and all(b <= a + 1e-9 for a, b in zip(after, after[1:])), after
+t_still = t_lost + follow.COAST_S + follow.FOLLOW_MAX_MS / follow.DECEL_MS2 + 0.1
+assert all(c[1:] == (0.0, 0.0) for c in w.cmds if c[0] > t_still)
 print("lost: ok")
 
 # a stale sighting stands still, then counts as lost
 said.clear()
 w = World(person=(3.0, 0.0))
 t_old = time.time() - follow.STALE_S - 0.1
-follow.start(lambda: (3.0, 0.0, time.time() - t_old), say)
+follow.start(lambda: (3.0, 0.0, time.time() - t_old, None), say)
 assert wait_end(follow.LOST_S + 1.0) and said == [follow.LOST[0]] and all(c[1:] == (0.0, 0.0) for c in w.cmds)
 print("stale: ok")
 
@@ -223,7 +233,7 @@ print("stale: ok")
 said.clear()
 w = World(person=(3.0, 0.0), obstacles=[(1.5, 0.0)])
 follow.start(w.see, say)
-assert wait_end(6.0)
+assert wait_end(4.0 + follow.BLOCKED_END_S)
 assert said == ["Something is in my way, so I stopped."], said
 assert 0.3 < w.x and w.x + ARM[-1][0] < 1.5 - 0.05 and w.cmds[-1][1:] == (0.0, 0.0), w.x
 print(f"obstacle: stopped at {w.x:.2f} m (finger tips {1.5 - w.x - ARM[-1][0]:.2f} m before it)")
@@ -287,7 +297,7 @@ follow.stop()
 assert wait_end(0.5)
 yaws = [m[4] for m in body.moves if m[1] == "follow head"]
 assert body.overlaps == 0 and len(yaws) >= 3, (body.overlaps, len(yaws))
-assert max(yaws) > follow.TURN_ONLY_DEG - 1 and min(yaws) >= -follow.HEAD_STEP_DEG, yaws                   # left, toward them
+assert max(yaws) > 20.0 and min(yaws) >= -follow.HEAD_STEP_DEG, yaws                                  # left, toward them
 assert abs(yaws[-1]) < 15.0, yaws[-1]                                                                      # back toward 0
 assert math.degrees(w.th) > 120.0 and all(m[5] == follow.HEAD_PITCH for m in body.moves), math.degrees(w.th)
 print(f"walk behind: head up to {max(yaws):.0f} deg, base turned {math.degrees(w.th):.0f} deg, {len(yaws)} head moves")
@@ -325,7 +335,7 @@ follow.start(lambda: None if gone[0] else w.see(), say, people=lambda: fresh)
 time.sleep(0.3)
 gone[0] = True                                                                      # the track id is dropped
 time.sleep(0.5)
-fresh.append((w.see, 3.0, 8.0, 0.0))                                                # a new track where they were
+fresh.append((w.see, 3.0, 8.0, 0.0, None))                                                # a new track where they were
 t_new = time.time()
 time.sleep(follow.LOST_S + 0.5)
 assert follow.running() and not said, said
@@ -334,12 +344,172 @@ follow.stop()
 assert wait_end(0.5)
 said.clear()
 w = World(person=(3.0, 0.0))
-fresh = [(lambda: (3.0, 80.0, 0.0), 3.0, 80.0, 0.0)]
+fresh = [(lambda: (3.0, 80.0, 0.0, None), 3.0, 80.0, 0.0, None)]
 follow.start(lambda: None if w.hidden else w.see(), say, people=lambda: fresh)
 time.sleep(0.3)
 w.hidden = True
 assert wait_end(follow.LOST_S + 1.0) and said == [follow.LOST[0]], said
 print("re-lock: ok")
+
+
+def missing(world, every=1.0, gap=0.5):
+    """world.see as Vision gives it with frames missed: for `gap` s of every `every` s the last sighting gets older."""
+    last = [None, 0.0]
+
+    def see():
+        t = time.time() - world.t0
+        if t % every < every - gap or last[0] is None:
+            last[:] = [world.see(), time.time()]
+            return last[0]
+        d, a, _, look = last[0]
+        return d, a, time.time() - last[1], look
+    return see
+
+
+def steady(cmds, t_from, t_to):
+    """Forward speeds sent between t_from and t_to (s after the start) and the biggest change from one to the next."""
+    t0 = cmds[0][0]
+    vs = [c[1] for c in cmds if t_from <= c[0] - t0 <= t_to]
+    return vs, max((abs(b - a) for a, b in zip(vs, vs[1:])), default=0.0)
+
+
+step = max(follow.ACCEL_MS2, follow.DECEL_MS2) * follow.TICK_S + 1e-6
+
+# walks away at 0.45 m/s with half the frames missed: drives on smoothly (no stop-and-go), keeps up
+said.clear()
+w = World(person=(2.0, 0.0), walk=(0.45, 0.0), walk_s=6.0)
+follow.start(missing(w), say)
+time.sleep(6.0)
+assert follow.running() and not said, said
+follow.stop()
+assert wait_end(0.5)
+vs, jump = steady(w.cmds, 1.5, 5.8)
+assert min(vs) > 0.2 and jump <= step, (min(vs), jump)                               # never stopped, smooth
+assert w.dist[-1] < 2.0 + 0.2, w.dist[-1]                                            # did not fall behind
+print(f"walk away, frames missed: {min(vs):.2f}-{max(vs):.2f} m/s, gap {w.dist[-1]:.2f} m")
+
+# walks faster than the base (1.2 m/s for 2 s), then stops: full speed, never lost, slows smoothly, stops at the gap
+said.clear()
+w = World(person=(1.5, 0.0), walk=(1.2, 0.0), walk_s=2.0)
+follow.start(w.see, say)
+time.sleep(9.0)
+assert follow.running() and not said, said
+follow.stop()
+assert wait_end(0.5)
+vs, jump = steady(w.cmds, 0.0, 9.0)
+assert max(vs) >= follow.FOLLOW_MAX_MS - 1e-6 and jump <= step + 0.03, (max(vs), jump)   # the last cm/s at the gap: 0
+assert min(w.dist) >= follow.FOLLOW_GAP_M - 0.02 and w.dist[-1] < follow.FOLLOW_GAP_M + 0.2, (min(w.dist), w.dist[-1])
+print(f"faster than the base, then stops: top {max(vs):.2f} m/s, nearest {min(w.dist):.2f} m, stood at {w.dist[-1]:.2f} m")
+
+# walks a curve (a quarter circle of 2.5 m to the left at 0.4 m/s): turns with them, stays close behind
+said.clear()
+R = 2.5
+w = World(path=lambda t: (R * math.sin(min(t, 9.0) * 0.16), R - R * math.cos(min(t, 9.0) * 0.16) + 0.0 * t))
+w.path0 = w.path
+w.path = lambda t: (1.5 + w.path0(t)[0], w.path0(t)[1])
+follow.start(w.see, say)
+time.sleep(11.0)
+assert follow.running() and not said, said
+follow.stop()
+assert wait_end(0.5)
+assert math.degrees(w.th) > 45.0 and w.dist[-1] < follow.FOLLOW_GAP_M + 0.3, (math.degrees(w.th), w.dist[-1])
+print(f"curve: base turned {math.degrees(w.th):.0f} deg, gap {w.dist[-1]:.2f} m")
+
+# another person crosses between: the followed track jumps onto them (Vision matched them), the followed person gets a
+# fresh track: the jump is not taken, Lumi re-locks onto the right one and follows them on
+said.clear()
+A = lambda t: (2.0 + 0.3 * min(t, 6.0), 0.0)                                       # the followed person
+B = lambda t: (1.7, 1.5 - 1.0 * t)                                                  # crosses in front, 1 m/s
+w = World(path=A)
+stolen = 1.2                                                                        # s; from here the track is B's
+
+
+def followed():
+    t = time.time() - w.t0
+    if t < stolen:
+        return w.see()
+    return (*w.sight(B(t)), 0.0, None)
+
+
+def everyone():
+    t = time.time() - w.t0
+    a = (lambda: w.see()) if t >= stolen + 0.1 else None                            # A's new track, a frame later
+    return [(followed, *followed())] + ([(a, *a())] if a else [])
+
+
+follow.start(followed, say, people=everyone)
+time.sleep(6.0)
+assert follow.running() and not said, said
+follow.stop()
+assert wait_end(0.5)
+t_end = time.time() - w.t0
+assert abs(w.y) < 0.15 and w.dist[-1] < follow.FOLLOW_GAP_M + 0.4, (w.y, w.dist[-1])                  # followed A
+assert math.hypot(*(np.array(B(t_end)) - (w.x, w.y))) > 2.0
+print(f"another person crossing: stayed with them (y {w.y:+.2f} m, gap {w.dist[-1]:.2f} m)")
+
+# re-lock by clothes: someone where the person should be, in clearly other clothes, is not taken
+n = len(lumi.reid.PARTS) * (lumi.reid.H_BINS * lumi.reid.S_BINS + lumi.reid.V_BINS) // len(lumi.reid.PARTS)
+red, blue = np.zeros(2 * n), np.zeros(2 * n)
+red[[0, n]], blue[[20, n + 20]] = 1.0, 1.0
+p = follow.Person()
+p.seen(np.array([3.0, 0.0]), time.time())
+cand = [(lambda: None, 3.0, 2.0, 0.0, list(blue))]
+gone = lambda: None
+assert follow._pick(gone, None, lambda: cand, p, (0.0, 0.0, 0.0), list(red), time.time()) == (gone, None)
+assert follow._pick(gone, None, lambda: cand, p, (0.0, 0.0, 0.0), list(blue), time.time())[1][:2] == (3.0, 2.0)
+assert follow._pick(gone, None, lambda: cand, p, (0.0, 0.0, 0.0), None, time.time())[1] is not None
+print("re-lock by clothes: ok")
+
+# walks slowly (0.2 m/s): the base goes as slowly, ~1 m behind, no stop-and-go
+said.clear()
+w = World(person=(1.5, 0.0), walk=(0.2, 0.0), walk_s=10.0)
+follow.start(w.see, say)
+time.sleep(8.0)
+assert follow.running() and not said, said
+follow.stop()
+assert wait_end(0.5)
+vs, jump = steady(w.cmds, 4.0, 7.8)
+assert 0.12 < min(vs) and max(vs) < 0.3 and jump <= step, (min(vs), max(vs), jump)
+assert abs(w.dist[-1] - follow.FOLLOW_GAP_M) < 0.25, w.dist[-1]
+print(f"slow walk: {min(vs):.2f}-{max(vs):.2f} m/s, gap {w.dist[-1]:.2f} m")
+
+# walks past the robot's side to behind it (1.2 m/s, 1.0 m to the left), head camera only: the head stays on them
+# past 90 deg, the base turns on the spot toward them (sweep checked) and follows again; never "lost"
+said.clear()
+body.moves.clear()
+turn_max, follow.TURN_MAX_RS = follow.TURN_MAX_RS, 0.25                                 # a base slower than the head
+w = World(path=lambda t: (2.0 - 1.4 * min(t, 3.0), 1.0), fov=True)
+follow.start(w.see, say)
+time.sleep(14.0)
+follow.TURN_MAX_RS = turn_max
+assert follow.running() and not said, said
+follow.stop()
+assert wait_end(0.5)
+yaws = [m[4] for m in body.moves if m[1] == "follow head"]
+assert max(yaws) > 90.0 and all(abs(y) <= 180.0 for y in yaws), yaws                    # past the side
+assert all(abs(b - a) < 90.0 for a, b in zip(yaws, yaws[1:])), yaws                     # never swung round
+assert math.degrees(w.th) > 120.0 and w.dist[-1] < follow.FOLLOW_GAP_M + 0.4, (math.degrees(w.th), w.dist[-1])
+print(f"past the side to behind: head up to {max(yaws):.0f} deg, base turned {math.degrees(w.th):.0f} deg, "
+      f"gap {w.dist[-1]:.2f} m")
+
+# right behind: the angle flips between +179 and -179; the head and the base keep one side
+said.clear()
+body.moves.clear()
+flip = [0]
+
+
+def behind():
+    flip[0] += 1
+    return 2.0, 179.0 if flip[0] % 2 else -179.0, 0.0, None
+
+
+follow.start(behind, say)
+time.sleep(0.6)
+follow.stop()
+assert wait_end(0.5)
+yaws = [m[4] for m in body.moves if m[1] == "follow head"]
+assert yaws and all(y > 0 for y in yaws[1:]), yaws
+print("right behind: one side")
 
 # lumi: act("stop") ends following; follow_me locks onto the person talking, refuses when it must
 lumi.agv.cancel = lumi.skills.cancel = lumi.arm.stop = lambda: None
@@ -353,7 +523,8 @@ spoken, started = [], []
 lumi.mouth.say = lambda text, **k: spoken.append(text)
 real_start = follow.start
 follow.start = lambda see, say=None, people=None: started.append(see)
-track = types.SimpleNamespace(id=7, distance=1.8, angle=10.0, greeted=False, history=[1.7], last_seen=time.time())
+track = types.SimpleNamespace(id=7, distance=1.8, angle=10.0, greeted=False, history=[1.7], last_seen=time.time(),
+                              look=None)
 L.lang, L.voice_angle, L.voice_trusted = "en", 0.0, False
 L.modes = types.SimpleNamespace(drive=True, patrol=True)
 L.skill_busy = lambda: False
@@ -365,7 +536,7 @@ L.current = track
 L.find_caller = lambda angle, trusted: None
 L.follow_me()
 assert started and "follow you" in spoken[-1], spoken
-d, a, age = started[-1]()
+d, a, age, look = started[-1]()
 assert (d, a) == (1.7, 10.0) and age < 1.0                                          # the nearer of median / newest
 L.vision.tracks = []
 assert started[-1]() is None                                                        # track gone: lost

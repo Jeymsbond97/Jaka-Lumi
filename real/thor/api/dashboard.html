@@ -147,9 +147,6 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
 .mapitem span{flex:1}
 .log{background:#04060a;border:1px solid var(--line);border-radius:9px;padding:9px 11px;height:calc(100vh - 430px);min-height:220px;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#b7c3d0;white-space:pre-wrap}
 .note{font-size:12px;color:var(--muted);margin-top:6px}
-#toasts{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:60;max-width:min(460px,calc(100vw - 32px))}
-.toast{background:var(--panel2);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;padding:9px 14px;box-shadow:0 8px 24px rgba(0,0,0,.45);animation:in .2s}
-.toast.err{border-left-color:var(--bad)}.toast.ok{border-left-color:var(--ok)}
 @keyframes in{from{transform:translateY(8px);opacity:0}}
 /* command dialog */
 .modal{position:fixed;inset:0;z-index:45;background:rgba(0,0,0,.55);display:none;place-items:center;padding:16px}
@@ -351,18 +348,12 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
     </div>
   </div>
 </div>
-<div id="toasts"></div>
 
 <script>
 const $ = id => document.getElementById(id);
 let status = null, mapInfo = null;
 const MAP_POLL_MS = 20000;                 // the marker list is read again this often
 
-function toast(msg, kind = "") {
-  if (kind === "err") return note(msg);
-  const t = document.createElement("div"); t.className = "toast " + kind; t.textContent = msg;
-  $("toasts").appendChild(t); setTimeout(() => t.remove(), kind === "err" ? 6000 : 2800);
-}
 async function api(path, body) {
   const r = await fetch(path, {method: body === undefined ? "GET" : "POST", headers: {"Content-Type": "application/json"},
                                body: body === undefined ? undefined : JSON.stringify(body)});
@@ -370,9 +361,9 @@ async function api(path, body) {
   if (!r.ok) { let m = d && d.detail; if (Array.isArray(m)) m = m.map(x => x.msg).join("; "); throw new Error(m || r.statusText); }
   return d;
 }
-async function act(btn, ok, fn) {
+async function act(btn, fn) {
   const old = btn && btn.innerHTML; if (btn) { btn.disabled = true; btn.textContent = "…"; }
-  try { const r = await fn(); if (ok) toast(ok, "ok"); return r; } catch (e) { toast(e.message, "err"); }
+  try { return await fn(); } catch (e) { note(e.message); }
   finally { if (btn) { btn.disabled = false; btn.innerHTML = old; } refreshStatus(); }
 }
 const fmt = (v, d = 0) => v === undefined || v === null ? "–" : (+v).toFixed(d);
@@ -517,8 +508,8 @@ function holdStart(btn) {
   holdStop(true);
   const axis = btn.dataset.axis, dir = +btn.dataset.dir;
   btn.classList.add("on");
-  const send = () => api("/jog", {axis, direction: dir, speed: speedOf(axis)}).then(r => { if (r.error) toast(r.error, "err"); })
-    .catch(e => { toast(e.message, "err"); holdStop(); });
+  const send = () => api("/jog", {axis, direction: dir, speed: speedOf(axis)}).then(r => { if (r.error) note(r.error); })
+    .catch(e => { note(e.message); holdStop(); });
   send(); holding = {btn, timer: setInterval(send, 150)};
 }
 function holdStop(silent) {
@@ -544,7 +535,7 @@ $("driveStop").onclick = () => { holdStop(); api("/jog/stop", {}); api("/agv/can
 $("driveSpeed").oninput = e => $("driveSpeedV").textContent = e.target.value + " %";
 $("bodySpeed").oninput = e => $("bodySpeedV").textContent = e.target.value + " %";
 $("armSpeed").oninput = e => $("armSpeedV").textContent = e.target.value + " %";
-$("headCentre").onclick = e => act(e.target, null, () => api("/head/turn", {yaw: 0, pitch: 0}));
+$("headCentre").onclick = e => act(e.target, () => api("/head/turn", {yaw: 0, pitch: 0}));
 
 /* ---------- map ---------- */
 const cv = $("map"), ctx = cv.getContext("2d");
@@ -646,10 +637,10 @@ cv.addEventListener("pointerup", e => {
   const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
   const hit = mapInfo.markers.find(m => { const [mx, my] = toScreen(m.x, m.y); return Math.hypot(mx - px, my - py) < 10; });
   if (hit) { const to = hit.name === mapInfo.main_dock ? "home" : hit.name;
-    selectDest(to); if (confirm(`Drive to marker "${hit.name}"?`)) act(null, "Driving to " + hit.name, () => api("/agv/go", {marker: to})); return; }
+    selectDest(to); if (confirm(`Drive to marker "${hit.name}"?`)) act(null, () => api("/agv/go", {marker: to})); return; }
   if (!$("clickGo").checked) return;
   const [x, y] = toMap(px, py), th = ((status && status.base.current_pose) || {}).theta || 0;
-  if (confirm(`Drive to x ${x.toFixed(2)}, y ${y.toFixed(2)}?`)) act(null, "Driving to the point", () => api("/agv/go_point", {x, y, theta: th}));
+  if (confirm(`Drive to x ${x.toFixed(2)}, y ${y.toFixed(2)}?`)) act(null, () => api("/agv/go_point", {x, y, theta: th}));
 });
 window.addEventListener("resize", drawMap);
 $("mapFit").onclick = () => { view = null; drawMap(); };
@@ -663,7 +654,7 @@ function renderMapList() {
 $("maplist").onclick = e => {
   const b = e.target.closest("[data-map]"); if (!b) return;
   if (!confirm(`Switch the base to map "${b.dataset.map}"? The base service restarts.`)) return;
-  act(b, "Map switched, reloading…", () => api("/map/switch", {map_name: b.dataset.map, floor: +b.dataset.floor}))
+  act(b, () => api("/map/switch", {map_name: b.dataset.map, floor: +b.dataset.floor}))
     .then(() => setTimeout(loadMap, 8000));
 };
 loadMap();
@@ -734,13 +725,13 @@ const destDD = Dropdown($("destDD"), "Choose one or more places…");
 function selectDest(name) { destDD.set(name); }
 $("goBtn").onclick = e => {
   const stops = destDD.values, name = n => n === "home" ? "the dock" : n;
-  if (!stops.length) return toast("Choose a place first", "err");
-  if (stops.length === 1) return act(e.target, "Driving to " + name(stops[0]), () => api("/agv/go", {marker: stops[0]}));
-  act(e.target, `Route: ${stops.map(name).join(" → ")}`, () => api("/agv/route", {markers: stops, pause: +$("pause").value || 0}));
+  if (!stops.length) return note("Choose a place first");
+  if (stops.length === 1) return act(e.target, () => api("/agv/go", {marker: stops[0]}));
+  act(e.target, () => api("/agv/route", {markers: stops, pause: +$("pause").value || 0}));
 };
-$("dockBtn").onclick = e => act(e.target, "Driving to the dock", () => api("/agv/go", {marker: "home"}));
-$("cancelBtn").onclick = e => act(e.target, "Drive cancelled", () => api("/agv/cancel", {}));
-$("waveBtn").onclick = e => act(e.target, "Waving", () => api("/arm/wave", {}));
+$("dockBtn").onclick = e => act(e.target, () => api("/agv/go", {marker: "home"}));
+$("cancelBtn").onclick = e => act(e.target, () => api("/agv/cancel", {}));
+$("waveBtn").onclick = e => act(e.target, () => api("/arm/wave", {}));
 const POSE_ORDER = ["look", "carry", "give", "ready", "wave_out", "wave_start", "wave"];   // the rest (taught later) follow by name
 api("/arm/poses").then(ps => {
   const names = Object.keys(ps).sort((a, b) => ((POSE_ORDER.indexOf(a) + 1) || 99) - ((POSE_ORDER.indexOf(b) + 1) || 99) || a.localeCompare(b));
@@ -750,20 +741,20 @@ try { $("poseSpeed").value = localStorage.getItem("poseSpeed") || "slow"; } catc
 $("poseSpeed").onchange = () => { try { localStorage.setItem("poseSpeed", $("poseSpeed").value); } catch (e) {} };
 function movePose(el, name) {
   const speed = $("poseSpeed").value;
-  if (confirm(`Move the arm to ${name} (${speed})?`)) act(el, `Arm at ${name}`, () => api("/arm/pose", {name, speed}));
+  if (confirm(`Move the arm to ${name} (${speed})?`)) act(el, () => api("/arm/pose", {name, speed}));
 }
 $("poseGo").onclick = e => { if ($("poseSel").value) movePose(e.target, $("poseSel").value); };
-$("sayBtn").onclick = e => { const t = $("sayText").value.trim(); if (t) act(e.target, "Said", () => api("/say", {text: t})); };
+$("sayBtn").onclick = e => { const t = $("sayText").value.trim(); if (t) act(e.target, () => api("/say", {text: t})); };
 $("sayText").onkeydown = e => { if (e.key === "Enter") $("sayBtn").click(); };
 $("askBtn").onclick = async e => {
   const q = $("askText").value.trim(); if (!q) return;
-  const r = await act(e.target, null, () => api("/ask", {question: q, speak: true}));
+  const r = await act(e.target, () => api("/ask", {question: q, speak: true}));
   if (r) { $("answer").style.display = "block"; $("answer").textContent = `${r.answer}  (${r.llm_seconds} s)`; }
 };
 $("askText").onkeydown = e => { if (e.key === "Enter") $("askBtn").click(); };
 api("/volume").then(v => { $("vol").value = v.percent; $("volV").textContent = v.percent + " %"; });
 $("vol").oninput = e => $("volV").textContent = e.target.value + " %";
-$("vol").onchange = e => api("/volume", {percent: +e.target.value}).then(v => toast(`Volume ${v.percent} %`, "ok")).catch(x => toast(x.message, "err"));
+$("vol").onchange = e => api("/volume", {percent: +e.target.value}).catch(x => note(x.message));
 /* assistant modes: greeter (standing) and patrol (driving) */
 let modes = {};
 function paintModes(m) {
@@ -777,18 +768,18 @@ function paintModes(m) {
 async function setModes(part, el) {
   if (el) el.classList.add("busy");
   try { paintModes(await api("/assistant/modes", part)); }
-  catch (e) { toast(e.message, "err"); }
+  catch (e) { note(e.message); }
   finally { if (el) el.classList.remove("busy"); }
 }
 document.querySelectorAll(".mode").forEach(el => el.onclick = () => {
   const k = el.dataset.mode, on = !modes[k];
-  setModes({[k]: on}, el).then(() => toast(`${k[0].toUpperCase() + k.slice(1)} ${on ? "on" : "off"}`, "ok"));
+  setModes({[k]: on}, el);
 });
 $("useArm").onchange = e => setModes({wave: e.target.checked});
 $("useDrive").onchange = e => setModes({drive: e.target.checked});
 api("/assistant/modes").then(paintModes);
 setInterval(() => api("/assistant/modes").then(paintModes).catch(() => {}), 3000);
-$("stopAll").onclick = e => { holdStop(); act(e.target, "Everything stopped", () => api("/stop", {})); };
+$("stopAll").onclick = e => { holdStop(); act(e.target, () => api("/stop", {})); };
 
 /* ---------- notifications ---------- */
 const notes = [];                        // newest last: {msg, n, time}
@@ -843,13 +834,13 @@ async function refreshArm() {
   } catch (e) {}
 }
 setInterval(refreshArm, 500);
-$("armPowerOn").onclick = e => act(e.target, "Arm power on", () => api("/arm/power", {on: true}));
-$("armEnable").onclick = e => act(e.target, "Arm enabled", () => api("/arm/enable", {on: true}));
-$("armDisable").onclick = e => { if (confirm("Disable the arm servos? The arm holds by its brakes.")) act(e.target, "Arm disabled", () => api("/arm/enable", {on: false})); };
-$("progRun").onclick = e => act(e.target, "Program started", () => api("/arm/run", {program: $("prog").value.trim()}));
-$("gripOpen").onclick = e => act(e.target, "Gripper open", () => api("/gripper/open", {}));
-$("gripClose").onclick = e => { if (confirm("Close the gripper? Hands away from the fingers.")) act(e.target, "Gripper closed", () => api("/gripper/close", {})); };
-$("progStop").onclick = e => act(e.target, "Program stopped", () => api("/arm/stop", {}));
+$("armPowerOn").onclick = e => act(e.target, () => api("/arm/power", {on: true}));
+$("armEnable").onclick = e => act(e.target, () => api("/arm/enable", {on: true}));
+$("armDisable").onclick = e => { if (confirm("Disable the arm servos? The arm holds by its brakes.")) act(e.target, () => api("/arm/enable", {on: false})); };
+$("progRun").onclick = e => act(e.target, () => api("/arm/run", {program: $("prog").value.trim()}));
+$("gripOpen").onclick = e => act(e.target, () => api("/gripper/open", {}));
+$("gripClose").onclick = e => { if (confirm("Close the gripper? Hands away from the fingers.")) act(e.target, () => api("/gripper/close", {})); };
+$("progStop").onclick = e => act(e.target, () => api("/arm/stop", {}));
 
 const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;");
 async function refreshLog() {
@@ -891,8 +882,8 @@ async function refreshCalib() {
   } catch (e) {}
 }
 setInterval(refreshCalib, 1000);
-$("calStart").onclick = e => act(e.target, "Calibration started – talk in front of the robot", () => api("/doa/calibrate", {on: true}));
-$("calStop").onclick = e => act(e.target, "Calibration stopped", () => api("/doa/calibrate", {on: false}));
+$("calStart").onclick = e => act(e.target, () => api("/doa/calibrate", {on: true}));
+$("calStop").onclick = e => act(e.target, () => api("/doa/calibrate", {on: false}));
 /* ---------- command dialog: fetch an object (docs/16 §5) ---------- */
 function MapPicker(box, onPick) {   // click = the point, drag from it = heading, drag elsewhere = pan, wheel / +− = zoom
   const c = box.querySelector("canvas"), g = c.getContext("2d");
@@ -1064,18 +1055,18 @@ $("cmdModal").addEventListener("pointerdown", e => downOnShade = e.target === $(
 $("cmdModal").addEventListener("click", e => { if (downOnShade && e.target === $("cmdModal")) closeCmd(); });
 $("tStart").onclick = e => {
   const r = parsed; if (!r || r.problems.length) return;
-  if (r.action === "give") return act(e.target, "Giving", () => api("/tasks/give", {}));
-  if (r.action === "place") return act(e.target, "Placing", () => api("/tasks/place", {on: (r.task && r.task.on) || null}));
-  if (r.action === "carry") return act(e.target, "On the way", () => api("/tasks/carry", {dest: r.task.dest, then: r.task.then, on: r.task.on || null}));
-  if (r.action === "steps") return act(e.target, "Started", () => api("/tasks/steps", {steps: r.steps, lang: r.lang, sender: r.sender || null}));
-  if (r.action === "command") return act(e.target, "Started", () => api("/tasks/command", {text: r.text}));
-  act(e.target, "Fetch started", () => api("/tasks/fetch", r.task));
+  if (r.action === "give") return act(e.target, () => api("/tasks/give", {}));
+  if (r.action === "place") return act(e.target, () => api("/tasks/place", {on: (r.task && r.task.on) || null}));
+  if (r.action === "carry") return act(e.target, () => api("/tasks/carry", {dest: r.task.dest, then: r.task.then, on: r.task.on || null}));
+  if (r.action === "steps") return act(e.target, () => api("/tasks/steps", {steps: r.steps, lang: r.lang, sender: r.sender || null}));
+  if (r.action === "command") return act(e.target, () => api("/tasks/command", {text: r.text}));
+  act(e.target, () => api("/tasks/fetch", r.task));
 };
-$("tStop").onclick = e => act(e.target, "Task stopped", () => api("/tasks/stop", {}));
+$("tStop").onclick = e => act(e.target, () => api("/tasks/stop", {}));
 let taskPaused = false;
-$("tPause").onclick = e => taskPaused ? act(e.target, "Going on", () => api("/tasks/resume", {}))
-                                      : act(e.target, "Paused", () => api("/tasks/pause", {}));
-$("tRelease").onclick = e => act(e.target, "Released", () => api("/tasks/release", {}));
+$("tPause").onclick = e => taskPaused ? act(e.target, () => api("/tasks/resume", {}))
+                                      : act(e.target, () => api("/tasks/pause", {}));
+$("tRelease").onclick = e => act(e.target, () => api("/tasks/release", {}));
 async function refreshTask() {
   if (!$("cmdModal").classList.contains("open")) return;
   srcPick.ensure(); dstPick.ensure();
@@ -1093,7 +1084,7 @@ async function refreshTask() {
   } catch (e) { $("tSt").textContent = "task runner: " + e.message; }
 }
 setInterval(refreshTask, 1000);
-$("calReset").onclick = e => { if (confirm("Forget the voice-direction calibration?")) act(e.target, "Calibration reset", () => api("/doa/reset", {})); };
+$("calReset").onclick = e => { if (confirm("Forget the voice-direction calibration?")) act(e.target, () => api("/doa/reset", {})); };
 </script>
 </body>
 </html>
