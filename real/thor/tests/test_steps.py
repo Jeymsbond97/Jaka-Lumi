@@ -73,6 +73,11 @@ CASES = {
     "put the cup on the white table to the left": "place white dining table left",
     "go to p10, then go left 1 meter and put it on the table": "go p10 | move left 1 | place dining table",
     "go to p10, then go left one meter and give it to the person": "go p10 | move left 1 | give",
+    # 2026-10-21, said by voice: "let's", "P10 point", "10p point", "p ten"
+    "Let's go P10 point and wait 30 seconds then come back here again.": "go p10 | wait 30 | go here",
+    "let's go to 10p point then wait 30 seconds and come back here again": "go p10 | wait 30 | go here",
+    "go to p ten, wait 30 seconds and come back here": "go p10 | wait 30 | go here",
+    "go to point 10 and let's back 1 meter": "go p10 | move back 1",
     # ---- moves and turns ----
     "go forward 1 meter and put it on the table": "move forward 1 | place dining table",
     "move back half a meter and give it to me": "move back 0.5 | give",
@@ -151,8 +156,8 @@ CASES = {**CASES, **BLIND, **BLIND2, **BLIND3, **BLIND4, **BLIND5, **steps_cases
 failed = []
 for text, want in CASES.items():
     got, unread = steps.rules(text, M)
-    if want == "?":
-        ok = bool(unread)
+    if want == "?":                                  # not understood, or understood and refused: nothing runs
+        ok = bool(unread) or bool(steps.check(got, False, M))
     else:
         ok = not unread and got == [short(s.strip()) for s in want.split(" | ")]
     if not ok:
@@ -257,7 +262,7 @@ assert steps.rules("take the cup and go to p1, p2", M)[0] == S("pick cup | go p1
 # ---- checks of what may come from the dashboard as JSON ----
 for bad in ([{"do": "fly"}], [{"do": "go", "to": []}], [{"do": "move", "dir": "up", "m": 1}], [{"do": "turn", "deg": 720}],
             [{"do": "arm", "pose": "wave"}], [{"do": "pick", "object": "phone"}], [{"do": "move", "dir": "forward"}],
-            [{"do": "move", "dir": "forward", "m": 0.03}], ["go p1"], []):
+            [{"do": "move", "dir": "forward", "m": 0.005}], ["go p1"], []):
     assert steps.check(bad, False, M), bad
 assert steps.check(S("pick cup | go p1 | arm open"), False, M)            # it would fall
 print("steps review ok")

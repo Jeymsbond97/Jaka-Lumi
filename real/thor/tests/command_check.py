@@ -1,0 +1,199 @@
+"""Generated commands (tests/command_cases.py) through Lumi's routing, per intent: right, missed (no motion) or wrong.
+
+    .venv/bin/python tests/command_check.py              # rules only; cases the rules leave are "llm?" (not judged)
+    .venv/bin/python tests/command_check.py --llm        # those go to the real LLM (action line + first sentence)
+    .venv/bin/python tests/command_check.py --cached     # the LLM's answers from the last --llm run where the text is
+                                                         # the same (fast, after a rule change)
+    .venv/bin/python tests/command_check.py receive      # only this intent
+
+-> logs/command_check.md / .json. The order is lumi.answer()'s with nothing running and the hand empty ("idle") or
+holding something ("holding"): stop, what the cameras see (seeing.answer), status, the hand (brain.hand_request), mission, goodbye / closing words, song,
+keyword rules, then the LLM's action line acted on as lumi.answer() does. Nothing moves; the LLM is only asked.
+"""
+import collections
+import json
+import pathlib
+import re
+import sys
+import time
+
+from assistant import brain, driving, lumi, seeing
+from audio import sing
+from tests.command_cases import CASES
+from tests.conversation_check import NOW, markers
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+OUT = ROOT / "logs" / "command_check"
+HOLDING_NOW = "I'm holding a cup and waiting for what to do with it."
+NO_MOTION = {"seeing", "talk", "unclear", "status", "empty_hand", "refuse", "search", "weather", "llm?", "ask", "speed"}
+QUICK = {"go_to", "come", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put", "move_object", "fetch",
+         "look", "lift", "wave"}   # lumi.quick_command
+
+
+def seen(text):
+    """assistant/seeing.answer() takes these words (its own test: tests/test_seeing.py); the camera is not asked."""
+    t = text.strip()
+    if seeing.HOW_MANY.search(t) and seeing.NOT_IN_VIEW.search(t):
+        return False                                     # "how many people work at Cutshion?"
+    return not seeing.ORDER.search(t) and any(rx.search(t) for rx in (
+        seeing.WEARING, seeing.HOLDING, seeing.SHIRT, seeing.RAISED, seeing.POINTING, seeing.DOING, seeing.SEE_ME,
+        seeing.HOW_MANY, seeing.BEHIND, seeing.HOW_FAR, seeing.SEE_THING, seeing.THERE_IS, seeing.SEE_THING_KO,
+        seeing.WHAT_SEE))
+
+
+def rules(text, state, marks, b):
+    """The route lumi.answer() takes before the LLM, or None."""
+    holding = state == "holding"
+    if lumi.FOREIGN_SCRIPT.search(text):
+        return "unclear"
+    t = brain._norm(text)                                # lumi.drive_words: speed, "again", how far?, too far
+    drive = driving.read(t, driving.last_command(b.history), driving.talking(b.history))
+    if drive and (drive[0] != "move" or drive != driving.read(t, None, True)):
+        return {"speed": lambda d: f"speed {'faster' if d[1] > 0 else 'slower'}", "move": lambda d: f"action:move {d[1]}",
+                "refuse": lambda d: "refuse", "ask": lambda d: "ask"}[drive[0]](drive)
+    if lumi.NAME_ONLY.match(text):
+        return "talk"
+    if lumi.stop_order(text, marks):
+        return "stop"
+    if seen(text):
+        return "seeing"
+    if lumi.status_question(text):
+        return "status"
+    cor = brain.correction(text, b.history)
+    if cor:
+        return "talk" if cor[0] == "ask" else f"action:{cor[0]} {cor[1]}"
+    hand = brain.hand_request(text, holding, b, marks)
+    if hand:
+        return {"receive": lambda h: "receive " + (h[1] or "") if not holding else "refuse",
+                "give": lambda h: "give" if holding else "empty_hand",
+                "place": lambda h: "place " + ((h[1] or {}).get("name") or "") if holding else "empty_hand",
+                "refuse": lambda h: "refuse", "ask": lambda h: "talk"}[hand[0]](hand).strip()
+    read = lumi.read_mission(text, marks)
+    if read:
+        return "talk" if read[1] else "mission"
+    if lumi.talk_fate(text) == "end":
+        return "end"
+    if lumi.talk_fate(text) == "wait":
+        return "talk"
+    if sing.asked(text):
+        return "sing"
+    rule = brain.intent(text, marks)
+    if rule and rule[0] in QUICK:
+        return rule[0] if rule[0] in ("weather", "search") else f"action:{rule[0]} {rule[1]}".strip()
+    return None
+
+
+def llm(text, state, marks, b):
+    """(route, action line, first sentence) from the real model, acted on like lumi.answer()."""
+    brain.FORCED_LANG["lang"] = "ko" if brain.HANGUL.search(text) else "en"
+    gen = b.respond_stream(text, marks, now=HOLDING_NOW if state == "holding" else NOW)
+    head = next(gen)
+    first = next(gen, "") or ""
+    gen.close()
+    target = (brain._mentions(text, marks).get("object") or "") if head["action"] == "receive" else head["target"]
+    return act(head["action"], target, first, state), f"{head['action']} {target}".strip(), first
+
+
+def refused(route):
+    """A pick / receive / fetch of a thing the fingers can't take is answered with the reason (skills.refusal)."""
+    from manipulation import skills
+    from tasks import fetch
+    words = route.split(None, 1)
+    if words[0] in ("action:pick", "action:move_object", "receive") and len(words) > 1 and \
+            any(skills.refusal(c) for c in set(brain.OBJECTS.values()) if words[1].endswith(c)):
+        return "refuse"
+    if words[0] == "action:fetch":
+        obj = brain.fetch_from_text(words[1])[0].get("object") if len(words) > 1 else None
+        if obj and skills.refusal(obj):
+            return "refuse"
+    return route
+
+
+def act(a, target, first, state):
+    if a in ("none", "end"):
+        return "talk"
+    if a in ("give", "place", "receive"):
+        if a == "receive":
+            return f"receive {target}".strip() if state == "idle" else "refuse"
+        return a if state == "holding" else "empty_hand"
+    if a in ("unclear", "search", "weather", "sing", "stop"):
+        return a
+    return f"action:{a} {target}".strip()
+
+
+def ok(expect, got):
+    """'right' | 'missed' | 'wrong'."""
+    g = got.lower().split()
+    for alt in expect.split(" | "):
+        want = refused(alt).split()                             # "pick bottle": the reason why not is right
+        if want[0] in ("talk", "ask") and g[0] in ("talk", "ask", "refuse"):     # a reason why not is an answer
+            return "right"
+        if want[0] == "action:fetch" and g[0] == "action:fetch":
+            return "right"                                      # parse_fetch reads the words later
+        if want[0] == g[0] and all(w in g[1:] for w in want[1:]):
+            return "right"
+    return "missed" if g[0] in NO_MOTION else "wrong"
+
+
+def main(args):
+    marks = markers()
+    use_llm, cached = "--llm" in args, "--cached" in args
+    only = [a for a in args if not a.startswith("-")]
+    old = {}
+    if cached and OUT.with_suffix(".json").exists():
+        old = {(r["text"], r["state"], str(r["before"])): r for r in json.loads(OUT.with_suffix(".json").read_text())
+               if r.get("raw")}
+    rows, t0 = [], time.time()
+    for i, c in enumerate(c for c in CASES if not only or c["intent"] in only):
+        b = brain.Brain()
+        if c["before"]:
+            b.history.append(tuple(c["before"]))
+        brain.FORCED_LANG["lang"] = c["lang"] if c["lang"] in ("en", "ko") else "ko"
+        got, raw, first = rules(c["text"], c["state"], marks, b), "", ""
+        if got is None:
+            key = (c["text"], c["state"], str(c["before"]))
+            if key in old:
+                raw, first = old[key]["raw"], old[key]["first"]
+                a, _, tgt = raw.partition(" ")
+                got = act(a, tgt, first, c["state"])
+            elif use_llm:
+                try:
+                    got, raw, first = llm(c["text"], c["state"], marks, b)
+                except Exception as e:                          # noqa: BLE001 - a crash is a failure of that case
+                    got, raw = "error", repr(e)
+            else:
+                got = "llm?"
+        got = refused(got) if got not in ("llm?", "error") else got
+        verdict = ok(c["expect"], got) if got != "llm?" else "llm?"
+        rows.append({**c, "got": got, "raw": raw, "first": first, "verdict": verdict, "by": "llm" if raw else "rules"})
+        if verdict == "wrong" or verdict == "missed" and "-v" in sys.argv:
+            print(f"{i} {verdict.upper():6} [{c['intent']}/{c['state']}] {c['text']!r} -> {got} (want {c['expect']}) "
+                  f"{first[:60]!r}", flush=True)
+    OUT.with_suffix(".json").write_text(json.dumps(rows, ensure_ascii=False, indent=0))
+    report(rows, time.time() - t0)
+
+
+def report(rows, secs):
+    by = collections.defaultdict(collections.Counter)
+    for r in rows:
+        by[r["intent"]][r["verdict"]] += 1
+        by["ALL"][r["verdict"]] += 1
+    lines = [f"# Command check ({time.strftime('%Y-%m-%d %H:%M')}, model {brain.MODEL}, {secs:.0f} s)", "",
+             f"{len(rows)} cases. right / missed (no motion) / wrong (a motion not asked for) / not run (LLM).", "",
+             "| intent | cases | right | missed | wrong | llm? | by LLM |", "|---|---|---|---|---|---|---|"]
+    llm_n = collections.Counter(r["intent"] for r in rows if r["by"] == "llm")
+    for k in sorted(by, key=lambda k: (k == "ALL", k)):
+        c = by[k]
+        n = sum(c.values())
+        lines.append(f"| {k} | {n} | {c['right']} | {c['missed']} | {c['wrong']} | {c['llm?']} | "
+                     f"{llm_n[k] if k != 'ALL' else sum(llm_n.values())} |")
+    lines += ["", "## Wrong", ""] + [f"- [{r['intent']}/{r['state']}] {r['text']!r} -> {r['got']} (want {r['expect']}) "
+                                     f"{r['first'][:80]!r}" for r in rows if r["verdict"] == "wrong"]
+    lines += ["", "## Missed", ""] + [f"- [{r['intent']}/{r['state']}] {r['text']!r} -> {r['got']} (want {r['expect']}) "
+                                      f"{r['first'][:80]!r}" for r in rows if r["verdict"] == "missed"]
+    OUT.with_suffix(".md").write_text("\n".join(lines) + "\n")
+    print("\n".join(lines[:len(by) + 6]))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

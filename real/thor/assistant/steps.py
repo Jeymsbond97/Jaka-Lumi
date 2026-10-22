@@ -35,7 +35,7 @@ _SUP_KO = "|".join(k for k in brain.SUPPORTS if not k.isascii())
 _NUM = r"(\d+(?:\.\d+)?)"
 _DIR = r"(forward|ahead|straight|back(?:wards?)?|left|right)"
 _DIR_KO = r"(앞으로|뒤로|왼쪽으로|오른쪽으로)"
-_FILL = (r"(?:please|hey lumi|hi lumi|hey|hi|lumi|loomi|rumi|okay|ok|instead|um+|uh+|er|hmm|thank you|thanks|now|then|and|also|first|next|"
+_FILL = (r"(?:please|let'?s|lets|hey lumi|hi lumi|hey|hi|lumi|loomi|rumi|okay|ok|alright|all right|so|well|real quick|if you can|if you could|자|저기|저기요|혹시|instead|um+|uh+|er|hmm|thank you|thanks|now|then|and|also|first|next|"
          r"finally|after that|there|for me|again|carefully|slowly|could you|can you|would you|will you|lumi야|루미야|루미|음|응|어|야 로봇|로봇아|로봇야|"
          r"감사합니다|고마워요|고마워|고맙습니다|좀)")
 _PEOPLE = r"(?:them|him|her|someone|somebody|the person(?: there)?|people|the people|everyone|everybody|the guests?)"
@@ -90,6 +90,8 @@ def _support(t):
 
 
 def _go(c, markers):
+    if brain.COME_BACK.fullmatch(re.sub(r"(?<=[와가])(?:서|고)$", "", c)):
+        return {"do": "go", "to": "here"}                 # "come back", "go back where you were", "원래 자리로 돌아와"
     m = re.fullmatch(r"(?:(?:go|drive|head|come|move|return|get)(?: back)?(?: over)?|(?:bring|take|carry) it(?: back)?)"
                      r" to (?:the )?(?:(?:a )?random (?:one )?of |one of |any of )?(?:the )?(.+?)(?: point| marker)?", c)
     if m:
@@ -194,6 +196,8 @@ def _pick_receive(c, markers):
                      rf"(?: up)?(?: from (?:the )?(.+?))?", c)
     if m:
         obj, col = _thing(m.group(1), m.group(2))
+        if m.group(3) and re.fullmatch(r"me|my hands?|(?:the )?person|him|her|them", m.group(3)):
+            return [{"do": "receive", "object": obj, "from_hand": True}]   # "take the cup from me": from the hand
         out = [{"do": "pick", "object": obj, "colour": col}]
         if m.group(3):
             src = _places(m.group(3), markers)
@@ -552,6 +556,9 @@ _SENDER = [rf"^{_NAME} (?:asks|asked|wants|wanted|would like) (?:you|me) to ",
            rf"^나 (?:.+?)에 있는 {_KNAME}인데,?\s*"]
 
 
+NOT_NAMES = {"me", "my", "you", "your", "him", "her", "them", "us", "it", "this", "that", "the", "a", "an", "here", "there"}
+
+
 def sender(text):
     """Who sends a mission ("Anvar asks you to bring ...", "I'm Anvar, ...", "안바르가 보내는 거야") or None."""
     t = _norm(_cut_says(text)[0])
@@ -559,7 +566,7 @@ def sender(text):
               rf"\bfrom {_NAME}\b", rf"\bon behalf of {_NAME}\b", rf"^(?:i'?m|i am) {_NAME}\b",
               rf"{_KNAME}(?:이|가) (?:보내는|보낸|보내신|부탁한|준)", rf"{_KNAME} 씨 심부름", rf"나 (?:.+?)에 있는 {_KNAME}인데"]:
         m = re.search(p, t)
-        if m:
+        if m and m.group(1) not in NOT_NAMES:          # "take it from me / my hand": no sender
             n = m.group(1)
             return _orig(n, text) if n.isascii() else _ko_name(n)
     return None
@@ -579,7 +586,19 @@ def _sender(c):
 
 
 def _clause(c, markers, after=None):
-    """One clause -> list of steps, or None when it is not understood. `after`: the step before it."""
+    """One clause -> list of steps, or None when it is not understood. `after`: the step before it. Which of several
+    to pick ("the smaller cup", "왼쪽 컵") is cut out first and given to its pick step as "prefer"."""
+    prefer, cut = brain.pick_prefer(c)
+    got = _clause_steps(cut, markers, after) if prefer else None
+    if not any(s.get("do") == "pick" for s in got or ()):     # no pick in it: the words were not about one ("put
+        return _clause_steps(c, markers, after)               # the cup on the left")
+    for s in got:
+        if s.get("do") == "pick":
+            s["prefer"] = prefer
+    return got
+
+
+def _clause_steps(c, markers, after=None):
     c = re.sub(rf"^(?:{_FILL}[\s,]+)+|(?:[\s,]+{_FILL})+$", "", c.strip(" .!?")).strip(" .!?,")
     if re.search(r"[가-힣]", c):
         c = re.sub(r"\s+", " ", c)
@@ -607,6 +626,14 @@ def _clause(c, markers, after=None):
         return []
     if re.fullmatch(r"(?:(?:it'?s |this is )?from|on behalf of) [a-z][a-z'-]+|[가-힣 ]+(?:이|가) (?:보내는|보낸) (?:거야|건데)", c):
         return []
+    m = re.fullmatch(rf"(?:(?:pass|hand|give|get) me|(?:can|could|may) i (?:have|get|grab|take)|lemme have|let me have|"
+                     rf"(?:would you )?mind (?:passing|handing|giving) me) (?:the |that |this |a |an |one )?"
+                     rf"(?:({COL}) )?({OBJ})s?(?: (?:on|from|off) the table| over(?: here)?| there| please)?"
+                     rf"|(?:(?:나|저)(?:한테|에게)?\s*)?(?:({COL})\s*)?({OBJ})\s*(?:을|를)?\s*(?:하나만?\s*)?(?:(?:나|저)(?:한테|에게)\s*)?"
+                     r"(?:줘|주세요|줘요|건네 ?줘|건네 ?주세요|건네|주실래요|줄래요?|주시겠어요)", c)
+    if m and after is None:                       # "pass me the cup", "컵 좀 줘": from the table in front, then over
+        obj, col = _thing(m.group(1) or m.group(3), m.group(2) or m.group(4))
+        return [{"do": "pick", "object": obj, "colour": col}, {"do": "give"}]
     who = _person(c, markers)
     if who is not None:
         return who
@@ -640,6 +667,10 @@ def _clause(c, markers, after=None):
     s = _pick_receive(c, markers)
     if s:
         return s
+    hand = brain.hand_request(c, False, whole=False)
+    if hand and hand[0] == "receive" and not (after and re.match(r"(?:just )?(?:hold|keep)\b|.*들고 ?있", c)) \
+            and not re.search(r"누가|누군가|someone|somebody|something|anything|things|주면|gives?\b", c):
+        return [{"do": "receive", "object": hand[1], "from_hand": True}]   # "take this from me", "이거 받아": from the person's hand
     s = _place_step(c) or _say(c)
     return [s] if s else None
 
@@ -979,7 +1010,7 @@ def is_mission(steps):
     return not re.fullmatch(r"g?pg?e?|g?[ev]?", shape)
 
 
-MOVE_MIN_M = 0.1             # m; a shorter move is not driven (the clearance check works in 5 cm steps)
+MOVE_MIN_M = 0.01            # m; a shorter move is not driven (driving.MOVE_MIN_M)
 TURN_MAX_DEG = 360.0
 
 
@@ -1002,7 +1033,9 @@ def _bad_fields(s):
     if d == "say" and not (isinstance(s.get("text"), str) and s["text"].strip()):
         return "nothing to say"
     on = s.get("on")
-    if d == "place" and on is not None and not (isinstance(on, dict) and on.get("name") in set(brain.SUPPORTS.values())
+    if d == "place" and isinstance(on, dict) and on.get("pointed") is True and set(on) <= {"pointed", "side"}:
+        pass                                            # "put it here / there": where the person points
+    elif d == "place" and on is not None and not (isinstance(on, dict) and on.get("name") in set(brain.SUPPORTS.values())
                                                 and on.get("colour") in set(brain.COLOURS.values()) | {None}
                                                 and on.get("side") in ("left", "right", None)):
         return "a place I don't know"
@@ -1016,6 +1049,15 @@ def _bad_fields(s):
     if d == "receive" and "wait_s" in s and not num(s["wait_s"]):
         return "a wait I don't know"
     return None
+
+
+def _refusal(name):
+    """Why the fingers can't take `name` (skills.refusal, English), or None."""
+    try:
+        from manipulation import skills
+    except Exception:                                   # noqa: BLE001 - no robot modules: the runner refuses it later
+        return None
+    return name and (skills.refusal(name) or (None,))[0]
 
 
 def check(steps, holding, markers=()):
@@ -1041,6 +1083,9 @@ def check(steps, holding, markers=()):
                 d == "receive" and "wait_s" in s and not 0 < s["wait_s"] <= WAIT_MAX_S:
             out.append(f"Step {i}: I wait at most {WAIT_MAX_S / 60:g} minutes.")
         elif d in ("pick", "receive"):
+            no = _refusal(s.get("object"))
+            if no:
+                out.append(no)
             if holding:
                 out.append(f"Step {i}: my hand is full already.")
             holding, received = True, d == "receive"
@@ -1063,6 +1108,8 @@ def check(steps, holding, markers=()):
 def _on_words(on, ko=False):
     if not on:
         return "테이블" if ko else "a table"
+    if on.get("pointed"):
+        return "가리키는 곳" if ko else "where you point"
     name = {"dining table": "테이블" if ko else "table", "couch": "소파" if ko else "sofa", "chair": "의자" if ko else "chair",
             "bench": "벤치" if ko else "bench", "bed": "침대" if ko else "bed"}.get(on["name"], on["name"])
     col = on.get("colour")
@@ -1109,7 +1156,9 @@ def _en(s, last=False):
         side = "left" if s["deg"] > 0 else "right"
         return f"turn {side}" + ("" if abs(s["deg"]) == TURN_DEG else f" {abs(s['deg']):g} degrees")
     if d == "pick":
-        return f"take the {s['colour'] + ' ' if s['colour'] else ''}{s['object']}"
+        from tasks.fetch import PREFER_SAID
+        side = f" on the {s['prefer']}" if s.get("prefer") in ("left", "right") else ""
+        return f"take the {PREFER_SAID.get(s.get('prefer'), ('',))[0]}{s['colour'] + ' ' if s['colour'] else ''}{s['object']}{side}"
     if d == "receive" and s.get("wait_s"):
         return f"wait for someone to give me the {s['object'] or 'thing'} (up to {_dur(s['wait_s'])})"
     if d == "receive":
@@ -1144,8 +1193,9 @@ def _ko(s, last=False):
     if d == "turn":
         return "뒤로 돌고" if abs(s["deg"]) == 180 else ("왼쪽" if s["deg"] > 0 else "오른쪽") + "으로 돌고"
     if d == "pick":
-        from tasks.fetch import OBJECTS as KO
-        return f"{(brain_ko(s['colour']) + ' ') if s['colour'] else ''}{KO.get(s['object'], s['object'])}을 집고"
+        from tasks.fetch import OBJECTS as KO, PREFER_SAID
+        return f"{PREFER_SAID.get(s.get('prefer'), ('', ''))[1]}{(brain_ko(s['colour']) + ' ') if s['colour'] else ''}" \
+               f"{KO.get(s['object'], s['object'])}을 집고"
     if d == "receive" and s.get("wait_s"):
         from tasks.fetch import OBJECTS as KO
         return f"최대 {_dur(s['wait_s'], True)} 동안 누가 {KO.get(s['object'], '물건')}을 줄 때까지 기다렸다가 받고"
