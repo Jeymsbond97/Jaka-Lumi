@@ -10,7 +10,7 @@ CONF = ["home", "start", "end", "init", "final", "middle", "table_front", "stage
 CASES = []
 
 
-def add(intent, text, expect, state="idle", before=None):
+def add(intent, text, expect, state="idle", before=None):   # before: (what was said, Lumi's action line)
     lang = "ko" if any("가" <= ch <= "힣" for ch in text) else "en"
     CASES.append({"intent": "blind:" + intent, "text": text, "lang": lang, "state": state, "before": before,
                   "expect": expect, "markers": CONF})
@@ -228,7 +228,7 @@ add("turn", "왼쪽으로 돌아", "action:turn left 90")
 add("turn", "오른쪽으로 돌아 주세요", "action:turn right 90")
 add("turn", "오른쪽으로 사십오 도 도십시오", "action:turn right 45")
 add("turn", "turn left 해 줘", "action:turn left 90")
-add("turn", "한 바퀴 빙 돌아 봐", "action:turn left 360 | action:turn right 360 | ask")
+add("turn", "한 바퀴 빙 돌아 봐", "action:turn around | ask")   # owner set (command_cases): around
 add("turn_not", "it's your turn to talk", "talk")
 add("turn_not", "turn left at the corner and you'll find the restroom", "talk")
 
@@ -409,19 +409,19 @@ add("speed", "speed 좀 올려", "speed faster")
 add("speed_not", "you are so fast at answering", "talk")
 
 # ---------- again, with the turn before ----------
-add("again", "again", "action:turn left 90", before="turn left")
-add("again", "one more time", "action:move forward 1", before="move forward one meter")
-add("again", "a bit more", "action:turn left 15", before="turn left")
-add("again", "조금 더", "action:turn right 15", before="오른쪽으로 돌아")
-add("again", "한 번 더", "action:move back 0.2", before="20센티 뒤로")
-add("again", "10센티 더", "action:move forward 0.1", before="앞으로 50센티")
-add("again", "just a few centimetres more", "action:move forward 0.05 | ask", before="move forward half a meter")
-add("again", "same again", "speed faster", before="a bit faster")
-add("again", "less", "speed slower", before="a bit faster")
-add("again", "more", "speed slower", before="slow down")
+add("again", "again", "action:turn left 90", before=("turn left", "ACTION: turn left 90"))
+add("again", "one more time", "action:move forward 1", before=("move forward one meter", "ACTION: move forward 1"))
+add("again", "a bit more", "action:turn left 15", before=("turn left", "ACTION: turn left 90"))
+add("again", "조금 더", "action:turn right 15", before=("오른쪽으로 돌아", "ACTION: turn right 90"))
+add("again", "한 번 더", "action:move back 0.2", before=("20센티 뒤로", "ACTION: move back 0.2"))
+add("again", "10센티 더", "action:move forward 0.1", before=("앞으로 50센티", "ACTION: move forward 0.5"))
+add("again", "just a few centimetres more", "action:move forward 0.05 | ask", before=("move forward half a meter", "ACTION: move forward 0.5"))
+add("again", "same again", "speed faster", before=("a bit faster", "ACTION: speed 1"))
+add("again", "less", "speed slower", before=("a bit faster", "ACTION: speed 1"))
+add("again", "more", "speed slower", before=("slow down", "ACTION: speed -1"))
 add("again_none", "again", "ask | talk")
 add("again_none", "한 번 더", "ask | talk")
-add("again_talk", "more", "talk", before="tell me about JAKA")
+add("again_talk", "more", "talk", before=("tell me about JAKA", "ACTION: none -\nJAKA makes robot arms."))
 
 # ---------- missions in one command ----------
 add("mission", "take the cup, go to booth two and give it to James", "mission")

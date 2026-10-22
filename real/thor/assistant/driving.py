@@ -50,10 +50,10 @@ NUM_WORD = re.compile(r"\b(?:eleven|twelve|thirteen|fourteen|fifteen|sixteen|sev
 
 FASTER = re.compile(r"\b(?:faster|quicker|speed (?:it )?up|pick up (?:the )?(?:pace|speed)|step on it|hurry(?: up)?|"
                     r"get a move on|more speed|full speed|go quick(?:ly)?|too slow(?:ly)?|so slow(?:ly)?|"
-                    r"not fast enough|move it)\b|빨리|빠르게|속도\s*(?:를|좀)?\s*(?:좀\s*)?(?:높|올)\S*|느려|느리다|서둘러")
+                    r"not fast enough|move it)\b|빨리|빠르게|(?:속도|speed)\s*(?:를|좀)?\s*(?:좀\s*)?(?:높|올)\S*|느려|느리다|서둘러")
 SLOWER = re.compile(r"\b(?:slower|slow (?:it )?down|slow|ease (?:off|up)|not so fast|too fast|"
                     r"so fast|less speed|gently|more slowly|slowly)\b|"
-                    r"천천히|느리게|속도\s*(?:를|좀)?\s*(?:좀\s*)?(?:줄|낮|늦)\S*|빨라|빠르다|살살")
+                    r"천천히|느리게|(?:속도|speed)\s*(?:를|좀)?\s*(?:좀\s*)?(?:줄|낮|늦)\S*|빨라|빠르다|살살")
 _FILLER = (r"please|pls|lumi|hey|hi|okay|ok|so|um+|uh+|well|now|then|just|can|could|would|will|you|you're|youre|"
            r"are|is|going|moving|driving|go|drive|move|"
            r"keep|going|get|it|the|a|an|bit|little|tiny|notch|touch|tad|lot|much|way|even|bit|slightly|somewhat|"
