@@ -66,6 +66,20 @@ def base_from_head(yaw, pitch):
     return out
 
 
+def head_centre():
+    """The head's turning centre (mm, arm base frame): midway between the closest points of the yaw and the pitch
+    axis (27 mm apart in the 2026-10-19 fit). Fixed at any head pose and lift; None before fit has run."""
+    d = _load()
+    if d is None or "pitch_axis" not in d:
+        return None
+    p, u = np.array(d["yaw_axis"]["point"]), np.array(d["yaw_axis"]["dir"])
+    q, v = np.array(d["pitch_axis"]["point"]), np.array(d["pitch_axis"]["dir"])
+    w, b = p - q, u @ v
+    den = (u @ u) * (v @ v) - b * b
+    s, t = (b * (v @ w) - (v @ v) * (u @ w)) / den, ((u @ u) * (v @ w) - b * (u @ w)) / den
+    return (p + s * u + q + t * v) / 2
+
+
 def base_from_head_now():
     """base_from_head at the head pose the body reports now (None when unknown)."""
     _, _, yaw, pitch = head.status()

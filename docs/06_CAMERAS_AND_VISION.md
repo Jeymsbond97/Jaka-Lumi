@@ -192,3 +192,36 @@ Vendor prompt to the VLM (translated): "Please box the N kinds of objects A and 
 3. Calibrate the torso camera to the arm base (vendor procedure).
 4. Head camera: compute its pose from the URDF chain (`link_4` → `Camera3_Link`) with the body joint angles from `/api/extaxis/status`, verify against the torso camera on a common target.
 5. Person / face detection on the head camera for "look at the speaker" ([07_VOICE_AND_AUDIO.md](07_VOICE_AND_AUDIO.md)).
+
+## 7. Scene understanding (`vision/scene.py`, measured 2026-10-20)
+
+What the cameras see, as facts for the conversation and the skills. It reads the camera service's files (raw JPEG,
+aligned depth, people and objects with arm-frame positions from `objects.py`) and runs a pose model on the raw frame.
+
+| Function | Gives |
+|---|---|
+| `sees(name, colour)` | things of a COCO class / colour in either camera: distance, bearing, "on my left / right / in front of me", `position_mm` (arm base frame); the same thing seen by both cameras once |
+| `people()` | everyone in view, both cameras merged (the two cameras see a near person ~atan(0.25 m / d) apart) |
+| `person_in_front()` | the nearest person within 3 m: distance, bearing, chest `position_mm`, facing, gesture (`hand_raised` / `pointing`), shirt and trousers colour, `hands: {left, right: {position_mm, object}}` |
+| `object_in_hand()`, `person_holds(name)` | what is in a hand: `{name, colour, hand, position_mm, distance_m, width_mm}`; True / False / None (can't tell) |
+| `pointing_target()` | first depth point along shoulder → wrist past the hand, `position_mm` |
+| `ask_vlm(question)` | one sentence from `gemma4:26b` on the picture of the person (glasses, hat...) |
+
+- **Pose**: YOLO11s-pose, 17 COCO keypoints, TensorRT engine `models/yolo11s-pose.engine` built from
+  `models/yolo11s-pose.onnx` (exported with ultralytics 8.4 in `~/venvs/yolo-gpu`, imgsz 640) by `vision/yolo_engine.py`.
+  **16–19 ms** per 1280×720 frame on the Thor GPU. `vision/pose.py`.
+- **In the hand**: the object boxes of the frame plus a second YOLOv8s look at a 320 px square around each hand
+  (wrist + 0.35 × forearm). A box counts when it is a handheld class, within the hand region, and its depth is within
+  0.35 m of the wrist's. Without usable depth the box centre must be on the hand. A clear plastic cup was not detected
+  at all (YOLO); an arm with a cup was once called "teddy bear" (not a handheld class, dropped).
+- **Depth from another moment**: depth is written every 0.5 s, the people and the JPEG every frame. When the depth at
+  a person differs from the camera service's distance by > 0.4 m, that frame's depth is not used (positions None,
+  "empty hand" not claimed).
+- **Own body**: in the head camera the robot's shoulder at the frame bottom read "laptop"; in the torso camera the arm
+  and the held cup are at the top. Boxes touching that edge nearer than 0.8 m (or unmeasured) are left out.
+- **Speed**: `person_in_front()` 50–60 ms once the models are loaded (first call ~0.8 s; `seeing.warm_up()` loads them
+  at the assistant's start). `snapshot()` 20 ms.
+- **VLM**: `gemma4:26b` with a 448 px picture: 5.4 s on a quiet GPU, 22–48 s while other LLM work ran. Used only
+  for what detections can't answer; time limit 12 s, then "I can't tell".
+- Test frames: `tests/data/scene_*` (`python vision/scene.py --save tests/data/<name>` saves the frames now);
+  `tests/test_scene.py`.

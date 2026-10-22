@@ -22,7 +22,7 @@ import numpy as np
 from pyorbbecsdk import (AlignFilter, Config, Context, OBFormat, OBLogLevel, OBSensorType, OBStreamType,
                          Pipeline)
 
-from vision import camview
+from vision import camview, reid
 from robot import head
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]      # the project folder
@@ -132,7 +132,8 @@ class TrtNet:
             raise RuntimeError(f"cannot load {path}")
         self.ctx = self.engine.create_execution_context()
         self.inp, self.out = (self.engine.get_tensor_name(i) for i in range(2))
-        self.out_shape = (1, 84, 8400)                # YOLOv8 at 640: 84 values (box + 80 classes) x 8400 anchors
+        self.out_shape = tuple(self.engine.get_tensor_shape(self.out))   # (1, 84, 8400): box + 80 classes per anchor;
+                                                                          # the pose model (vision/pose.py): (1, 56, 8400)
         self.in_bytes = 1 * 3 * SIZE * SIZE * 4
         self.out_bytes = int(np.prod(self.out_shape)) * 4
         self.d_in, self.d_out = self._malloc(self.in_bytes), self._malloc(self.out_bytes)
@@ -158,7 +159,7 @@ class TrtNet:
         return self._check(self.cr.cudaStreamCreate())
 
     def forward(self, blob):
-        """blob: (1, 3, 640, 640) float32, as cv2.dnn.blobFromImage makes it. Returns (1, 84, 8400)."""
+        """blob: (1, 3, 640, 640) float32, as cv2.dnn.blobFromImage makes it. Returns out_shape."""
         x = np.ascontiguousarray(blob, np.float32)
         cr = self.cr
         self._check(cr.cudaMemcpyAsync(self.d_in, x.ctypes.data, self.in_bytes,
@@ -177,6 +178,32 @@ def load_net():
     except Exception as e:                  # no engine file, no GPU, no TensorRT: say why, then use the fallback
         print(f"person: TensorRT not used ({e}); YOLOv8n on the CPU", flush=True)
         return CvNet()
+
+
+def detect_boxes(net, color):
+    """YOLOv8 boxes: list of (x1, y1, x2, y2, score, COCO class id); class 0 is a person."""
+    h, w = color.shape[:2]
+    scale = SIZE / max(h, w)
+    canvas = np.zeros((SIZE, SIZE, 3), np.uint8)              # letterbox, keep aspect ratio
+    canvas[:int(h * scale), :int(w * scale)] = cv2.resize(color, (int(w * scale), int(h * scale)))
+    out = net.forward(cv2.dnn.blobFromImage(canvas, 1 / 255.0, (SIZE, SIZE), swapRB=True))[0].T
+                                                               # (8400, 84): cx, cy, w, h, 80 class scores
+    cls = out[:, 4:].argmax(axis=1)
+    scores = out[np.arange(len(out)), 4 + cls]
+    floor = np.array([WEAK_SCORE.get(int(c), OBJECT_SCORE) for c in cls])
+    keep = scores > np.where(cls == 0, MIN_SCORE, floor)
+    if not keep.any():
+        return []
+    cls = cls[keep]
+    cx, cy, bw, bh = (out[keep, i] / scale for i in range(4))
+    boxes = np.stack([cx - bw / 2, cy - bh / 2, bw, bh], axis=1)
+    idx = cv2.dnn.NMSBoxes(boxes.tolist(), scores[keep].tolist(), min(WEAK_SCORE.values()), 0.45)
+    result = []
+    for i in np.array(idx).flatten():
+        x, y, bw_, bh_ = boxes[i]
+        result.append((max(0, int(x)), max(0, int(y)), min(w - 1, int(x + bw_)), min(h - 1, int(y + bh_)),
+                       float(scores[keep][i]), int(cls[i])))
+    return result
 
 
 class PersonDetector:
@@ -344,29 +371,7 @@ class PersonDetector:
         return f * PERSON_W / max(1, x2 - x1)
 
     def _detect(self, color):
-        """YOLOv8 boxes: list of (x1, y1, x2, y2, score, COCO class id); class 0 is a person."""
-        h, w = color.shape[:2]
-        scale = SIZE / max(h, w)
-        canvas = np.zeros((SIZE, SIZE, 3), np.uint8)              # letterbox, keep aspect ratio
-        canvas[:int(h * scale), :int(w * scale)] = cv2.resize(color, (int(w * scale), int(h * scale)))
-        out = self.net.forward(cv2.dnn.blobFromImage(canvas, 1 / 255.0, (SIZE, SIZE), swapRB=True))[0].T
-                                                                   # (8400, 84): cx, cy, w, h, 80 class scores
-        cls = out[:, 4:].argmax(axis=1)
-        scores = out[np.arange(len(out)), 4 + cls]
-        floor = np.array([WEAK_SCORE.get(int(c), OBJECT_SCORE) for c in cls])
-        keep = scores > np.where(cls == 0, MIN_SCORE, floor)
-        if not keep.any():
-            return []
-        cls = cls[keep]
-        cx, cy, bw, bh = (out[keep, i] / scale for i in range(4))
-        boxes = np.stack([cx - bw / 2, cy - bh / 2, bw, bh], axis=1)
-        idx = cv2.dnn.NMSBoxes(boxes.tolist(), scores[keep].tolist(), min(WEAK_SCORE.values()), 0.45)
-        result = []
-        for i in np.array(idx).flatten():
-            x, y, bw_, bh_ = boxes[i]
-            result.append((max(0, int(x)), max(0, int(y)), min(w - 1, int(x + bw_)), min(h - 1, int(y + bh_)),
-                           float(scores[keep][i]), int(cls[i])))
-        return result
+        return detect_boxes(self.net, color)
 
     def _zoomed(self, color, have):
         """Non-person boxes found in the ZOOM crops (full-frame px) that the whole frame and earlier crops missed."""
@@ -416,7 +421,8 @@ class PersonDetector:
                     dist, src = self._box_distance(x1, y1, x2, y2, color.shape[0]), "box size"
             people.append({"box": (x1, y1, x2, y2), "score": round(score, 2),
                            "distance_m": None if dist is None else round(dist, 2), "angle_deg": round(angle, 1),
-                           "distance_src": src})
+                           "distance_src": src, "look": reid.look(color, (x1, y1, x2, y2)),
+                           "face": reid.face(color, (x1, y1, x2, y2)) if dist and dist <= reid.FACE_MAX_M else None})
         people.sort(key=lambda p: p["distance_m"] if p["distance_m"] is not None else 99)
         if self.focus_angle is not None and people:
             f = min(people, key=lambda p: abs(p["angle_deg"] - self.focus_angle))
