@@ -593,6 +593,9 @@ fetch._sweep_blocked = lambda deg, what: round(fetch._waist_turn() + deg) in blo
 fetch.first_side = lambda: -1                                                 # more unmapped things on the right
 fetch._turn = lambda deg, holding=False, why="": base_turns.append((deg, body["lift"])) or deg not in blocked_turns
 blocked_turns = set()
+fetch._do_step({"do": "turn", "deg": -360.0}, None)          # all the way round: two checked half turns
+assert [d for d, _ in base_turns] == [-180.0, -180.0], base_turns
+base_turns.clear()
 def seen_here(at=None):
     views.append((round(fetch._waist_turn()), round(hp["yaw"])))
     return "it" if views[-1] == at else None

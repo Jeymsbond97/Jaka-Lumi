@@ -18,7 +18,7 @@ import re
 import sys
 import time
 
-from assistant import brain, driving, lumi, seeing
+from assistant import brain, chain, driving, lumi, seeing
 from audio import sing
 from tests.command_cases import CASES as CASES1
 from tests.command_cases2 import CASES as CASES2   # 2026-10-21 night: new wordings, the conference map
@@ -38,14 +38,10 @@ class NoLLM(Exception):
 
 
 def seen(text):
-    """assistant/seeing.answer() takes these words (its own test: tests/test_seeing.py); the camera is not asked."""
-    t = text.strip()
-    if seeing.HOW_MANY.search(t) and seeing.NOT_IN_VIEW.search(t):
-        return False                                     # "how many people work at Cutshion?"
-    return not seeing.ORDER.search(t) and any(rx.search(t) for rx in (
-        seeing.WEARING, seeing.HOLDING, seeing.SHIRT, seeing.RAISED, seeing.POINTING, seeing.DOING, seeing.SEE_ME,
-        seeing.HOW_MANY, seeing.BEHIND, seeing.HOW_FAR, seeing.SEE_THING, seeing.THERE_IS, seeing.SEE_THING_KO,
-        seeing.WHAT_SEE))
+    """assistant/seeing.answer() takes these words (its own test: tests/test_seeing.py). No frames: it answers "no
+    camera" where it would look, None where it leaves the words to the rest ("how far is the stage?")."""
+    seeing._last.update(thing=None, name=None, kind=None)
+    return seeing.answer(text.strip(), frames=[]) is not None
 
 
 def rules(text, state, marks, b):
@@ -67,6 +63,10 @@ def rules(text, state, marks, b):
         return "talk"
     if lumi.stop_order(text, marks):
         return "stop"
+    parts = chain.plan(text, marks, lumi.NOT_A_STEP)    # lumi.chain_request: every part in the order said
+    if parts:
+        return "chain:" + "+".join(k if k != "quick" else "_".join(filter(None, w)).replace(" ", "_")
+                                   for k, _, w in parts)
     if seen(text):
         return "seeing"
     if lumi.status_question(text):
@@ -142,6 +142,8 @@ def ok(expect, got):
         want = refused(alt).split()                             # "pick bottle": the reason why not is right
         if want[0] in ("talk", "ask") and g[0] in ("talk", "ask", "refuse"):     # a reason why not is an answer
             return "right"
+        if want[0] == "chain" and g[0].startswith("chain:"):
+            return "right"                                      # several parts, each done in turn (lumi.chain_run)
         if want[0] == "action:fetch" and g[0] == "action:fetch":
             return "right"                                      # parse_fetch reads the words later
         if want[0] == g[0] and all(w in g[1:] for w in want[1:]):

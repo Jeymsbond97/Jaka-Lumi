@@ -1983,9 +1983,11 @@ def _do_step(s, say):
         _move(s["dir"], s["m"], holding)
     elif d == "turn":
         _step(f"turning {s['deg']:+.0f} deg")
-        if not _turn(s["deg"], holding, why="as asked"):
-            raise FetchError("I can't turn here: my arm would hit something, or I'm on the charger.",
-                             "여기서는 돌 수 없어요.")
+        n = 2 if abs(s["deg"]) > 180 else 1       # all the way round: a 360 deg goal is the start pose to the base,
+        for _ in range(n):                        # so two half turns, each one's arm sweep checked
+            if not _turn(s["deg"] / n, holding, why="as asked"):
+                raise FetchError("I can't turn here: my arm would hit something, or I'm on the charger.",
+                                 "여기서는 돌 수 없어요.")
     elif d == "pick":
         if gripper.open_()["closed"]:
             raise FetchError("My hand does not open.", "손이 안 열려요.")

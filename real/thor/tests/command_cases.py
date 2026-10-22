@@ -165,7 +165,7 @@ for t, want in [("move forward one metre", "action:move forward"), ("go back a l
                 ("move left 2 meters", "action:move left"), ("앞으로 1미터 가", "action:move forward"),
                 ("뒤로 조금 가 줘", "action:move back"), ("뒤로 물러나", "action:move back"), ("왼쪽으로 50센티 가", "action:move left"),
                 ("turn around", "action:turn around"), ("turn left", "action:turn left"), ("turn right 45 degrees", "action:turn right"),
-                ("spin around", "action:turn around"), ("한 바퀴 돌아", "action:turn around"), ("왼쪽으로 돌아", "action:turn left"),
+                ("spin around", "action:turn 360"), ("한 바퀴 돌아", "action:turn 360"), ("왼쪽으로 돌아", "action:turn left"),
                 ("come here", "action:come"), ("come to me", "action:come"), ("come closer", "action:come"), ("이리 와", "action:come"),
                 ("여기로 와 줘", "action:come"), ("come over here please", "action:come"),
                 ("go to p3", "action:go_to p3"), ("go to point two", "action:go_to p2"), ("p5로 가", "action:go_to p5"),
@@ -378,7 +378,7 @@ for t, want, st in [
         ("그거 이리 내놔", "give", "holding"), ("자 받아라", "receive", "idle"), ("이거 맡아 줘", "receive", "idle"),
         ("그만 쳐다봐", "action:look away", "idle"), ("좀 비켜 봐", "action:move back", "idle"), ("뒤로 좀 빠져", "action:move back", "idle"),
         ("사과 하나만 줘", "mission | action:fetch apple", "idle"), ("거기다 놔", "place", "holding"), ("바닥에 내려놔", "place | talk", "holding"),
-        ("손 꽉 쥐어", "action:arm close", "idle"), ("팔 쭉 펴", "action:arm reach", "idle"), ("한 바퀴 돌아 봐", "action:turn around", "idle")]:
+        ("손 꽉 쥐어", "action:arm close", "idle"), ("팔 쭉 펴", "action:arm reach", "idle"), ("한 바퀴 돌아 봐", "action:turn 360", "idle")]:
     add("slang", t, want, state=st)
 
 # ---------- near misses: not a hand-over, not a correction ----------

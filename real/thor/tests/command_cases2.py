@@ -130,7 +130,7 @@ for t, want in [("turn left", "action:turn left 90"), ("turn to the right please
                 ("turn around", "action:turn around"), ("could you turn left 30 degrees?", "action:turn left 30"),
                 ("turn right 45 degrees", "action:turn right 45"), ("왼쪽으로 돌아", "action:turn left 90"),
                 ("오른쪽으로 돌아 줘", "action:turn right 90"), ("뒤로 돌아", "action:turn around"),
-                ("왼쪽으로 45도 돌아 주세요", "action:turn left 45"), ("한 바퀴 돌아 봐", "action:turn around"),
+                ("왼쪽으로 45도 돌아 주세요", "action:turn left 45"), ("한 바퀴 돌아 봐", "action:turn 360"),
                 ("turn left 하고", "action:turn left | talk")]:
     add("turn", t, want)
 for t in ["don't turn", "돌지 마", "turn off the light", "turn up the volume", "it's your turn", "turn the page"]:
@@ -210,7 +210,7 @@ for t in ["take the cup to booth two and come back", "go to the stage, wait 10 s
     add("mission", t, "mission | action:fetch")
 for t in ["go to the stage and wave", "go to the stage and follow me", "pick up the cup and lift yourself up",
           "go to booth two and look left", "스테이지 가서 손 흔들어"]:
-    add("mission_part", t, "talk | ask")             # a part that is no task step: asked, never half done
+    add("mission_part", t, "chain")                 # each part in turn (lumi.chain_run), never half done
 
 # ---------- stop, speed ----------
 for t in ["stop", "stop it", "stop right now", "halt", "freeze", "stop, stop!", "wait, stop", "Lumi stop", "멈춰", "그만", "정지",
@@ -272,4 +272,44 @@ for t, want in [("can you raise yourself?", "action:lift up"), ("could you get a
                 ("can you pick that up?", "talk | ask"), ("how about turning left", "talk | action:turn left"),
                 ("would you mind looking at me?", "talk | action:look me")]:
     add("levels", t, want)
+# ---------- leftovers of the second night (2026-10-22) ----------
+for t in ["look at me and wave", "look at me, then wave", "wave and look at me", "lift yourself up and wave",
+          "웨이브 하고 나 봐", "나 보고 손 흔들어", "손 흔들고 나 봐 줘", "키 높이고 손 흔들어", "look at me and 손 흔들어",
+          "Lumi, look at me and wave please"]:
+    add("mission_part", t, "chain")                 # two commands: both, in the order said
+for t in ["put it down and wave", "내려놓고 손 흔들어", "give it to me and wave"]:
+    add("mission_part", t, "chain", state="holding")
+# a sentence of commands, questions and talk: each part in the order said (owner, 2026-10-22)
+for t in ["go to the stage and tell me the weather", "go to booth two and tell me what time it is",
+          "look at me and tell me a joke", "wave and then tell me your name", "고개 들고 몇 시야?",
+          "스테이지 가서 날씨 알려 줘", "나 보고 오늘 날씨 어때?", "look up and what time is it?",
+          "turn left and wave", "왼쪽으로 돌고 손 흔들어", "lift yourself up, then look at me", "come here and wave",
+          "고개 들고 손 흔들어", "go to the stage and dance", "come here and tell me the time",
+          "go to the stage and follow me", "wave and go to the stage"]:
+    add("chain", t, "chain")
+for t in ["what's the weather in Seoul and Busan?", "come here, I need help", "I like the stage and the music",
+          "tell me about Cutshion and its products", "how far is the stage and how long does it take?",
+          "turn around and look", "do you wave and dance?", "나 보고 싶었어", "follow me and go to the stage"]:
+    add("chain_not", t, "talk | ask | action:look | action:come | action:follow | action:fetch | weather | search")
+for t in ["spin around", "turn all the way around", "do a 360", "turn 360 degrees", "한 바퀴 돌아", "한 바퀴 돌아 줘",
+          "제자리에서 한 바퀴 돌아 주세요", "360도 돌아", "빙글빙글 돌아", "Lumi, spin around please", "can you spin around?"]:
+    add("turn", t, "action:turn 360")                # two checked half turns (tasks/fetch.py _do_step)
+for t, want in [("오른쪽으로 한 바퀴 돌아", "action:turn right 360"), ("spin around to the right", "action:turn right 360"),
+                ("turn around", "action:turn around 180"), ("뒤로 돌아", "action:turn around 180")]:
+    add("turn", t, want)
+for t in ["공원 한 바퀴 돌았어", "the earth spins around the sun", "how do you spin around?", "can I spin around?",
+          "어제 한 바퀴 돌았어요"]:
+    add("turn_not", t, "talk")
+for t in ["take the cup and put it back", "pick up the red cup and put it back", "컵 집었다가 제자리에 놔",
+          "grab the apple and put it back down"]:
+    add("mission", t, "mission")                     # picked here, put back here
+for t in ["루미야 너 월급 받아?", "너 월급 받아?", "월급 받아요?", "너 전화 받아?", "칭찬 많이 받아?"]:
+    add("talk", t, "talk")                           # about Lumi, nothing is handed over
+for t in ["컵 가져다 줘", "컵 좀 가져다 주세요", "컵 갖다 줘", "빨간 컵 가져다 줄래?"]:
+    add("fetch", t, "mission | action:fetch")        # picked from the table in front, handed over
+for t, want in [("Let's go P5 (point).", "action:go_to p5"), ("Let's go P9.", "action:go_to p9"),
+                ("lets go p3", "action:go_to p3"), ("let's go p10 point", "action:go_to p10"),
+                ("let's go eat", "talk")]:
+    CASES.append({"intent": "new:go", "text": t, "lang": "en", "state": "idle", "before": None, "expect": want,
+                  "markers": ["home", "dock2", "exit", "final"] + [f"p{i}" for i in range(1, 11)]})   # the owner's map
 R.shuffle(CASES)                                     # the report lists them by intent; the order only spreads the LLM's load

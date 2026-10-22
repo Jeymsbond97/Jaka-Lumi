@@ -53,6 +53,7 @@ def _norm(text, markers=()):
     t = re.sub(r"\b(mr|mrs|ms|dr|prof)\. ", r"\1 ", wording.durations(brain.unfill(wording.norm(text, markers))) + " ")
     t = re.sub(r"\b(?:take|pick up|pick|grab)\s?(?:해서|하고)", "집어서", t)   # "컵 take해서": mixed
     t = re.sub(r"(?<=[가-힣])고\s*나서(?=[\s,]|$)", "고", t)                     # "가고 나서" = "가고"
+    t = re.sub(r"(?<![가-힣])(집었|잡았)다가(?=[\s,]|$)", lambda m: m.group(1)[0] + "고", t)   # "컵 집었다가" = "컵 집고"
     for honour, plain in _HON_KO:                                                 # "가셔서" = "가서", "받으시고" = "받고"
         t = re.sub(rf"(?<![가-힣]){honour}(?=[\s,.!?]|$)", plain, t)
     return re.sub(r"(?<![가-힣])(간|온|집은|잡은|든|받은|준|놓은|돈|기다린|들른|가신|오신|기다리신|받으신|집으신|잡으신|드신|주신|놓으신|도신)"
@@ -169,7 +170,14 @@ def _move(c):
     return None
 
 
+_SPIN = re.compile(next(p for a, p in brain.INTENTS if a == "spin"), re.I)   # "한 바퀴 돌아", "spin around"
+_SPIN_REST = re.compile(r"\b(?:to (?:the |your )?)?(?:left|right)\b|\b(?:once|in place|on the spot)\b|제자리에서|그 ?자리에서|"
+                        r"(?:왼쪽|오른쪽)으로|(?<![가-힣])(?:아|고|아서|았다가|아요|해|하고|해서|아 ?봐)(?![가-힣])|\s+")
+
+
 def _turn(c):
+    if _SPIN.search(c) and not _SPIN_REST.sub("", _SPIN.sub(" ", c)):
+        return {"do": "turn", "deg": -360.0 if re.search(r"\bright\b|오른쪽", c) else 360.0}   # fetch: two half turns
     if re.fullmatch(r"turn(?: around)? 180(?: degrees?)?|(?:180\s*도|뒤로)\s*(?:돌아|돌고|돌아서)", c):
         return {"do": "turn", "deg": 180.0}
     m = re.fullmatch(r"turn (?:to the |to your )?(left|right|around)(?: by)?(?: {0}(?: degrees?)?)?".format(_NUM), c)
@@ -726,6 +734,10 @@ def _clause_steps(c, markers, after=None):
                     r"|이리와|come (?:back )?here|come back|(?:come |go |get )?(?:right |straight )?back (?:here|to me)|"
                     r"come (?:right|straight) back(?: here)?", c):
         return [{"do": "go", "to": "here"}]
+    if after and after["do"] == "pick" and re.fullmatch(
+            r"put (?:it|that|this|the \w+) back(?: down| there| where it was| on the table)?|"
+            r"(?:(?:그거|그걸|컵|그 컵)(?:을|를)? )?(?:(?:다시|제자리에|원래 자리에)\s*)+(?:놔|놓아|놓고|둬|두고|내려놔|내려 ?놓아)\s*(?:줘|요)?", c):
+        return [{"do": "place", "on": None}]               # "take the cup and put it back": picked here, put down here
     s = _wait(c, markers, after)
     if s is not None:
         return s
@@ -1253,6 +1265,8 @@ def _en(s, last=False):
     if d == "turn":
         if abs(s["deg"]) == 180:
             return "turn around"
+        if abs(s["deg"]) == 360:
+            return "turn all the way around" + (" to the right" if s["deg"] < 0 else "")
         side = "left" if s["deg"] > 0 else "right"
         return f"turn {side}" + ("" if abs(s["deg"]) == TURN_DEG else f" {abs(s['deg']):g} degrees")
     if d == "pick":
@@ -1291,6 +1305,8 @@ def _ko(s, last=False):
         side = {"forward": "앞으로", "back": "뒤로", "left": "왼쪽으로", "right": "오른쪽으로"}[s["dir"]]
         return f"{side} {s['m']:g}미터 가고"
     if d == "turn":
+        if abs(s["deg"]) == 360:
+            return "오른쪽으로 한 바퀴 돌고" if s["deg"] < 0 else "한 바퀴 돌고"
         return "뒤로 돌고" if abs(s["deg"]) == 180 else ("왼쪽" if s["deg"] > 0 else "오른쪽") + "으로 돌고"
     if d == "pick":
         from tasks.fetch import OBJECTS as KO, PREFER_SAID

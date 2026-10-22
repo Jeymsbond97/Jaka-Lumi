@@ -176,6 +176,25 @@ CASES.update({
 })
 
 # said with a correction inside: brain.self_correct reads it first (lumi.answer)
+# ---- 2026-10-22: a full turn (two checked half turns), put it back after a pick, look / lift / wave are no steps ----
+CASES.update({
+    "한 바퀴 돌고 스테이지로 가": "turn 360 | go stage",
+    "spin around and then go to the stage": "turn 360 | go stage",
+    "go to booth two and turn all the way around": "go booth_2 | turn 360",
+    "스테이지 가서 오른쪽으로 한 바퀴 돌아 줘": "go stage | turn -360",
+    "go to the end, spin around, then come back": "go end | turn 360 | go here",
+    "take the cup and put it back": "pick cup | place",
+    "pick up the red cup and put it back down": "pick red cup | place",
+    "컵 집었다가 제자리에 놔": "pick cup | place",
+    "컵 집고 제자리에 다시 놔 줘": "pick cup | place",
+    "take the cup, go to the stage and put it back": "?",
+    "look at me and wave": "?",
+    "웨이브 하고 나 봐": "?",
+    "나 보고 손 흔들어": "?",
+    "lift yourself up and wave": "?",
+    "go to the stage and spin around the table": "?",
+})
+
 FIXED = {
     "take the cup, go to start, no, end, and give it to James": "pick cup | go end | give James",
     "go to start, sorry, I mean the stage, then come back": "go stage | go here",
@@ -186,6 +205,11 @@ FIXED = {
 
 # the read-back (steps.describe) for a few of them
 READ_BACK = {
+    "turn 360 | go stage": ("Turn all the way around, then go to stage.", "한 바퀴 돌고 stage 위치로 갈게요."),
+    "go stage | turn -360": ("Go to stage, then turn all the way around to the right.",
+                             "stage 위치로 가고 오른쪽으로 한 바퀴 돌게요."),
+    "pick cup | place": ("Take the cup, then put it down.", "컵을 집고 테이블에 놓을게요."),
+    "pick cup | give": ("Take the cup, then hand it over.", "컵을 집고 건네줄게요."),     # "컵 가져다 줘"
     "pick cup | go booth_2 | give James | go here":
         ("Take the cup, go to booth 2, hand it to James, then come back here.",
          "컵을 집고 booth 2 위치로 가고 James에게 건네주고 여기로 돌아올게요."),

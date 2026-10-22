@@ -228,7 +228,7 @@ add("turn", "왼쪽으로 돌아", "action:turn left 90")
 add("turn", "오른쪽으로 돌아 주세요", "action:turn right 90")
 add("turn", "오른쪽으로 사십오 도 도십시오", "action:turn right 45")
 add("turn", "turn left 해 줘", "action:turn left 90")
-add("turn", "한 바퀴 빙 돌아 봐", "action:turn around | ask")   # owner set (command_cases): around
+add("turn", "한 바퀴 빙 돌아 봐", "action:turn 360 | ask")   # all the way round: two half turns
 add("turn_not", "it's your turn to talk", "talk")
 add("turn_not", "turn left at the corner and you'll find the restroom", "talk")
 
@@ -430,9 +430,9 @@ add("mission", "컵 들고 스테이지로 가서 줘", "mission")
 add("mission", "스타트 갔다 와", "mission")
 add("mission", "pick up the apple then go to the end and put it on the table", "mission | action:fetch")
 add("mission", "부스 투에 가서 컵 받아서 테이블 프론트로 가 주세요", "mission")
-add("mission_part", "go to the stage and wave", "refuse | talk | ask")
-add("mission_part", "go to the stage and dance", "refuse | talk | ask")
-add("mission_part", "스테이지 가서 춤춰", "refuse | talk | ask")
+add("mission_part", "go to the stage and wave", "chain")
+add("mission_part", "go to the stage and dance", "chain")
+add("mission_part", "스테이지 가서 춤춰", "chain")
 
 # ---------- things the body can't do ----------
 add("cant", "jump", CANT)

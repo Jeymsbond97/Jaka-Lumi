@@ -666,6 +666,9 @@ class Modes:
 
 
 class Lumi:
+    chain_thread = None                  # several commands of one sentence done in order (chain_run)
+    chain_stop = threading.Event()       # set by "stop" or anything new said: the rest of the chain is not done
+
     def __init__(self, args):
         self.a = args
         self.brain = Brain()
@@ -863,14 +866,17 @@ class Lumi:
         if action == "move" and not driving.MOVE_MIN_M <= amount <= MAX_MOVE_M:
             log(f"  move {amount:g} m: outside {driving.MOVE_MIN_M:g}..{MAX_MOVE_M:g} m, not driven")
             return False
-        if action == "move" and direction in ("back", "forward"):   # straight with joy_control, checked like a
-            from tasks import fetch                               # mission's move: navigation may turn round and
-            log(f"  move {direction} {amount:g} m straight")      # stops within its own tolerance
-            self.stay()
+        full = action == "turn" and amount >= 360                 # all the way round: a 360 deg goal is the start
+        if action == "move" and direction in ("back", "forward") or full:   # pose to navigation; fetch turns twice 180
+            from tasks import fetch                               # straight with joy_control, checked like a
+            log(f"  {action} {direction} {amount:g} by the task runner")   # mission's move: navigation may turn round
+            self.stay()                                           # and stops within its own tolerance
+            step = {"do": "turn", "deg": -360.0 if direction == "right" else 360.0} if full else \
+                {"do": "move", "dir": direction, "m": amount}
             try:
-                fetch.run_steps([{"do": "move", "dir": direction, "m": amount}], say=self.fetch_say)
+                fetch.run_steps([step], say=self.fetch_say)
             except fetch.FetchError as e:
-                log(f"  move {direction} refused: {e}")
+                log(f"  {action} {direction} refused: {e}")
                 self.fetch_say(str(e), "죄송해요, 지금은 할 수 없어요.")
                 return False
             return True
@@ -1027,6 +1033,7 @@ class Lumi:
         """Stop by voice: the fetch / mission runner, the base, the arm, a trip; then say so."""
         from tasks import fetch
         log("  stop by voice")
+        self.chain_stop.set()
         safe(fetch.stop)
         self.act("stop", "")
         if self.patrol:
@@ -1333,6 +1340,83 @@ class Lumi:
         if held and (running or self.traveling()):
             en += f" I'm holding {held}."
         return en, ko
+
+    # ---------- several commands in one sentence (assistant/chain.py) ----------
+    def chain_busy(self):
+        return self.chain_thread is not None and self.chain_thread.is_alive()
+
+    def chain_request(self, text):
+        """Commands, questions and talk in one sentence, done in the order said (chain.plan). True if it was one."""
+        from assistant import chain
+        if self.mission_running() or self.chain_busy():
+            return False
+        plan = chain.plan(text, self.markers, NOT_A_STEP)
+        if not plan:
+            return False
+        log(f"  chain: {[(k, w) for k, w, _ in plan]}")
+        self.chain_stop.clear()
+        self.chain_thread = threading.Thread(target=self.chain_run, args=(plan,), daemon=True)
+        self.chain_thread.start()
+        return True
+
+    def chain_run(self, plan):
+        """Each part in turn, the next once the one before is done (chain_wait). A part that can't be done says why
+        (quick_command, the mission runner, the LLM's answer) and the rest goes on; after a mission part that failed,
+        the parts that drive or need the hand are not done and that is said. "Stop" or new words end it."""
+        from assistant import chain, steps
+        from tasks import fetch
+        failed = False
+        for i, (kind, words, what) in enumerate(plan):
+            if self.chain_stop.is_set():
+                log(f"  chain stopped before {words!r}")
+                return
+            log(f"  chain part {i + 1}/{len(plan)}: {kind} {words!r}")
+            if failed and (kind == "steps" or kind == "quick" and what[0] in chain.DRIVES | {"pick", "put", "move_object"}):
+                log(f"  chain: {words!r} not done (the part before failed)")
+                self.fetch_say(f"So I didn't do this part: {words}.", "그래서 이 부분은 하지 않았어요.")
+                continue
+            if kind == "talk":
+                self.answer(words, part=True)
+            elif kind == "quick":
+                self.quick_command(words)
+            else:
+                if {st["do"] for st in what} & DRIVE_STEPS and (self.base_off("go_to") or not self.modes.drive):
+                    failed = True
+                    if self.modes.patrol:
+                        self.fetch_say("Sorry, driving is switched off.", "죄송해요, 지금은 이동할 수 없어요.")
+                    continue
+                problems = steps.check(what, fetch.check_hand(), self.markers)
+                if problems:
+                    log(f"  chain part refused: {problems}")
+                    self.fetch_say(problems[0], "죄송해요, 그렇게는 할 수 없어요.")
+                    failed = True
+                    continue
+                self.stay()
+                try:
+                    fetch.run_steps(what, say=self.fetch_say)
+                except fetch.FetchError as e:
+                    log(f"  chain part refused: {e}")
+                    self.fetch_say(str(e), "죄송해요, 지금은 할 수 없어요.")
+                    failed = True
+                    continue
+            self.chain_wait()
+            if kind == "steps" and (safe(fetch.state) or {}).get("status") in ("failed", "stopped"):
+                failed = True
+        log("  chain done")
+
+    def chain_wait(self, poll_s=0.3, settle_s=0.6):
+        """Until the part just started is over: a trip, a pick / put, a mission or move, a wave, the head or lift."""
+        from tasks import fetch
+        time.sleep(settle_s)                               # the part's thread has started its work by then
+        last = None
+        while not self.chain_stop.is_set():                # (a follow is only the last part: not waited for)
+            busy = self.traveling() or self.skill_busy() or self.busy_now == "wave" or \
+                (safe(fetch.state) or {}).get("status") == "running"
+            pose = safe(head.status)
+            if not busy and pose is not None and pose == last:
+                return
+            last = pose
+            time.sleep(poll_s)
 
     def mission_request(self, text):
         """A command of several steps (docs/17), said by voice: read back, start on yes or silence. True if it was
@@ -2038,6 +2122,8 @@ class Lumi:
             if action == "turn":
                 say_en = "Okay, turning around." if d == "around" else f"Okay, turning {d}."
                 say_ko = "네, 뒤로 돌게요." if d == "around" else ("네, 왼쪽으로 돌게요." if d == "left" else "네, 오른쪽으로 돌게요.")
+                if n == "360":
+                    say_en, say_ko = "Okay, turning all the way around.", "네, 한 바퀴 돌게요."
             else:
                 exact = driving.amount(brain_mod._norm(text))[1]   # "about 5 centimetres" for "a tiny bit"
                 say_en, say_ko = (driving.say_move(d, float(n), exact, lang) for lang in ("en", "ko"))
@@ -2063,9 +2149,13 @@ class Lumi:
         self.current, self.voice_until = None, 0.0
         return True
 
-    def answer(self, text):
+    def answer(self, text, part=False):
         """Stream the LLM reply: act on the action line, speak sentence by sentence.
-        Clear commands (go home, go to p1, come here, be quiet...) are done at once without the LLM."""
+        Clear commands (go home, go to p1, come here, be quiet...) are done at once without the LLM.
+        part: one part of a sentence of several (chain_run); otherwise a chain still running ends here."""
+        if not part and self.chain_busy() and not brain_mod.is_backchannel(text):
+            log("  chain: new words, the rest is not done")
+            self.chain_stop.set()
         self.lang = ears.heard_lang(mouth.lang_of(text))   # answer in the language just spoken
         brain_mod.FORCED_LANG["lang"] = self.lang
         self.heard = text                                  # what the person said, for a fetch the LLM recognised
@@ -2112,6 +2202,8 @@ class Lumi:
             return
         if stop_order(text, self.markers):
             self.stop_all()                                # "stop", "stop, where are you going?": stop first, always
+            return
+        if not part and self.chain_request(text):          # "look at me and wave", "go to p5 and tell me the weather"
             return
         seen = seeing.answer(text, self.lang, slow_line=mouth.say)   # "do you see a cup?", "what am I holding?"
         if seen:

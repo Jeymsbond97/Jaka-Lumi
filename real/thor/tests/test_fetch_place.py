@@ -258,6 +258,10 @@ for text, said, prefer in (("take the smaller cup to p1", "Take the smaller cup 
     r = server.task_parse(server.ParseBody(text=text))
     assert r["action"] == "fetch" and r["sentence"] == said and r["task"]["prefer"] == prefer, (text, r)
     assert server.TaskBody(**r["task"]).model_dump()["prefer"] == prefer        # /tasks/fetch keeps it
+# a correction inside the typed command is read as by voice (brain.self_correct)
+r = server.task_parse(server.ParseBody(text="bring me the cup from p1, no, from p8"))
+assert r["action"] == "fetch" and r["task"]["source"] == {"marker": "p8"}, r
+assert server.task_parse(server.ParseBody(text="go to p1, never mind"))["problems"] == ["Taken back: nothing to do."]
 two = [{**cups[0], "x": -100.0, "y": 600.0, "width_mm": 80.0}, {**cups[0], "x": 120.0, "y": 650.0, "width_mm": 66.0}]
 find = lambda **t: fetch._find({"object": "cup", "colour": None, **t}, two)
 assert find() == two[0] and find(prefer="small") == two[1] and find(prefer="big") == two[0]

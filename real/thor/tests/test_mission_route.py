@@ -6,7 +6,7 @@ drives is refused with one line, one that stays in place runs). Fake robot; the 
 python tests/test_mission_route.py"""
 import types
 
-from assistant import brain, lumi, steps
+from assistant import brain, chain, lumi, steps
 from tasks import fetch
 from tests import steps_cases7 as c7
 
@@ -35,7 +35,8 @@ for text, want in list(c7.CASES.items()) + list(c7.FIXED.items()):
     if want == "?":
         asked = read is not None and read[1]
         refused = read is not None and not read[1] and steps.check(read[0], False, M)
-        if not (asked or refused or read is None and (rule is None or rule[0] == "fetch")):
+        chained = chain.plan(t, M, lumi.NOT_A_STEP)       # "look at me and wave": every part in turn (test_chain)
+        if not (asked or refused or chained or read is None and (rule is None or rule[0] == "fetch")):
             bad.append((text, read, rule))
     elif not (read and not read[1] or read is None and rule and rule[0] == "fetch"):
         bad.append((text, read, rule))

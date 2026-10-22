@@ -978,6 +978,11 @@ def task_parse(body: ParseBody):
     from tasks import fetch
     markers = agv.markers()
     got = unread = by = None
+    fixed = brain.self_correct(body.text, markers) if body.text.strip() else body.text   # "go to start, no, end": as
+    if not fixed and body.text.strip():                                                  # by voice (lumi.answer)
+        return {"action": None, "task": None, "sentence": "–", "read_by": "rules", "problems": [
+            "Which one did you mean? Please write it again." if fixed is None else "Taken back: nothing to do."]}
+    body = body.model_copy(update={"text": fixed})
     if body.text.strip():                             # a mission (docs/17): several steps the fetch / carry can't do
         got, unread, by = steps.read(body.text, markers, llm=False)
         if unread and got and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
