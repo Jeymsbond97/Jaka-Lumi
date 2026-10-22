@@ -16,8 +16,10 @@ def _question(task, markers):
     """(en, ko) asking for the first missing field, or None when the task is complete."""
     places = ", ".join(markers)
     if task.get("object") is None:
-        return ("Which object? I know cup, bottle, apple, orange and banana.",
-                "어떤 물건이요? 컵, 병, 사과, 오렌지, 바나나를 알아요.")
+        from tasks import fetch                         # what the fingers can pick (skills.GRASPS)
+        en, ko = [n for n in fetch.PICKABLE], [fetch.OBJECTS[n] for n in fetch.PICKABLE]
+        return (f"Which object? I can pick up {', '.join(en[:-1])} and {en[-1]}.",
+                f"어떤 물건이요? {', '.join(ko)}{'을' if (ord(ko[-1][-1]) - 0xAC00) % 28 else '를'} 집을 수 있어요.")
     if task.get("source") is None:
         return (f"Where should I take it from? I know {places}.", f"어디에서 가져올까요? {places}를 알아요.")
     if task.get("dest") is None:

@@ -35,17 +35,21 @@ ROOT = Path(__file__).resolve().parents[1]      # the project folder
 STATE_FILE = Path("/dev/shm/lumi_task.json")   # the task state, readable by every process
 CALIB_FILE = ROOT / "data" / "fetch_calib.json"
 KNOWN_FILE = ROOT / "data" / "known_things.json"    # things taught by name and colour, kept by their place on the map  # {"arm_yaw_in_base_deg": ...} from measure-axis
-OBJECTS = {"cup": "컵", "bottle": "병", "apple": "사과", "orange": "오렌지", "banana": "바나나"}   # camera classes
+OBJECTS = {name: ko for name, (ko, _) in skills.GRASPS.items()}   # camera classes Lumi knows -> Korean; which it
+PICKABLE = [n for n in OBJECTS if not skills.refusal(n)]           # can pick: skills.GRASPS
 COLOURS = {"red": "빨간", "orange": "주황색", "yellow": "노란", "green": "초록색", "blue": "파란", "purple": "보라색",
            "pink": "분홍색", "white": "흰", "black": "검은", "grey": "회색"}   # the names objects.colour_name gives
 FINISH = ("hold", "place")
+PREFER_SAID = {"small": ("smaller ", "작은 "), "big": ("bigger ", "큰 "), "near": ("nearest ", "가까운 "),
+               "far": ("farthest ", "먼 "), "left": ("", "왼쪽 "), "right": ("", "오른쪽 "),
+               "low": ("lower ", "낮은 "), "high": ("higher ", "높은 ")}   # task["prefer"] in the read-back sentence
 LOOK_POSE = "look"           # drives, turns, looks and waits here, also with an object (the cup leans 3.6 deg); high,
                              # the hand ~0.3 m from the base centre, 5 cm past its front (taught 2026-10-20, 12 cm further
                              # in than before: the hand touched a door frame); a held cup's bottom is at the top edge of
                              # the torso view, too near for depth (ready if not taught). carry is only passed through after a
                              # pick: in carry the hand is ~0.3 m before the base's front, where its 3D camera seems to see
                              # it as an obstacle (every drive in carry stalled; the same drives in look went, 2026-10-16)
-MAX_TILT_DEG = 15.0          # deg; the held cup's axis may lean this far from vertical on ready <-> carry
+MAX_TILT_DEG = skills.MAX_TILT_DEG   # deg; the held cup's axis may lean this far from vertical on ready <-> carry
 TILT_POINTS = 11             # points checked along a joint move (kine_forward)
 LINE_POINTS = 20             # points IK- and tilt-checked on a straight move with an object in the hand ...
 LINE_STEP_DEG = 25.0         # ... no joint may turn more than this between two of them (one IK branch all the way;
@@ -140,12 +144,24 @@ GIVE_WAIT_S = 30.0           # s; no release by then: keep holding it and go bac
 # grew, sd 20 -> 50-75), while the fingers settling after the move changed it by 192.
 GIVE_POLL_S = 0.05
 MOVE_SPEED = 0.10            # m/s; a mission's move (straight with joy_control); estimate, tune live (docs/17)
+SHORT_MOVE_M = 0.10          # m; a shorter move goes at AXIS_SPEED (0.100 m driven for 0.100 m asked, 2026-10-14)
+SPEED_STEP = 0.2             # "faster" / "slower" by voice changes the drive speed by this part of the normal speed ...
+SPEED_MIN = 0.4              # ... down to this part of it ...
+SPEED_MAX = 1.6              # ... up to this (moves 0.16 m/s; estimate, still below navigation's NAV_SPEED_MPS)
+NAV_SPEED_MPS = 0.3          # m/s; navigation's max_speed_linear as the base has it (get_params, 2026-10-21) = normal;
+NAV_TURN_RADS = 0.3          # rad/s; its max_speed_angular, sent unchanged. Navigation is only ever slowed, never faster
 RECEIVE_WAIT_S = 30.0        # s; receive: nothing put in the hand by then -> the mission fails, hand open
 RECEIVE_DI_S = 0.5           # s; DI_1 (finger sensor) sees something this long -> Lumi asks the person to let go;
                              # the hand closes only on their "okay" / Release (never on fingers still in it)
 MOVE_SEGMENT_M = 0.25        # m; a mission move is driven in pieces this long, the way (base and arm) checked before each
 WAIT_POLL_S = 0.05           # s between looks at stop / go on / an instruction while a mission waits (a wait step)
 LOG_LINES = 40
+POINT_STEPS_MM = (0, -50, 50, -100, 100)   # "put it here" with pointing: spots on this grid around the point (estimate)
+RECEIVE_REACH_MM = 150.0     # receive from a hand: the open hand moves at most this far from give towards it ...
+RECEIVE_SHORT_MM = 100.0     # ... and stops this far before it (the person puts it in; estimates, first run slow)
+RECEIVE_MIN_MM = 20.0        # ... a shorter move is left out
+PICK_TRIES = 2               # a pick that missed or slipped is looked for and tried again once (docs/15 §3.5)
+MISSES = ("I missed it.", "It slipped out of my hand.")   # skills._do_pick's reasons for those
 
 _lock = threading.RLock()                   # _finish sets the state while it holds it
 _stop = threading.Event()                    # set by stop(): every step and every wait gives up
@@ -156,7 +172,9 @@ _rest = []                                   # the running mission's steps still
 _pause = threading.Event()                   # set by pause() (someone talks to Lumi on the way): drives halt, the run
                                              # waits at the next step; resume() goes on where it was
 _thread = None
-_task = {"start_pose": None}                 # map pose (x, y, theta) where the current task was given
+_task = {"start_pose": None,                 # map pose (x, y, theta) where the current task was given
+         "trip_from": None}                  # where Lumi stood before its last trip, task or mission: "come back"
+                                             # returns there (lumi.come_back); short moves and turns don't set it
 _state = {"status": "idle", "step": "", "task": None, "holding": False, "held_object": None, "log": [],
           "since": time.time()}          # held_object: {"object", "colour"} picked or received, until the hand opens
 
@@ -226,7 +244,9 @@ def validate(task, markers):
     """Problems with `task` in plain words; empty when it can run. `markers`: marker names on the map."""
     out = []
     if task.get("object") not in OBJECTS:
-        out.append("Which object? I know cup, bottle, apple, orange and banana.")
+        out.append(f"Which object? I can pick up {', '.join(PICKABLE[:-1])} and {PICKABLE[-1]}.")
+    elif skills.refusal(task["object"]):
+        out.append(skills.refusal(task["object"])[0])
     if task.get("colour") is not None and task["colour"] not in COLOURS:
         out.append(f"I don't know the colour {task['colour']}.")
     for key, what in (("source", "Where should I take it from?"), ("dest", "Where should I bring it?")):
@@ -253,15 +273,17 @@ def describe(task, lang="en"):
     src, dst = task.get("source", "here"), task.get("dest")
     mark = {k: p["marker"] for k, p in (("src", src), ("dst", dst)) if isinstance(p, dict) and "marker" in p}
     place = task.get("finish") == "place"
+    which = PREFER_SAID.get(task.get("prefer"), ("", ""))
     if lang == "ko":
-        thing = (COLOURS.get(colour, colour) + " " if colour else "") + OBJECTS.get(obj, obj)
+        thing = which[1] + (COLOURS.get(colour, colour) + " " if colour else "") + OBJECTS.get(obj, obj)
         frm = "여기에서" if src == "here" else f"{mark['src']} 위치에서" if "src" in mark else "알려 주신 위치에서"
         to = "여기로" if dst == "here" else f"{mark['dst']} 위치로" if "dst" in mark else \
             "알려 주신 위치로" if dst else "어딘가로"
         end = "테이블에 내려놓을게요" if place else "들고 있을게요"
         carry = "가져와서" if dst == "here" else "가져가서"
         return f"{frm} {thing}{_object_particle(thing)} 가져와서 {to} {carry} {end}."
-    thing = (colour + " " if colour else "") + obj
+    thing = which[0] + (colour + " " if colour else "") + obj + (f" on the {task['prefer']}" if task.get("prefer") in
+                                                                  ("left", "right") else "")
     frm = "from here" if src == "here" else f"from {mark['src']}" if "src" in mark else "from the point I was shown"
     to = "here" if dst == "here" else f"to {mark['dst']}" if "dst" in mark else \
         "to the point I was shown" if dst else "somewhere"
@@ -723,11 +745,29 @@ def first_side():
     return side
 
 
-def _find_any(task):
+def _find_any(task, close=None):
+    """_find, None when not seen. `close`: steady things of the task's class but another colour seen here are added
+    to it by map place (taken when the said one is nowhere: _see)."""
+    seen = skills.look() if task.get("prefer") or close is not None else None
     try:
-        return _find(task)
+        return _find(task, seen)
     except FetchError:
+        if close is not None and task.get("colour") and arm_yaw() is not None:
+            close += [(map_xy(o), o.get("colour")) for o in seen if o["name"] == task["object"]
+                      and o["seen"] >= skills.MIN_SEEN and o["spread"] <= skills.SPREAD_MM]
         return None
+
+
+def _rank(things, prefer):
+    """`things` ordered by what was said of the one wanted ("prefer": low / high / small / big / near / far / left /
+    right; the nearest first when nothing was said). Left / right: the robot's, as the arm looks (arm +x is its
+    right)."""
+    dist = lambda o: math.hypot(o["x"], o["y"])
+    key = {"low": lambda o: o.get("top_mm") if o.get("top_mm") is not None else 1e9,
+           "high": lambda o: -(o.get("top_mm") if o.get("top_mm") is not None else -1e9),
+           "small": lambda o: o.get("width_mm") or 1e9, "big": lambda o: -(o.get("width_mm") or 0),
+           "far": lambda o: -dist(o), "left": lambda o: o["x"], "right": lambda o: -o["x"]}.get(prefer, dist)
+    return sorted(things, key=key)
 
 
 def surface_band(lift=None):
@@ -863,9 +903,16 @@ def yaw_from_shift(before_xy, after_xy, base_move):
 
 
 # ---------- steps ----------
-def _find(task):
+def _find(task, seen=None):
+    """The task's object (class, colour) the torso camera sees steadily: the nearest, or the one task["prefer"] says
+    (the smaller, the further one; _rank). `seen`: skills.look() of now."""
     try:
-        return skills.find(task["object"], task.get("colour"))
+        obj = skills.find(task["object"], task.get("colour"), seen)
+        if task.get("prefer") and seen:
+            hits = [o for o in seen if o["name"] == task["object"] and objects.same_colour(task.get("colour"), o["colour"])
+                    and o["seen"] >= skills.MIN_SEEN and o["spread"] <= skills.SPREAD_MM and o["top_mm"] is not None]
+            obj = _rank(hits, task["prefer"])[0] if hits else obj
+        return obj
     except skills.SkillError:
         thing = OBJECTS[task["object"]]
         raise FetchError(f"I can't see the {task['object']}.", f"{thing}{'이' if _object_particle(thing) == '을' else '가'} 안 보여요.")
@@ -936,9 +983,10 @@ def _go_to(thing, goal, tried, holding=False):
 def _see(task, say=None):
     """Find the object (_look_around: the torso camera, else the head camera, which shows where to go: the base goes
     there and they look again), fit the lift to its table and look once more."""
-    tried = set()
+    tried, close = set(), []
+    attempt = lambda: _find_any(task, close) or _head_seen(lambda o: _is_task(o, task))
     for i in range(APPROACH_TRIES + 1):
-        obj = _look_around(lambda: _find_any(task) or _head_seen(lambda o: _is_task(o, task)), say=say if i == 0 else None)
+        obj = _look_around(attempt, say=say) if i == 0 else _look_at(0.0, attempt)     # one whole search
         if obj is None:
             break
         if not obj.get("head"):
@@ -948,6 +996,18 @@ def _see(task, say=None):
             break
         _say(say, "I see it. Going there.", "찾았어요. 그쪽으로 갈게요.")
         _go_to(obj, PICK_ZONE_CENTRE, tried)
+    if close:                                         # not that colour anywhere: the nearest of another one
+        x, y, _ = agv.pose()
+        w, colour = min(close, key=lambda c: math.hypot(c[0][0] - x, c[0][1] - y))
+        log(f"no {task['colour']} {task['object']} anywhere; a {colour} one at ({w[0]:.2f}, {w[1]:.2f}) on the map")
+        xy = arm_frame(w)
+        _go_to({"x": float(xy[0]), "y": float(xy[1])}, PICK_ZONE_CENTRE, tried)
+        other = {**task, "colour": colour}
+        obj = _look_at(0.0, lambda: _find_any(other))
+        if obj is not None:
+            _say(say, f"I couldn't see a {task['colour']} {task['object']}, so I'm taking the {colour} one.",
+                 "말씀하신 색은 안 보여서 다른 색으로 가져갈게요.")
+            return _fitted(other, obj)
     _lift_to(LIFT_DRIVE_MM)
     thing = OBJECTS[task["object"]]
     raise FetchError(f"I looked all around, but I can't see the {task['object']}.",
@@ -964,6 +1024,23 @@ def _fitted(task, obj):
     return obj
 
 
+speed_factor = 1.0          # the drive speed by voice: x MOVE_SPEED for moves, x NAV_SPEED_MPS (at most 1) for navigation
+
+
+def set_speed(factor):
+    """The drive speed by voice, cut to SPEED_MIN..SPEED_MAX. A move running now drives on at it (_move reads it every
+    0.1 s); navigation gets NAV_SPEED_MPS x min(factor, 1) (/api/set_params, kept by the base until it restarts).
+    Returns the factor now."""
+    global speed_factor
+    factor = round(min(SPEED_MAX, max(SPEED_MIN, factor)), 2)
+    nav = round(NAV_SPEED_MPS * min(factor, 1.0), 3)
+    if nav != round(NAV_SPEED_MPS * min(speed_factor, 1.0), 3):
+        agv.request(f"/api/set_params?max_speed_linear={nav}&max_speed_angular={NAV_TURN_RADS}")
+    speed_factor = factor
+    log(f"drive speed x{factor:g} (moves {MOVE_SPEED * factor:.3f} m/s, navigation {nav:g} m/s)")
+    return factor
+
+
 def _straight_clear(dist, speed=None):
     """Drive straight by `dist` m (+ forward), only as far as the base keeps BASE_HALF_M + CLEAR_M from every obstacle
     the sensors and the map show (checked every PROBE_STEP_M before it starts; getting further from one is fine).
@@ -972,13 +1049,14 @@ def _straight_clear(dist, speed=None):
     x, y, th = agv.pose()
     sign = 1.0 if dist > 0 else -1.0
     free, last = 0.0, agv.clearance(x, y)
-    for k in range(1, int(abs(dist) / PROBE_STEP_M + 1e-9) + 1):
-        c = agv.clearance(x + sign * k * PROBE_STEP_M * math.cos(th), y + sign * k * PROBE_STEP_M * math.sin(th))
+    for k in range(1, math.ceil(abs(dist) / PROBE_STEP_M - 1e-9) + 1):
+        at = min(k * PROBE_STEP_M, abs(dist))         # every PROBE_STEP_M, and the end itself (a 1 cm move too)
+        c = agv.clearance(x + sign * at * math.cos(th), y + sign * at * math.sin(th))
         if c < BASE_HALF_M + CLEAR_M and c < last:
             log(f"an obstacle {c:.2f} m from the way after {free:.2f} m")
             break
-        free, last = k * PROBE_STEP_M, c
-    if free >= PROBE_STEP_M:
+        free, last = at, c
+    if free > 0:
         log(f"straight {sign * free:+.2f} m")
         free = _straight(sign * free, speed or AXIS_SPEED)
     return free
@@ -1094,14 +1172,43 @@ def _see_again(task, mem, yaw, say):
     return _see(task, say)
 
 
+def _other_here(task, obj):
+    """(obj, waypoints, joints above) of another steady thing of the task's class and colour seen from here that a pick
+    reaches now (the nearest first), when the one chosen can't be picked; None, or when the command said which one
+    (task["prefer"])."""
+    if task.get("prefer"):
+        return None
+    for o in _rank([o for o in skills.look() if _is_task(o, task) and o["seen"] >= skills.MIN_SEEN
+                    and o["spread"] <= skills.SPREAD_MM and o["top_mm"] is not None
+                    and math.hypot(o["x"] - obj["x"], o["y"] - obj["y"]) >= skills.CLUSTER_MM], None):
+        try:
+            plan = _reachable(o)
+        except skills.SkillError as e:
+            log(f"the {o['name']} at ({o['x']:.0f}, {o['y']:.0f}): {e.args[0]}")
+            continue
+        if plan:
+            log(f"taking the {o['name']} at ({o['x']:.0f}, {o['y']:.0f}) instead: that one is in reach")
+            return (o, *plan)
+    return None
+
+
 def _reach(task, obj, say):
     """Step 5: (obj, waypoints, joints above) of a pick that passes IK. Out of reach: move the base (_approach) and look
     again, up to APPROACH_TRIES times (never on the charger); then ask the person to move it."""
     yaw, tried = arm_yaw(), set()
     for i in range(APPROACH_TRIES + 1):
-        plan = _reachable(obj)
+        try:
+            plan = _reachable(obj)
+        except skills.SkillError:                     # too big / small: another one of them here may do
+            other = _other_here(task, obj) if i == 0 else None
+            if other:
+                return other
+            raise
         if plan:
             return (obj, *plan)
+        other = _other_here(task, obj) if i == 0 else None
+        if other:                                     # the one chosen is out of reach, another one is not
+            return other
         if yaw is None or i == APPROACH_TRIES or _charging():
             break
         w = _waist_turn()
@@ -1172,14 +1279,23 @@ def _place_here(top0):
     table = table_ahead()
     if _fit_lift(table):
         table = table_ahead()
-    top, held_table = top0, skills._held.get("table")
-    if table is not None and held_table is not None:
-        top += table - held_table                     # the same object on a table this much higher / lower
     log(f"table here at {table:.0f} mm" if table is not None else "no table in view")
     if table is None:                    # never put it down on a table not measured right now
         return None
+    top = _top_on(top0, table)
     tries = place_spots(skills._held, agv.pose(), skills.look(), table)
     return _place_at(tries, top) if tries else None
+
+
+def _top_on(top0, table):
+    """Height (mm, arm frame now) of the held object's top when it stands on a table at `table` mm: its height over
+    the table it was picked from. That table not measured: as high as it was picked, moved by the lift since."""
+    held_table = skills._held.get("table")
+    if held_table is not None:
+        return top0 + table - held_table
+    lift0 = skills._held.get("lift")
+    log("the table it was picked from was not measured: putting it down as high as it was picked")
+    return top0 + (lift0 - head.status()[0] if lift0 is not None else 0.0)
 
 
 def _place_view(top0):
@@ -1189,17 +1305,18 @@ def _place_view(top0):
 
 
 def _place_at(tries, top):
-    """Put the held object down at the first of `tries` (x, y) whose way down passes IK. True when it is down."""
+    """Put the held object down at the first of `tries` (x, y) whose way down passes IK: straight from here with the
+    held grasp turn, else any grasp turn and wrist (skills.place_options). True when it is down."""
     log(f"place spots: {', '.join(f'({x:.0f}, {y:.0f})' for x, y in tries[:6])}")
     for x, y in tries:
         way = skills.plan_place(x, y, top, yaw=skills._held.get("yaw", 0.0))      # above place, place, release up
         try:
             over = _line_rows(way[0][1], f"to ({x:.0f}, {y:.0f})")
+            rows = over[-1:] + skills.ik_chain(way[1:], over[-1][2])
+            rows[0][0] = way[0][0]
         except FetchError:
-            continue
-        rows = over[-1:] + skills.ik_chain(way[1:], over[-1][2])
-        rows[0][0] = way[0][0]
-        if not rows[-1][3]:
+            rows = None                                                       # _line_rows said why
+        if rows and not rows[-1][3]:
             _go_on()
             log(f"putting it down at ({x:.0f}, {y:.0f})")
             skills._guarded(lambda: motion.move_linear(target=way[0][1], speed=skills.HOLDING_SPEED,
@@ -1208,7 +1325,16 @@ def _place_at(tries, top):
             _set(holding=False)
             _pose(_look())
             return True
-        log(f"spot ({x:.0f}, {y:.0f}) refused at {rows[-1][0]}: {rows[-1][3]}")
+        if rows:
+            log(f"spot ({x:.0f}, {y:.0f}) refused at {rows[-1][0]}: {rows[-1][3]}")
+        opt = next(skills.place_options(x, y, top, skills._joints()), None)     # another grasp turn or wrist (the
+        if opt:                                                                 # cup's own turn does not matter)
+            log(f"putting it down at ({x:.0f}, {y:.0f})")
+            skills._guarded(skills.place_turned, *opt)                          # ends at home (look), hand open
+            _set(holding=False)
+            _pose(_look())
+            return True
+        log(f"spot ({x:.0f}, {y:.0f}): no grasp turn reaches it")
     return None
 
 
@@ -1285,10 +1411,12 @@ def _same_kind(a, b):
     return a == b or (a in FURNITURE and b in FURNITURE)
 
 
-def _matches(o, on):
-    """A detection is what `on` names (its class or one of "alts", furniture for furniture) in its colour."""
-    return any(_same_kind(o["name"], n) for n in [on["name"]] + list(on.get("alts") or ())) \
-        and objects.same_colour(on.get("colour") or None, colour_of(o))
+def _matches(o, on, exact=True):
+    """A detection is what `on` names in its colour: its class or one of "alts" among every label any frame gave it
+    (`names`: the labels flip); exact=False: any class of the same kind (furniture for furniture, _same_kind)."""
+    names, words = o.get("names") or [o["name"]], [on["name"]] + list(on.get("alts") or ())
+    kind = any(w in names for w in words) if exact else any(_same_kind(n, w) for n in names for w in words)
+    return kind and objects.same_colour(on.get("colour") or None, colour_of(o) if "x" in o else o.get("colour"))
 
 
 def _workable(thing, heights=None):
@@ -1304,14 +1432,20 @@ def _workable(thing, heights=None):
 
 
 def _support(on, seen=None, heights=None):
-    """The thing `on` names (_matches; the cameras' labels flip, the level top decides): the nearest the torso camera
-    sees with a top the arm can work at, or one further away (its top is measured up close); else one the head camera
-    sees ("head": True). None when neither sees one. `seen`: skills.look(ignore=()) of now; the tops of ones seen
-    out of the arm's reach go to `heights`."""
-    near = lambda o: math.hypot(o["x"], o["y"])
-    for o in sorted((o for o in (skills.look(ignore=()) if seen is None else seen) if _matches(o, on)), key=near):
-        if near(o) > TOP_NEAR_MM or _workable(o, heights) is not None:
-            return o
+    """Exactly the thing `on` names (_matches: class, colour) that the torso camera sees with a level top the arm can
+    work at, or further away (its top is measured up close); of several, the one on["prefer"] says (the lower, the
+    smaller one; _rank), else the nearest. Else one the head camera sees ("head": True). None when neither sees one.
+    `seen`: skills.look(ignore=()) of now; the tops of ones seen out of the arm's reach go to `heights`."""
+    hits = []
+    for o in (skills.look(ignore=()) if seen is None else seen):
+        if not _matches(o, on):
+            continue
+        if math.hypot(o["x"], o["y"]) > TOP_NEAR_MM:
+            hits.append(o)
+        elif (level := _workable(o, heights)) is not None:
+            hits.append({**o, "top_mm": level})
+    if hits:
+        return _rank(hits, on.get("prefer"))[0]
     return _head_seen(lambda o: _matches(o, on))
 
 
@@ -1329,22 +1463,27 @@ def _top_of(thing):
 def _usable(usable, seen):
     """At one view while looking for a named thing: note in `usable` every surface the object could go on instead, by
     its map place: the table in front, a table further away (far_table) and furniture with a level top the arm can
-    work at, with a name for it ("grey table"). `seen`: skills.look(ignore=()) of now."""
+    work at, each with what the camera sees there (label, colour, size, height: how close it comes to what was said,
+    _put_instead). `seen`: skills.look(ignore=()) of now."""
     if arm_yaw() is None:
         return
     things = [o for o in seen if o["name"] not in objects.ROUND]
-    def name(xy):
-        near = [o for o in things if math.hypot(o["x"] - xy[0], o["y"] - xy[1]) < SUPPORT_NEAR_MM]
-        o = min(near, key=lambda o: math.hypot(o["x"] - xy[0], o["y"] - xy[1])) if near else None
-        return " ".join(w for w in (colour_of(o), o["name"].replace("dining table", "table")) if w) if o else "table"
-    if table_ahead() is not None:
-        usable.append((map_xy({"x": PLACE_GOAL[0], "y": PLACE_GOAL[1]}), name(PLACE_GOAL)))
+    def note(xy, top, o=None):
+        near = [t for t in things if math.hypot(t["x"] - xy[0], t["y"] - xy[1]) < SUPPORT_NEAR_MM]
+        o = o or (min(near, key=lambda t: math.hypot(t["x"] - xy[0], t["y"] - xy[1])) if near else {})
+        label = " ".join(w for w in (colour_of(o), o["name"].replace("dining table", "table")) if w) if o else "table"
+        usable.append({"map": map_xy({"x": xy[0], "y": xy[1]}), "label": label, "colour": colour_of(o) if o else None,
+                       "names": o.get("names") or ([o["name"]] if o else []), "top_mm": top,
+                       "width_mm": o.get("width_mm")})
+    table = table_ahead()
+    if table is not None:
+        note(PLACE_GOAL, table)
     far = far_table()
     if far:
-        usable.append((map_xy(far), name((far["x"], far["y"]))))
+        note((far["x"], far["y"]), far["table"])
     for o in things:
-        if o["name"] in FURNITURE and _workable(o) is not None:
-            usable.append((map_xy(o), name((o["x"], o["y"]))))
+        if o["name"] in FURNITURE and (level := _workable(o)) is not None:
+            note((o["x"], o["y"]), level, o)
 
 
 def _place_near(top0, tried):
@@ -1368,7 +1507,9 @@ def _put_on(top0, on, say):
     but another surface the arm can work at was (_usable): go to the nearest, put it there and say so. Nothing: say
     why. A chair seat is ~30 cm lower than a table: the arm reaches no place there even at lift 0 (IK, 2026-10-16)."""
     words = [on["name"]] + list(on.get("alts") or ())
-    label = " ".join(w for w in (on.get("colour"), " or ".join(n.replace("dining table", "table") for n in words)) if w)
+    which = {"low": "lower", "high": "higher", "small": "smaller", "big": "bigger", "far": "farther"}.get(on.get("prefer"))
+    label = " ".join(w for w in (which, on.get("colour"), " or ".join(n.replace("dining table", "table") for n in words))
+                     if w)
     tried, usable, heights = set(), [], []
     def view():
         seen = skills.look(ignore=())
@@ -1380,7 +1521,7 @@ def _put_on(top0, on, say):
             raise FetchError(f"The top of the {label} is {abs(off) / 10:.0f} cm {'lower' if off < 0 else 'higher'} "
                              "than a table: my arm can't put things there.", "높이가 맞지 않아서 거기에는 놓을 수 없어요.")
         if thing is None:
-            return _put_instead(top0, label, usable, tried, say)
+            return _put_instead(top0, on, label, usable, tried, say)
         surface = None if thing.get("head") else _workable(thing)
         can_move = arm_yaw() is not None and i < APPROACH_TRIES and not _charging()
         if surface is None:
@@ -1392,10 +1533,9 @@ def _put_on(top0, on, say):
             continue
         log(f"{label} at ({thing['x']:.0f}, {thing['y']:.0f}), its top at {surface:.0f} mm")
         if _fit_lift(surface):
-            thing = _look_at(0.0, lambda: _support(on))             # look again from the new height
+            thing = _support(on)                                    # look again from the new height, the same way
             continue
-        held_table = skills._held.get("table")
-        top = top0 + (surface - held_table if held_table is not None else 0.0)
+        top = _top_on(top0, surface)
         spots = skills.on_table([(thing["x"] + dx, thing["y"] + dy) for dx in (0, -50, 50) for dy in (0, -50, 50)],
                                 surface)
         spots += [p for p in place_spots(skills._held, agv.pose(), skills.look(), surface)   # a big top (a table):
@@ -1409,14 +1549,23 @@ def _put_on(top0, on, say):
     raise FetchError(f"I couldn't reach a free spot on the {label}.", "놓을 자리에 손이 닿지 않아요.")
 
 
-def _put_instead(top0, label, usable, tried, say):
-    """The named thing was not seen: put it on the nearest other surface seen on the way (`usable`: (map place, name))
-    and say so. FetchError when there was none, or none could be reached."""
+def _put_instead(top0, on, label, usable, tried, say):
+    """The thing `on` names was not seen: put it on the surface seen on the way that comes closest to what was said
+    (`usable`, _usable: its colour first, then its kind, then on["prefer"], else the nearest) and say so. FetchError
+    when there was none, or none could be reached."""
     if not usable or arm_yaw() is None:
         raise FetchError(f"I looked all around, but I can't see the {label}, and no other table I could put it on.",
                          "주변을 다 봤는데 그곳도, 놓을 만한 다른 곳도 안 보여요.")
     x, y, _ = agv.pose()
-    w, name = min(usable, key=lambda u: math.hypot(u[0][0] - x, u[0][1] - y))
+    for u in usable:                                  # _rank's distance: from where the base is now (mm)
+        u.update(x=1000.0 * math.hypot(u["map"][0] - x, u["map"][1] - y), y=0.0)
+    def said(u):                                      # how close it comes to what was said: colour, then kind
+        colour = bool(on.get("colour") and u["colour"] and objects.same_colour(on["colour"], u["colour"]))
+        kind = any(_same_kind(n, w) for n in u["names"] for w in [on["name"]] + list(on.get("alts") or ()))
+        return 2 * colour + kind
+    best = max(map(said, usable))
+    u = _rank([u for u in usable if said(u) == best], on.get("prefer"))[0]
+    w, name = u["map"], u["label"]
     held = held_name().replace("something", "it")
     log(f"no {label} anywhere; the {name} at ({w[0]:.2f}, {w[1]:.2f}) on the map can take it: going there")
     xy = arm_frame(w)
@@ -1429,16 +1578,59 @@ def _put_instead(top0, label, usable, tried, say):
     return True
 
 
+def _scene(fn, *a):
+    """vision/scene.py's fn(*a) (what the cameras tell about people and things); None when it can't tell or is not
+    there yet."""
+    try:
+        from vision import scene
+        return getattr(scene, fn)(*a)
+    except Exception as e:                       # a missing or failing perception answer never stops the robot
+        log(f"scene.{fn}: {type(e).__name__}: {e}")
+        return None
+
+
+def _put_pointed(top0, say):
+    """"Put it here / there" while the person points (scene.pointing_target): a free spot on the table nearest the
+    point (POINT_STEPS_MM around it); out of reach: the base brings the point to PLACE_GOAL first, up to APPROACH_TRIES
+    times. Nothing pointed at: ask where, keep holding it."""
+    p = (_scene("pointing_target") or {}).get("position_mm")
+    if not p:
+        raise FetchError("Where should I put it? Please point at the place and tell me again.",
+                         "어디에 놓을까요? 놓을 곳을 가리키면서 다시 말해 주세요.")
+    w, tried = map_xy({"x": p[0], "y": p[1]}), set()
+    for i in range(APPROACH_TRIES + 1):
+        x, y = (p[0], p[1]) if w is None else arm_frame(w)
+        log(f"pointed at ({x:.0f}, {y:.0f}) mm")
+        grid = sorted(((x + dx, y + dy) for dx in POINT_STEPS_MM for dy in POINT_STEPS_MM),
+                      key=lambda q: math.hypot(q[0] - x, q[1] - y))
+        top = skills.flat_top(grid, surface_band(), p[2])
+        if top is not None and _fit_lift(top[0]):
+            top = skills.flat_top(grid, surface_band(), p[2])
+        if top is not None:
+            things = [o for o in skills.look() if o.get("top_mm") is None or o["top_mm"] - top[0] > skills.TABLE_TOL_MM]
+            free = [q for q in grid if all(math.hypot(q[0] - o["x"], q[1] - o["y"]) >= skills.FREE_MM for o in things)]
+            spots = skills.on_table(free, top[0])
+            if spots and _place_at(spots, _top_on(top0, top[0])):
+                return True
+        if w is None or i == APPROACH_TRIES or _charging():
+            break
+        _go_to({"x": float(x), "y": float(y)}, PLACE_GOAL, tried, holding=True)
+    raise FetchError("I can't reach a free spot where you are pointing.", "가리킨 곳에 놓을 수가 없어요.")
+
+
 def _put_down(say=None, on=None):
     """Straight to look with the object (carry hides the table from the torso camera), then one search (_look_around)
     for a free table spot in reach or a table further away (the base goes closer, then it looks ahead again); put it
-    down, back to look. `on` (brain.place_on): put it on that named thing instead (a table with no colour: as above)."""
+    down, back to look. `on` (brain.place_on): put it on that named thing instead (a table with no colour: as above);
+    {"pointed": True}: where the person points (_put_pointed)."""
     top = skills._held.get("top_mm")
     if top is None:
         raise FetchError("I'm not holding anything I picked.")
     _step("placing")
     _line_holding(LOOK_POSE)
-    if on and (on.get("name") != "dining table" or on.get("colour")):
+    if on and on.get("pointed"):                    # "put it here / there" with a pointing hand
+        return _put_pointed(top, say)
+    if on and (on.get("name") != "dining table" or on.get("colour") or on.get("prefer") not in (None, "near")):
         _put_on(top, on, say)                       # a chair, or "the white table": that thing, by colour
         return
     tried = set()
@@ -1501,15 +1693,27 @@ def _run(task, say):
 
 
 def _pick_here(task, say):
-    """Find task["object"] (colour) here, reach it (base moves if needed), pick it and bring it to look."""
-    _step("looking")
-    obj = _see(task, say)
-    _step("reaching")
-    obj, waypoints, ja = _reach(task, obj, say)
-    _step("picking")
-    skills._guarded(skills._do_pick, obj, waypoints, ja)   # ends 3 cm above the table, holding
+    """Find task["object"] (colour) here, reach it (base moves if needed), pick it and bring it to look. A miss or a
+    slip (the hand open, back at look) is tried once more from the look."""
+    no = skills.refusal(task["object"])
+    if no:
+        raise FetchError(*no)
+    for attempt in range(PICK_TRIES):
+        _step("looking")
+        obj = _see(task, say)
+        _step("reaching")
+        obj, waypoints, ja = _reach(task, obj, say)
+        _step("picking")
+        try:
+            skills._guarded(skills._do_pick, obj, waypoints, ja)   # ends 3 cm above the table, holding
+            break
+        except skills.SkillError as e:
+            if e.args[0] not in MISSES or attempt == PICK_TRIES - 1:
+                raise
+            _say(say, "I missed it. Let me try again.", "놓쳤어요. 다시 해 볼게요.")
     skills._held["base"] = agv.pose()                       # place_spots: put back here if the base stays ...
     skills._held["waist"] = _waist_turn()                   # ... and the waist too
+    skills._held["lift"] = head.status()[0]                 # _top_on when its table was not measured
     skills._held["what"] = {"object": task["object"], "colour": task.get("colour")}   # held_name() when the state lost it
     _set(holding=True, held_object=skills._held["what"])
     _say(say, "I've got it.", "잡았어요.")
@@ -1526,7 +1730,7 @@ def _fail(e, say):
         log("stopped")
         return
     en = e.args[0] if e.args else str(e)
-    ko = e.args[1] if isinstance(e, FetchError) and len(e.args) > 1 else "문제가 생겨서 멈췄어요."
+    ko = e.args[1] if isinstance(e, (FetchError, skills.SkillError)) and len(e.args) > 1 else "문제가 생겨서 멈췄어요."
     if not isinstance(e, (FetchError, skills.SkillError)):
         log(f"error: {type(e).__name__}: {e}")
         en = "Something went wrong, I stopped."
@@ -1621,7 +1825,7 @@ def start(task, say=None):
     problems = validate(task, agv.markers() if _needs_markers(task) else [])
     if problems:
         raise FetchError(" ".join(problems))
-    _task["start_pose"] = agv.pose()
+    _task["start_pose"] = _task["trip_from"] = agv.pose()
     _clear()
     _set(status="running", step="", task=task, log=[])
     log(f"task: {describe(task)}")
@@ -1720,6 +1924,8 @@ def run_steps(steps, say=None, sender=None):
     steps = [dict(s, to=random.choice(s["to"])) if s["do"] == "go" and isinstance(s["to"], list) else s
              for s in steps]                     # "one of p3, p5, p7": chosen now, said when it starts
     _task["start_pose"] = agv.pose()
+    if {s["do"] for s in steps} - {"move", "turn"}:
+        _task["trip_from"] = _task["start_pose"]     # a mission; "move back 20 cm" alone is no trip
     _clear()
     _proceed.clear()
     _order["steps"] = None
@@ -1745,7 +1951,7 @@ def _run_steps(steps, say):
                     todo[:0] = new
                     _set(task={**(_state.get("task") or {}), "steps": done + [s] + todo})
             elif s["do"] == "receive":
-                _receive(s.get("object"), say, s.get("wait_s"), at)
+                _receive(s.get("object"), say, s.get("wait_s"), at, s.get("from_hand", False))
             else:
                 _do_step(s, say)
             done.append(s)
@@ -1787,9 +1993,9 @@ def _do_step(s, say):
         if gripper.open_()["closed"]:
             raise FetchError("My hand does not open.", "손이 안 열려요.")
         _pose(_look())
-        _pick_here({"object": s["object"], "colour": s.get("colour")}, say)
+        _pick_here({"object": s["object"], "colour": s.get("colour"), "prefer": s.get("prefer")}, say)
     elif d == "receive":
-        _receive(s.get("object"), say)
+        _receive(s.get("object"), say, from_hand=s.get("from_hand", False))
     elif d == "say":
         _step("speaking")
         _say(say, s["text"], s["text"])
@@ -1913,8 +2119,9 @@ def _move(direction, m, holding):
     _lift_to(LIFT_DRIVE_MM)
     sign = -1.0 if direction == "back" else 1.0
     _step(f"driving {m:g} m {'back' if direction == 'back' else 'forward'}")
+    speed = (lambda: AXIS_SPEED) if m < SHORT_MOVE_M else (lambda: MOVE_SPEED * speed_factor)   # "faster" while on it
     done = 0.0
-    while m - done >= PROBE_STEP_M - 1e-9:
+    while m - done > 1e-3:
         _go_on()
         piece = min(MOVE_SEGMENT_M, m - done)
         hit = line_hits(sign * piece)
@@ -1922,7 +2129,7 @@ def _move(direction, m, holding):
             raise FetchError(f"My arm would hit something: I stopped after {done:.2f} m of {m:g}.",
                              f"팔이 부딪힐 것 같아서 {done:.2f}미터에서 멈췄어요.")
         cut = _pause.is_set
-        got = _straight_clear(sign * piece, MOVE_SPEED)
+        got = _straight_clear(sign * piece, speed)
         done += got
         if cut():                                # someone stopped me: wait, then the rest of the way, checked again
             _go_on()
@@ -1931,59 +2138,93 @@ def _move(direction, m, holding):
             skills._held.clear()
             _set(holding=False)
             raise FetchError("I dropped it.", "떨어뜨렸어요.")
-        if got < piece - PROBE_STEP_M + 1e-9:
+        if got < piece - 1e-3:
             raise FetchError(f"Something is in my way: I stopped after {done:.2f} m of {m:g}.",
                              f"앞에 뭔가 있어서 {done:.2f}미터에서 멈췄어요.")
 
 
-def _receive(name, say, wait_s=None, at=None):
-    """Hold the open hand out (give pose), ask for the object, close when the finger sensor (DI_1) has seen something
-    for RECEIVE_DI_S, check the hand holds it. Nothing within RECEIVE_WAIT_S (wait_s: "wait until someone gives you
-    the cup"): hand open, FetchError, the mission ends there."""
+def _reach_to_hand():
+    """From give, the open hand straight towards the thing in the person's hand (scene.object_in_hand, arm frame), at
+    give's height: at most RECEIVE_REACH_MM, stopping RECEIVE_SHORT_MM before it. Nothing when the camera can't say
+    where it is or the straight line fails IK: the hand stays at give."""
+    p = (_scene("object_in_hand") or {}).get("position_mm")
+    if not p:
+        log("the hand with the object is not seen: holding my hand out at give")
+        return
+    f = np.array(motion.tcp(), float)
+    g = f[:3] + calib.rpy_matrix(*f[3:]) @ skills.GRASP_OFFSET
+    d = np.array(p[:2], float) - g[:2]
+    dist = float(np.linalg.norm(d))
+    step = min(RECEIVE_REACH_MM, dist - RECEIVE_SHORT_MM)
+    if step < RECEIVE_MIN_MM:
+        return
+    target = list(f)
+    target[0] += d[0] / dist * step
+    target[1] += d[1] / dist * step
+    try:
+        _line_rows(target, "to the hand")
+    except FetchError:
+        log("can't reach out to the hand: holding my hand out at give")
+        return
+    log(f"reaching {step:.0f} mm towards the hand at ({p[0]:.0f}, {p[1]:.0f})")
+    motion.move_linear(target=target, speed=skills.HOLDING_SPEED, path_checked=True)
+    _go_on()
+
+
+def _receive(name, say, wait_s=None, at=None, from_hand=False):
+    """Hold the open hand out (give pose), ask for the object, close only on the person's "okay" (Release): said at
+    once, or after the finger sensor (DI_1, which looks below the gripper) has seen something for RECEIVE_DI_S and Lumi
+    asked them to let go. AI_1 must then say holding; closed on nothing: open, say so. Nothing within RECEIVE_WAIT_S
+    (wait_s: "wait until someone gives you the cup"): hand open, FetchError, the mission ends there. `from_hand` ("take
+    this from my hand"): the cameras must not see an empty hand first (scene.person_holds; can't tell = go on), and
+    the hand reaches towards it (_reach_to_hand)."""
     if "give" not in motion.poses():
         raise FetchError("I haven't learned how to hold my hand out yet.")
+    thing, ko = name or "it", OBJECTS.get(name, "물건")
+    if from_hand and _scene("person_holds", name) is False:
+        raise FetchError("I don't see anything in your hand.", "손에 아무것도 안 보여요.")
     if gripper.open_()["closed"]:
         raise FetchError("My hand does not open.", "손이 안 열려요.")
     _pose("give")
-    thing, ko = name or "it", OBJECTS.get(name, "물건")
-    _step("receiving", say, f"Please put the {thing} in my hand." if name else "Please put it in my hand.",
-          f"제 손에 {ko}{_object_particle(ko)} 넣어 주세요.")
-    t0, seen_since = time.time(), None
+    if from_hand:
+        _reach_to_hand()
+    _release.clear()
+    if wait_s:                                   # a long wait: talk around it is no "okay" until DI_1 saw something
+        _step("receiving", say, f"Please put the {thing} in my hand." if name else "Please put it in my hand.",
+              f"제 손에 {ko}{_object_particle(ko)} 넣어 주세요.")
+    else:
+        _step("receiving: waiting for okay", say,
+              f"Please put the {thing} in my hand, let go, and say okay." if name else
+              "Please put it in my hand, let go, and say okay.", f"제 손에 {ko}{_object_particle(ko)} 넣고 됐다고 말해 주세요.")
+    t0, seen_since, asked = time.time(), None, False
     if wait_s:
         _set(waiting={"at": at, "for": "person", "object": name, "end": t0 + wait_s})
-    while time.time() - t0 < (wait_s or RECEIVE_WAIT_S):
+    while not _release.is_set():
         if _stop.wait(GIVE_POLL_S):
             raise Stopped()
+        if time.time() - t0 > (wait_s or RECEIVE_WAIT_S):
+            _set(waiting=None)
+            _pose(_look())
+            raise FetchError(f"Nobody gave me the {thing}." if not asked else "Nobody said okay, I didn't close my hand.",
+                             "아무도 주지 않았어요." if not asked else "확인이 없어서 손을 닫지 않았어요.")
+        if asked:
+            continue
         try:
             front = gripper.state()["object_in_front"]
         except (ConnectionError, OSError, KeyError):
             continue
         seen_since = (seen_since or time.time()) if front else None
         if seen_since and time.time() - seen_since >= RECEIVE_DI_S:
-            break
-    else:
-        _set(waiting=None)
-        _pose(_look())
-        raise FetchError(f"Nobody gave me the {thing}.", "아무도 주지 않았어요.")
+            asked, t0 = True, time.time()          # their fingers may still be in my hand: close only on their word
+            _set(waiting=None)
+            _step("receiving: waiting for okay", say, "Let go of it, then say okay.", "손을 놓고 됐다고 말해 주세요.")
     _set(waiting=None)
-    _release.clear()                             # their fingers may still be in my hand: close only on their word
-    _step("receiving: waiting for okay", say, "Let go of it, then say okay.", "손을 놓고 됐다고 말해 주세요.")
-    t0 = time.time()
-    while not _release.is_set():
-        if _stop.wait(GIVE_POLL_S):
-            raise Stopped()
-        if time.time() - t0 > RECEIVE_WAIT_S:
-            _pose(_look())
-            raise FetchError("Nobody said okay, I didn't close my hand.", "확인이 없어서 손을 닫지 않았어요.")
-    if not gripper.state()["object_in_front"]:
-        _pose(_look())
-        raise FetchError(f"The {thing} is not in my hand any more.", "손에 아무것도 없어요.")
-    log("something in the hand and okay: closing")
+    log("okay: closing")
     st = gripper.close()
     if not st.get("holding"):
         gripper.open_()
         _pose(_look())
-        raise FetchError("I couldn't hold it, my hand closed on nothing.", "잡지 못했어요.")
+        raise FetchError("My hand closed on nothing, there was nothing to take.", "손에 아무것도 없었어요.")
     skills._held.clear()                         # nothing measured: where it sits in the hand is not known
     skills._held["received"] = True
     skills._held["what"] = {"object": name, "colour": None} if name else None
@@ -2079,22 +2320,25 @@ def stop():
 
 # ---------- measuring the arm's yaw on the base ----------
 def _straight(dist_m, speed=None):
-    """Drive straight by dist_m (+ forward) at `speed` (AXIS_SPEED) with joy_control (no turning), then stop.
-    Stopped() on STOP; a pause stops it early. Returns the distance driven (m, by time)."""
-    speed = speed or AXIS_SPEED
-    t0 = time.time()
-    t_end = t0 + abs(dist_m) / speed
-    v = speed if dist_m > 0 else -speed
+    """Drive straight by dist_m (+ forward) at `speed` m/s (AXIS_SPEED; a function: read again every 0.1 s, so a
+    speed change applies at once) with joy_control (no turning), then stop. The last command lasts only the time
+    left (no overshoot of up to 0.1 s). Stopped() on STOP; a pause stops it early. Returns the distance driven (m,
+    by time)."""
+    rate = speed if callable(speed) else (lambda: speed or AXIS_SPEED)
+    done, t = 0.0, time.time()
     try:
-        while time.time() < t_end and not _stop.is_set() and not _pause.is_set():
-            agv.request(f"/api/joy_control?linear_velocity={v:.3f}&angular_velocity=0")
-            time.sleep(0.1)
+        while abs(dist_m) - done > 1e-4 and not _stop.is_set() and not _pause.is_set():
+            v = rate()
+            agv.request(f"/api/joy_control?linear_velocity={v if dist_m > 0 else -v:.3f}&angular_velocity=0")
+            time.sleep(max(0.0, min(0.1, (abs(dist_m) - done) / v - (time.time() - t))))
+            now = time.time()
+            done, t = done + v * (now - t), now
     finally:
         agv.request("/api/joy_control?linear_velocity=0&angular_velocity=0")
     skills.moved(after=COAST_S)                  # frames from after the base has coasted to a stop
     if _stop.is_set():
         raise Stopped()
-    return abs(dist_m) if time.time() >= t_end else min(abs(dist_m), (time.time() - t0) * speed)
+    return min(abs(dist_m), done)
 
 
 def yaw_from_motion(pairs, move, dtheta):

@@ -509,8 +509,9 @@ for seen in ([chair, sink], []):
     st = run(fetch.place, lambda en, ko: said.append(en), {"name": "dining table", "colour": "grey"})
     assert st["status"] == "done" and ("place",) in calls, st["log"][-4:]
     this = st["log"][max(i for i, l in enumerate(st["log"]) if "placing" in l):]          # this run's lines
-    assert any("grey table at (-160, 760)" in l for l in this) == bool(seen), this         # the white sink is it
-    assert any("couldn't find the grey table, so I put it on the table here" in w for w in said) == (not seen), said
+    instead = "white sink" if seen else "table"            # not exactly what was said: the closest (white = grey, a
+    assert any(f"couldn't find the grey table, so I put it on the {instead} here" in w for w in said), said   # flat
+    assert seen or not any("sink" in l for l in this), this   # furniture word), after the one whole search; else any
 skills.look, skills.on_table = real_look, real_on_table
 fetch._set(holding=False, status="idle")
 hand.update(holding=False, closed=False)
@@ -644,7 +645,7 @@ hp["yaw"] = 0.0
 went = []
 real_go_to = fetch._go_to
 fetch._go_to = lambda thing, goal, tried, holding=False: (went.append((round(thing["x"]), goal)), calls.append(("joy", "0.05")))
-fetch._find_any = lambda task: CUP if any(c[0] == "joy" for c in calls) else None
+fetch._find_any = lambda task, close=None: CUP if any(c[0] == "joy" for c in calls) else None
 calls.clear(); views.clear()
 assert fetch._see({"object": "cup", "colour": "white"}) == CUP
 assert went == [(-890, fetch.PICK_ZONE_CENTRE)], went                       # once to where the head saw it
@@ -655,6 +656,22 @@ fetch._sweep_blocked, fetch.first_side, fetch._turn, fetch._find_any = real_bloc
 fetch.head.moveto, fetch.head_cam.base_from_head, fetch.head.status = real_head_move, real_from_head, real_status
 skills.surface_points, skills.objects.base_from_camera = real_points, real_extr
 fetch.CALIB_FILE.unlink()
+
+# ---------- no waiting: a drive that has ended at its goal is over at once (a short turn may never show "running") ----
+real_agv_status = fetch.agv.status
+fetch.agv.status = lambda: {"move_status": "succeeded", "current_pose": {"x": 1.0, "y": 2.0, "theta": 0.5}}
+t0 = time.time()
+fetch._wait_drive(goal=(1.0, 2.0, 0.5))
+assert time.time() - t0 < 0.5, time.time() - t0
+real_start, fetch.DRIVE_START_S = fetch.DRIVE_START_S, 0.3                  # elsewhere: an old "succeeded", wait
+t0 = time.time()
+fetch._wait_drive(goal=(1.0, 2.0, 1.5))
+assert time.time() - t0 >= 0.3
+fetch.DRIVE_START_S, fetch.agv.status = real_start, real_agv_status
+# ... a head move and a joy_control drive don't sleep; frames from after them are what is read next
+t0 = time.time()
+fetch._straight(0.01, 1.0)
+assert time.time() - t0 < 0.2 and skills.moved_at["torso"] > t0, skills.moved_at
 
 # ---------- measure-axis pairs each object once: two cups before, one after ----------
 b2 = [{"name": "cup", "x": -211.5, "y": 1332.0}, {"name": "cup", "x": 9.0, "y": 1301.0}]
@@ -840,7 +857,58 @@ threading.Timer(0.4, fetch.release_now).start()            # the person lets go 
 st = run(fetch.run_steps, [P(do="go", to="p1"), P(do="receive", object="cup"), P(do="go", to="home")], say)
 assert st["status"] == "holding" and st["holding"], st
 assert [c for c in calls if c[0] in ("go", "close")] == [("go", "p1"), ("close",), ("go", "home")], calls
-assert "give" in poses() and "Please put the cup in my hand." in said and "Let go of it, then say okay." in said, said
+assert "give" in poses() and "Please put the cup in my hand, let go, and say okay." in said and \
+    "Let go of it, then say okay." in said, said
+# "okay" said at once (the sensor below the gripper never saw it): closes, AI_1 says holding
+reset()
+hand["front"] = False
+threading.Timer(0.1, lambda: (hand.update(front=True), fetch.release_now())).start()   # fake: closing finds it
+st = run(fetch.run_steps, [P(do="receive", object="cup")], say)
+assert st["status"] == "holding" and ("close",) in calls, (st, calls)
+fetch._set(holding=False, status="idle")
+# okay, but the hand closed on nothing (a joke): opened again, said so, not holding
+reset()
+hand["front"] = False
+said.clear()
+threading.Timer(0.1, fetch.release_now).start()
+st = run(fetch.run_steps, [P(do="receive", object="cup")], say)
+assert st["status"] == "failed" and not st["holding"] and "nothing to take" in said[-1] and poses()[-1] == "look", \
+    (st, said)
+# "take this from my hand": the cameras see the hand empty -> said, nothing moves
+real_scene = fetch._scene
+scene = {"person_holds": False, "object_in_hand": None}
+fetch._scene = lambda fn, *a: scene.get(fn)
+reset()
+said.clear()
+st = run(fetch.run_steps, [P(do="receive", object="cup", from_hand=True)], say)
+assert st["status"] == "failed" and not poses() and ("close",) not in calls and ("open",) not in calls and \
+    "anything in your hand" in said[-1], (st, calls, said)
+# ... the cameras see it in the hand 400 mm ahead of the give pose: the open hand reaches 150 mm towards it, then okay
+scene.update(person_holds=True)
+g0 = np.zeros(3) + calib.rpy_matrix(*up_rpy) @ skills.GRASP_OFFSET          # the fake flange is at the origin
+scene["object_in_hand"] = {"name": "cup", "position_mm": [g0[0] + 400.0, g0[1], g0[2]]}
+reach_to = []
+real_line_rows = fetch._line_rows
+fetch._line_rows = lambda target, label, start=None: reach_to.append((label, list(target))) or [[label, target, [0] * 6, None]]
+reset()
+hand["front"] = False
+threading.Timer(0.1, lambda: (hand.update(front=True), fetch.release_now())).start()
+st = run(fetch.run_steps, [P(do="receive", object="cup", from_hand=True)], say)
+hand_moves = [t for l, t in reach_to if l == "to the hand"]
+assert st["status"] == "holding" and "give" in poses() and len(hand_moves) == 1, (st, reach_to)
+assert np.allclose(hand_moves[0][:3], [fetch.RECEIVE_REACH_MM, 0, 0]), hand_moves      # 150 of the 300 it could go
+fetch._set(holding=False, status="idle")
+# ... it is right in front of the hand already: no reach, still received; can't tell (None): received as before
+scene["object_in_hand"] = {"name": "cup", "position_mm": [g0[0] + 50.0, g0[1], g0[2]]}
+scene["person_holds"] = None
+reach_to.clear()
+reset()
+threading.Timer(0.1, lambda: (hand.update(front=True), fetch.release_now())).start()
+st = run(fetch.run_steps, [P(do="receive", object="cup", from_hand=True)], say)
+assert st["status"] == "holding" and not [l for l, t in reach_to if l == "to the hand"], (st, reach_to)
+fetch._set(holding=False, status="idle")
+fetch._line_rows, fetch._scene = real_line_rows, real_scene
+hand["front"] = False
 # the cup is in the hand but nobody says okay: the hand never closes (their fingers may be in it)
 reset()
 hand["front"], fetch.RECEIVE_WAIT_S = True, 0.3
@@ -953,5 +1021,90 @@ fetch.head.moveto = lambda pos, **kw: moves.append(list(pos))
 fetch.head_ahead()
 assert moves == [[75.0, -15.0, *fetch.HEAD_AHEAD]], moves
 fetch.head.status, fetch.head.moveto = real_status, real_move
+
+# ---------- objects the fingers can't take: refused in words, before anything moves ----------
+assert "narrow" in fetch.validate({**ok, "object": "bottle"}, MARKERS)[0]
+assert "thin" in fetch.validate({**ok, "object": "banana"}, MARKERS)[0]
+assert fetch.validate({**ok, "object": "giraffe"}, MARKERS)[0].startswith("Which object? I can pick up cup, apple")
+assert all(fetch.validate({**ok, "object": n}, MARKERS) == [] for n in fetch.PICKABLE)
+assert fetch.describe({**ok, "object": "sports ball"}, "ko").startswith("p1 위치에서 공을")
+reset()
+said.clear()
+try:                                         # steps.check refuses it before the mission starts (read-back included)
+    st = run(fetch.run_steps, [P(do="pick", object="bottle", colour=None)], say)
+    assert st["status"] == "failed" and "narrow" in said[-1], (st, said)
+except fetch.FetchError as e:
+    assert "narrow" in str(e), e
+assert not any(c[0] in ("pick", "go_point", "find") for c in calls), calls
+
+# ---------- several of them: the chosen one out of reach (or the wrong size) -> another one here that is not ----------
+FAR = {**CUP, "x": -150.0, "y": 600.0}
+NEAR = {**CUP, "x": 60.0, "y": 560.0}
+skills.look = lambda frames=None, **kw: [FAR, NEAR]
+found["obj"] = FAR
+skills.reachable_pick = lambda obj, start=None, accept=None: (skills.plan_pick(obj), [0.0] * 6) if obj["x"] > 0 else None
+reset()
+found["obj"] = FAR
+st = run(fetch.start, {**ok, "source": "here", "dest": "here"})
+assert st["status"] == "holding" and any("instead" in l for l in st["log"]) and not any(c[0] == "go_point" for c in calls), \
+    (st["log"][-6:], calls)
+fetch._set(holding=False, status="idle")
+skills._held.clear()
+def too_big(obj, start=None, accept=None):
+    if obj["x"] < 0:
+        raise skills.SkillError("The apple is too big for my hand.")
+    return skills.plan_pick(obj), [0.0] * 6
+skills.reachable_pick = too_big
+reset()
+found["obj"] = FAR
+st = run(fetch.start, {**ok, "source": "here", "dest": "here"})
+assert st["status"] == "holding", st["log"][-6:]
+fetch._set(holding=False, status="idle")
+skills._held.clear()
+reset()                                                                      # "the one on the left": only that one
+found["obj"] = FAR
+st = run(fetch.start, {**ok, "source": "here", "dest": "here", "prefer": "left"})
+assert st["status"] == "failed" and "too big" in st["log"][-1], st["log"][-3:]
+skills.reachable_pick, skills.look = fake_reachable, (lambda frames=None, **kw: [])
+
+# ---------- a miss: open, back at look, found and tried once more; a second miss fails ----------
+misses = {"n": 1}
+def miss_once(obj, wp, ja):
+    if misses["n"]:
+        misses["n"] -= 1
+        raise skills.SkillError("I missed it.")
+    fake_pick(obj, wp, ja)
+skills._do_pick = miss_once
+reset()
+said.clear()
+st = run(fetch.start, {**ok, "source": "here", "dest": "here"}, say)
+assert st["status"] == "holding" and "I missed it. Let me try again." in said and \
+    [c[0] for c in calls].count("find") >= 2, (st, said)
+fetch._set(holding=False, status="idle")
+skills._held.clear()
+misses["n"] = 2
+reset()
+st = run(fetch.start, {**ok, "source": "here", "dest": "here"}, say)
+assert st["status"] == "failed" and "missed" in st["log"][-1] and not st["holding"], st["log"][-3:]
+skills._do_pick = fake_pick
+
+# ---------- "put it here" with a pointing hand: the free table spot nearest the point; no point: ask ----------
+real_scene, real_on_table = fetch._scene, skills.on_table
+point = {"pointing_target": {"position_mm": [-120.0, 690.0, -403.0]}}
+fetch._scene = lambda fn, *a: point.get(fn)
+skills.on_table = lambda spots, table: list(spots)
+reset()
+run(fetch.start, {**ok, "source": "here", "dest": "here"})
+st = run(fetch.place, None, {"pointed": True})
+put = [l for l in st["log"] if "putting it down at" in l]
+assert st["status"] == "done" and not st["holding"] and put and put[0].endswith("(-120, 690)"), st["log"][-5:]
+reset()
+run(fetch.start, {**ok, "source": "here", "dest": "here"})
+point["pointing_target"] = None
+st = run(fetch.place, None, {"pointed": True})
+assert st["status"] == "failed" and st["holding"] and "Where should I put it?" in st["log"][-1], st["log"][-3:]
+fetch._set(holding=False, status="idle")
+skills._held.clear()
+fetch._scene, skills.on_table = real_scene, real_on_table
 
 print("fetch ok")
