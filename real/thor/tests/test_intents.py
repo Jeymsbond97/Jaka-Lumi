@@ -26,6 +26,9 @@ CASES.update({   # any wording of the body commands, English, Korean and mixed (
     "wave at my friend please": ("wave", ""), "say hi with your hand": ("wave", ""), "Lumi, wave hello": ("wave", ""),
     "손 흔들어 줘": ("wave", ""), "손 좀 흔들어 봐": ("wave", ""), "손 흔들어 주세요": ("wave", ""), "손을 흔들어 봐요": ("wave", ""),
     "손 인사 해 줘": ("wave", ""), "wave 해 봐!": ("wave", ""), "루미야 손 흔들어": ("wave", ""),
+    "손 인사 해 봐": ("wave", ""), "자, 손 인사 해 봐": ("wave", ""), "손인사 해 봐": ("wave", ""),   # not a parent's "인사 해"
+    "손으로 인사 해 봐": ("wave", ""), "손 흔들어 인사 해 봐": ("wave", ""), "do a wave": ("wave", ""),
+    "do a little wave for us": ("wave", ""),
     "shake hand": ("wave", ""), "Shake hand, Lumi": ("wave", ""), "안녕 하고 손 흔들어": ("wave", ""),
     "Do you know how to wave?": None, "don't wave": None,
     # head

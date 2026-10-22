@@ -978,11 +978,11 @@ function whereOf(seg, sel, pick) {
   if (m === "marker") return {marker: $(sel).value};
   return p && {x: +p.x.toFixed(3), y: +p.y.toFixed(3), theta: +p.theta.toFixed(3)};
 }
-let cmdSeq = 0, cmdTimer = null, parsed = null, heldNow = false;   // heldNow: Lumi holds the object, From unused
+let cmdSeq = 0, cmdTimer = null, parsed = null, heldNow = false, cmdLLM = false;   // cmdLLM: Enter pressed   // heldNow: Lumi holds the object, From unused
 function cmdChanged() {                     // repaint the pickers, then read the text again (after typing stops)
   paintWhere("tSrcSeg", "tSrcMarkerRow", "tSrcPickBox", srcPick, "tSrcPt");
   paintWhere("tDstSeg", "tDstMarkerRow", "tDstPickBox", dstPick, "tDstPt");
-  clearTimeout(cmdTimer); cmdTimer = setTimeout(parseCmd, 600);
+  cmdLLM = false; clearTimeout(cmdTimer); cmdTimer = setTimeout(parseCmd, 600);
 }
 function parseCmd() {
   const text = $("tText").value.trim(), n = ++cmdSeq;
@@ -990,16 +990,16 @@ function parseCmd() {
     if (n !== cmdSeq) return;               // an older answer arriving late
     $("tSentence").textContent = sentence;
     $("tProblems").innerHTML = probs.map(p => `<div>${esc(p)}</div>`).join("");
-    $("tStart").disabled = probs.length > 0 || !parsed;
+    $("tStart").disabled = probs.length > 0 || !parsed || !parsed.action;
     $("tStart").textContent = {give: "Give", place: "Place", carry: "Go"}[parsed && parsed.action] || "Start";
-    $("tWhere").style.display = parsed && ["steps", "give", "place"].includes(parsed.action) ? "none" : "";
+    $("tWhere").style.display = parsed && ["fetch", "carry"].includes(parsed.action) ? "" : "none";
     paintSteps();
   };
   parsed = null;
   if (!text && !heldNow) { show("–", []); return; }
   const source = whereOf("tSrcSeg", "tSrcMarker", srcPick), dest = whereOf("tDstSeg", "tDstMarker", dstPick);
   $("tSentence").textContent = "…";
-  api("/tasks/parse", {text, source: source || null, dest: dest || null}).then(r => {
+  api("/tasks/parse", {text, source: source || null, dest: dest || null, llm: cmdLLM}).then(r => {
     if (n !== cmdSeq) return;
     parsed = r; show(r.sentence, r.problems);
   }).catch(e => show("–", [e.message]));
@@ -1038,7 +1038,7 @@ document.querySelectorAll("#cmdModal .seg").forEach(s => s.onclick = e => {
 });
 ["tSrcMarker", "tDstMarker"].forEach(id => $(id).onchange = cmdChanged);
 $("tText").oninput = cmdChanged;
-$("tText").onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); clearTimeout(cmdTimer); parseCmd(); } };
+$("tText").onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); clearTimeout(cmdTimer); cmdLLM = true; parseCmd(); } };
 function openCmd() {
   const opts = `<option value="home">Dock (home)</option>` + markerNames.map(n => `<option>${esc(n)}</option>`).join("");
   for (const id of ["tSrcMarker", "tDstMarker"]) { const old = $(id).value; $(id).innerHTML = opts; if (old) $(id).value = old; }
@@ -1055,6 +1055,7 @@ $("tStart").onclick = e => {
   if (r.action === "place") return act(e.target, "Placing", () => api("/tasks/place", {on: (r.task && r.task.on) || null}));
   if (r.action === "carry") return act(e.target, "On the way", () => api("/tasks/carry", {dest: r.task.dest, then: r.task.then, on: r.task.on || null}));
   if (r.action === "steps") return act(e.target, "Started", () => api("/tasks/steps", {steps: r.steps, lang: r.lang, sender: r.sender || null}));
+  if (r.action === "command") return act(e.target, "Started", () => api("/tasks/command", {text: r.text}));
   act(e.target, "Fetch started", () => api("/tasks/fetch", r.task));
 };
 $("tStop").onclick = e => act(e.target, "Task stopped", () => api("/tasks/stop", {}));

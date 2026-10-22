@@ -1,11 +1,11 @@
-"""Singing: play a pre-rendered song (data/songs/<id>.wav, made by audio/sing_render.py, or data/songs/mine/<id>.wav,
-made by audio/sing_mine.py from the owner's own files) and move the head with it.
+"""Singing: play one of the owner's songs (data/songs/mine/<id>.wav, made by audio/sing_mine.py from the owner's own
+files, local only, never copied off the robot) and move the head with it. Lumi sings only these.
 
     python audio/sing.py                  # list the songs
-    python audio/sing.py twinkle          # sing one (plays on the speaker and moves the head)
+    python audio/sing.py <id>             # sing one (plays on the speaker and moves the head)
 
-Each <id>.json holds the title, the names it is asked by and the lyrics; the public domain songs also the melody
-and chords, the owner's songs (local only, never copied off the robot) their head moves timed to the beat. The song is played through mouth._play (the microphone is muted the same way as for speech,
+Each <id>.json holds the title, the names it is asked by, the lyrics and the head moves timed to the beat. The song
+is played through mouth._play (the microphone is muted the same way as for speech,
 and abort() stops it within 50 ms). The head turns to yaw 0 / pitch 0 and dances around it in a thread, following the
 music: small diagonal bobs landing on the beats in energetic parts, a quick sweep with a dip on a bar's accent or a
 phrase start, slower sways in calm parts, each move called early enough (the owner's measured head timing) to land
@@ -22,8 +22,7 @@ import time
 import numpy as np
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SONGS = ROOT / "data" / "songs"
-MINE = SONGS / "mine"           # the owner's songs: local only
+MINE = ROOT / "data" / "songs" / "mine"   # the owner's songs: local only
 YAW_SWAY = 40.0                 # deg; head yaw stays within +- this while singing (owner: wider, 2026-10-21)
 PITCH_RANGE = (0.0, 28.0)       # deg, absolute head pitch while singing (0 = level, + = up; owner: higher)
 # head timing measured by the owner (2026-10-20, body API, vel = acc = 100, head.status polled every 20 ms): the head
@@ -48,6 +47,8 @@ MIN_TURN_DEG = 20.0             # two moves in a row differ in direction by at l
 HEAD_VEL = 70                   # speed ratio % for turning to yaw 0 / pitch 0 before and after the song
 LATE_S = 0.4                    # s; a move this late is skipped (the previous one took longer)
 RETURN_WAIT_S = 3.0             # s a new song waits for the head to get back from the last one
+BANK_SIM = 0.80                 # song bank (assistant/song_bank.py): the closest wording at least this similar ...
+BANK_MARGIN = 0.05              # ... and this much closer than the closest wording of another kind
 
 SING = re.compile(r"\bsing\b|\bsay (?:a |some )?songs?\b|"                    # whisper writes "let's say song"
                   r"\b(?:play|put on|turn on|start)(?: me| us)? (?:a |some |any |another |the |your )?(?:songs?|music|tunes?)\b|"
@@ -56,7 +57,7 @@ SING = re.compile(r"\bsing\b|\bsay (?:a |some )?songs?\b|"                    # 
                   r"(?:노래|음악|(?<![가-힣])곡)\s*(?:를|을|좀|하나|한\s*곡|한\s*번|한번|도|이나|나|이든|든|라도|\s)*"
                   r"(?:불러|부르|들려|해|틀어|틀|뽑아|부탁|재생|플레이|(?:할|부를)\s*(?:수|줄)\s*(?:있|알))|"
                   r"노래\s*(?:좀|하나)?\s*(?:듣고\s*싶|들을래|듣자)|(?:다른|딴|다음)\s*(?:노래|곡)|(?:다른|딴)\s*(?:거|걸|걸로)\s*(?:불러|들려|틀어)|^\W*(?:노래|음악)\s*(?:좀|하나)?\W*$", re.I)
-SING_TITLE = re.compile(r"(불러|들려|틀어) ?(줘|주세요|줄래|봐|볼래)|\b(?:sing|play)\b")    # "아리랑 불러 줘": a title said with it
+SING_TITLE = re.compile(r"(불러|들려|틀어) ?(줘|주세요|줄래|봐|볼래)|\b(?:sing|play)\b")    # "러브 어택 불러 줘": a title said with it
 SONG_LIST = re.compile(r"\b(?:what|which) (?:kinds? of |sort of |other )?(?:songs?|music|tunes)\b|\bwhat can you sing\b|"
                        r"\bsongs? (?:do |can |could )?you (?:know|sing|have)\b|\b(?:know|have) any (?:other )?songs\b|"
                        r"\b(?:list|names?) of (?:your |the )?songs\b|"
@@ -65,7 +66,11 @@ SONG_LIST = re.compile(r"\b(?:what|which) (?:kinds? of |sort of |other )?(?:song
 NOT_REQUEST = re.compile(r"\b(?:do|did) you (?:really )?(?:like|love|enjoy)\b|"
                          r"\bwho sings?\b|\bfavou?rite\b|좋아하는|좋아해|잘\s*(?:해|하|불러)", re.I)
 NOT_ASKED = re.compile(r"\b(?:don'?t|do not|never)\s+(?:\w+\s+)?(?:sing|play)\b|\b(?:i|we)(?:'ll| will|'m going to)? sing\b|"
-                       r"(?:부르|하|틀|불르)지\s*(?:마|말)|노래방", re.I)   # "don't sing", "I'll sing later", "노래 부르지 마":
+                       r"\b(?:i|we) (?:can'?t|cannot|can|could|used to) sing\b|\b(?:can|may|could|should) (?:i|we) sing\b|"
+                       r"\b(?:later|tomorrow|tonight|next time|after (?:lunch|dinner|the|this|that|we|i)|"
+                       r"when (?:the|they|i|we|guests?|everyone|people)|at the end)\b|"
+                       r"(?:부르|하|틀|불르)지\s*(?:마|말)|노래방|나중에|이따가?|있다가|끝나고|면\s*그때|(?:내가|제가)\s*(?:노래\s*)?"
+                       r"(?:불러|부를|부르|할)", re.I)   # "don't sing", "I'll sing later", "노래 부르지 마":
                                                                         # no song, also when the LLM says sing
 # right after a song (or the list of songs): a short word switches or repeats it
 AFTER_SONG = re.compile(r"^\W*(?:(?:lumi|ok|okay|no|nah|um|please|then|now|and)\W+)*(?:sing |play )?"
@@ -83,10 +88,27 @@ ENGLISH = re.compile(r"\benglish\b|영어", re.I)
 FILLER = {"sing", "a", "an", "the", "song", "songs", "me", "us", "for", "please", "lumi", "some", "something", "now", "again",
           "one", "another", "different", "other", "next", "little", "short", "can", "you", "could", "would", "will", "to",
           "it", "that", "this", "together", "with", "and", "your", "nice", "hey", "hi", "ok", "okay", "play", "music",
-          "in", "korean", "english", "else", "let's", "lets", "let", "go", "now", "pretty", "beautiful", "my", "kids",
+          "in", "korean", "english", "else", "let's", "lets", "let", "now", "pretty", "beautiful", "my", "kids",
           "children", "children's", "cute", "fun", "favorite", "favourite", "of", "yours", "so", "just", "maybe", "then",
-          "anything", "whatever", "any"}
-UNKNOWN = {"en": "Sorry, I don't know that song yet. I can sing {}.", "ko": "그 노래는 아직 몰라요. {} 부를 수 있어요."}
+          "anything", "whatever", "any", "pls", "plz", "fun", "happy", "sad", "nice", "good", "new", "cool", "upbeat",
+          "dance", "party", "slow", "fast", "quick", "famous", "popular", "love", "real", "first", "second", "third",
+          "last", "same", "own", "k-pop", "kpop", "pop", "lively", "energetic", "cheerful", "exciting", "catchy", "best",
+          "us", "them", "everyone", "everybody", "all", "guys", "people", "friends", "here", "today", "more", "ones",
+          "our", "oh", "um", "uh", "hmm", "well", "loomi", "yo", "do", "does", "give", "hear", "want", "wanna", "need",
+          "tune", "tunes", "number", "track", "by", "from", "bit", "on", "put", "start", "perform", "sing", "singing",
+          "really", "very", "quiet", "loud", "soft", "calm", "short", "whole", "full", "yeah", "yes", "sure", "great",
+          "awesome", "lovely", "sweet", "funny", "silly", "piece", "tell", "show", "make", "is", "are", "be", "i", "we",
+          "sung", "lumie", "random", "pick", "choose", "and", "like", "say", "wish", "how", "about", "have", "time",
+          "cheer", "up", "sin", "sink", "sum", "here", "kids", "listen", "listening", "would", "mind", "surprise"}
+UNKNOWN = {"en": ["Sorry, I can't sing that one. I only know my own songs: {}. Want one of them?",
+                   "I don't know that song yet. I'd love to learn it someday! I can sing {}. Shall I sing one?",
+                   "That one isn't in my songbook, sorry. My songs are {}. Would you like one of those?",
+                   "Oh, I wish I could sing that one! For now I only know {}. Want to hear one?"],
+           "ko": ["죄송해요, 그 노래는 아직 못 불러요. 제가 부를 수 있는 노래는 {}, 이렇게 {n}곡이에요. 하나 들어 보실래요?",
+                  "아, 그 노래는 제가 몰라요. 언젠가 꼭 배워 보고 싶네요! 대신 {} 중에 하나 어떠세요?",
+                  "그 노래는 아직 안 배웠어요. 저는 {}만 부를 수 있어요. 들어 보실래요?",
+                  "아쉽지만 그 노래는 못 불러요. {} 중에서 고르시면 불러 드려요."]}
+COUNT_KO = {1: "한 ", 2: "두 ", 3: "세 ", 4: "네 ", 5: "다섯 ", 6: "여섯 "}
 LIST = {"en": "I can sing {}. Which one would you like?", "ko": "{} 부를 수 있어요. 어떤 노래 불러 드릴까요?"}
 
 _head_thread = None
@@ -95,16 +117,16 @@ _head_thread = None
 def songs():
     """{id: song} for every song with a rendered file; song["wav"] is its path."""
     out = {}
-    for p in sorted(SONGS.glob("*.json")) + sorted(MINE.glob("*.json")):
+    for p in sorted(MINE.glob("*.json")):
         if p.with_suffix(".wav").exists():
             out[p.stem] = {**json.loads(p.read_text()), "wav": p.with_suffix(".wav")}
     return out
 
 
 def asked(text, last=""):
-    """Do these words ask Lumi to sing ("sing a song", "노래 불러 줘", "sing Arirang", "다른 노래", "can you sing?")?
+    """Do these words ask Lumi to sing ("sing a song", "노래 불러 줘", "sing Love Attack", "다른 노래", "can you sing?")?
     `last` is the assistant's answer just before (brain history): right after a song a short "another one" /
-    "again" / "그거 말고" is a song too, right after the list of songs also a title alone ("Arirang")."""
+    "again" / "그거 말고" is a song too, right after the list of songs (or "I can't sing that one") also a title alone ("Love Attack")."""
     t = text or ""
     if NOT_REQUEST.search(t) or NOT_ASKED.search(t) or SONG_LIST.search(t):
         return False
@@ -112,7 +134,41 @@ def asked(text, last=""):
         return True
     if (last or "").startswith("ACTION: none songs") and _title(t, songs()):
         return True
-    return bool(SING.search(t)) or bool(SING_TITLE.search(t) and _title(t, songs()))
+    return bool(SING.search(t)) or bool(SING_TITLE.search(t) and (_title(t, songs()) or re.search(
+        r"[a-z]{2}.*(?:불러|들려|틀어)", t, re.I) and _other_song(t, songs())))   # "Let it go 불러 줘": not ours
+
+
+_bank = None
+
+
+def bank_read(text, last=""):
+    """'sing' / 'list' when these words mean the same as the bank's wordings of that kind (bge-m3 through
+    assistant/knowledge.embed, ~20 ms), else None (the LLM decides; also when the closest are the bank's
+    near misses, and for a 'sing' with any word that might be a title: "jingle bells please"). Negation, a condition or a later time, the
+    person singing, a question about liking music or "is / does ...?", and any words with a turn before them (the
+    talk decides what "yes" means) are never read here."""
+    global _bank
+    t = text or ""
+    if NOT_REQUEST.search(t) or NOT_ASKED.search(t) or re.match(r"\W*(?:is|are|was|were|does|did|has|have)\b", t, re.I) \
+            or re.search(r"\b(?:like|love|enjoy|favou?rite)\b|좋아|싫어", t, re.I) and re.search(r"\?|까요?\W*$|니\W*$", t) or last:
+        return None
+    from assistant import knowledge, song_bank
+    try:
+        q = knowledge.embed([t])[0]
+    except OSError as e:                              # no embedding server: the LLM decides
+        print(f"song bank: {e}")
+        return None
+    if _bank is None:
+        texts = song_bank.SING + song_bank.LIST + song_bank.NO
+        labels = ["sing"] * len(song_bank.SING) + ["list"] * len(song_bank.LIST) + ["no"] * len(song_bank.NO)
+        _bank = (knowledge.embed(texts), np.array(labels))
+    vecs, labels = _bank
+    sims = vecs @ q
+    best = int(sims.argmax())
+    other = sims[labels != labels[best]].max()
+    if sims[best] < BANK_SIM or sims[best] - other < BANK_MARGIN or labels[best] == "no":
+        return None
+    return "sing" if labels[best] == "sing" and choose(t, whole=True) else "list" if labels[best] == "list" else None
 
 
 def list_asked(text):
@@ -124,50 +180,107 @@ def stop_words(text):
     return bool(STOP.search(text or ""))
 
 
+def _name_re(name):
+    """A song's name in any spacing ("big bang", "러브어택", "a teez"); Latin names as whole words ("bad" is not in
+    "badminton")."""
+    body = r"\s*".join(re.escape(c) for c in name.replace(" ", ""))
+    return rf"(?<![a-z]){body}(?![a-z])" if re.search(r"[a-z]", name) else body
+
+
 def _title(text, all_songs):
-    low = (text or "").lower()                      # Latin names are whole words ("bad" is not in "badminton")
-    return next((sid for sid, s in all_songs.items()
-                 if any(re.search(rf"(?<![a-z]){re.escape(n)}(?![a-z])", low) for n in s["names"])), None)
+    """The song whose longest name is said ("I feel bad, sing Love Attack" is Love Attack), or None."""
+    low = (text or "").lower()
+    found = [(len(n), sid) for sid, s in all_songs.items() for n in s["names"] if re.search(_name_re(n), low)]
+    return max(found)[1] if found else None
 
 
-def _unknown_title(text):
-    """A title was named that is not one of ours: 'sing Yesterday', '애국가 불러 줘'."""
-    words = re.findall(r"[a-z']+", (text or "").lower())
-    if "sing" in words:
-        after = [w for w in words[words.index("sing") + 1:] if w not in ("me", "us", "please", "lumi")]
-        if after and after[0] not in FILLER:          # "sing yesterday"; "sing for everyone" is no title
-            return True
-    m = re.search(r"(\S+?)\s*(?:을|를)?\s*(?:좀\s*)?(?:불러|들려)", text or "")
-    return bool(m) and not re.search(r"노래|좀|곡|하나|루미|아무|뭐|뭔가|^(한|또|더|다시|거|걸|것|네|예|응|그럼|좋아요?|어서|빨리)$",
-                                     m.group(1).strip(",.!?~ "))
+def _without_ours(text, all_songs):
+    low = (text or "").lower()
+    for n in sorted((n for s in all_songs.values() for n in s["names"]), key=len, reverse=True):
+        low = re.sub(_name_re(n), " ", low)
+    return low
 
 
-def choose(text, lang="en", last=None):
-    """The song to sing for these words, or None when they name a song we don't have. A named song first; the
-    last one again when asked; else any song (one in the language asked for: "a Korean song"), not the last."""
+# the words around a request that may hold a title: after "sing" / "play", before "song" / "노래", after "by" / "from",
+# before "불러" / "들려" / "틀어"; what is left there after FILLER / FILLER_KO and our own names is another song
+EN_SLOTS = [re.compile(r"\b(?:sing|play|perform|put on)\s+(.+?)\s*(?:\b(?:songs?|tunes?|music|for|please|now|again|lumi|to|with|"
+                       r"together|today|right|ok|okay)\b|[,.!?~]|$)"),
+            re.compile(r"((?:[\w'-]+\s+){0,2}[\w'-]+?)(?:'s)?\s+(?:songs?|tunes?|music)\b"),
+            re.compile(r"\b(?:songs?|something|anything|one|tunes?|music)\s+(?:by|from|of|about)\s+(.+?)\s*(?:[,.!?]|\bplease\b|$)")]
+KO_SLOTS = [re.compile(r"((?:\S+\s+){0,2}\S+?)\s*(?:의\s*)?(?:노래|곡|음악|송)"),
+            re.compile(r"((?:\S+\s+){0,2}\S+?)\s*(?:을|를)?\s*(?:좀\s*)?(?:불러|들려|틀어|부르)")]
+FILLER_KO = {"루미야", "루미", "루미씨", "좀", "하나", "하나만", "한", "곡", "한곡", "노래", "음악", "아무", "아무거나", "다른", "딴",
+             "다음", "새", "네", "니", "너", "너의", "네가", "니가", "당신", "우리", "저한테", "나한테", "우리한테", "저", "나", "제",
+             "내", "그", "이", "저기", "한국", "한국어", "영어", "외국", "무슨", "어떤", "아는", "지금", "빨리", "한번", "번", "같이",
+             "다시", "또", "진짜", "그냥", "케이팝", "제일", "가장", "최신", "음", "어", "자", "그럼", "혹시", "먼저", "거", "걸",
+             "것", "뭐", "뭔가", "아무노래", "노래나", "곡만", "더", "요", "예", "응", "네네", "어서", "얼른", "한곡만", "하나쯤",
+             "신곡", "의", "뭐든", "아무거나요", "노레", "노랠", "야", "래", "노", "신나게", "재밌게", "멋지게", "크게", "작게", "잠깐", "이번엔", "이번에는", "오늘", "여기서", "다들", "모두"}
+VERB_KO = re.compile(r"^(?:불러|부르|불러줘|들려|틀어|틀|켜|해|줘|주|봐|부탁|시작|제발|할|하자|합시다|뽑아)")   # the request's own words
+_PARTICLE = re.compile(r"(?<=.)(?:을|를|은|는|이|가|도|만|요|나|이나|라도|이라도|으로|로)$")
+_ADNOMINAL = tuple("는은운한픈른쁜던된난진")    # "신나는", "조용한", "슬픈": a kind of song, no title
+
+
+def _other_song(text, all_songs, whole=False):
+    """A song not ours was named: 'sing Yesterday', 'Bad Guy by Billie Eilish', 'ATEEZ Wonderland', '아이유 노래',
+    '빅뱅 거짓말 불러 줘', 'a Christmas song'. Words are read from the song word back: a describing word ("신나는",
+    "좋으니까") or one said to someone ("아이한테") ends the title part."""
+    low = _without_ours(text, all_songs)
+    whole_text = [re.match(r"(.*)", low, re.S)] if whole else []   # read by the bank: every word may hold a title
+    for slots, word in ((EN_SLOTS, r"[a-z][a-z'-]*"), (KO_SLOTS, r"[a-z][a-z'-]*|[가-힣]+")):
+        for m in whole_text + [m for slot in slots for m in slot.finditer(low)]:
+            for w in reversed(re.findall(word, m.group(1))):
+                if re.match(r"[a-z]", w):
+                    if w.strip("'-").removesuffix("'s") not in FILLER:
+                        return True
+                    continue
+                if w in FILLER_KO or VERB_KO.match(w):
+                    continue
+                if len(w) > 1 and w.endswith(_ADNOMINAL) or re.search(r"(?:한테|에게|께|니까|는데|해서|면)$", w):
+                    break
+                if _PARTICLE.sub("", w) not in FILLER_KO:
+                    return True
+    return False
+
+
+def choose(text, lang="en", last=None, whole=False):
+    """The song to sing for these words, or None when they ask for a song we don't have (another title or singer,
+    or a language none of ours is in; with `whole` any word that is no filler is a title: "jingle bells please").
+    A named song first; the last one again when asked; else any of ours, not
+    the last."""
     all_songs = songs()
+    if _other_song(text, all_songs, whole):
+        return None
     named = _title(text, all_songs)
     if named and not ANOTHER.search(text or ""):
         return named
-    if not named and _unknown_title(text):
-        return None
     if last in all_songs and AGAIN.search(text or "") and not ANOTHER.search(text or ""):
         return last                                  # "sing it again", "한 번 더"
     want = "ko" if KOREAN.search(text or "") else "en" if ENGLISH.search(text or "") else None
-    pool = [sid for sid, s in all_songs.items() if want in (None, s["lang"]) and sid != last] or \
-        [sid for sid in all_songs if sid != last] or list(all_songs)
+    if want and not any(s["lang"] == want for s in all_songs.values()):
+        return None                                  # "an English song": all of ours are Korean
+    pool = [sid for sid, s in all_songs.items() if want in (None, s["lang"]) and sid != last] or list(all_songs)
     return random.choice(pool) if pool else None
 
 
-def unknown_reply(lang, lines=UNKNOWN):
+def _titles(lang):
     names = [s["title_ko" if lang == "ko" else "title"] for s in songs().values()]
-    joined = ", ".join(names[:-1]) + (" and " if lang == "en" else ", ") + names[-1] if len(names) > 1 else "".join(names)
-    return lines[lang].format(joined + ("" if lang == "en" else "를" if _no_final(names[-1]) else "을"))
+    if lang == "ko" or len(names) < 2:
+        return ", ".join(names)
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def unknown_reply(lang):
+    """A song we don't have was asked for: said kindly, our songs offered (one of several wordings)."""
+    n = len(songs())
+    return random.choice(UNKNOWN[lang]).format(_titles(lang), n=COUNT_KO.get(n, f"{n} "))
 
 
 def list_reply(lang):
-    """Every title: "I can sing Arirang, ... and Love Attack. Which one would you like?"."""
-    return unknown_reply(lang, LIST)
+    """Every title: "I can sing BAD, ... and Love Attack. Which one would you like?"."""
+    names = _titles(lang)
+    if lang == "ko":
+        names += "를" if _no_final(names[-1]) else "을"
+    return LIST[lang].format(names)
 
 
 def _no_final(word):
@@ -177,23 +290,9 @@ def _no_final(word):
 
 
 def song_beats(song):
-    """[(seconds, energy 0..1, accent 0..1, a sung phrase starts)] per beat. The owner's songs carry them from the
-    instrumental (loudness, onsets) and the vocal (phrases); for the others they come from the tempo and the melody:
-    the bar's first beat is the accent, a phrase starts after a rest or a long note, the intro is calm."""
-    if "beats" in song:
-        return [tuple(b) if len(b) == 4 else (b[0], b[1], 0.5, False) for b in song["beats"]]
-    spb = 60.0 / song["bpm"]
-    meter = song["meter"]
-    intro = song.get("intro_bars", 1) * meter
-    tokens = [t.split(":") for t in song["melody"].split() if t != "|"] * song.get("repeat", 1)
-    starts, beat, after_break = set(), 0.0, True
-    for syl, note, b in tokens:
-        if note != "r" and syl != "~" and after_break:
-            starts.add(int(round(intro + beat)))
-        after_break = note == "r" or float(b) >= 2
-        beat += float(b)
-    total = intro + int(beat)
-    return [(i * spb, 0.3 if i < intro else 0.65, 1.0 if i % meter == 0 else 0.3, i in starts) for i in range(total)]
+    """[(seconds, energy 0..1, accent 0..1, a sung phrase starts)] per beat, from the instrumental (loudness,
+    onsets) and the vocal (phrases), written by audio/sing_mine.py."""
+    return [tuple(b) if len(b) == 4 else (b[0], b[1], 0.5, False) for b in song["beats"]]
 
 
 def _speed(vel):

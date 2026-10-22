@@ -1,21 +1,17 @@
 """Music in the room, for tests/asr_check.py --cases 4 (2026-10-22: soft music, nobody speaking, became "-끝-" -> goodbye):
 music only (kind "noise": right is no wake word and no motion, nothing said), and speech over soft music (the speech
-cases' own judgement). The music is made here: piano-like chords, bass, a melody and a hi-hat in four tempos, or
-an excerpt of Lumi's public domain songs (data/songs/<id>.wav, sung words over chords; never data/songs/mine).
+cases' own judgement). The music is made here: piano-like chords, bass, a melody and a hi-hat in four tempos
+(never from data/songs/mine).
 
-A case's "music" is "synth:<seed>:<seconds>" or "song:<id>:<start s>:<seconds>"; "music_db" is how far the speech is
-above the music (rms).
+A case's "music" is "synth:<seed>:<seconds>"; "music_db" is how far the speech is above the music (rms).
 """
-import pathlib
 import random
-import wave
 
 import numpy as np
 
 from tests.asr_cases import CASES as SPOKEN
 
 RATE = 16000
-SONGS = pathlib.Path(__file__).resolve().parents[1] / "data" / "songs"
 MUSIC_DB = 6.0                  # speech this much louder than the music (soft background music at a booth)
 CASES = []
 
@@ -58,31 +54,15 @@ def synth(seed, seconds):
     return (out / (np.abs(out).max() + 1e-9)).astype(np.float32)
 
 
-def song(sid, start, seconds):
-    """An excerpt of data/songs/<sid>.wav at 16 kHz, peak 1."""
-    with wave.open(str(SONGS / f"{sid}.wav")) as w:
-        rate = w.getframerate()
-        x = np.frombuffer(w.readframes(w.getnframes()), np.int16).astype(np.float32)
-    x = x[int(start * rate):int((start + seconds) * rate)]
-    x = np.interp(np.arange(0, len(x), rate / RATE), np.arange(len(x)), x)
-    return (x / (np.abs(x).max() + 1e-9)).astype(np.float32)
-
-
 def music(spec, seconds=None):
     """The case's music; `seconds` (under speech: the speech's length) instead of the spec's."""
-    kind, *a = spec.split(":")
-    if kind == "synth":
-        return synth(int(a[0]), seconds or float(a[1]))
-    return song(a[0], float(a[1]), seconds or float(a[2]))
+    _, seed, length = spec.split(":")
+    return synth(int(seed), seconds or float(length))
 
 
 for k in range(16):
     CASES.append({"kind": "noise", "lang": "none", "text": f"(music {k})", "say": [],
                   "music": f"synth:{k}:{[1.5, 2.5, 4.0, 6.0][k % 4]}"})
-for sid in ["arirang", "happy_birthday", "row_row", "three_bears", "twinkle"]:
-    for start in (2.0, 14.0):
-        CASES.append({"kind": "noise", "lang": "none", "text": f"({sid} at {start:.0f} s)", "say": [],
-                      "music": f"song:{sid}:{start}:3.0"})
 R = random.Random(4)
 for i, c in enumerate(R.sample(SPOKEN, 40)):
     CASES.append({**c, "music": f"synth:{100 + i}:1.0", "music_db": MUSIC_DB})

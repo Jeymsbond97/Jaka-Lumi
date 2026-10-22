@@ -969,43 +969,146 @@ class ParseBody(BaseModel):
     text: str = Field(examples=["bring the red apple from p1 to home"], description="the command in English or Korean")
     source: str | dict | None = Field(None, description="from the dialog, used when the text names no place to take it from")
     dest: str | dict | None = Field(None, description="from the dialog, used when the text names no place to bring it to")
+    llm: bool = Field(False, description="words the rules leave are read by the LLM as by voice (Enter in the dialog; "
+                                         "not while typing)")
 
 
-@app.post("/tasks/parse", tags=["tasks"], summary="A typed command (English or Korean) as a task, its sentence and "
-          "problems; while holding, also give / place. Nothing moves")
-def task_parse(body: ParseBody):
+def _talk(sentence, problems=(), kind="talk"):
+    """What voice would only answer (a question, talk, a refusal): shown, nothing to start."""
+    return {"action": None, "task": None, "talk": kind, "sentence": sentence, "problems": list(problems), "read_by": "rules"}
+
+
+def _rule_steps(rule):
+    """A keyword command that the mission runner does the same way as voice: its steps, else None (look, lift, wave,
+    come, follow, quiet need the assistant: /tasks/command)."""
+    a, t = rule
+    d, _, n = (t or "").partition(" ")
+    if a == "go_to":
+        return [{"do": "go", "to": t}]
+    if a == "move" and d in ("forward", "back", "left", "right"):
+        return [{"do": "move", "dir": d, "m": float(n or 1)}]
+    if a == "turn":
+        return [{"do": "turn", "deg": 180.0 if d == "around" else (1 if d == "left" else -1) * float(n or 90)}]
+    if a == "arm":
+        return [{"do": "arm", "pose": t}]
+    if a == "pick":
+        w = t.split()
+        return [{"do": "pick", "object": w[-1], "colour": w[0] if len(w) > 1 else None}]
+    return None
+
+
+def _said(kind, words, what):
     from assistant import brain, steps
+    if kind == "steps":
+        return steps.describe(what).rstrip(".")
+    if kind == "talk":
+        return f"answer \u201c{words}\u201d"
+    a, t = what
+    return {"look": f"look {t}", "lift": f"lift {t}", "wave": "wave", "come": "come to you", "come_back": "go back",
+            "follow": "follow you", "go_to": f"go to {brain.place_said(t)}", "arm": f"arm {t}",
+            "quiet": "be quiet"}.get(a, f"{a} {t}".strip())
+
+
+@app.post("/tasks/parse", tags=["tasks"], summary="A typed command (English or Korean) read exactly as by voice "
+          "(lumi.route): a mission, a fetch, a command or chain for the assistant, or what Lumi would only answer. "
+          "Nothing moves")
+def task_parse(body: ParseBody):
+    from assistant import brain, driving, lumi, seeing, steps
     from tasks import fetch
     markers = agv.markers()
-    got = unread = by = None
-    fixed = brain.self_correct(body.text, markers) if body.text.strip() else body.text   # "go to start, no, end": as
-    if not fixed and body.text.strip():                                                  # by voice (lumi.answer)
-        return {"action": None, "task": None, "sentence": "–", "read_by": "rules", "problems": [
-            "Which one did you mean? Please write it again." if fixed is None else "Taken back: nothing to do."]}
+    text = body.text.strip()
+    lang = "ko" if brain.HANGUL.search(text) else "en"
+    held = bool(fetch.check_hand())                   # the camera sees the hand; a stale "holding" is forgotten
+    if not text:
+        return _held_parse(body, markers) if held else _talk("–")
+    if lumi.FOREIGN_SCRIPT.search(text):
+        return _talk("–", ["Please write the command in English or Korean."])
+    fixed = brain.self_correct(text, markers)         # "go to start, no, end": as by voice (lumi.answer)
+    if not fixed:
+        return _talk("–", ["Which one did you mean? Please write it again." if fixed is None else "Taken back: nothing to do."])
     body = body.model_copy(update={"text": fixed})
-    if body.text.strip():                             # a mission (docs/17): several steps the fetch / carry can't do
-        got, unread, by = steps.read(body.text, markers, llm=False)
-        if unread and got and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
-            got, unread, by = steps.read(body.text, markers)          # clearly several steps: the LLM may read it
-        problem = unread and brain.place_problem(" ".join(unread), markers)    # "go to p12", "go to booth" (two)
-        if problem or got and unread and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
-            return {"action": None, "task": None, "sentence": "–", "read_by": by,
-                    "problems": [problem[0] if problem else f"I didn't understand: {', '.join(unread)}"]}
-        if got and steps.is_mission(got):
-            return {"action": "steps", "steps": got, "lang": "ko" if brain.HANGUL.search(body.text) else "en",
-                    "sender": steps.sender(body.text),
-                    "read_by": by, **_steps_said(got, markers)}
-    if fetch.check_hand():                            # the camera sees the hand; a stale "holding" is forgotten
+    drive = driving.read(brain._norm(fixed), None, False)       # lumi.drive_words: speed, a distance asked or refused
+    if drive and drive[0] in ("refuse", "ask"):
+        d, _, n = drive[1].partition(" ")
+        return _talk(driving.say_refused(d, float(n), "en") if drive[0] == "refuse" else driving.say_ask(drive[1], "en"))
+    if drive and drive[0] == "speed":
+        return {"action": "command", "text": fixed, "sentence": "Faster." if drive[1] > 0 else "Slower.", "problems": [],
+                "read_by": "rules"}
+    if lumi.NAME_ONLY.match(fixed):
+        return _talk("Yes?")
+    seen = lambda x: "seeing" if seeing.answer(x, frames=[]) else None   # no camera here: whether it is one
+    kind, data = lumi.route(fixed, markers, brain.Brain(), held, seen=seen)
+    if kind == "stop":
+        return {"action": "command", "text": fixed, "sentence": "Stop.", "problems": [], "read_by": "rules"}
+    if kind == "chain":
+        return {"action": "command", "text": fixed, "parts": [[k, w] for k, w, _ in data], "problems": [], "read_by": "rules",
+                "sentence": ", then ".join(_said(*p) for p in data).capitalize() + "."}
+    if kind == "hand":
+        (hand, _) = data
+        if hand[0] == "receive" and not held:
+            got = [{"do": "receive", "object": hand[1], "from_hand": True}]
+            return {"action": "steps", "steps": got, "lang": lang, "sender": None, "read_by": "rules", **_steps_said(got, markers)}
+        if hand[0] in ("give", "place"):
+            return _held_parse(body, markers) if held else _talk("–", ["My hand is empty, I'm not holding anything."])
+        return _talk(hand[1][0] if hand[0] == "refuse" else "–", kind="refuse")
+    if kind == "mission":
+        got, unread, by = data
+        if unread:
+            problem = brain.place_problem(" ".join(unread), markers)    # "go to p12", "go to booth" (two)
+            return _talk("–", [problem[0] if problem else f"I didn't understand: {', '.join(unread)}"])
+        return {"action": "steps", "steps": got, "lang": lang, "sender": steps.sender(fixed), "read_by": by,
+                **_steps_said(got, markers)}
+    if not held and (lumi.empty_hand_request(fixed) or kind is None and brain.place_on(fixed) and
+                     not brain._mentions(fixed, markers).get("object")):   # as by voice: "put it on the table" with
+                                                                            # nothing held (the LLM reads a place)
+        return _talk("–", ["My hand is empty, I'm not holding anything."])
+    if kind == "quick" and data[0] == "fetch":
+        return _fetch_parse(body, markers)
+    if kind == "quick" and data[0] == "put":
+        return _held_parse(body, markers) if held else _talk("–", ["My hand is empty, I'm not holding anything."])
+    if kind == "quick" and data[0] in ("weather", "search"):
+        return _talk("–", kind="lookup")
+    if kind == "quick":
+        if held and data[0] == "go_to":
+            return _held_parse(body, markers)                 # holding: a carry there
+        got = _rule_steps(data)
+        if got:
+            return {"action": "steps", "steps": got, "lang": lang, "sender": None, "read_by": "rules",
+                    **_steps_said(got, markers)}
+        return {"action": "command", "text": fixed, "sentence": _said("quick", fixed, data).capitalize() + ".",
+                "problems": [], "read_by": "rules"}
+    problem = brain.place_problem(fixed, markers)
+    if problem:                                       # quick_command says it: "I don't have a place called p12"
+        return _talk(problem[0], kind="refuse")
+    if held and kind is None and brain.held_command(fixed):
         return _held_parse(body, markers)
-    if body.text.strip() and got and not unread and {s["do"] for s in got} <= {"receive", "arm", "go"}:
-        return {"action": "steps", "steps": got, "lang": "ko" if brain.HANGUL.search(body.text) else "en",   # "take this
-                "sender": steps.sender(body.text), "read_by": by, **_steps_said(got, markers)}   # from my hand", "open your hand", "go to stage"
-    if brain.place_on(body.text) and not brain._mentions(body.text, markers).get("object"):   # "put it on the table"
-        return {"action": None, "task": None, "sentence": "–", "problems": ["My hand is empty, I'm not holding anything."]}
-    if body.text.strip() and not brain._mentions(body.text, markers).get("object"):   # no object named: never a fetch
-        return {"action": None, "task": None, "sentence": "–", "read_by": by or "rules",  # (nor an LLM guess at one)
-                "problems": [f"I didn't understand: {', '.join(unread or [body.text.strip()])}"]}
-    fields, read_by = brain.fetch_from_text(body.text, markers) if body.text.strip() else ({}, "rules")
+    if kind is None and body.llm:                     # the rules leave it: the LLM, one call, as by voice
+        gen = brain.Brain().respond_stream(fixed, markers)
+        head = next(gen)
+        first = next(gen, "") or ""
+        gen.close()
+        rule = (head["action"], head["target"])
+        if rule[0] == "fetch" and brain._mentions(fixed, markers).get("object"):
+            return _fetch_parse(body, markers)
+        got = _rule_steps(rule) if rule[0] in ("go_to", "move", "turn", "arm", "pick") else None
+        if got:
+            return {"action": "steps", "steps": got, "lang": lang, "sender": None, "read_by": "llm",
+                    **_steps_said(got, markers)}
+        if rule[0] in ("look", "lift", "wave", "come", "follow", "come_back", "quiet"):
+            return {"action": "command", "text": fixed, "sentence": first or "–", "problems": [], "read_by": "llm"}
+        return {**_talk(first or "–"), "read_by": "llm"}
+    return _talk("–", kind=kind or "talk")
+
+
+def _fetch_parse(body, markers):
+    """A fetch really read (an object named): the dialog's object / colour / place / finish choices."""
+    from assistant import brain
+    from tasks import fetch
+    if fetch.check_hand():
+        return _held_parse(body, markers)
+    if not brain._mentions(body.text, markers).get("object"):   # no object named: never a fetch (nor an LLM guess)
+        return _talk("–", [f"I didn't understand: {body.text.strip()}"])
+    fields, read_by = brain.fetch_from_text(body.text, markers)
     task = {"object": fields.get("object"), "colour": fields.get("colour"),
             "source": fields.get("source") or body.source or "here", "dest": fields.get("dest") or body.dest,
             "finish": fields.get("finish", "hold"), **({"prefer": fields["prefer"]} if fields.get("prefer") else {})}
@@ -1015,6 +1118,19 @@ def task_parse(body: ParseBody):
         problems = ["Please write the command in English or Korean."]
     return {"action": "fetch", "task": task, "sentence": fetch.describe(task, "en"), "problems": problems,
             "read_by": read_by, "from_text": sorted(fields), "choices": _choices()}
+
+
+class CommandBody(BaseModel):
+    text: str = Field(description="a command /tasks/parse read as action \"command\"")
+
+
+@app.post("/tasks/command", tags=["tasks"], summary="Do a typed command the way voice does it (the assistant hears "
+          "it): look, lift, wave, come, follow, several parts in a row")
+def task_command(body: CommandBody):
+    if not assistant_pids():
+        raise HTTPException(409, "Switch on Greeter or Patrol first.")
+    send_to_assistant("heard", text=body.text)
+    return {"ok": True, "by": "assistant"}
 
 
 def _steps_said(got, markers):

@@ -160,8 +160,8 @@ add("quiet", "en", [("be quiet", "quiet"), ("stop talking", "quiet"), ("shut up"
                     ("please keep quiet for a while", "quiet"), ("silence please", "quiet")])
 add("quiet", "ko", [("조용히 해", "quiet"), ("그만 말해", "quiet"), ("시끄러워", "quiet"), ("말하지 마", "quiet"),
                     ("좀 조용히 해 줄래", "quiet"), ("조용이 해", "quiet")])
-add("sing", "en", [("sing a song", "sing"), ("can you sing for me", "sing"), ("sing happy birthday", "sing")])
-add("sing", "ko", [("노래 불러 줘", "sing"), ("노래 한 곡 해 줘", "sing"), ("생일 축하 노래 불러줘", "sing")])
+add("sing", "en", [("sing a song", "sing"), ("can you sing for me", "sing"), ("sing Fantastic Baby", "sing")])
+add("sing", "ko", [("노래 불러 줘", "sing"), ("노래 한 곡 해 줘", "sing"), ("판타스틱 베이비 불러줘", "sing")])
 add("weather", "en", [("what's the weather like", "weather -"), ("will it rain today", "weather -"),
                       ("what's the weather in Busan", "weather busan"), ("how's the weather in Tokyo tomorrow", "weather tokyo"),
                       ("is it cold outside", "weather -"), ("what's the temperature outside today", "weather -")])

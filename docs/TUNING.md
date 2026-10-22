@@ -157,6 +157,8 @@ and `--start` for the detector. Line numbers may move; search the name.
 | `audio/ears.py` | `SPEECH_PER_SYLLABLE` | 0.05 s | A text needs this much speech per syllable, else it came from music ("감사합니다." from 0.2 s of speech frames). Spoken cases have 0.08 s and more |
 | `audio/ears.py` | `NOT_SAID` | no word, a leading "-", 자막 / 시청해 주셔서 / thanks for watching | Whisper's subtitle texts for music, dropped |
 | `audio/ears.py` | `BEAM_SIZE` | 0 (greedy) | Whisper beam search; 5 was +3 of 254 cases (within noise) and slower |
+| `audio/sing.py` | `BANK_SIM`, `BANK_MARGIN` | 0.80, 0.05 | Song bank (`assistant/song_bank.py`): words this similar (bge-m3) to a wording that asks for a song / the songs, and this much closer than to any wording of another kind, sing / list at once without the LLM. Lower catches more and risks wrong songs (held-out 2026-10-22: 33 of 151 caught, 0 wrong) |
+| `audio/sing.py` | `FILLER`, `FILLER_KO`, `VERB_KO` | word lists | Words around a song request that are never a title; any other word where a title goes ("sing ___", "___ 노래", "by ___") is a song Lumi doesn't have: said so, its own offered |
 | `assistant/llm_direct.py` | `KEEP_EVERY_S` | 60 s | How often Ollama is told to keep the model loaded (it doesn't see the direct requests) |
 
 ## Web answers

@@ -1101,7 +1101,10 @@ class Lumi:
             return
         song = sing.choose(text, self.lang, self.last_song)
         if song is None:                                   # a song we don't have: say which ones we know
-            mouth.say(sing.unknown_reply(self.lang))
+            say = sing.unknown_reply(self.lang)
+            self.brain.history.append((text, f"ACTION: none songs\n{say}"))   # a title next is sung
+            log(f"  not one of our songs: {say[:70]}")
+            mouth.say(say)
             self.keep_listening()
             return
         self.last_song = song
@@ -1359,12 +1362,13 @@ class Lumi:
     def chain_busy(self):
         return self.chain_thread is not None and self.chain_thread.is_alive()
 
-    def chain_request(self, text):
-        """Commands, questions and talk in one sentence, done in the order said (chain.plan). True if it was one."""
+    def chain_request(self, text, plan=None):
+        """Commands, questions and talk in one sentence, done in the order said (chain.plan, or `plan` as route()
+        read it). True if it was one."""
         from assistant import chain
         if self.mission_running() or self.chain_busy():
             return False
-        plan = chain.plan(text, self.markers, NOT_A_STEP)
+        plan = plan or chain.plan(text, self.markers, NOT_A_STEP)
         if not plan:
             return False
         log(f"  chain: {[(k, w) for k, w, _ in plan]}")
@@ -1432,11 +1436,11 @@ class Lumi:
             last = pose
             time.sleep(poll_s)
 
-    def mission_request(self, text):
+    def mission_request(self, text, read=None):
         """A command of several steps (docs/17), said by voice: read back, start on yes or silence. True if it was
         one (also when refused). A single move / turn / arm / go stays with quick_command (no read-back)."""
         from assistant import steps
-        read = read_mission(text, self.markers)
+        read = read or read_mission(text, self.markers)
         if not read:
             return False
         got, unread, by = read
@@ -1713,7 +1717,9 @@ class Lumi:
             return
         cmd = d.get("cmd")
         log(f"dashboard: {cmd} {d.get('marker') or d.get('point') or d.get('markers') or ''}")
-        if cmd == "go":
+        if cmd == "heard":                                # the Command box: done as if said (route(), no read-back
+            self.answer(d.get("text") or "")             # for a command or chain: /tasks/parse showed it)
+        elif cmd == "go":
             self.start_trip(d["marker"])
         elif cmd == "go_point":
             self.start_trip(tuple(d["point"]))
@@ -2122,8 +2128,7 @@ class Lumi:
             return True
         if rule and (self.base_off(*rule) or needs_arm(*rule) and self.arm_off()):
             return True
-        if not rule or rule[0] not in ("go_to", "come", "follow", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put",
-                                       "move_object", "fetch", "look", "lift", "wave", "come_back"):
+        if not rule or rule[0] not in QUICK_RULES:
             return False
         action, target = rule
         en = self.lang == "en"
@@ -2254,27 +2259,30 @@ class Lumi:
             mouth.say("Yes?" if self.lang == "en" else "네?")
             self.keep_listening()
             return
-        if stop_order(text, self.markers):
+        from tasks import fetch                            # the way it goes: route(), as the dashboard's Command box
+        kind, data = route(text, self.markers, self.brain, lambda: self.fetch_status() == "holding" or
+                           bool(safe(fetch.check_hand)), seen=lambda x: seeing.answer(x, self.lang, slow_line=mouth.say),
+                           last=last, chain_ok=not part and not self.mission_running() and not self.chain_busy())
+        if kind == "stop":
             self.stop_all()                                # "stop", "stop, where are you going?": stop first, always
             return
-        if not part and self.chain_request(text):          # "look at me and wave", "go to p5 and tell me the weather"
+        if kind == "chain" and self.chain_request(text, data):   # "look at me and wave", "go to p5 and tell me the weather"
             return
-        seen = seeing.answer(text, self.lang, slow_line=mouth.say)   # "do you see a cup?", "what am I holding?"
-        if seen:
-            log(f"  seeing: {seen}")
-            self.brain.history.append((text, f"ACTION: none -\n{seen}"))   # "and you?" / "why?" next has the turn
-            mouth.say(seen)
+        if kind == "seeing":                               # "do you see a cup?", "what am I holding?"
+            log(f"  seeing: {data}")
+            self.brain.history.append((text, f"ACTION: none -\n{data}"))   # "and you?" / "why?" next has the turn
+            mouth.say(data)
             self.keep_listening()
             return
-        if status_question(text):                         # what am I doing / where am I going
+        if kind == "status":                               # what am I doing / where am I going
             en, ko = self.now_doing()
             log(f"  status: {en}")
             mouth.say(en if self.lang == "en" else ko)
             self.keep_listening()
             return
-        if self.hand_command(text):                        # "take this from me", "give it to her", "put it there"
+        if kind in ("correction", "hand") and self.hand_command(text):   # "take this from me", "put it there"
             return
-        if self.mission_request(text):                     # several steps: before give / place while holding
+        if kind == "mission" and self.mission_request(text, data):   # several steps: before give / place while holding
             return
         if self.fetch_voice(text):                         # before the closing words: "thank you" while giving
             return
@@ -2286,17 +2294,28 @@ class Lumi:
             mouth.say(EMPTY_HAND_SAY[self.lang])
             self.keep_listening()
             return
-        fate = talk_fate(text)
-        if fate == "end":
+        if kind == "end":
             self.end_conversation(text)                    # "okay, bye", "I have to go", "수고하세요": done
             return
         # fate "close" ("okay", "thanks", "됐어요"): the LLM below reads it with the talk before (its action end ends
         # the talk); when the talk goes on, silence ends it (closing_pending, set after the reply)
-        if sing.asked(text, last):                         # "sing a song", "노래 불러 줘", after a song "another one"
+        if kind == "sing":                                 # "sing a song", "노래 불러 줘", after a song "another one"
             self.sing_song(text)
             return
-        if self.quick_command(text):
+        if kind in ("quick", None) and self.quick_command(text):   # None: an unknown place is still said here
             log(f"  done at once ({time.time() - t:.1f} s)")
+            return
+        bank = sing.bank_read(text, last) if kind is None else None   # a song or the songs by meaning (song_bank.py)
+        if bank == "sing":
+            log(f"  song bank: sing ({time.time() - t:.2f} s)")
+            self.sing_song(text)
+            return
+        if bank == "list":
+            say = sing.list_reply(self.lang)
+            self.brain.history.append((text, f"ACTION: none songs\n{say}"))
+            log(f"  song bank: the songs ({time.time() - t:.2f} s)")
+            mouth.say(say, abort=self.speak_abort)
+            self.keep_listening()
             return
         if self.brain.is_lookup_follow_up(text):           # "tell me more" about something looked up just now
             self.look_up(text, "search", self.brain.search_query(text), t)
@@ -2766,6 +2785,49 @@ def talk_fate(text):
 NOT_A_STEP = re.compile(r"^\W*(?:(?:please|and|then|also)\s+)*(?:dance|jump|fly|swim|climb|sit(?: down)?|sleep|cook|draw|"
                         r"sing|clap|spin|bow|kneel|do a (?:dance|flip|trick)|tell|ask|say|show|call|find|look for|search|"
                         r"bring|take|give|hand|put|carry|deliver)\b|.*(?:춤|점프|날아|수영|박수)", re.I)   # a part not read: asked
+
+
+def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
+    """Which way a command goes, the same for voice (Lumi.answer), the dashboard's Command box (/tasks/parse) and
+    tests/command_check: (kind, data). Kinds in this order: "stop"; "chain" (data: chain.plan); "seeing" (data: what
+    seen(text) answered); "status"; "correction" (brain.correction); "hand" ((kind, what), brain.hand_request with
+    the hand as it is: holding is a bool or a function asked only here); "mission" (read_mission's (steps, unread,
+    by)); "end" (a goodbye); "sing"; "quick" (brain.intent's rule, one of QUICK_RULES); (None, None): the LLM reads
+    it. seen: seeing.answer or a stand-in; chain_ok: False on a mission or while a chain runs."""
+    from assistant import chain
+    if stop_order(text, markers):
+        return "stop", None
+    plan = chain_ok and chain.plan(text, markers, NOT_A_STEP)
+    if plan:
+        return "chain", plan
+    got = seen(text) if seen else None
+    if got:
+        return "seeing", got
+    if status_question(text):
+        return "status", None
+    cor = brain_mod.correction(text, b.history)
+    if cor:
+        return "correction", cor
+    if brain_mod.hand_request(text, False, b, markers) or brain_mod.hand_request(text, True, b, markers):
+        held = holding() if callable(holding) else holding
+        hand = brain_mod.hand_request(text, held, b, markers)
+        if hand:
+            return "hand", (hand, held)
+    read = read_mission(text, markers)
+    if read:
+        return "mission", read
+    if talk_fate(text) == "end":
+        return "end", None
+    if sing.asked(text, last):
+        return "sing", None
+    rule = brain_mod.intent(text, markers)
+    if rule and rule[0] in QUICK_RULES:
+        return "quick", rule
+    return None, None
+
+
+QUICK_RULES = {"go_to", "come", "follow", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put", "move_object",
+               "fetch", "look", "lift", "wave", "come_back"}   # what quick_command does at once
 
 
 def read_mission(text, markers):

@@ -21,13 +21,12 @@ import subprocess
 import numpy as np
 import soundfile as sf
 
-from audio import sing_render as R
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MINE = ROOT / "data" / "songs" / "mine"
 WHISPER_CLI = ROOT / "whisper.cpp/build/bin/whisper-cli"
 WHISPER_MODEL = ROOT / "models/ggml-large-v3-turbo-q5_0.bin"
-SR = R.SR
+SR = 44100                      # Hz, the TTS sample rate
+REVERB_S, REVERB_MIX = 0.9, 0.12   # s of the room's tail, its share in the mix
 PART_S = (40.0, 60.0)           # s, length of the part sung
 PART_BEST_S = 50.0              # s, preferred length
 PAUSE_S = 0.2                   # s of a quiet vocal between two sung phrases
@@ -46,6 +45,18 @@ BPM_RANGE = (70.0, 180.0)
 BEAT_TIGHTNESS = 100.0          # DP beat tracker: how strongly beats keep the tempo
 ENERGY_RANGE = (0.3, 0.8)        # instrumental loudness (part of the song's loud level) mapped to energy 0 .. 1
 BEAT_MIN = 0.6                  # a beat closer than this part of the usual beat to the last one is a tracking hiccup
+
+
+def reverb(x):
+    """Convolution with a short decaying noise tail (a small room)."""
+    rng = np.random.default_rng(1)
+    t = np.arange(int(REVERB_S * SR)) / SR
+    ir = rng.standard_normal(len(t)) * np.exp(-t * 6.9 / REVERB_S)
+    ir[:int(0.02 * SR)] = 0
+    ir /= np.sqrt((ir ** 2).sum())
+    size = 1 << int(np.ceil(np.log2(len(x) + len(ir))))
+    wet = np.fft.irfft(np.fft.rfft(x, size) * np.fft.rfft(ir, size), size)[:len(x)]
+    return x + REVERB_MIX * wet
 
 
 # ---------- analysis ----------
@@ -285,7 +296,7 @@ def make(name, title, title_ko, names, lang, start=None, end=None):
     n = min(len(lumi), len(mr))
     voice = np.zeros(len(mr), np.float32)
     voice[:n] = lumi[:n] * VOICE_GAIN * active_rms(v, v) / active_rms(lumi, v)
-    full = R.reverb(voice)[:, None] + mr
+    full = reverb(voice)[:, None] + mr
     full *= 0.9 / np.abs(full).max()
     sf.write(folder / "full_lumi.wav", full.astype(np.float32), SR, subtype="PCM_16")
     part = full[int(t_start * SR):int(t_end * SR)].copy()

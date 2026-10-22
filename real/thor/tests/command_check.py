@@ -19,7 +19,7 @@ import re
 import sys
 import time
 
-from assistant import brain, chain, driving, lumi, seeing
+from assistant import brain, driving, lumi, seeing
 from audio import sing
 from tests.command_cases import CASES as CASES1
 from tests.command_cases2 import CASES as CASES2   # 2026-10-21 night: new wordings, the conference map
@@ -31,8 +31,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUT = ROOT / "logs" / "command_check"
 HOLDING_NOW = "I'm holding a cup and waiting for what to do with it."
 NO_MOTION = {"seeing", "talk", "unclear", "status", "empty_hand", "refuse", "search", "weather", "llm?", "ask", "speed"}
-QUICK = {"go_to", "come", "follow", "come_back", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put",
-         "move_object", "fetch", "look", "lift", "wave"}   # lumi.quick_command
 
 
 class NoLLM(Exception):
@@ -63,36 +61,28 @@ def rules(text, state, marks, b):
                 "refuse": lambda d: "refuse", "ask": lambda d: "ask"}[drive[0]](drive)
     if lumi.NAME_ONLY.match(text):
         return "talk"
-    if lumi.stop_order(text, marks):
-        return "stop"
-    parts = chain.plan(text, marks, lumi.NOT_A_STEP)    # lumi.chain_request: every part in the order said
-    if parts:
+    kind, data = lumi.route(text, marks, b, holding, seen=lambda x: "seen" if seen(x) else None,
+                            last=b.history[-1][1] if b.history else "")   # the voice's and the Command box's way
+    if kind in ("stop", "seeing", "status", "end"):
+        return kind
+    if kind == "chain":                                  # lumi.chain_request: every part in the order said
         return "chain:" + "+".join(k if k != "quick" else "_".join(filter(None, w)).replace(" ", "_")
-                                   for k, _, w in parts)
-    if seen(text):
-        return "seeing"
-    if lumi.status_question(text):
-        return "status"
-    cor = brain.correction(text, b.history)
-    if cor:
-        return "talk" if cor[0] == "ask" else f"action:{cor[0]} {cor[1]}"
-    hand = brain.hand_request(text, holding, b, marks)
-    if hand:
-        return {"receive": lambda h: "receive " + (h[1] or "") if not holding else "refuse",
-                "give": lambda h: "give" if holding else "empty_hand",
-                "place": lambda h: "place " + ((h[1] or {}).get("name") or "") if holding else "empty_hand",
+                                   for k, _, w in data)
+    if kind == "correction":
+        return "talk" if data[0] == "ask" else f"action:{data[0]} {data[1]}"
+    if kind == "hand":
+        (hand, held) = data
+        return {"receive": lambda h: "receive " + (h[1] or "") if not held else "refuse",
+                "give": lambda h: "give" if held else "empty_hand",
+                "place": lambda h: "place " + ((h[1] or {}).get("name") or "") if held else "empty_hand",
                 "refuse": lambda h: "refuse", "ask": lambda h: "talk"}[hand[0]](hand).strip()
-    read = lumi.read_mission(text, marks)
-    if read:
+    if kind == "mission":
         from assistant import steps                      # lumi.mission_request: refused before anything moves
-        return "talk" if read[1] else "refuse" if steps.check(read[0], holding, marks) else "mission"
-    if lumi.talk_fate(text) == "end":
-        return "end"
-    if sing.asked(text, b.history[-1][1] if b.history else ""):
-        return "sing"
-    rule = brain.intent(text, marks)
-    if rule and rule[0] in QUICK:
-        return rule[0] if rule[0] in ("weather", "search") else f"action:{rule[0]} {rule[1]}".strip()
+        return "talk" if data[1] else "refuse" if steps.check(data[0], holding, marks) else "mission"
+    if kind == "sing":
+        return "sing" if sing.choose(text) else "talk"     # a song we don't have: said so (sing.unknown_reply)
+    if kind == "quick":
+        return data[0] if data[0] in ("weather", "search") else f"action:{data[0]} {data[1]}".strip()
     return None
 
 

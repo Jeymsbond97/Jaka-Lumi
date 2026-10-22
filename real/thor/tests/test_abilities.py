@@ -20,7 +20,7 @@ for lang in ("en", "ko"):                                # 2-3 spoken sentences,
     assert 2 <= len(mouth.sentences(ab.SHORT[lang])) <= 3, ab.SHORT[lang]
     assert len(ab.LONG[lang]) > len(ab.SHORT[lang])
 assert all(w in ab.SHORT["en"] for w in ("talk", "internet", "pick things up", "places", "follow", "wave", "sing"))
-assert all(w in ab.LONG["en"] for w in ("wearing or holding", "from your hand", "follow me", "Arirang"))
+assert all(w in ab.LONG["en"] for w in ("wearing or holding", "from your hand", "follow me", "Fantastic Baby"))
 assert not any(w in ab.LONG["en"] + ab.SHORT["en"] for w in ("table", "behind", "charge", "mission"))
 assert not any(w in ab.LONG["ko"] + ab.SHORT["ko"] for w in ("테이블", "뒤를", "충전", "미션"))
 

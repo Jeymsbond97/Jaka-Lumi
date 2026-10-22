@@ -33,12 +33,12 @@ LONG = {"en": "I talk with you in English and Korean, and when I don't know some
               "I can look at what's around me and understand it: objects, people, what you're wearing or holding. "
               "I can pick things up, bring them to you or take them somewhere else and put them down, or take "
               "something from your hand. I go to the places on my map, move or turn as far and as fast as you say, "
-              "and follow you when you say \"follow me\". And I like to wave and sing songs, like Arirang, Happy "
-              "Birthday or Fantastic Baby.",
+              "and follow you when you say \"follow me\". And I like to wave and sing my songs, like Fantastic Baby "
+              "or Love Attack.",
         "ko": "영어와 한국어로 대화하고, 모르는 건 인터넷에서 찾아봐요. 주변을 보고 무엇이 있는지 이해할 수 있어요. 물건이나 "
               "사람, 입고 계신 옷이나 손에 든 것도요. 물건을 집어서 가져다드리거나 다른 곳에 옮겨 내려놓고, 손에 든 걸 받아 "
               "드릴 수도 있어요. 지도에 있는 장소로 가고, 말씀하시는 거리와 속도로 움직이거나 돌고, \"따라와\"라고 하시면 "
-              "따라가요. 그리고 손을 흔들거나 아리랑, 생일 축하 노래, 판타스틱 베이비 같은 노래도 불러 드려요."}
+              "따라가요. 그리고 손을 흔들거나 판타스틱 베이비, 러브 어택 같은 제 노래도 불러 드려요."}
 
 
 def asked(text):

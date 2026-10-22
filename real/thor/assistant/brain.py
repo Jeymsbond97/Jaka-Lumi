@@ -172,9 +172,10 @@ more, in warm natural words, not a flat list): talk in English and Korean and an
 internet; look at what's around you and understand it (objects, people, what someone is wearing or holding); pick
 things up, bring them to the person or take them somewhere else and put them down, or take something from their
 hand; go to the places on your map, move or turn by voice (how far, how fast); come to the person who calls you and
-follow them ("follow me"); wave; sing songs (Arirang, Happy Birthday, Twinkle Twinkle Little Star, Fantastic Baby
-and more); speak louder, quieter, slower or faster when asked; stop and stay quiet when asked. You greet people who
-come close and you wake up when someone says "Hi Lumi"."""
+follow them ("follow me"); wave; sing your four songs (BAD by ATEEZ,
+Fantastic Baby by BIGBANG, 꿈꾸던 어른이 되었나요 by 머무르, Love Attack by RESCENE; no other song); speak louder,
+quieter, slower or faster when asked; stop and stay quiet when asked. You greet people who come close and you wake
+up when someone says "Hi Lumi"."""
 
 
 ACTIONS = """
@@ -292,6 +293,8 @@ Short Korean commands are commands: "컵 가져다 줘" -> fetch cup, "컵 옮�
 - sing: the visitor asks for a song or for music ("play / make / do some music", "음악 틀어 줘", "한 곡 해 줘"), or
   says yes / "any" / "you choose" / "아무거나" to your offer of a song. You make music by singing one of your songs:
   never say you can't play music. A real song with music then plays: only write a short "Okay!" / "네!".
+  You know only your four songs: any other song or singer asked for ("sing Yesterday", "BTS 노래 불러 줘") is none:
+  say kindly you can't sing that one and offer yours; never sing another song in its place.
   A joke is not a song: "tell me a joke", "prove it", "try again" after a joke is none, with a short joke.
 - weather <place>: the visitor asks about the weather (place in English; - means here, Seoul).
 - search <query>: you need facts from the internet you do not know (news, prices, opening hours, people...).
@@ -521,8 +524,8 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
     ("wave", r"(?:^|[,.!?]\s*)(?:(?:hey|hi|okay|ok|so|um+|uh+|alright|please|now|lumi|and|then)\W+)*(?:(?:can|could|would|will) you "
              r"(?:please )?|please |let'?s |go ahead and |i'?d like you to |i want you to )?wave\b(?!s)|"
              r"\bwave (?:at|to|your|hello|hi|bye|goodbye|back|again|for)\b|\bgimme a wave\b|\b(?:why don'?t you|if you (?:could|can|would)|"
-             r"you (?:could|should|can|might)|could you|would you|can you|will you) (?:please |just )?wave\b(?!s)|\bgive (?:(?:them|him|her|us|me|everyone|the \w+) )?"
-             r"a (?:little |quick |big |friendly )?wave\b|\b(?:wave|웨이브)\s?(?:해|하고|좀)|\bshake (?:your |a |my )?hands?\b(?! with\b)|\bsay (?:hi|hello|bye) with your hand\b|손 ?(?:을 |좀 |도 )?흔들|손 ?인사"),
+             r"you (?:could|should|can|might)|could you|would you|can you|will you) (?:please |just )?wave\b(?!s)|\b(?:give|do) (?:(?:them|him|her|us|me|everyone|the \w+) )?"
+             r"a (?:little |quick |big |friendly )?wave\b|\b(?:wave|웨이브)\s?(?:해|하고|좀)|\bshake (?:your |a |my )?hands?\b(?! with\b)|\bsay (?:hi|hello|bye) with your hand\b|손 ?(?:을 |좀 |도 )?흔들|손 ?(?:으로 ?)?인사"),
     ("spin", r"\bspin (?:yourself )?(?:all the way |completely |fully )?(?:a)?round\b(?! (?:the|a|an|my|your|and look)\b)"
              r"|\bturn (?:yourself )?(?:all the way|completely|fully) (?:a)?round\b|\bdo a (?:full )?(?:360|full turn|full circle|spin)\b|\bturn 360\b|\bspin\s*[.!]*$"
              r"|한 ?바퀴 ?(?:빙 ?)?(?:돌|회전)(?![았었던은]|고 ?(?:와|오))|360\s*도\s*(?:돌|회전)(?![았었던은])|빙글 ?빙글 ?돌(?![았었던은])"),
@@ -617,6 +620,8 @@ def to_someone_else(text):
     if ASIDE_EN.search(text):
         return True
     m = ASIDE_KO.search(text)
+    if m and not m.group("name") and "인사" in m.group(0) and re.search(r"손|흔들", text):
+        return False                                       # "손 인사 해 봐", "손으로 인사 해 봐": a wave
     if not m or not m.group("name"):
         return bool(m)
     c = m.group("name")[-1]
@@ -1389,7 +1394,7 @@ DO_IT = re.compile(r"^\W*(?:(?:okay|ok|sure|yes|yeah|then|so|well|go on|come on)
                    r"try it|go for it|please do)(?:\W+(?:then|now|please))*\W*$|"
                    r"^\W*(?:그럼|자|어디)?\s*(?:한 ?번\s*)?(?:해 ?봐|해 ?줘|해 ?보세요|해 ?주세요|보여 ?줘|보여 ?주세요)(?:요)?\W*$", re.I)
 SING_ASK = re.compile(r"\bsing|\bsong|\bmusic\b|노래|한 ?곡|불러", re.I)
-PROMISE = {   # Lumi's own sentence saying it does this now ("Okay! I'll sing a song for you.", "아리랑을 불러 드릴게요.")
+PROMISE = {   # Lumi's own sentence saying it does this now ("Okay! I'll sing a song for you.", "러브 어택 불러 드릴게요.")
     "sing": re.compile(r"\b(?:i'll|i will|let me|i'm going to) sing\b|\bhere(?:'s| is| comes| goes) (?:a |my |one |the )?song\b|"
                        r"(?:불러|들려)\s*(?:드릴게요|드리겠습니다|줄게|볼게요)|부를게요", re.I),
     "wave": re.compile(r"\b(?:i'll|i will|let me) wave\b|흔들어\s*(?:드릴게요|볼게요|줄게)|흔들게요", re.I),

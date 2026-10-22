@@ -15,7 +15,7 @@ WELCOME = r"welcome|no problem|anytime|my pleasure|glad|sure|of course|천만|�
 ARM_KG = r"9\.9"
 BASE_KG = r"\b50\b|오십"
 TIME = r"\b({h12}|{h24})\b"
-SONGS = r"Arirang|아리랑|Happy Birthday|Twinkle|Row,? Row|Fantastic Baby|Love Attack|BAD|곰 ?세 ?마리|Three Bears"
+SONGS = r"Fantastic Baby|Love Attack|BAD|Dreamed Of|판타스틱|러브 ?어택|배드|꿈꾸던"
 NOT_HEARD = r"didn't catch|did not catch|say (it|that) again|could you repeat|다시 (한 번 )?말씀"
 
 DIALOGUES_PRAG_EN = [
@@ -211,7 +211,7 @@ DIALOGUES_PRAG_EN = [
     D("visitor", "topic_shift", "en",
       T("Do you have a lidar?", must=[YES + "|" + LIDAR]),
       T("How far?", must=[r"10"]),
-      T("Can you sing Happy Birthday?", "sing", check="a new request, not about the lidar")),
+      T("Can you sing Love Attack?", "sing", check="a new request, not about the lidar")),
     D("shop owner", "topic_shift", "en",
       T("What can you pick up?", must=[OBJ]),
       T("And how heavy?", must=[ONE_KG]),
@@ -393,7 +393,7 @@ DIALOGUES_PRAG_EN = [
       T("Go on then, one.", "sing")),
     D("grandpa", "indirect_request", "en",
       T("I'd love to hear you sing.", "sing", check="an indirect request: sings"),
-      T("Maybe Arirang next?", "sing", check="a request for Arirang"),
+      T("Maybe Love Attack next?", "sing", check="a request for Love Attack"),
       T("Beautiful. My late wife loved that song.", must=[r"\w"], check="a warm, short, gentle reply; no song, no facts")),
     D("visitor", "indirect_request", "en",
       T("Is it possible for you to look to the left?", "look left"),
@@ -479,7 +479,7 @@ DIALOGUES_PRAG_EN = [
       T("Thanks, good to know.", must=[r"\w"], check="not goodbye"),
       T("Perfect, thank you. Have a nice day!", "end")),
     D("kid 5", "thanks_vs_bye", "en",
-      T("Sing Twinkle Twinkle Little Star!", "sing"),
+      T("Sing Fantastic Baby!", "sing"),
       T("Thank you for the song!", must=[WELCOME + r"|\w"], check="not goodbye"),
       T("Thank you, see you around.", "end")),
     # ---------- repeated or paraphrased questions ----------
@@ -514,7 +514,7 @@ DIALOGUES_PRAG_EN = [
       T("그럼 누가 만들었어요?", must=[MAKER], check="in Korean: Cutshion (쿳션)")),
     D("Korean dad", "mixed", "en",
       T("Can you sing?", "sing"),
-      T("아리랑 불러 줄 수 있어요?", "sing", check="a request in Korean: sings Arirang"),
+      T("러브 어택 불러 줄 수 있어요?", "sing", check="a request in Korean: sings Love Attack"),
       T("Thanks, 잘 들었어요.", must=[r"\w"], check="thanks, not goodbye")),
     D("expat", "mixed", "en",
       T("Who made you?", must=[MAKER]),

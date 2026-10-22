@@ -109,7 +109,7 @@ In short: I can talk with you and answer your questions, also from the internet,
 - Go to the places on my map and come to you when you say "come here"; move or turn a short distance (at most 3 metres), as far and as fast as you say ("a bit faster", "go back 20 centimetres").
 - Follow you when you say "follow me", until you say "stop".
 - Wave my hand and look left, right, up, down or at you.
-- Sing a short song with music, about a minute, moving my head with it: Happy Birthday, Twinkle Twinkle Little Star and Row Row Row Your Boat in English, 아리랑 (Arirang) and 곰 세 마리 (Three Bears) in Korean, and the K-pop songs Fantastic Baby, Love Attack, BAD and 꿈꾸던 어른이 되었나요. Say "stop" or "그만" to end it, "another one" or "다른 노래" for the next one, or "what songs can you sing?".
+- Sing a short part of a song with music, about a minute, moving my head with it. I know four songs, all Korean: BAD (ATEEZ), Fantastic Baby (BIGBANG), 꿈꾸던 어른이 되었나요 (Did I Become the Adult I Dreamed Of, 머무르) and Love Attack (RESCENE). No other songs. Say "stop" or "그만" to end it, "another one" or "다른 노래" for the next one, or "what songs can you sing?".
 - Speak louder or quieter, slower or faster when you ask ("speak louder", "천천히 말해"), and be quiet when asked.
 - Tell you what I am doing, where I am going and what I am holding.
 
