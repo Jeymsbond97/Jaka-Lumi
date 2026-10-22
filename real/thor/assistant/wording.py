@@ -91,8 +91,8 @@ def markers(t):
     t = re.sub(rf"(?<!\d )(?<![a-z] point ){_P}\s*[.-]?\s*({'|'.join(EN_NUM)})(?![a-z])(?!\s*{UNIT}\b)",
                lambda m: f"p{EN_NUM[m.group(1)]}", t)                                    # "point three", "p two"
     t = re.sub(rf"{_P}\s*({ko}|{_SINO}){_KO_END}", lambda m: f"p{_num(m.group(1))}", t)  # "피쓰리", "포인트 삼"
-    t = re.sub(r"\b(to|from|at) (the )?(?:piece|peace|pee|pea|pit|pi|pe) ?(\d+)\b",                  # whisper's "go to piece 6"
-               lambda m: f"{m.group(1)} {m.group(2) or ''}p{m.group(3)}", t)
+    t = re.sub(rf"\b(to|from|at|go) (the )?(?:piece|peace|pee|pea|pit|pi|pe) ?(\d+|{'|'.join(EN_NUM)})\b",  # whisper's
+               lambda m: f"{m.group(1)} {m.group(2) or ''}p{_num(m.group(3))}", t)                    # "go to piece six"
     t = re.sub(r"\b(p\d+)\s+(?:point|포인트)(?![a-z])(?!\s*(?:a|b|\d)(?![a-z]))", r"\1", t)   # "p10 point"
     return t
 

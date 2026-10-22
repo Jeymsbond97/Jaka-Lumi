@@ -6,6 +6,7 @@ Recording, speech detection and "do not listen while Lumi talks" are in mic.py (
 lumi.py also uses for the wake word). Speech-to-text: whisper.cpp (GPU) server with large-v3-turbo on
 127.0.0.1:8096, started when needed.
 """
+import difflib
 import io
 import json
 import re
@@ -22,7 +23,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]      # the project folder
 RATE = mic.RATE
 STT_URL = "http://127.0.0.1:8096"
 WHISPER_SERVER = ROOT / "whisper.cpp/build/bin/whisper-server"
-WHISPER_MODEL = ROOT / "models/ggml-large-v3-turbo-q5_0.bin"
+WHISPER_MODEL = ROOT / "models/ggml-large-v3-turbo.bin"   # f16: more right than q5_0 (tests/asr_check.py
+                                 # 443 / 431 of 644, 196 / 185 of 254) and ~0.35 s faster with the GPU busy
 PROMPT = "Hi Lumi. Hey Lumi. 루미야."   # helps whisper spell the robot's name
 LANG_PROMPT = {"en": "Hi Lumi. Hey Lumi.", "ko": "안녕하세요, 루미야."}   # when asked again in one language: the
                                  # mixed prompt made whisper write Korean in Latin letters ("Natarawa" for 나 따라와)
@@ -84,6 +86,10 @@ def louder(audio, target=0.7):
 LANGS = {"english": "en", "korean": "ko"}
 MIN_LOGPROB = -1.0               # below this average token log-probability whisper was guessing
 NAME_ONLY = re.compile(r"\W*(lumi|루미야?)\W*", re.I)
+# whisper writes the prompt's "Lumi." / "Hey Lumi." for sounds that are no speech: 13 of 15 "Lumi." in logs/heard
+# (2026-10-21 12:00-13:50) were a clap, a thud, music or "はい" without the prompt. Such a text is checked once more
+# without the prompt and dropped when no word there sounds like the name.
+CALL_ONLY = re.compile(r"\W*(?:(?:hi|hey|hello|안녕)\W*)?(lumi|루미야?)\W*", re.I)
 KO_BONUS = 0.3                   # another language named: asked in Korean and in English, a Hangul answer's average
                                  # log-probability counts this much more (tests/asr_check.py: +3 of 898 cases)
 ODD_KO_BONUS = 0.3               # English text with a word no dictionary has: Korean asked too, taken when written in
@@ -129,6 +135,13 @@ def names(text):
     for slip, said in SLIPS:
         text = re.sub(slip, said, text, flags=re.I)
     return text
+
+
+def lumi_like(text):
+    """A word that may be the name as whisper writes it without the prompt ("Louie", "Lumen", "Remia", "루미")."""
+    if re.search(r"루미|루(?![가-힣])|ルミ|미야|민희|^\W*이미|\b[lr]e?mi|\bb?l[ou]{1,2}m", text, re.I):   # "안녕 민희야", "Bloomy"
+        return True
+    return any(difflib.SequenceMatcher(None, w, "lumi").ratio() >= 0.5 for w in re.findall(r"[a-z]+", text.lower()))
 
 
 def not_english(text):
@@ -182,6 +195,8 @@ def transcribe(audio, prompt=PROMPT):
         t2 = ask("ko")
         if re.search(r"[가-힣]", t2[0]) and t2[3] + ODD_KO_BONUS > logprob:
             text, lang, prob, logprob = t2
+    if CALL_ONLY.fullmatch(text) and not lumi_like(_infer(wav, "")[0]):
+        text = ""                                # the prompt's name written for a clap, a cough, "はい" (see CALL_ONLY)
     if lang == "english" and re.search(r"[가-힣]", text):
         lang = "korean"                          # "Red cup. 집어줘." tagged English: the Korean is real
     last_stt.clear()

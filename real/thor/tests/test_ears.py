@@ -16,8 +16,9 @@ def fake(answers):
     asked = []
 
     def infer(wav, prompt, language=None):
-        asked.append(language)
-        return answers[language]
+        key = "no prompt" if not prompt and "no prompt" in answers else language
+        asked.append(key)
+        return answers[key]
     ears._infer = infer
     return asked
 
@@ -43,4 +44,10 @@ assert ears.transcribe(AUDIO) == "컵 좀 주세요." and asked == [None, "ko", 
 asked = fake({None: ("Lumi.", "english", 0.9, -0.05),
               "ko": ("Lumi야, 이리 와.", "korean", None, -0.4), "en": ("Lumi.", "english", None, -0.05)})
 assert ears.transcribe(np.zeros(32000, np.int16)) == "루미야, 이리 와." and asked == [None, "ko", "en"], asked
+# the prompt's name written for a clap: checked without the prompt, dropped
+asked = fake({None: ("Lumi.", "english", 0.9, -0.05), "no prompt": ("*clap*", "english", 0.9, -0.3)})
+assert ears.transcribe(AUDIO) == "" and asked == [None, "no prompt"], asked
+# the name really said: kept
+asked = fake({None: ("Hey Lumi.", "english", 0.9, -0.05), "no prompt": ("Hey, Liumu!", "english", 0.9, -0.8)})
+assert ears.transcribe(AUDIO) == "Hey Lumi." and asked == [None, "no prompt"], asked
 print("ears ok")

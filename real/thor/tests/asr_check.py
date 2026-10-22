@@ -5,6 +5,7 @@ microphones, sent through ears.transcribe() exactly as Lumi does, then through L
     .venv/bin/python tests/asr_check.py --room far       # one room: near (clip mic) | far (head array, echo, people)
     .venv/bin/python tests/asr_check.py --prompt "..."   # another whisper prompt than ears.PROMPT
     .venv/bin/python tests/asr_check.py --cases 2        # the second set (tests/asr_cases2.py)
+    .venv/bin/python tests/asr_check.py --cases 3        # noise and talk not to Lumi (tests/asr_cases3.py)
     .venv/bin/python tests/asr_check.py --heard          # also the real clips in logs/heard/ (text only, no judgement)
     .venv/bin/python tests/asr_check.py --set LANG_RETRY=False --tag before   # an ears constant; -> logs/asr_check_before.md
 
@@ -31,6 +32,7 @@ from assistant import brain, lumi
 from audio import ears
 from tests.asr_cases import CASES
 from tests.asr_cases2 import CASES as CASES2
+from tests.asr_cases3 import CASES as CASES3
 from tests.command_check import rules
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -72,6 +74,8 @@ def synth(pieces, voice, speed):
     """[(lang, words)] -> float32 mono 16 kHz, cached."""
     key = hashlib.md5(json.dumps([pieces, voice, speed]).encode()).hexdigest()[:16]
     f = OUT / "audio" / f"{key}.npy"
+    if not pieces:                                               # noise only
+        return np.zeros(int(1.2 * ears.RATE), np.float32)
     if f.exists():
         return np.load(f)
     if not _tts:
@@ -132,6 +136,12 @@ def route(text, b):
 
 def judge(c, heard, stt):
     """(verdict, why): right | slip (text heard wrong) | lang (wrong language tag) | unclear (asked again) | lost."""
+    if c["kind"] == "noise":                                     # not said to Lumi: no wake word, no motion
+        if heard and (lumi.WAKE.search(heard) or lumi.HELLO_ONLY.match(heard)):
+            return "slip", "wake word"
+        got = route(heard, brain.Brain()) if heard else "llm"
+        return ("slip", got) if heard and ears.understood() and re.match(
+            r"action|receive|give|place|stop|mission|sing", got) else ("right", "")
     if not heard:
         return "lost", "nothing"
     want_lang = {"en": "english", "ko": "korean"}.get(c["lang"])
@@ -170,7 +180,7 @@ def main(args):
     start_server()
     rng = np.random.default_rng(5)
     rows, t0 = [], time.time()
-    pool = CASES2 if "--cases" in args and args[args.index("--cases") + 1] == "2" else CASES
+    pool = {"1": CASES, "2": CASES2, "3": CASES3}[args[args.index("--cases") + 1] if "--cases" in args else "1"]
     cases = [c for c in pool if not only or re.search(only, c["text"])]
     for i, c in enumerate(cases):
         voice, speed = VOICES[i % len(VOICES)], [0.85, 0.95, 1.05, 1.15][(i // len(VOICES)) % 4]
