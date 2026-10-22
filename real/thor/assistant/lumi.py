@@ -40,8 +40,8 @@ Modes (switched live from the dashboard through /dev/shm/lumi_modes.json, see ap
            person in the path, greet and talk, then drive on to the same destination. Patrol also allows the
            base and the waist by voice: with it off (Greeter only) Lumi does what it can standing in place (talk,
            head, lift, arm and gripper within reach, wave) and refuses a drive, a base turn or a waist turn
-           (base_off says BASE_OFF_SAY; a task runs with fetch.stay_put). The dashboard's own buttons and "stop"
-           work either way.
+           (base_off says BASE_OFF_SAY; a task runs with fetch.stay_put). Tasks from the dashboard's Command box obey
+           the same (api/server.py _switches). The dashboard's own buttons and "stop" work either way.
 - wave / drive: wave when asked; allow "come here" and voice "go to".
 The dashboard's Go / Cancel are sent to this program (/dev/shm/lumi_cmd.json) while it runs, so it can stop
 for people on the way. A calibration session for the sound direction can also be started from there.
@@ -74,6 +74,7 @@ from robot import arm
 from assistant import brain as brain_mod
 from assistant import driving
 from assistant import abilities
+from assistant import battery
 from assistant import voice_words
 from vision import camview
 from vision import reid
@@ -789,11 +790,11 @@ class Lumi:
         self.keep_listening()
         return True
 
-    def stay(self, voice=True):
-        """Tasks asked by voice with only Greeter on stay in place (fetch.stay_put: head and lift only, no base, no
-        waist); the dashboard's tasks do not."""
+    def stay(self):
+        """Tasks asked with only Greeter on, by voice or from the dashboard, stay in place (fetch.stay_put: head and
+        lift only, no base, no waist)."""
         from tasks import fetch
-        fetch.stay_put = voice and not self.modes.patrol
+        fetch.stay_put = not self.modes.patrol
 
     def act(self, action, target):
         log(f"action: {action} {target}")
@@ -979,7 +980,7 @@ class Lumi:
         from tasks import fetch
         if voice and self.arm_off():
             return
-        self.stay(voice)
+        self.stay()
         try:
             if how == "give":
                 fetch.give(say=self.fetch_say)
@@ -1059,13 +1060,15 @@ class Lumi:
     # ---------- answers by rule: what Lumi can do, its songs, its voice ----------
     def fixed_answer(self, text, last):
         """Answered without the LLM: what Lumi can do (assistant/abilities.py; the rest on "tell me more" / "yes"),
-        which songs it knows, and right after a song "another one" / "again" / "그거 말고" (audio/sing.py). True if
+        which songs it knows, the battery now and whether it is charging (assistant/battery.py), and right after a song "another one" / "again" / "그거 말고" (audio/sing.py). True if
         handled."""
         if last.startswith("ACTION: sing") and sing.AFTER_SONG.search(text) and sing.asked(text, last):
             self.sing_song(text)
             return True
         if sing.list_asked(text):
             say, mark = sing.list_reply(self.lang), "ACTION: none songs"
+        elif battery.asked(text):                           # "battery?", "충전 중이야?": the base's status now
+            say, mark = battery.answer(text, self.lang), "ACTION: none -"
         else:
             got = abilities.answer(text, self.lang, last)
             if not got:
@@ -1738,7 +1741,7 @@ class Lumi:
             self.resume_mission()
         elif cmd in ("fetch", "fetch_give", "fetch_place", "fetch_stop", "fetch_carry", "fetch_release", "fetch_steps"):
             from tasks import fetch                      # dashboard tasks are confirmed there: no read-back
-            self.stay(voice=False)
+            self.stay()
             if cmd == "fetch":
                 try:
                     fetch.start(d["task"], say=self.fetch_say)
@@ -2299,6 +2302,7 @@ class Lumi:
             return
         # fate "close" ("okay", "thanks", "됐어요"): the LLM below reads it with the talk before (its action end ends
         # the talk); when the talk goes on, silence ends it (closing_pending, set after the reply)
+        fate = talk_fate(text)
         if kind == "sing":                                 # "sing a song", "노래 불러 줘", after a song "another one"
             self.sing_song(text)
             return
@@ -2321,7 +2325,8 @@ class Lumi:
             self.look_up(text, "search", self.brain.search_query(text), t)
             return
         about, repeating = self.brain.topic(text), self.brain.again(text)
-        gen = self.brain.respond_stream(text, self.markers, now=self.now_doing()[0] + seeing.facts_for(text))
+        gen = self.brain.respond_stream(text, self.markers, now=self.now_doing()[0] + seeing.facts_for(text) +
+                                         battery.fact_for(text))
         head_ = next(gen)
         log(f"  action {head_['action']} {head_['target']} ({time.time() - t:.1f} s)")
         if self.base_off(head_["action"], head_["target"]) or \
@@ -2384,6 +2389,14 @@ class Lumi:
                 self.sing_song(text)
                 return
             self.act("wave", "")
+        if promise == "motion":                            # "Okay, I'll follow you!" under the action none: ask
+            gen.close()
+            log(f"  the reply promises a move the action line did not ({first[:60]!r}): asked")
+            say = "Sorry, what would you like me to do?" if self.lang == "en" else "죄송해요, 무엇을 해 드릴까요?"
+            self.brain.history.append((text, f"ACTION: none -\n{say}"))
+            mouth.say(say)
+            self.keep_listening()
+            return
         if head_["action"] in ("none", "sing") and not repeating and look_up_unsure(about, first, text):
             gen.close()                                    # the model does not know: look it up instead
             log(f"  not sure ({first[:60]!r}) - looking it up")

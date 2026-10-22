@@ -158,6 +158,8 @@ and `--start` for the detector. Line numbers may move; search the name.
 | `audio/ears.py` | `NOT_SAID` | no word, a leading "-", 자막 / 시청해 주셔서 / thanks for watching | Whisper's subtitle texts for music, dropped |
 | `audio/ears.py` | `BEAM_SIZE` | 0 (greedy) | Whisper beam search; 5 was +3 of 254 cases (within noise) and slower |
 | `audio/sing.py` | `BANK_SIM`, `BANK_MARGIN` | 0.80, 0.05 | Song bank (`assistant/song_bank.py`): words this similar (bge-m3) to a wording that asks for a song / the songs, and this much closer than to any wording of another kind, sing / list at once without the LLM. Lower catches more and risks wrong songs (held-out 2026-10-22: 33 of 151 caught, 0 wrong) |
+| `audio/sing.py` | `BANK_MIN_WORDS` | 3 | The song bank reads only words with a song / music word and at least this many words (a cut-off "Let's" sang once) |
+| `audio/ears.py` | `MERGE_WAIT_S` | 1.5 s | A sentence cut off by a pause (it ends on "let's", "can you", "and", "저기" …: `CUT_OFF`) waits this long for the rest, heard as one sentence. Today's clips: the longest pause inside an utterance 0.39 s (90th percentile), 0.51 s at most, against `mic.END_SILENCE` 0.6 s |
 | `audio/sing.py` | `FILLER`, `FILLER_KO`, `VERB_KO` | word lists | Words around a song request that are never a title; any other word where a title goes ("sing ___", "___ 노래", "by ___") is a song Lumi doesn't have: said so, its own offered |
 | `assistant/llm_direct.py` | `KEEP_EVERY_S` | 60 s | How often Ollama is told to keep the model loaded (it doesn't see the direct requests) |
 

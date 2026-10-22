@@ -70,7 +70,7 @@ Rules:
   both running on your own NVIDIA Jetson AGX Thor (Gemma is made by Google, Whisper by OpenAI); you do not use
   ChatGPT or the cloud. You have a lidar, three depth
   cameras, six microphones and one arm with a two-finger gripper. A fact about yourself that is not here or in the
-  notes (your price, charging time, battery level now): say you don't know and that a staff member can tell them.
+  notes (your price, how long charging takes): say you don't know and that a staff member can tell them.
 - Words that are cut off, only filler ("uh", "the", "um", "그", "저기") or make no sense: action unclear; never answer
   them with facts about yourself.
 - When the visitor's words are in another language than English or Korean (Uzbek, Russian, Chinese, Japanese,
@@ -164,7 +164,7 @@ Facts you know (say the one that is asked, also in a short follow-up; nothing mo
   2025), Sonovictus in the USA (200 barista robots over three years from 2027), the Gyeongnam and Jeonbuk Offices
   of Education (drawing robots, 2024), the Taean Office of Education (candy ball robots, 2024).
 - Not known to you (say you are not sure): whether you see in the dark or hear well in noise, whether you use ROS,
-  how many people you talked to, how long a full charge takes, your battery level now (not even roughly), whether
+  how many people you talked to, how long a full charge takes, your battery level now unless "Battery now" gives it, whether
   you may be wiped or get wet, the price of any robot.
 
 What you can do (say this when asked what you can do: two or three short sentences first, the rest when asked for
@@ -1398,13 +1398,23 @@ PROMISE = {   # Lumi's own sentence saying it does this now ("Okay! I'll sing a 
     "sing": re.compile(r"\b(?:i'll|i will|let me|i'm going to) sing\b|\bhere(?:'s| is| comes| goes) (?:a |my |one |the )?song\b|"
                        r"(?:불러|들려)\s*(?:드릴게요|드리겠습니다|줄게|볼게요)|부를게요", re.I),
     "wave": re.compile(r"\b(?:i'll|i will|let me) wave\b|흔들어\s*(?:드릴게요|볼게요|줄게)|흔들게요", re.I),
+    # any other motion: never done on the reply alone (the action line said none), lumi.answer() asks instead
+    "motion": re.compile(r"\b(?:i'll|i will|let me|i'm going to|i am going to)\s+(?:now\s+)?(?:follow|come|go(?! ahead)|drive|"
+                         r"head (?:to|over|back)|move|turn (?:around|left|right|to)|look (?:at|left|right|down|around|behind)|"
+                         r"pick|grab|bring|fetch|lift|raise|lower|reach out)\b|"
+                         r"\b(?:i'm|i am) (?:coming|following|on my way)\b|\bhere i come\b|"
+                         r"따라\s*(?:갈게요|가\s*볼게요|갈게|가겠습니다)|(?<![가-힣])(?:갈게요|가겠습니다|올게요|갈게)|가져다\s*드릴게요|"
+                         r"가져올게요|집어\s*(?:드릴게요|볼게요)|집을게요|돌게요|돌아\s*(?:볼게요|갈게요)|쳐다\s*볼게요|"
+                         r"움직일게요|올릴게요|내릴게요|건네\s*드릴게요|내려\s*놓을게요", re.I),
 }
 NOT_NOW = re.compile(r"\b(?:if|when|later|after|once|next time)\b|나중에|끝나면|으면|다면", re.I)   # "... if you'd like"
 
 
 def promised(sentence):
     """'sing' / 'wave' when Lumi's sentence says it does that now, else None: lumi.answer() then does it although the
-    model's action line was none ("Start with one." -> "Okay! I'll sing a song for you." and silence, 2026-10-22)."""
+    model's action line was none ("Start with one." -> "Okay! I'll sing a song for you." and silence, 2026-10-22).
+    'motion' for any other move it says it makes ("Yeah." -> "Okay, I'll follow you!" and no follow, 2026-10-22):
+    not done on a guess, Lumi asks what to do."""
     s = sentence or ""
     return None if NOT_NOW.search(s) else next((a for a, r in PROMISE.items() if r.search(s)), None)
 LOOK_MORE = re.compile(r"^\W*(?:and|now|then|and now)?\s*(up|down|left|right)\W*$|"

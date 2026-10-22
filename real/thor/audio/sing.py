@@ -49,6 +49,9 @@ LATE_S = 0.4                    # s; a move this late is skipped (the previous o
 RETURN_WAIT_S = 3.0             # s a new song waits for the head to get back from the last one
 BANK_SIM = 0.80                 # song bank (assistant/song_bank.py): the closest wording at least this similar ...
 BANK_MARGIN = 0.05              # ... and this much closer than the closest wording of another kind
+BANK_MIN_WORDS = 3              # the bank reads only words with a song or music word in them and at least this many
+                                # words ("Let's", cut off from "Let's follow me", sang once, 2026-10-22)
+SONG_WORD = re.compile(r"\bsing|\bsong|\bmusic|\btunes?\b|\bplaylist|k-?pop|노래|노레|노랠|음악|곡|불러|부르|틀어|들려|케이팝", re.I)
 
 SING = re.compile(r"\bsing\b|\bsay (?:a |some )?songs?\b|"                    # whisper writes "let's say song"
                   r"\b(?:play|put on|turn on|start)(?: me| us)? (?:a |some |any |another |the |your )?(?:songs?|music|tunes?)\b|"
@@ -144,13 +147,15 @@ _bank = None
 def bank_read(text, last=""):
     """'sing' / 'list' when these words mean the same as the bank's wordings of that kind (bge-m3 through
     assistant/knowledge.embed, ~20 ms), else None (the LLM decides; also when the closest are the bank's
-    near misses, and for a 'sing' with any word that might be a title: "jingle bells please"). Negation, a condition or a later time, the
+    near misses, and for a 'sing' with any word that might be a title: "jingle bells please"). Only words with a song
+    or music word and BANK_MIN_WORDS words are read: a cut-off start ("Let's", "can you", "루미야 저기") never sings. Negation, a condition or a later time, the
     person singing, a question about liking music or "is / does ...?", and any words with a turn before them (the
     talk decides what "yes" means) are never read here."""
     global _bank
     t = text or ""
-    if NOT_REQUEST.search(t) or NOT_ASKED.search(t) or re.match(r"\W*(?:is|are|was|were|does|did|has|have)\b", t, re.I) \
-            or re.search(r"\b(?:like|love|enjoy|favou?rite)\b|좋아|싫어", t, re.I) and re.search(r"\?|까요?\W*$|니\W*$", t) or last:
+    if not SONG_WORD.search(t) or len(re.findall(r"\w+", t)) < BANK_MIN_WORDS or NOT_REQUEST.search(t) or \
+            NOT_ASKED.search(t) or re.match(r"\W*(?:is|are|was|were|does|did|has|have)\b", t, re.I) or \
+            re.search(r"\b(?:like|love|enjoy|favou?rite)\b|좋아|싫어", t, re.I) and re.search(r"\?|까요?\W*$|니\W*$", t) or last:
         return None
     from assistant import knowledge, song_bank
     try:

@@ -358,6 +358,9 @@ LIST = [
 ]
 
 NO = [
+    # cut-off starts (whisper heard only the beginning): never a song
+    "let's", "let's go", "can you", "could you", "please", "can you please", "lumi, can you", "wait", "hmm", "so",
+    "루미야 저기", "저기요", "루미야", "혹시", "그럼", "잠깐만", "있잖아",
     # liking music, favourites
     "do you like singing?",
     "do you like music?",

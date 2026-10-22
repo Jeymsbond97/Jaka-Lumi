@@ -19,6 +19,9 @@ import re
 import sys
 import time
 
+import types
+
+from assistant import battery
 from assistant import brain
 from assistant import steps
 from assistant import lumi
@@ -30,6 +33,7 @@ from tests.status_cases import NOT_STATUS, STATUS
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 NOW = "I'm talking with you. I'm not doing any task right now, and my hand is empty."
 NOW_KO = "지금은 이야기하고 있어요. 하고 있는 일은 없고, 손도 비어 있어요."     # lumi.now_doing() with nothing running
+battery.agv = types.SimpleNamespace(status=lambda: {"power_percent": 53, "charge_state": False})   # never the base
 QUICK = {"go_to", "come", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put", "move_object", "fetch",
          "look", "lift", "wave"}   # lumi.quick_command
 TALK = {"about_self", "date_time", "chat", "action:none"}      # the LLM only talks: action none
@@ -64,6 +68,8 @@ def rules_route(text, lang, marks):
         return "unclear", "Sorry, I only understand English and Korean.", None, ""
     if lumi.NAME_ONLY.match(text):
         return "chat", "", None, ""
+    if battery.asked(text):                                      # lumi.fixed_answer: the base's status (faked: 53 %)
+        return "none", battery.answer(text, lang), None, ""
     if lumi.stop_order(text, marks):
         return "action:stop", "", None, ""
     if lumi.status_question(text):

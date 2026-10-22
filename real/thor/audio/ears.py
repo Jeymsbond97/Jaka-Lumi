@@ -50,12 +50,14 @@ def ensure_stt_server():
     raise RuntimeError("whisper-server did not start, see whisper_server.log")
 
 
-def record(wait_s=8.0, on_start=None, abort=None):
+def record(wait_s=8.0, on_start=None, abort=None, since=None):
     """Wait up to wait_s for speech to start, then until it ends. Returns a mic.Utterance or None.
-    abort: optional function checked every 30 ms; when it returns True, stop and return None."""
+    abort: optional function checked every 30 ms; when it returns True, stop and return None.
+    since: take speech that ended after this time, also one already heard (the rest of a sentence)."""
     m = mic.get()
-    m.clear()                                    # only speech that starts from now on
-    t0, started = time.time(), False
+    if since is None:
+        m.clear()                                # only speech that starts from now on
+    t0, started = since or time.time(), False
     try:
         while True:
             if abort and abort():
@@ -121,6 +123,12 @@ NOT_SAID = re.compile(r"^\W*$|^\s*-|자막|시청해\s*주셔서|thanks? (?:you 
                                  # whisper's subtitle habits on music: no word at all, a dialogue dash ("-끝-", "- 네."),
                                  # a caption credit ("자막 제공 및 광고를 포함하고 있습니다.")
 _vad = {}
+CUT_OFF = re.compile(r"(?:\b(?:let'?s|can you|could you|would you|will you|can i|and|but|or|the|a|an|to|of|with|"
+                     r"my|your|i want|i'd like|i need)|(?<![가-힣])(?:저기|그리고|근데|혹시|그래서|그러니까|있잖아))\W*$", re.I)
+                                 # a sentence cut off by a pause longer than mic.END_SILENCE ("Let's" of "Let's ...
+                                 # follow me", 2026-10-22 14:36; today's clips: the longest pause inside an utterance
+                                 # 0.39 s at the 90th percentile, 0.51 s at most, so one cut in 140 turns)
+MERGE_WAIT_S = 1.5               # s waited for the rest of a cut-off sentence; it is heard with the first part
 
 BEAM_SIZE = 0                    # whisper beam search width (0: the server's greedy decoding)
 HEARD_DIR = ROOT / "logs" / "heard"   # the last HEARD_KEEP utterances as wav, to check what Lumi really heard
@@ -288,6 +296,14 @@ def listen(wait_s=8.0, on_start=None, abort=None, full=False):
     if u is None or u.seconds < 0.4:
         return (None, u) if full else None
     text = transcribe(u.mono) or None
+    if text and CUT_OFF.search(text):            # "Let's" ... "follow me": the rest after a pause, heard as one
+        rest = record(MERGE_WAIT_S, abort=abort, since=u.t_end)
+        if rest is not None and rest.seconds >= 0.3:
+            import numpy as np
+            joined = np.concatenate([u.mono, np.zeros(int(0.3 * RATE), np.int16), rest.mono])
+            text2 = transcribe(joined)
+            if text2:
+                text, u.mono, u.t_end = text2, joined, rest.t_end
     return (text, u) if full else text
 
 

@@ -76,6 +76,14 @@ for _ in range(20):                                  # a song we don't have: sai
     assert all(SONGS[sid]["title"] in en and SONGS[sid]["title_ko"] in ko for sid in SONGS), (en, ko)
     assert "{" not in en + ko and "네 곡" in ko or "이렇게" not in ko, ko
 assert len({sing.unknown_reply("en") for _ in range(40)}) > 2   # not the same words every time
+# the song bank never reads a cut-off start or words without a song word (no embedding needed: refused first)
+for t in ["Let's", "can you", "please", "루미야 저기", "let's go", "Lumi, can you", "follow me", "what time is it"]:
+    assert sing.bank_read(t) is None, t
+from assistant import brain                          # a reply promising a move the action line did not: asked
+for t, want in [("Okay, I'll follow you!", "motion"), ("네, 따라갈게요!", "motion"), ("I'm coming!", "motion"),
+                ("Okay! I'll sing a song for you.", "sing"), ("I'll wave!", "wave"), ("I'll look into it.", None),
+                ("I'll give you an example.", None), ("알려 드릴게요.", None), ("I can follow you if you like.", None)]:
+    assert brain.promised(t) == want, (t, brain.promised(t))
 assert all(sing.stop_words(t) for t in ["stop", "Lumi stop", "멈춰", "그만", "그만해", "enough", "스톱"])
 assert not any(sing.stop_words(t) for t in ["sing another song", "다른 노래", "what time is it"])
 

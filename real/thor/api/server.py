@@ -933,6 +933,35 @@ class TaskBody(BaseModel):
     prefer: str | None = Field(None, examples=["small"], description="which of several: small, big, near, far, left, right")
 
 
+SWITCHES_OFF = "Switch on Greeter or Patrol first."
+BASE_OFF = "I can't drive or turn my waist right now. Switch on Patrol for that."   # lumi.BASE_OFF_SAY, as by voice
+
+
+def _switches(base):
+    """Every task the dashboard starts obeys the switches as voice does: nothing with both off, the base or the waist
+    (`base`: a drive or a turn in it) only with Patrol on; with Greeter only a task stays in place (fetch.stay_put).
+    STOP, pause, jog and the manual buttons are not asked here."""
+    m = read_modes()
+    if not (m["greeter"] or m["patrol"]):
+        raise HTTPException(409, SWITCHES_OFF)
+    if base and not m["patrol"]:
+        raise HTTPException(409, BASE_OFF)
+    from tasks import fetch
+    fetch.stay_put = not m["patrol"]
+
+
+def _drives(steps):
+    from assistant import lumi
+    return bool({s.get("do") for s in steps} & lumi.DRIVE_STEPS)
+
+
+def _plan_drives(r):
+    """A /tasks/parse result drives or turns the base / waist."""
+    a, task = r.get("action"), r.get("task") or {}
+    return a == "carry" or a == "steps" and _drives(r["steps"]) or r.get("base", False) or \
+        a == "fetch" and any(task.get(k) not in (None, "here") for k in ("source", "dest"))
+
+
 def _fetch_call(name, cmd, *args, **fields):
     """start / give / place: the assistant does it while it runs (it owns the robot), else the runner here."""
     from tasks import fetch
@@ -1041,7 +1070,9 @@ def task_parse(body: ParseBody):
     if kind == "stop":
         return {"action": "command", "text": fixed, "sentence": "Stop.", "problems": [], "read_by": "rules"}
     if kind == "chain":
+        base = any(k == "steps" and _drives(x) or k == "quick" and x[0] in lumi.BASE_ACTIONS for k, _, x in data)
         return {"action": "command", "text": fixed, "parts": [[k, w] for k, w, _ in data], "problems": [], "read_by": "rules",
+                "base": base,
                 "sentence": ", then ".join(_said(*p) for p in data).capitalize() + "."}
     if kind == "hand":
         (hand, _) = data
@@ -1076,7 +1107,7 @@ def task_parse(body: ParseBody):
             return {"action": "steps", "steps": got, "lang": lang, "sender": None, "read_by": "rules",
                     **_steps_said(got, markers)}
         return {"action": "command", "text": fixed, "sentence": _said("quick", fixed, data).capitalize() + ".",
-                "problems": [], "read_by": "rules"}
+                "problems": [], "read_by": "rules", "base": data[0] in lumi.BASE_ACTIONS}
     problem = brain.place_problem(fixed, markers)
     if problem:                                       # quick_command says it: "I don't have a place called p12"
         return _talk(problem[0], kind="refuse")
@@ -1095,7 +1126,8 @@ def task_parse(body: ParseBody):
             return {"action": "steps", "steps": got, "lang": lang, "sender": None, "read_by": "llm",
                     **_steps_said(got, markers)}
         if rule[0] in ("look", "lift", "wave", "come", "follow", "come_back", "quiet"):
-            return {"action": "command", "text": fixed, "sentence": first or "–", "problems": [], "read_by": "llm"}
+            return {"action": "command", "text": fixed, "sentence": first or "–", "problems": [], "read_by": "llm",
+                    "base": rule[0] in lumi.BASE_ACTIONS}
         return {**_talk(first or "–"), "read_by": "llm"}
     return _talk("–", kind=kind or "talk")
 
@@ -1127,8 +1159,13 @@ class CommandBody(BaseModel):
 @app.post("/tasks/command", tags=["tasks"], summary="Do a typed command the way voice does it (the assistant hears "
           "it): look, lift, wave, come, follow, several parts in a row")
 def task_command(body: CommandBody):
+    r = task_parse(ParseBody(text=body.text))         # read again here (rules), never the client's word for it
+    if r.get("sentence") == "Stop." and not assistant_pids():
+        return task_stop()                            # "stop" never reads the switches
+    if r.get("sentence") != "Stop.":
+        _switches(_plan_drives(r))
     if not assistant_pids():
-        raise HTTPException(409, "Switch on Greeter or Patrol first.")
+        raise HTTPException(409, SWITCHES_OFF)
     send_to_assistant("heard", text=body.text)
     return {"ok": True, "by": "assistant"}
 
@@ -1159,6 +1196,7 @@ def steps_describe(body: StepsBody):
 
 @app.post("/tasks/steps", tags=["tasks"], summary="Start a mission: the steps in order; returns at once, watch /tasks/state")
 def steps_run(body: StepsBody):
+    _switches(_drives(body.steps))
     if assistant_pids():
         send_to_assistant("fetch_steps", steps=body.steps, sender=body.sender)
         return {"ok": True, "by": "assistant"}
@@ -1222,11 +1260,13 @@ def task_fetch(body: TaskBody):
     problems = _task_problems(task)
     if problems:
         raise HTTPException(400, "; ".join(problems))
+    _switches(any(task.get(k) not in (None, "here") for k in ("source", "dest")))   # from / to a place drives
     return _fetch_call("start", "fetch", task, task=task)
 
 
 @app.post("/tasks/give", tags=["tasks"], summary="Hand the held object to the person in front")
 def task_give():
+    _switches(False)
     return _fetch_call("give", "fetch_give")
 
 
@@ -1238,6 +1278,7 @@ class TaskPlaceBody(BaseModel):
 @app.post("/tasks/place", tags=["tasks"], summary="Put the held object on the table in front")
 def task_place(body: TaskPlaceBody | None = None):
     on = body.on if body else None
+    _switches(False)
     return _fetch_call("place", "fetch_place", None, on, on=on)
 
 
@@ -1260,6 +1301,7 @@ class CarryBody(BaseModel):
 @app.post("/tasks/carry", tags=["tasks"], summary="Bring the held object to a place, then keep holding it, put it on "
           "a table there or hand it over")
 def task_carry(body: CarryBody):
+    _switches(True)
     return _fetch_call("carry_to", "fetch_carry", body.dest, body.then, None, body.on, dest=body.dest, then=body.then,
                        on=body.on)
 

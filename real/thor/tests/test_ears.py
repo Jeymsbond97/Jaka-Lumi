@@ -70,6 +70,23 @@ assert ears.transcribe(AUDIO) == "" and "from 0.20 s" in ears.last_stt["dropped"
 ears.speech_seconds = lambda audio: 0.4
 assert ears.transcribe(AUDIO) == "감사합니다."
 # the detector itself: silence and piano-like music have no speech (the model file is local, models/)
+# a sentence cut by a pause ("Let's" ... "follow me"): the rest is recorded and heard with the first part
+import types
+real_record, real_transcribe = ears.record, ears.transcribe
+first = types.SimpleNamespace(mono=np.ones(8000, np.int16), t_end=10.0, peak=900.0, seconds=0.5)
+rest = types.SimpleNamespace(mono=np.ones(12000, np.int16), t_end=11.5, peak=900.0, seconds=0.75)
+calls = []
+ears.record = lambda wait_s=8.0, on_start=None, abort=None, since=None: calls.append(since) or (first if since is None else rest)
+ears.transcribe = lambda audio: "Let's" if len(audio) == 8000 else "Let's follow me."
+assert ears.listen() == "Let's follow me." and calls == [None, 10.0], calls
+ears.transcribe = lambda audio: "Can you see me?"                 # a whole sentence: nothing waited for
+calls.clear()
+assert ears.listen() == "Can you see me?" and calls == [None], calls
+ears.record = lambda wait_s=8.0, on_start=None, abort=None, since=None: first if since is None else None
+ears.transcribe = lambda audio: "Let's"                           # nothing more said: the part as heard
+assert ears.listen() == "Let's"
+ears.record, ears.transcribe = real_record, real_transcribe
+
 if real_speech_seconds(AUDIO) is not None:
     from tests.asr_cases4 import synth
     assert real_speech_seconds(AUDIO) == 0.0
