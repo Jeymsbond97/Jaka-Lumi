@@ -196,7 +196,11 @@ EMPTY_HAND = re.compile(r"\b(give|hand|pass) (it|that|this)( (over|back|here))?(
 EMPTY_HAND_SAY = {"en": "I'm not holding anything right now.", "ko": "지금은 손에 아무것도 들고 있지 않아요."}
 ASK_PREFIX = re.compile(r"\b(do|did) you (know|happen to know)\b|\b(can|could) you (tell|find out|look up|check)( me)?\b|"
                         r"아세요|알아요|알아\?", re.I)          # "do you know who won?" is not about Lumi
-ASKS_MORE = re.compile(r"\?|\b(but|can|could|what|how|where|why|when|who)\b|근데|그런데|뭐|어떻게|어디|언제|누구", re.I)
+ASKS_MORE = re.compile(r"\?|\b(but|can|could|what|how|where|why|when|who|one more)\b|근데|그런데|뭐|어떻게|어디|언제|누구|하나만 더|"
+                       r"물어볼게|물어봐도", re.I)
+THANKS_REST = re.compile(r"\b(?:a bunch|a lot|so much|very much|lovely|great|nice|cool|good to know|again|that was \w+|"
+                         r"for (?:the|that|this|telling) \w+)\b|감사요|잘 들었어요|잘 알겠어요|[~!.,\s요]", re.I)
+                         # left of "Lovely, thanks!", "고마워요~" after the thanks: nothing, so only thanks (talk_fate waits)
 FOREIGN_SCRIPT = re.compile(r"[\u0400-\u04ff\u4e00-\u9fff\u3040-\u30ff]")   # Cyrillic, Chinese, Japanese
 UNSURE_LOOKUP = False      # look up what the model says it is not sure of: on for gemma4:e4b, which said "not sure"
                            # instead of choosing search; gemma4:26b chooses search itself, and its "not sure" answers
@@ -2588,8 +2592,8 @@ def says_goodbye(text):
     """"thank you for your time", "okay, bye", "수고하세요": the talk is over (not "thanks, but where is...?").
     "thank you", "got it, thanks", "네 감사합니다" alone are not: often only "heard you" (talk_fate waits)."""
     if brain_mod.is_closing(text) and not DONE_WORDS.search(text) and not FAREWELL_WORDS.search(THANKS.sub(" ", text)) or \
-            brain_mod.to_someone_else(text):                # "Okay kids, say thank you to the robot."
-        return False
+            brain_mod.to_someone_else(text) or THANKS.search(text) and not THANKS_REST.sub("", THANKS.sub("", text)):
+        return False                                       # "Okay kids, say thank you to the robot.", "Thanks a bunch."
     return bool(FAREWELL_ONLY.match(text) or FAREWELL_WORDS.search(text) and not ASKS_MORE.search(text)
                 and len(text.split()) <= 8 and not brain_mod.intent(text) and not brain_mod.hand_request(text, False)
                 and not COMMAND_START.search(brain_mod.CALLING.sub("", text)))   # "grab the cup, thanks": an order

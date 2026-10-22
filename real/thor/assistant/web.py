@@ -143,6 +143,7 @@ BETWEEN = (re.compile(r"\b(?:from|between)\s+(?:the\s+)?(.+?)\s+(?:to|and)\s+(?:
            re.compile(r"([가-힣A-Za-z]+(?: [A-Za-z]+)*)에서 ([가-힣A-Za-z]+(?: [A-Za-z]+)*)까지"),
            re.compile(r"\bdistance (?:of )?(?:the\s+)?(.+?) (?:to|and) (?:the\s+)?(.+?)[?.!\s]*$", re.I),   # the LLM's
            re.compile(r"^(?:distance |how far )?([A-Za-z가-힣]+) ([A-Za-z가-힣]+) (?:거리|distance)", re.I),   # queries
+           re.compile(r"^(?:the )?(.+?) distance (?:from|to) (?:the )?(.+?)[?.!\s]*$", re.I),
            re.compile(r"\bhow far (?:away )?is (?:the\s+)?(.+?)[?.!\s]*$", re.I), re.compile(r"([가-힣]+)까지"))
                              # the two places of "how far": the last two forms are from here (Seoul)
 
@@ -190,13 +191,11 @@ BROWSER = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KH
                          "Safari/537.36", "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"}
 WIKI_UA = {"User-Agent": "LumiRobot/1.0 (https://cutshion.com; cutshion@cutshion.com)"}   # Wikimedia answers 429
                              # (too many requests) to a browser or bare robot name; a name with a contact it serves
-SEARCH_WAIT_S = 2.0          # s the search page and Wikipedia get together; a slower one is left out (both ~0.7 s)
-NEWS_WAIT_S = 1.2            # s from the start the headlines get (Google News 0.4-1.6 s): the answer waits on them;
-                             # SEARCH_WAIT_S when the news is what is asked (NEWS_ASKED)
-NEWS_ASKED = re.compile(r"\bnews\b|headlines?|happening|going on|뉴스|소식", re.I)
-PAGE_CHARS = 1200            # chars of the search page given to the LLM (it reads ~1300 tokens a second; Korean
-                             # is ~1 token a char): the answer box and the first sites hold the answer
-BLOCK_CHARS = 500            # ... at most this much from one part of the page (an answer box, the news, one site)
+SEARCH_WAIT_S = 2.0          # s all sources get together; a slower one is left out (Naver and Wikipedia ~0.7 s,
+                             # Google News 0.4-1.6 s; the fetch runs while "Let me check." is said)
+PAGE_CHARS = 1500            # chars of the search page given to the LLM (it reads ~1300 tokens a second; Korean
+                             # is ~1 token a char); 1200 lost answers further down (Apple's founding year)
+BLOCK_CHARS = 600            # ... at most this much from one part of the page (an answer box, the news, one site)
 WIKI_CHARS = 500             # chars of the Wikipedia summary
 NEWS_ITEMS = 3               # headlines given, only for questions about what changes (NEWSY)
 SEARCH_TTL = 600             # s a search result is reused (visitors ask the same things; follow-ups search again)
@@ -224,8 +223,8 @@ KO_ASK = ((r"\bhow old\b|\bage\b|\bbirthday\b|\bwhen was \w+( \w+)? born\b", "�
           (r"\bhow tall\b|\bheight\b", "키"), (r"\bstocks?( price)?\b|\bshares?( price)?\b", "주가"),
           (r"\bindex\b|(?=\b(nasdaq|dow jones|kospi|kosdaq|s&p 500)\b)", "지수"),
           (r"\bstandings?\b|\bfirst place\b|\bin first\b|\branking\b", "순위"),
-          (r"\bscore\b|\bresult\b|\blast (game|match)\b|\bhow did\b", "경기 결과"),
-          (r"\bopening hours\b|\bwhat time does\b|\bwhen does\b", "영업시간"))
+          (r"\bscore\b|\bresult\b|\blast (game|match)\b|\bhow did\b", "경기 결과"))
+                             # not opening hours: "Louvre 영업시간" brings Korean shops named Louvre
                              # English question -> the Korean word for Naver's answer box (ko_box_query)
 ASK_WORDS = re.compile(r"\b(what'?s|what|who'?s|who|whom|which|where|when|why|how|is|are|was|were|the|a|an|do|does|did|"
                        r"can|could|you|tell me|please|lumi|right now|i|me|my|and|he|she|his|her|it|its|they|their)\b|"
@@ -277,7 +276,7 @@ def _naver(query, boxes_only=False):
 
 
 def ko_box_query(query):
-    """An English question about a person, a share, an index, a team or a place as its names and the Korean word
+    """An English question about a person, a share, an index or a team as its names and the Korean word
     that brings Naver's answer box ("How old is Taylor Swift?" -> "Taylor Swift 나이": birth date and age; the
     English words give only web pages), or None."""
     if re.search(r"[가-힣]", query):
@@ -285,7 +284,7 @@ def ko_box_query(query):
     for asked, word in KO_ASK:
         if re.search(asked, query, re.I):
             names = re.sub(asked, " ", query, flags=re.I)
-            names = re.sub(r"'s\b|\b(today|now|currently|doing|in|at|of|for|right|this|last|latest|current|much|"
+            names = re.sub(r"'s\b|'|\b(today|now|currently|doing|in|at|of|for|right|this|last|latest|current|much|"
                            r"open|close|first|price|their|team)\b", " ", names, flags=re.I)
             names = re.sub(r"\s+", " ", ASK_WORDS.sub(" ", names)).strip()
             return f"{names} {word}" if names else None
@@ -399,6 +398,7 @@ def search(query, n=NEWS_ITEMS):
     """Text to answer a question from, fetched at the same time: exchange rates and coin prices when asked, the
     Naver results page (DuckDuckGo when Naver fails), a Wikipedia summary and Google News headlines. "No results." when nothing is found,
     None without internet. (Bing returns unrelated pages to scripts.)"""
+    query = re.sub(r"[<>]", " ", query).strip()                  # the LLM wrote "search <flight time Seoul NY>"
     lang = "ko" if re.search(r"[가-힣]", query) else "en"
     q = re.sub(r"\b(what|who|whom|is|are|was|were|the|a|an|about|tell me|more|please|latest|news|today'?s?|any|how|"
                r"do|does|did|you|know|can|could|of|lumi)\b|[?,.!]", " ", query, flags=re.I)
@@ -416,11 +416,7 @@ def search(query, n=NEWS_ITEMS):
     jobs |= {"Search results": _pool.submit(_naver, keywords(query)), "Wikipedia": _pool.submit(_wikipedia, q, lang)}
     if NEWSY.search(query):                                      # "how old is Musk?" got "80-year-old Musk's father"
         jobs["News headlines"] = _pool.submit(_news, q, lang, n)
-    t0 = time.time()
-    wait([j for name, j in jobs.items() if name != "News headlines"], timeout=SEARCH_WAIT_S)
-    if "News headlines" in jobs:
-        wait([jobs["News headlines"]], timeout=max(0.0, (SEARCH_WAIT_S if NEWS_ASKED.search(query) else NEWS_WAIT_S)
-                                                     - (time.time() - t0)))
+    wait(jobs.values(), timeout=SEARCH_WAIT_S)
     found = {}
     for name, job in jobs.items():
         try:
@@ -432,7 +428,9 @@ def search(query, n=NEWS_ITEMS):
             found["Search results"] = _duckduckgo(keywords(query))
         except Exception:
             pass
-    text = with_ages("\n\n".join(f"{name}:\n{t}" for name, t in found.items() if t))
+    order = sorted(found, key=lambda name: name not in ("Rates and prices", "Distance", "Answer box", "News headlines"))
+    text = with_ages("\n\n".join(f"{name}:\n{found[name]}" for name in order if found[name]))   # the news before
+                                                         # old pages: "지금 대통령" got the president of 2024
     if not text:
         return None if not online() else "No results."
     _searched[key] = (time.time(), text)

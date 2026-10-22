@@ -26,7 +26,7 @@ from tests import web_cases, web_cases2
 
 PROMPTS = []                 # every prompt sent to the runner, in order: the tokens it had to read (not cached)
 _render = llm_direct.render
-llm_direct.render = lambda messages: PROMPTS.append(_render(messages)) or PROMPTS[-1]
+llm_direct.render = lambda *a, **k: PROMPTS.append(_render(*a, **k)) or PROMPTS[-1]
 
 
 def _tokens(text):
@@ -37,8 +37,9 @@ def _tokens(text):
 
 
 def new_tokens(first):
-    """Prompt tokens the runner reads for the prompts from PROMPTS[first] on, each after the one before (one slot,
-    as on the robot when nobody else uses the model): what the visitor waits for, ~1300 tokens a second."""
+    """Prompt tokens the runner reads for the prompts from PROMPTS[first] on, each after the one before (the first
+    after the warm-up prefill; one slot, as on the robot when nobody else uses the model): what the visitor waits
+    for, ~1300 tokens a second."""
     total = 0
     for i in range(max(first, 1), len(PROMPTS)):
         a, b = _tokens(PROMPTS[i - 1]), _tokens(PROMPTS[i])
@@ -156,7 +157,8 @@ def run(only=None, part=None, cases=web_cases):
             continue
         b, context = brain.Brain(), ""
         for lang, q, must in group:
-            start = len(PROMPTS)
+            b.warm(MARKS)                  # as lumi.py does when it starts to listen: the runner reads the prompt's
+            start = len(PROMPTS)           # start while the visitor talks; only what comes after is waited for
             res = turn(b, lang, q)
             res["new_tokens"] = new_tokens(start)
             rows.append({"q": q, "lang": lang, "must": must, "dialogue": len(group) > 1, "context": context, **res})

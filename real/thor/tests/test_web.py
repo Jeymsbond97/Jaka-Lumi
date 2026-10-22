@@ -13,10 +13,10 @@ for q, words in {"How tall is Son Heung-min?": "height Son Heung-min", "How long
                  "오늘 달러 환율 얼마야?": "오늘 달러 환율 얼마야?"}.items():
     assert web.keywords(q) == words, (q, web.keywords(q))
 
-# English questions about a person, a share, an index, a team, a place also ask Naver with the Korean word of its box
+# English questions about a person, a share, an index or a team also ask Naver with the Korean word of its box
 for q, box in {"How old is Taylor Swift?": "Taylor Swift 나이", "What is Nvidia's stock price today?": "Nvidia 주가",
                "What's the Nasdaq doing today?": "Nasdaq 지수", "How did LAFC do in their last match?": "LAFC 경기 결과",
-               "What time does Lotte World open?": "Lotte World 영업시간", "Who is the pope?": None,
+               "What time does the Louvre open?": None, "Who is the pope?": None,
                "손흥민 나이": None}.items():
     assert web.ko_box_query(q) == box, (q, web.ko_box_query(q))
 
@@ -92,6 +92,18 @@ assert re.search(r"Busan to Seoul: about 3\d\d km", web._distance("How far is Bu
 web._get = lambda url, timeout=6, headers=web.UA: '{"results": [{"name": "Moon-sur-Elle", "latitude": 49.2, ' \
     '"longitude": -1.0, "population": 700}]}'
 assert web._distance("How far away is the moon?") == "" and web._distance("How tall is the Eiffel Tower?") == ""
+
+assert "Busan to Seoul" in web._distance("Busan distance from Seoul")
+
+# respond_from: an action line the model writes instead of the answer is never said; all of it: asked once more
+outs = iter([["search New York", " weather"], ["It is 15 degrees", " in New York."]])
+real_stream, brain._stream = brain._stream, lambda m: iter(next(outs))
+assert list(brain.Brain().respond_from("What's the weather in New York?", "15 degrees")) == ["It is 15 degrees in New York."]
+outs = iter([["search NY weather\n", "It is 15 degrees. Clear."]])
+assert list(brain.Brain().respond_from("Weather?", "x")) == ["It is 15 degrees.", "Clear."]
+outs = iter([["Search results say 330 m."]])
+assert list(brain.Brain().respond_from("Eiffel?", "x")) == ["Search results say 330 m."]
+brain._stream = real_stream
 
 # ages worked out from birth dates in the results; money questions get rates, others do not
 assert web.with_ages("Han Kang (born 27 November 1970)", datetime.date(2026, 10, 20)) == \

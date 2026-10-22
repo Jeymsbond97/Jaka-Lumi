@@ -115,6 +115,8 @@ def action_ok(expect, got):
             return True                                             # the reason the fingers can't take it
         if alt == "none" and got in ("none", "chat", "status"):
             return True
+        if alt == "end" and got == "chat":
+            return True                                             # "Thanks." alone: lumi ends after the silence
         if alt == "mission" and got.startswith("action:fetch"):
             return True                                             # the plain fetch does it (steps.is_mission is False)
         if got == "empty_hand" and alt in ("none", "give", "place", "fetch"):

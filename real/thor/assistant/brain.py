@@ -49,8 +49,8 @@ Rules:
   for more ("tell me more", "why", "details", "자세히") give more about that same topic.
 - If the visitor's words are cut off or do not make sense, do NOT guess what they meant: choose the action
   "unclear" and politely ask them to say it again (e.g. "Sorry, I didn't catch that. Could you say it again?").
-  A clear sentence is never unclear, even when you don't know the answer, can't do it or don't know which one
-  they mean: then answer it (say you don't know, that you can't and why, or ask which one) with the action none.
+  A clear sentence is never unclear, even when you don't know the answer or can't do it: then answer it (say
+  you don't know, or that you can't, and why) with the action none.
 - If you do not know a fact about the world (people, places, events, products, prices, sports, news, anything
   after your training), do not guess: choose the action "search" so it is looked up on the internet. Well-known
   general knowledge (what a robot or AI is, science, history, geography) and opinions you answer yourself.
@@ -81,9 +81,12 @@ Rules:
   you can do.
 - Resolve a fragment from the turn before, as a person would: "and tomorrow?" / "그럼 내일은?" after the weather asks
   tomorrow's weather; "what about Japan?" / "일본은?" asks the same question about Japan; "and the arm?" / "팔은요?"
-  after "how tall are you?" asks the same thing (its size: reach 58 cm) about the arm. "It", "that", "그거" is the
+  after "how tall are you?" asks the same thing (its size: reach 58 cm) about the arm; "which one?" after "my
+  language model is local" asks which model (Gemma 4); "ballpark?" asks for a rough number. "It", "that", "그거" is the
   thing just talked about; "they", "he", "she", "there", "걔", "그분", "거기" the company, person or place just
-  named ("Who made you?" -> "Where are they?": Cutshion, in Seoul). "And you?", "how about you?", "you?", "너는?",
+  named ("Who made you?" -> "Where are they?": Cutshion, in Seoul). A question with no subject ("얼마?", "몇 킬로까지
+  들어?", "where is it used?") is about the thing just talked about, not about you: "얼마?" after the investment
+  asks the amount (5억 원). "And you?", "how about you?", "you?", "너는?",
   "넌?", "너도?", "당신은요?", "루미는?" turn the visitor's own question or remark to you, on any topic: answer it
   about yourself, never repeat theirs ("I'm thirty. And you?" -> "I'm two."; "I love jazz, what about you?" -> "I
   like music too, I can even sing a few songs."; "I'm tired. You?" -> "I don't get tired, my battery lasts about 10
@@ -602,7 +605,8 @@ def intent(text, markers=()):
                      r"\b(can|could) you (pick( up)?|lift|hold|grab|take) (a|an|any)\b|"   # "can you pick up a bottle?"
                      r"^\s*(what|when|which|at what|do you|does|is it|are you)\b|몇|언제|얼마|"   # "at what level do you go back?"
                      rf"({_OBJ})(은|는)\s.*수 ?있|(루미가|로봇이)\s.*수 ?있|는 ?거 ?(돼|되나|가능)|"                                  # "물컵은 가져다줄 수 있어요?"
-                     r"어떻게|왜|혼자|스스로|\bby yourself\b|\bsomeone\b|줄 ?알아|할 ?줄|\bcome here often\b",
+                     r"어떻게|왜|혼자|스스로|\bby yourself\b|\bsomeone\b|줄 ?알아|할 ?줄|\bcome here often\b|"
+                     r"^\W*(?:even|only|also|and|but|so)?\s*(?:with|without|if|unless|while)\b.*\?\s*$",   # "even with the lift down?"
                      CALLING.sub("", t)) or LATER.search(CALLING.sub("", t))   # "Lumi, is it hard to ...?"
     visitor = re.search(r"^\W*(?:can|may|could|should|shall) (?:i|we)\b", CALLING.sub("", t))   # "can I come closer?"
     for action, pat in INTENTS:
@@ -1415,6 +1419,8 @@ def language(text):
     return "Korean" if re.search(r"[\uac00-\ud7a3]", text) else "English"
 
 
+FRAGMENT_WORDS = 4            # "Which one?", "얼마?", "Where is it used?": a fragment read with the last answer
+FRAGMENT_CHARS = 160           # chars of the last answer's first sentence shown with a fragment
 LOOKUP_BEFORE_CHARS = 1500     # chars of the last lookup's results given again with a follow-up ("how old is she?")
 FOLLOW_UP_WORDS = 5            # "why did Samsung stock fall today?" is a new question, "tell me more about it" is not
 AND_ALSO = re.compile(r"^\s*(and|what about|how about|also|그럼|그리고)\b", re.I)   # "and the yen?": a follow-up
@@ -1437,6 +1443,8 @@ REACTION = re.compile(r"^\W*(?:(?:wow|oh|really|huh|whoa)\W+)*(?:i (?:didn'?t|di
                       re.I)   # a reaction to what was found, not a new question
 NOW_Q = re.compile(r"\bwhat time is it\b|\bwhat'?s the time\b|\bwhat(?:'s| is) (?:the date|today)\b|지금 몇 ?시|오늘 며칠",
                    re.I)      # asked of the clock, not of the lookup before
+LOOKUP_ACTION = re.compile(r"^\s*(?:\**ACTION\**\s*:\s*)?(?:search|weather)(?: (?!results)|\s*$)")   # an action line
+                             # written instead of the answer (the routing prompt is its system prompt): never said
 LOOKUP_ANSWER = """Search results found just now on the internet (they may hold ads and unrelated parts):
 {facts}
 {before}
@@ -1532,7 +1540,7 @@ class Brain:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
         messages.append({"role": "user", "content": f"Reference notes:\n{notes}\n\n{_examples(about, on_task=bool(now) and 'not doing any task' not in now)}"
                                                     f"Now it is {now_line()}." +
-                                                    f"\n\nVisitor: {text}\n\n"
+                                                    f"\n\nVisitor: {text}\n\n" + self._fragment_hint(text) +
                                                     f"(Reply in {lang}.)"})
         buf, full, header, said = "", "", None, []
         stream, retried = _stream(messages), False
@@ -1590,6 +1598,15 @@ class Brain:
         if header and "action" in header and self._action(first, text, markers) is not None:   # the action done, not the
             full = f"ACTION: {header['action']} {header.get('target') or '-'}\n{rest}"   # model's ("wave" for "손 흔들 줄 알아?")
         self.history.append((text, full.strip()))
+
+    def _fragment_hint(self, text):
+        """For a bare fragment ("얼마?", "Which one?", "Where is it used?"): what it follows, so the model reads it
+        as about the last answer's subject, not about itself or a price."""
+        last = self._last_said() if self.history else ""
+        if not last or len(text.split()) > FRAGMENT_WORDS or not SHORT_Q.search(text) or is_backchannel(text) \
+                or ABOUT_YOU.search(text):
+            return ""
+        return f"(This follows your answer \"{SENTENCE_END.split(last)[0][:FRAGMENT_CHARS]}\": it asks about that.)\n"
 
     def _after(self, header, text):
         """The action line checked against the turn before: a song only when one is asked for (or asked again),
@@ -1684,17 +1701,27 @@ class Brain:
         messages.append({"role": "user", "content": LOOKUP_ANSWER.format(facts=facts, before=before, question=question,
                                                                          lang=lang, now=now_line())})
         self.last_facts = facts
-        buf, full = "", ""
-        for piece in _stream(messages):
-            full += piece
-            buf += piece
-            parts = SENTENCE_END.split(buf)
-            for sentence in parts[:-1]:
-                if spoken(sentence.strip(), lang):             # no "ACTION: none" copied from the history
-                    yield spoken(sentence.strip(), lang)
-            buf = parts[-1]
-        if spoken(buf.strip(), lang):
-            yield spoken(buf.strip(), lang)
+        said = False
+        for prompt in (messages, [{"role": "system", "content": SYSTEM}] + messages[1:]):   # the second only when
+            buf, full = "", ""                                                             # all was an action line
+            for piece in _stream(prompt):
+                full += piece
+                buf += piece
+                while not said and LOOKUP_ACTION.match(buf) and "\n" in buf:   # "search New York weather" first
+                    buf = buf.split("\n", 1)[1]
+                if not said and LOOKUP_ACTION.match(buf):
+                    continue
+                parts = SENTENCE_END.split(buf)
+                for sentence in parts[:-1]:
+                    if spoken(sentence.strip(), lang):             # no "ACTION: none" copied from the history
+                        said = True
+                        yield spoken(sentence.strip(), lang)
+                buf = parts[-1]
+            if spoken(buf.strip(), lang) and not (not said and LOOKUP_ACTION.match(buf)):
+                said = True
+                yield spoken(buf.strip(), lang)
+            if said:
+                break
         self.history.append((question, full.strip()))
         self.last_lookup = question                        # a "tell me more" next is looked up again
 
@@ -1859,7 +1886,7 @@ class Brain:
         the next prompt's start now (the last system prompt, or the first one, + the turns kept), so the question only
         costs its own last message, also after a lookup, a farewell, a mission read-back or a picture used the
         runner's one slot (else ~3.5 s more)."""
-        system = getattr(self, "last_system", None) or route_system(markers, now)
+        system = self.last_system = getattr(self, "last_system", None) or route_system(markers, now)   # respond_from too
         turns = [{"role": r, "content": c} for q, a in self.history[-HISTORY_TURNS:] for r, c in (("user", q), ("assistant", a))]
         llm_direct.prefill([{"role": "system", "content": system}] + turns, MODEL)
 
