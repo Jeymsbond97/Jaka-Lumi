@@ -63,7 +63,8 @@ SEE_THING = re.compile(r"\b(?:do|can|could) you (?:see|spot|notice)\b.*?\b(?:a|a
 THERE_IS = re.compile(r"\b(?:is|are) there (?:a|an|any|some)\s+" + _THING_EN + r"(?! (?:open|close|nearby|near here|around here))",
                       re.I)
 SEE_THING_KO = re.compile(_THING_KO + r"(?:이|가|은|는|을|를|도)?\s*(?:보여|보이)")
-HOW_FAR = re.compile(r"\bhow far\b|\bhow (?:near|close)\b|\bwhat(?:'s| is) the distance\b|얼마나 ?(?:멀|떨어|가까)|거리가?", re.I)
+HOW_FAR = re.compile(r"\bhow far\b|\bhow (?:near|close)\b|\bwhat(?:'s| is) the distance\b|얼마나 ?(?:멀|떨어|가까)|거리가?|(?:거기|그거|저거|걔)까지\s*얼마나",
+                     re.I)
 HOW_FAR_THING = re.compile(r"\b(?:how far|how (?:near|close)).*?\b(?:the|that|this|a|an)\s+" + _THING_EN, re.I)
 WHAT_SEE = re.compile(r"\bwhat (?:do|can) you see\b|\bwhat(?:'s| is| are)? (?:there )?in front of you\b|"
                       r"\bwhat(?:'s| is) (?:on|at) the (?:table|desk)\b|\bwhat(?:'s| is) (?:around|near) you\b|"
@@ -81,10 +82,10 @@ HOLDING = re.compile(r"\bwhat(?:'s| is| am| do)? (?:i|is in my hands?|in my hand
                      r"(?:내가|제가|나|저)\s*(?:뭐|뭘|무엇을?)\s*(?:들고|잡고|쥐고)|(?:내|제)\s*손에\s*(?:뭐|뭔|무엇|든|있)|"
                      r"(?:내가|제가)\s*든\s*(?:거|게|것)", re.I)
 _UPPER = r"t-? ?shirts?|te[ea] ?shirts?|shirts?|tops?|jackets?|sweaters?|sweatshirts?|hoodies?|jumpers?|blouses?|coats?"
-_LOWER = r"pants|trousers|jeans|skirts?|shorts|slacks|leggings"
-_FEET = r"shoes?|sneakers?|trainers|boots?|sandals?|slippers?|feet|foot"
+_LOWER = r"pants|trousers?|jeans?|genes|skirts?|shorts|slacks|leggings|bottoms"   # "genes", "jean": heard for jeans
+_FEET = r"shoes?|sneakers?|trainers|boots?|sandals?|slippers?|socks?|feet|foot"
 _UPPER_KO = r"티셔츠|셔츠|상의|윗옷|재킷|자켓|후드티|맨투맨|니트|스웨터|코트"
-_LOWER_KO = r"청바지|반바지|바지|하의|치마|스커트"
+_LOWER_KO = r"청 ?바지|청바진|반바지|바지|하의|치마|스커트"
 _FEET_KO = r"운동화|신발|구두"
 _ITEM = rf"(?:{_UPPER}|{_LOWER}|{_FEET}|clothes|clothing|outfit)"
 _ITEM_KO = rf"(?:{_UPPER_KO}|{_LOWER_KO}|{_FEET_KO}|옷)"
@@ -108,18 +109,32 @@ WEARING = re.compile(r"\b(?:am i|do i have|i'?m) (?:wearing |got )?(?:a |an |any
                      re.I)
 
 FAR_ME = re.compile(r"\bhow far (?:am i|are you from me|away am i)\b|(?:나|저)(?:랑|와|하고|는|한테서)?\s*얼마나", re.I)
-IT = re.compile(r"\b(?:it|that|this|they|them)\b|그거|그게|그건|저거|저게|저건", re.I)
+IT = re.compile(r"\b(?:it|that|this|they|them)\b|그거|그게|그건|저거|저게|저건|걔|거기", re.I)
 ORDER = re.compile(r"\b(?:take|bring|pick|grab|get|put|place|give|fetch|carry|go|come|move|turn|look)\b|(?<!\bmy )(?<!\byour )\bhands?\b(?! (?:raised|up|down)\b)(?=\s+(?:me|it|this|that|the|her|him|them|over)\b)|"
                    r"가져|집어|잡아|놓아|놔|줘|갖다|가 ?줘|와 ?줘|돌아", re.I)
 FAR_BARE = re.compile(r"^\W*(?:(?:and|so|then)\W+)?how (?:far|near|close)(?: away)?\W*$|"
                       r"^\W*(?:그럼\s*)?(?:얼마나\s*(?:멀|떨어|가까)\S*|거리는요?)\W*$", re.I)   # "how far?" right after a see answer
-FOLLOW_EN = re.compile(r"^\W*(?:(?:and|so|then|ok(?:ay)?|well|but|no|sorry|oh)\W+)*"
-                       r"(?:i\s+mean[t]?\W+|(?:what|how)\s+about\s+|not that(?: one)?\W+)?"
+FOLLOW_EN = re.compile(r"^\W*(?:(?:and|so|then|ok(?:ay)?|well|but|no|sorry|oh|also|actually|wait|uh+|um+|er)\W+)*"
+                       r"(?:i\s+mean[t]?\W+|(?:what|how)\s+about\s+|not (?:the |my |that |this )?\w+(?: one)?\W+)?"
                        r"(?:(?:my|the|a|an|that|this|those|these)\s+)?(?P<x>.+?)[\s?.!,]*$", re.I)
-FOLLOW_KO = re.compile(r"^\W*(?:(?:그럼|그러면|그리고|근데|아니요|아니|아뇨)[\s,]*)*(?:(?:그거|그게|저거|이거)\s*말고[\s,]*)?"
+FOLLOW_KO = re.compile(r"^\W*(?:(?:그럼|그러면|그리고|근데|아니요|아니|아뇨)[\s,]*)*(?:\S+(?:\s*거)?\s*말고[\s,]*)?"
                        r"(?:(?:내|제|그|저|이)\s+)?(?P<x>.+?)\s*(?:(?:은|는|도)요?|말(?:이야|이에요|이요|요|고요)|요)?[\s?.!]*$")
+BYE = re.compile(r"\b(?:bye|goodbye|see you|see ya|later)\b|안녕|잘 ?(?:가|있어)", re.I)   # ends the thread
+ABOUT_LUMI = re.compile(r"(?:루미|너|니가|네가|당신)(?:는|은|가|도)?\s|^\W*넌|\bare you\b|\byou(?:'re| are) wearing\b", re.I)
 ONE = re.compile(r"(?P<col>" + "|".join(COLOURS) + r")\w*\s*(?:ones?|거|것|걸)?", re.I)   # "the blue one", "파란 거"
-SEE_KINDS = ("see", "there", "see_ko", "far")
+SEE_KINDS = ("see", "there", "see_ko", "far", "it")
+TAIL = re.compile(r"(?:[\s,]+(?:too|then|also|exactly|again|please|what colou?rs?(?: (?:are|is) (?:they|it))?))+\W*$|"
+                  r"(?:도|은|는)?\s*(?:정확히\s*)?(?:무슨\s*)?(?:색깔?|컬러|colou?r)\s*(?:은|는|이야|이에요|이에요)?\W*$|"
+                  r"도\s*(?:보여|보이|있어|있나)\S*\W*$", re.I)   # words after a follow-up's noun that ask nothing new
+WHERE_ON_ME = (("lower", r"(?:down )?below|(?:the )?bottom(?: half)?|(?:on )?(?:the )?lower (?:half|part)|밑(?:에|쪽)?\w?|아래(?:쪽)?(?:에)?\w?"),
+               ("upper", r"(?:up )?above|(?:the )?top half|위(?:쪽)?(?:에)?\w?"),
+               ("feet", r"on my feet|발(?:에)?\w?"))     # "how about below?" after a clothes answer: the trousers
+IT_WHERE = re.compile(r"^\W*(?:(?:and|so|then|ok(?:ay)?)\W+)*(?:where(?: is (?:it|that))?(?: exactly)?|which side|"
+                      r"(?:is it )?on (?:the|your) (?:left|right)(?: or (?:the |your )?(?:left|right))?)\W*$|어디(?:에)?\s*있|어느\s*쪽",
+                      re.I)
+IT_COLOUR = re.compile(r"\bwhat colou?r is (?:it|that)\b|^\W*(?:그거|그건|저거)?\s*무슨\s*색", re.I)
+IT_SIZE = re.compile(r"\b(?:is it|is that|how) (?:big|large|small|tall|high|wide)\b|^\W*(?:그거|저거)?\s*(?:커|작아|크기)", re.I)
+IT_COUNT = re.compile(r"^\W*(?:how many(?: \w+)?|any (?:others|more)|몇\s*개\S*)\W*$", re.I)
 _last = {"thing": None,          # the thing seen last: "how far is it?"
          "name": None,           # the kind of thing asked about last: "and the blue one?"
          "kind": None}           # the kind of the question just answered: "what about my jeans?" after the shirt
@@ -128,11 +143,20 @@ _last = {"thing": None,          # the thing seen last: "how far is it?"
 def _follow_up(t, last):
     """"what about my jeans?", "and the apple?", "신발은?" right after a seeing answer of kind `last`:
     (kind, the words to answer), else (None, t). Only a clothes word or a thing name may follow the lead-in."""
+    t = TAIL.sub("", t) or t                               # "jeans too?", "바지는 정확히 무슨 색?", "신발도 보여?"
     for rx in (FOLLOW_EN, FOLLOW_KO):
         m = rx.match(t)
         x = m.group("x") if m else ""
-        if last == "shirt" and re.fullmatch(rf"(?:\w+\s+)?{_ITEM}|{_ITEM_KO}", x, re.I):
-            return "shirt", x
+        if last in ("shirt", "wearing"):
+            for part, said in WHERE_ON_ME:                 # "and below?", "그럼 아래는?"
+                if re.fullmatch(said, x, re.I):
+                    return "shirt", NOUN[part][rx is FOLLOW_KO]
+            if re.fullmatch(rf"(?:\w+\s+)?{_ITEM}|{_ITEM_KO}", x, re.I):
+                return "shirt", x
+            if WEARING.search(f"am i wearing {x}") or WEARING.search(f"{x} 썼"):
+                return "wearing", f"am I wearing {x}?" if rx is FOLLOW_EN else f"{x} 썼어?"   # "and my glasses?"
+        if re.fullmatch(r"coffee|커피", x, re.I):
+            return None, t                                 # "what about coffee?" after a cup: a drink, not the cup
         th = last in SEE_KINDS and (re.fullmatch(_THING_EN, x, re.I) or re.fullmatch(_THING_KO, x))
         one = last in SEE_KINDS and _last["name"] and ONE.fullmatch(x)
         if th and _name(th.group("obj")) or one:
@@ -201,7 +225,7 @@ def _seen_answer(name, colour, frames, lang):
         _last["thing"] = t
         more = len(hits) - 1
         en = f"Yes, I see {_a(name, colour)}{_m(t['distance_m'], 'en')} {t['where']}."
-        ko = f"네, {_where_ko(t['where'])}쪽{_m(t['distance_m'], 'ko')} 곳에 {COLOUR_KO.get(colour, '') + ' ' if colour else ''}" \
+        ko = f"네, {_where_ko(t['where'])}{_m(t['distance_m'], 'ko')} 곳에 {COLOUR_KO.get(colour, '') + ' ' if colour else ''}" \
              f"{_j(_ko_name(name), '이', '가')} 보여요."
         if more:
             en += f" I see {more} more."
@@ -214,7 +238,7 @@ def _seen_answer(name, colour, frames, lang):
         c = t["colour"]
         return _say(f"I don't see {_a(name, colour)}, but I see {_a(name, c)}{_m(t['distance_m'], 'en')} {t['where']}.",
                     f"{COLOUR_KO.get(colour, colour)} {_j(_ko_name(name), '은', '는')} 안 보이지만, {COLOUR_KO.get(c, '')} "
-                    f"{_j(_ko_name(name), '이', '가')} {_where_ko(t['where'])}쪽에 보여요.", lang)
+                    f"{_j(_ko_name(name), '이', '가')} {_where_ko(t['where'])}에 보여요.", lang)
     _last["thing"] = None
     return _say(f"No, I don't see {_a(name, colour)} right now.",
                 f"아니요, 지금은 {COLOUR_KO.get(colour, '') + ' ' if colour else ''}{_j(_ko_name(name), '이', '가')} 안 보여요.", lang)
@@ -245,6 +269,25 @@ def describe(frames, lang):
     return (_j(", ".join(parts), "이", "가") + " 보여요.") if parts else "지금은 제가 알아볼 수 있는 게 안 보여요."
 
 
+def _it_answer(t, frames, lang):
+    """Where, what colour, how big, how many: about the thing seen just before (_last["thing"])."""
+    th = _last["thing"]
+    name = th["name"]
+    if IT_COUNT.search(t):
+        n = len(scene.sees(name, None, frames))
+        return _say(f"I see {_n(n)} {name}{'' if n == 1 else 's'}.", f"{_ko_name(name)} {n}개가 보여요.", lang)
+    if IT_COLOUR.search(t):
+        c = th["colour"]
+        return _say(f"The {name} looks {c}." if c else f"I can't tell the colour of the {name}.",
+                    f"{_j(_ko_name(name), '은', '는')} {COLOUR_KO.get(c, c)}으로 보여요." if c else "색은 잘 모르겠어요.", lang)
+    if IT_SIZE.search(t):
+        return _say(f"I can't measure its size, but the {name} is{_m(th['distance_m'], 'en')} {th['where']}.",
+                    f"크기는 잴 수 없지만, {_j(_ko_name(name), '은', '는')} {_where_ko(th['where'])}에 있어요.", lang)
+    return _say(f"The {name} is {th['where']}{',' + _m(th['distance_m'], 'en') if th['distance_m'] else ''}.",
+                f"{_j(_ko_name(name), '은', '는')} {_where_ko(th['where'])}{_m(th['distance_m'], 'ko')} 곳에 있어요."
+                if th['distance_m'] else f"{_j(_ko_name(name), '은', '는')} {_where_ko(th['where'])}에 있어요.", lang)
+
+
 def _held_answer(frames, lang):
     p = scene.person_in_front(frames)
     if p is None:
@@ -273,6 +316,7 @@ def _clothes_answer(p, text, lang):
             w = m.group(0).lower()
             if bool(re.match(r"[a-z]", w)) != (lang == "en") or w in ("feet", "foot") or w[0] == "신" and w != "신발":
                 w = NOUN[part][lang != "en"]
+            w = {"genes": "jeans", "jean": "jeans", "trouser": "trousers", "청바진": "청바지", "청 바지": "청바지"}.get(w, w)
             asked.append((m.start(), part, re.sub(r"^te[ea] ?shirt|^t ?shirt", "t-shirt", w)))
     asked = [(part, w) for _, part, w in sorted(asked)] or [(part, NOUN[part][lang != "en"]) for part in NOUN]
     seen = [(part, w, p["clothes"].get(part)) for part, w in asked]
@@ -301,7 +345,7 @@ def _clothes_answer(p, text, lang):
 
 def _doing_answer(p, frames, lang):
     o = scene.object_in_hand(frames)
-    en, ko = [f"You're standing{_m(p['distance_m'], 'en')} {p['where']}"], [f"제{_where_ko(p['where'])}에 서 계시고"]
+    en, ko = [f"You're standing{_m(p['distance_m'], 'en')} {p['where']}"], [f"제 {_where_ko(p['where'])}에 서 계시고"]
     if p["facing"] is True:
         en.append("looking at me")
         ko.append("저를 보고 계시고")
@@ -322,7 +366,7 @@ def answer(text, lang="en", frames=None, slow_line=None):
     slow_line(sentence): said before a slow VLM look ("Let me look.")."""
     t = text.strip()
     last = _last["kind"]
-    if brain.is_backchannel(t):                            # "nice!" between keeps the thread: "and my jeans?"
+    if brain.is_backchannel(t) and not BYE.search(t):      # "nice!" between keeps the thread: "and my jeans?"
         return None
     _last["kind"] = None                                   # a follow-up goes only with the turn right before
     if ORDER.search(t):
@@ -332,6 +376,11 @@ def answer(text, lang="en", frames=None, slow_line=None):
                                  ("behind", BEHIND), ("far", HOW_FAR), ("see", SEE_THING), ("there", THERE_IS),
                                  ("see_ko", SEE_THING_KO),
                                  ("what_see", WHAT_SEE)) if rx.search(t)), None)
+    if kind == "shirt" and ABOUT_LUMI.search(t):
+        return None                                        # "루미는 무슨 옷 입었어?": about Lumi, not the visitor
+    if kind is None and last in SEE_KINDS and _last["thing"] and not ABOUT_LUMI.search(t) and \
+            (IT_WHERE.search(t) or IT_COLOUR.search(t) or IT_SIZE.search(t) or IT_COUNT.search(t)):
+        kind = "it"                                        # "where is it?", "무슨 색이야?" about the thing just seen
     if kind is None and last:
         kind, t = _follow_up(t, last)
     if kind is None or kind == "how_many" and NOT_IN_VIEW.search(t):
@@ -339,7 +388,8 @@ def answer(text, lang="en", frames=None, slow_line=None):
     if kind == "far" and not (HOW_FAR_THING.search(t) or SEE_THING_KO.search(t)):
         if FAR_ME.search(t):
             kind = "far_me"
-        elif _last["thing"] is None or not (IT.search(t) or last in SEE_KINDS and FAR_BARE.match(t)):
+        elif _last["thing"] is None or last not in SEE_KINDS or re.search(r"\bit\s+(?:to|from)\b", t, re.I) or \
+                not (IT.search(t) or FAR_BARE.match(t)):
             return None                                    # "how far is Seoul?": not about the cameras
     _last["kind"] = kind
     frames = scene.snapshot() if frames is None else frames
@@ -364,6 +414,8 @@ def answer(text, lang="en", frames=None, slow_line=None):
         if name is None:
             return None
         return _seen_answer(name, colour, frames, lang)
+    if kind == "it":
+        return _it_answer(t, frames, lang)
     if kind == "far":
         m = HOW_FAR_THING.search(t) or SEE_THING_KO.search(t)
         if m:

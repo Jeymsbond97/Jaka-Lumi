@@ -330,3 +330,6 @@ CASES = [
     C([INTRO], "okay 감사합니다", "closing", "mixed: thanks"),
     C([INTRO], "Thanks, Lumi.", "closing", "thanks for the answer"),
 ]
+
+from tests.followup_cases_more import CASES_MORE  # noqa: E402 - written later (2026-10-21 night), uses the helpers above
+CASES += CASES_MORE

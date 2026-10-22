@@ -8,6 +8,7 @@
     .venv/bin/python tests/dialogue_check.py --rescore    # judge the saved replies again (no LLM for the replies)
     .venv/bin/python tests/dialogue_check.py --failed     # only the dialogues that failed in the saved .json
     .venv/bin/python tests/dialogue_check.py --commands   # body commands in any wording (tests/dialogues_commands.py)
+    .venv/bin/python tests/dialogue_check.py --pragmatics # context reading (tests/dialogues_prag_en.py, _ko.py)
 
 Each turn goes the way lumi.answer() sends it (tests/conversation_check.rules_route: stop, status, mission,
 closing words, keyword rules; else brain.Brain().respond_stream). One Brain per dialogue keeps its history the
@@ -322,6 +323,13 @@ if __name__ == "__main__":
         DIALOGUES = DIALOGUES_COMMANDS
         OUT_JSON, OUT_MD = ROOT / "logs" / "dialogue_commands.json", ROOT / "logs" / "dialogue_commands.md"
         sys.argv.append("--all")
+    if "--pragmatics" in sys.argv:                        # context reading: ellipsis, turned-back questions, endings
+        from tests.dialogues_prag_en import DIALOGUES_PRAG_EN
+        from tests.dialogues_prag_ko import DIALOGUES_PRAG_KO
+        DIALOGUES = DIALOGUES_PRAG_EN + DIALOGUES_PRAG_KO
+        OUT_JSON, OUT_MD = ROOT / "logs" / "dialogue_prag.json", ROOT / "logs" / "dialogue_prag.md"
+        if not args:
+            sys.argv.append("--all")
     if {"-h", "--help"} & set(sys.argv):
         print(__doc__.split("\n\n")[1])                      # the usage lines; never starts a run
     elif "--rescore" in sys.argv:

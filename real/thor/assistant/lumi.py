@@ -216,8 +216,8 @@ FAREWELL_ONLY = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright|lumi|루미야?)[\s,.!]
                            r"good job|great job|nice job|well done|take care|"
                            r"가 ?보세요|가세요|가도 ?돼요?|잘했어요?|잘했네요?|좋아|좋네요?|수고했어요?|고생했어요?|"
                            r"됐어요?,? 고마워요?)[\s.!~]*$", re.I)   # said alone: the talk is over
-THANKS = re.compile(r"\bthank(?:s| you)\b|\bthanx\b|고마워|고맙|감사|땡큐", re.I)
-DONE_WORDS = re.compile(r"\bthat'?s (?:it|all|enough)\b|\bno,? thanks?\b|\bnothing(?: else)?\b|\benough\b|됐어|됐습니다|"
+THANKS = re.compile(r"\bthank(?:s| you)\b|\bthanx\b|\bcheers\b|고마워|고맙|감사|땡큐", re.I)
+DONE_WORDS = re.compile(r"\bthat'?s (?:it|all|enough|everything)\b|\bno,? thanks?\b|\bnothing(?: else)?\b|\benough\b|됐어|됐습니다|"
                         r"그만", re.I)            # with thanks: "that's it, thank you", "됐어요 고마워요" end the talk
 WELCOME = {"en": ["You're welcome.", "My pleasure.", "Anytime."], "ko": ["천만에요.", "별말씀을요.", "네, 언제든지요."]}
 RECEIVE_OK = re.compile(r"\b(ok(ay)?|done|here you go|there you go|go ahead|thank|thanks|yes)\b|됐어|됐습니다|놨어|여기요|"
@@ -254,7 +254,7 @@ STATUS_Q = re.compile(
     r"(?:컵|병|사과|바나나|오렌지)(?:을|를)? ?들고 ?있(?:어|니|나요|어요)?\?|손이 ?비어|뭐 ?가져가는|그거 ?(?:누구 ?거|나 ?주는)", re.I)
 NOT_STATUS_NOW = re.compile(r"\b(tonight|after work|weekend|tomorrow|later today|for fun|in your free time)\b|주말|쉬는 날|"
                             r"저 사람|우리|내일|퇴근|나중에", re.I)    # not about what Lumi is doing now
-FAREWELL_WORDS = re.compile(r"\b(thanks?|thank you|bye|bay bay|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|see ya|that'?s all|good night)\b|(?<=\S)[\s.,!]+안녕[\s.!~]*$|고마워|감사|안녕히|잘 ?가|"
+FAREWELL_WORDS = re.compile(r"\b(thanks?|thank you|cheers|bye|bay bay|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|see ya|that'?s all|good night)\b|(?<=\S)[\s.,!]+안녕[\s.!~]*$|고마워|감사|안녕히|잘 ?가|"
                             r"다음에|수고하세요|잘 ?있어|잘 ?있게|바이바이|빠이|(?<![가-힣])바이(?![가-힣])|땡큐|(?<![가-힣])간다[\s.!~]*$|i (have|need) to go|gotta go|i'?m leaving|"
                             r"nice (talking|meeting|chatting)( (to|with))? you|(was|been) nice to meet you|good night|take care|들어가세요|"
                             r"가 ?볼게요|갈게요|이만|나중에 봐요|또 봐요|좋은 하루|(^|\s)(나|저|우리|저희) (이제 )?(집에 )?(가|간다|가요|갑니다)[\s.!]*$",
@@ -2587,7 +2587,8 @@ def status_question(text):
 def says_goodbye(text):
     """"thank you for your time", "okay, bye", "수고하세요": the talk is over (not "thanks, but where is...?").
     "thank you", "got it, thanks", "네 감사합니다" alone are not: often only "heard you" (talk_fate waits)."""
-    if brain_mod.is_closing(text) and not DONE_WORDS.search(text) and not FAREWELL_WORDS.search(THANKS.sub(" ", text)):
+    if brain_mod.is_closing(text) and not DONE_WORDS.search(text) and not FAREWELL_WORDS.search(THANKS.sub(" ", text)) or \
+            brain_mod.to_someone_else(text):                # "Okay kids, say thank you to the robot."
         return False
     return bool(FAREWELL_ONLY.match(text) or FAREWELL_WORDS.search(text) and not ASKS_MORE.search(text)
                 and len(text.split()) <= 8 and not brain_mod.intent(text) and not brain_mod.hand_request(text, False)
