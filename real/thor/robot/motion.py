@@ -23,13 +23,13 @@ from robot import arm
 
 ROOT = Path(__file__).resolve().parents[1]      # the project folder
 POSES_FILE = ROOT / "data" / "arm_poses.json"
-TUCK = [179.3, -88.6, -13.9, -15.8, -14.5, -121.3]   # deg, arm folded beside the column (fits doorways)
 LIMITS = [360, 125, 130, 360, 120, 360]              # deg, ± factory range per joint (docs/01_HARDWARE.md)
 LIMIT_MARGIN = 5.0                                   # deg kept away from every limit
 JOINT_SPEED = {"slow": 10.0, "normal": 25.0, "route": 40.0}   # deg/s; route: empty-hand pose-graph moves (estimate)
-JOINT_ACCEL = {"slow": 30.0, "normal": 75.0, "route": 200.0}   # deg/s2 (vendor: keep under 720); route: estimate
 LINEAR_SPEED = {"slow": 20.0, "normal": 50.0}        # mm/s
-ACCEL_FACTOR = 3.0                                   # linear moves: accel = speed x this (per s)
+ACCEL_FACTOR = 3.0                                   # straight moves: accel = speed x this (per s)
+JOINT_ACCEL_FACTOR = 1.5                             # joint moves: accel = speed x this (per s); estimate: x 3
+                                                     # stopped at each pose with a jolt that shook the robot
 MAX_FLIP = 90.0                                      # deg; an IK answer turning J1 / J4 / J6 more than this is refused
 MAX_TRAVEL = 200.0                                   # deg; a joint move turning any joint further is refused
 FULL_TURN = (0, 3, 5)                                # J1, J4, J6: ±360 joints; a target and target ± 360 are the same pose
@@ -42,6 +42,8 @@ SLOW_DEG_S = 5.0                                     # deg/s; long joint moves r
 STILL_S = 2.0                                        # s without joint motion (and not there) -> the move ended short
 STILL_DEG = 0.05                                     # joint change that counts as motion
 BLIND_S = 1.0                                        # s without a valid state reply while moving -> stop the arm
+SETTLE_S = 0.3                                       # s the arm stands at a pose before the next move (estimate;
+                                                     # going straight on shook the whole robot, 2026-10-21)
 
 _stopped = threading.Event()                         # set by stop(): a waiting move gives up
 
@@ -70,20 +72,17 @@ def tcp():
 
 
 def poses():
-    """Named poses: tuck plus everything taught."""
+    """Named poses: everything taught."""
     try:
-        taught = json.loads(POSES_FILE.read_text())
+        return json.loads(POSES_FILE.read_text())
     except FileNotFoundError:
-        taught = {}
-    return {"tuck": TUCK, **taught}
+        return {}
 
 
 def teach(name):
     """Save the current joints as pose `name`."""
-    if name == "tuck":
-        raise MotionError("tuck is fixed in motion.py")
     check(j := [round(v, 2) for v in joints()])
-    taught = {k: v for k, v in poses().items() if k != "tuck"}
+    taught = poses()
     taught[name] = j
     POSES_FILE.write_text(json.dumps(taught, indent=1))
     return j
@@ -117,8 +116,8 @@ def _queue_empty():
 
 def _wait(arrived, limit_s, queued=False):
     """Wait while the arm moves, at most limit_s. Big moves run far slower than the speed asked (SLOW_DEG_S), so the
-    limit is generous; a move that stops short is caught by STILL_S instead. `queued`: several moves were sent, so
-    arrived also needs the controller's queue empty (a route can pass its last pose before, a wave does)."""
+    limit is generous; a move that stops short is caught by STILL_S instead. `queued`: several moves were sent at
+    once, so arrived also needs the controller's queue empty (the swings pass their last pose before the end)."""
     t0 = last_move = last_seen = time.time()
     last = None
     while time.time() - t0 < limit_s:
@@ -143,8 +142,7 @@ def _wait(arrived, limit_s, queued=False):
         if last is None or max(abs(a - b) for a, b in zip(j, last)) > STILL_DEG:
             last, last_move = j, time.time()
         elif time.time() - last_move > STILL_S and time.time() - t0 > STILL_S + 1:
-            if queued:
-                stop()                          # the moves still queued must not run on later
+            stop()                              # nothing may run on later
             raise MotionError("the arm stopped before the target")
         time.sleep(POLL_S)
     stop()
@@ -164,46 +162,49 @@ def nearest(target, start):
 
 def move_joints(target, speed="slow", wait=True):
     """Joint move to absolute angles (deg). Returns the joints reached (or the target if wait=False)."""
-    return move_path([(target, speed, 0.0)], wait)
+    return move_path([(target, speed)], wait)
 
 
-def move_path(moves, wait=True):
-    """Joint moves [(joints, speed, tol)] sent one after another without waiting between them: the controller queues
-    them and starts each when the one before ends (docs/04 §10). `tol` is the controller's transition radius into the
-    next move (it blends through that via-point instead of stopping); the last move always ends exactly. All moves
-    are checked before the first is sent. Waits for the last one; stop() ends the queue. Returns the joints reached
-    (or the last target if wait=False)."""
-    for t, _, _ in moves:
+def move_path(moves, wait=True, queued=False):
+    """Joint moves [(joints, speed)], all checked before the first is sent, then one at a time: each waits until the
+    arm is there (inpos, every joint within AT_JOINT_DEG) and stands SETTLE_S before the next is sent. `queued`: all
+    sent at once instead, the controller runs them back to back (docs/04 §10; the wave's swings) and only the end is
+    waited for. stop() ends it at any point. Returns the joints reached (wait=False: the last move is not waited for,
+    its target)."""
+    for t, _ in moves:
         check(t)
     _ready()
-    prev, planned, travel, seq = joints(), 0.0, 0.0, []
-    for t, speed, tol in moves:
+    prev, seq = joints(), []
+    for t, speed in moves:
         t = nearest(t, prev)
         for i, (a, b) in enumerate(zip(t, prev)):
             if abs(a - b) > MAX_TRAVEL:
                 raise MotionError(f"J{i + 1} would turn {a - b:+.0f} deg - refused")
-        deg = max(abs(a - b) for a, b in zip(t, prev))
-        planned += deg / JOINT_SPEED[speed]
-        travel += deg
-        seq.append((t, speed, tol))
+        seq.append((t, speed, max(abs(a - b) for a, b in zip(t, prev))))
         prev = t
     _stopped.clear()
-    for k, (t, speed, tol) in enumerate(seq):
-        extra = {"tol": tol} if tol > 0 and k < len(seq) - 1 else {}     # no tol key at all on an exact move
-        r = arm.cmd("joint_move", relFlag=0, jointPosition=list(t), speed=JOINT_SPEED[speed],
-                    accel=JOINT_ACCEL[speed], **extra)
-        if _stopped.is_set():               # STOP pressed while sending: stop again, after this move is queued
+    d, limit = None, 0.0
+    for k, (t, speed, deg) in enumerate(seq):
+        if k and not queued and _stopped.wait(SETTLE_S):
+            raise MotionError("stopped")
+        deg_s = JOINT_SPEED[speed]
+        r = arm.cmd("joint_move", relFlag=0, jointPosition=list(t), speed=deg_s, accel=deg_s * JOINT_ACCEL_FACTOR)
+        if _stopped.is_set():               # STOP pressed while sending: stop again, after this move
             stop()
             raise MotionError("stopped")
         if r.get("errorCode") != "0":
-            if k:
+            if queued and k:
                 stop()                      # the moves already queued must not run on alone
             raise MotionError(f"joint_move refused: {r.get('errorMsg') or r}")
-    target = seq[-1][0]
-    if not wait:
-        return list(target)
-    d = _wait(lambda d: max(abs(a - b) for a, b in zip(d["joint_actual_position"], target)) < AT_JOINT_DEG,
-              max(3 * planned, travel / SLOW_DEG_S) + EXTRA_S, queued=len(seq) > 1)
+        last = k == len(seq) - 1
+        limit += max(3 * deg / deg_s, deg / SLOW_DEG_S)
+        if queued and not last:
+            continue
+        if not wait and last:
+            return list(t)
+        d = _wait(lambda d, t=t: max(abs(a - b) for a, b in zip(d["joint_actual_position"], t)) < AT_JOINT_DEG,
+                  limit + EXTRA_S, queued=queued and len(seq) > 1)
+        limit = 0.0
     return d["joint_actual_position"]
 
 

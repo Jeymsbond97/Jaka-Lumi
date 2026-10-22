@@ -1,11 +1,11 @@
 """Wave the hand when someone asked for it. A greeting never moves the arm.
 
 The arm goes up along the pose graph (manipulation/arm_route.py: from `look` to `wave_out`, the hand away from the
-head, then `wave_start`, the hand above the head), swings between the taught poses `wave_start` and `wave` (J3 −14.7°
-deg) SWINGS times and STAYS at `wave_start`: the next arm task takes it back down the same way (wave_start -> wave_out
--> look). The way up goes like arm_route.goto (queued, blended through wave_out), then the swings, queued. Before
-anything moves, every joint move is checked (arm_route.check_moves: limits, travel, the gripper clear of the head, no
-dip). Refused, with the reason in English and Korean: the arm off or busy, the base driving, a task
+head, then `wave_start`, the hand above the head), swings between the taught poses `wave_start` and `wave` (J3 −14.7°)
+SWINGS times and STAYS at `wave_start`: the next arm task takes it back down the same way (wave_start -> wave_out
+-> look). The way up goes like arm_route.goto, each move to a stop, the last one (into wave_start) at ARRIVE_SPEED;
+the swings run back to back. Before anything moves, every joint move is checked (arm_route.check_moves: limits,
+travel, the gripper clear of the head, no dip). Refused, with the reason in English and Korean: the arm off or busy, the base driving, a task
 running, something in the hand, the arm at no known pose (after free drive), a pose not taught, a move too near the
 head.
 
@@ -23,7 +23,8 @@ from robot import agv, arm, gripper, motion
 START = "wave_start"                 # hand above the head; the wave starts and ends here
 SWING = "wave"                       # START with J3 −14.7°
 SWINGS = 2                           # times START -> SWING -> START
-SWING_SPEED = "normal"               # motion.JOINT_SPEED of the swings; the way up is arm_route.move (as goto)
+SWING_SPEED = "normal"               # motion.JOINT_SPEED of the swings; the way up is arm_route.SPEED ...
+ARRIVE_SPEED = "normal"              # ... but its last move, into START: at route speed it stopped there hard (J1 60°)
 
 # Why Lumi does not wave, (English, Korean)
 OFF = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")
@@ -96,9 +97,15 @@ def wave(on_start=None):
     log(f"wave: {len(route) + len(swings)} joint moves, checked")
     if on_start:
         on_start()
-    arm_route.move(route)                             # up exactly as arm_route.goto: queued, blended at wave_out
+    if route:                                         # up as arm_route.goto, a stop at each pose; softer into START
+        t0 = time.time()
+        log(f"arm to {' -> '.join(n for n, _ in route)}")
+        motion.move_path([(j, arm_route.SPEED) for _, j in route[:-1]] + [(route[-1][1], ARRIVE_SPEED)])
+        log(f"arm at {START} after {time.time() - t0:.1f} s")
+    if route and motion._stopped.wait(motion.SETTLE_S):   # stand at START first, as between any two moves
+        raise motion.MotionError("stopped")
     t0 = time.time()
-    motion.move_path([(t, SWING_SPEED, 0.0) for t in swings])   # the swings queued: no pause between them
+    motion.move_path([(t, SWING_SPEED) for t in swings], queued=True)   # back to back, no stop between swings
     log(f"wave: {SWINGS} swings after {time.time() - t0:.1f} s")
 
 

@@ -75,7 +75,6 @@ input:focus,select:focus{border-color:var(--accent)}
 .pad{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
 .pad .btn{height:38px;padding:0;font-size:15px;display:grid;place-items:center}
 .pad .c{font-size:13px}
-.qa{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
 .field{display:flex;gap:6px;margin-bottom:8px}
 .field input{flex:1;min-width:0}
 .field .btn{width:52px;padding:0;display:grid;place-items:center;font-size:12.5px}
@@ -237,14 +236,14 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
     </div>
 
     <div class="card box">
-      <h3>Arm pose</h3>
+      <h3>Arm</h3>
       <div class="row"><select id="poseSel" class="grow"></select><select id="poseSpeed"><option value="slow">Slow</option><option value="normal">Normal</option><option value="route">Fast</option></select>
         <button class="btn primary" id="poseGo">Move ➜</button></div>
+      <div class="row"><button class="btn grow" id="waveBtn">Wave</button></div>
     </div>
 
     <div class="card box">
       <h3>Quick actions</h3>
-      <div class="qa"><button class="btn primary" id="waveBtn">Wave</button><button class="btn" id="tuckBtn">Fold arm</button></div>
       <div class="field"><input type="text" id="sayText" placeholder="Say something (EN / 한국어)"><button class="btn" id="sayBtn" title="Say it aloud">Say</button></div>
       <div class="field"><input type="text" id="askText" placeholder="Ask Lumi a question"><button class="btn" id="askBtn" title="Ask Lumi">Ask</button></div>
       <div class="answer" id="answer"></div>
@@ -357,6 +356,7 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
 <script>
 const $ = id => document.getElementById(id);
 let status = null, mapInfo = null;
+const MAP_POLL_MS = 20000;                 // the marker list is read again this often
 
 function toast(msg, kind = "") {
   if (kind === "err") return note(msg);
@@ -549,14 +549,17 @@ $("headCentre").onclick = e => act(e.target, null, () => api("/head/turn", {yaw:
 /* ---------- map ---------- */
 const cv = $("map"), ctx = cv.getContext("2d");
 let mapLayer = null, view = null, drag = null;      // view: {s: screen px per map px, x0, y0: map px at the canvas corner}
+function paintMarkers() {
+  $("mapName").textContent = mapInfo.map_name; $("mapTag").textContent = mapInfo.map_name;
+  markerNames = mapInfo.markers.filter(m => m.name !== mapInfo.main_dock).map(m => m.name)   // further docks too
+    .sort((x, y) => x.localeCompare(y, undefined, {numeric: true}));
+  destDD.setItems(markerNames);
+  renderMapList();
+}
 async function loadMap() {
   try {
     mapInfo = await api("/map/info");
-    $("mapName").textContent = mapInfo.map_name; $("mapTag").textContent = mapInfo.map_name;
-    markerNames = mapInfo.markers.filter(m => m.name !== mapInfo.main_dock).map(m => m.name)   // further docks too
-      .sort((x, y) => x.localeCompare(y, undefined, {numeric: true}));
-    destDD.setItems(markerNames);
-    renderMapList();
+    paintMarkers();
     const img = new Image();
     img.onload = () => { mapLayer = recolor(img); view = null; drawMap(); };
     img.src = "/map/image?t=" + Date.now();
@@ -664,6 +667,16 @@ $("maplist").onclick = e => {
     .then(() => setTimeout(loadMap, 8000));
 };
 loadMap();
+const sameMap = (a, b) => ["map_name", "floor", "width", "height", "resolution", "origin_x", "origin_y"].every(k => a[k] === b[k]);
+setInterval(async () => {                  // markers added on the base, a map switched there: seen within MAP_POLL_MS
+  if (!mapInfo) return loadMap();
+  try {
+    const m = await api("/map/info");
+    if (!sameMap(m, mapInfo)) return loadMap();
+    if (JSON.stringify(m) === JSON.stringify(mapInfo)) return;
+    mapInfo = m; paintMarkers(); drawMap();
+  } catch (e) {}
+}, MAP_POLL_MS);
 
 /* ---------- actions ---------- */
 function Dropdown(el, placeholder) {      // styled multi-select: click stops in the order to visit them
@@ -728,9 +741,7 @@ $("goBtn").onclick = e => {
 $("dockBtn").onclick = e => act(e.target, "Driving to the dock", () => api("/agv/go", {marker: "home"}));
 $("cancelBtn").onclick = e => act(e.target, "Drive cancelled", () => api("/agv/cancel", {}));
 $("waveBtn").onclick = e => act(e.target, "Waving", () => api("/arm/wave", {}));
-const tuck = e => { if (confirm("Fold the arm to the drive pose (slow)?")) act(e.target, "Folding the arm", () => api("/arm/tuck", {})); };
-$("tuckBtn").onclick = tuck;
-const POSE_ORDER = ["look", "carry", "ready", "give", "tuck"];          // the rest (taught later) follow by name
+const POSE_ORDER = ["look", "carry", "give", "ready", "wave_out", "wave_start", "wave"];   // the rest (taught later) follow by name
 api("/arm/poses").then(ps => {
   const names = Object.keys(ps).sort((a, b) => ((POSE_ORDER.indexOf(a) + 1) || 99) - ((POSE_ORDER.indexOf(b) + 1) || 99) || a.localeCompare(b));
   $("poseSel").innerHTML = names.map(n => `<option>${esc(n)}</option>`).join("");

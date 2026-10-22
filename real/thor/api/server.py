@@ -100,7 +100,7 @@ def start_assistant(no_arm=False, no_drive=False):
 BUSY_FILE = Path("/dev/shm/lumi_busy.json")    # written by lumi.py: {"busy": skill | follow | drive | wave | null}
 BUSY_MSG = "Busy with a task. Pause or stop it first."
 _waving = threading.Event()                     # /arm/wave runs here
-_posing = threading.Event()                     # /arm/pose, /arm/tuck run here
+_posing = threading.Event()                     # /arm/pose runs here
 
 
 def running_now():
@@ -359,7 +359,8 @@ def body_move(body: BodyBody):
                                              (round(p, 2) for p in head.status())))}
 
 
-@app.post("/arm/wave", tags=["arm"], summary="Wave from look along the checked route (manipulation/wave.py, slow)")
+@app.post("/arm/wave", tags=["arm"], summary="Wave, checked first (manipulation/wave.py): look -> wave_out -> "
+                                            "wave_start, the swings, stays at wave_start")
 def arm_wave():
     robot_free(manual=True)
     _waving.set()
@@ -756,11 +757,6 @@ def arm_run(body: ProgramBody):
     return {"ok": True, "program": body.program}
 
 
-@app.post("/arm/tuck", tags=["arm"], summary="Fold the arm beside the column along the pose graph (slow)")
-def arm_tuck():
-    return arm_pose(PoseBody(name="tuck"))
-
-
 class PoseBody(BaseModel):
     name: str = Field(examples=["look"], description="a pose of the pose graph (manipulation/arm_route.py)")
     speed: str = Field(arm_route.SPEED, description="slow / normal / route (empty hand; holding: always slow)")
@@ -785,9 +781,9 @@ def _motion(fn, *args, **kw):
         raise HTTPException(409, str(e))
 
 
-@app.get("/arm/poses", tags=["arm"], summary="Named arm poses (deg): tuck + taught ones")
+@app.get("/arm/poses", tags=["arm"], summary="The taught poses of the pose graph (deg)")
 def arm_poses():
-    return motion.poses()
+    return arm_route.graph()
 
 
 @app.post("/arm/pose", tags=["arm"], summary="Go to a named pose along the pose graph (every joint move checked first; "
@@ -795,7 +791,7 @@ def arm_poses():
 def arm_pose(body: PoseBody):
     if body.speed not in motion.JOINT_SPEED:
         raise HTTPException(400, f"speed: {', '.join(motion.JOINT_SPEED)}")
-    if body.name not in motion.poses():
+    if body.name not in arm_route.graph():
         raise HTTPException(404, f"no pose {body.name}")
     robot_free(manual=True)
     _posing.set()

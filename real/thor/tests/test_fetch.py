@@ -140,7 +140,7 @@ fetch.motion.go = lambda name, *a, **k: (calls.append(("pose", name)), arm.updat
 fetch.motion.stop = lambda: calls.append(("arm stop",))
 real_move = fetch.arm_route.move
 fetch.arm_route.move = lambda seq, *a, **k: [fetch.motion.go(n) for n, _ in seq]    # by name (poses share joints here)
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
+fetch.motion.poses = lambda: {"ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
 fetch.motion.tcp = lambda: [0.0] * 3 + tilt["rpy"]                    # the flange as the fake kine_forward says
 skills._joints = lambda: arm["j"]
 skills.FRESH_WAIT_S = 0.0                                                  # never wait for the live camera files
@@ -240,7 +240,7 @@ speeds = []
 real_go = fetch.motion.go
 fetch.motion.go = lambda name, speed="slow", *a, **k: (speeds.append((name, speed)), calls.append(("pose", name)))
 fetch.arm_route.move, fake_move = real_move, fetch.arm_route.move
-fetch.motion.move_path = lambda moves, *a, **k: speeds.extend(("carry", s) for _, s, _ in moves)
+fetch.motion.move_path = lambda moves, *a, **k: speeds.extend(("carry", s) for _, s in moves)
 arm.update(j=[0.5] * 6)
 fetch._pose("carry")
 tilt["rpy"] = up_rpy
@@ -750,7 +750,7 @@ skills.find, skills.reachable_pick, where["how"] = real_find, fake_reachable, "u
 fetch._set(holding=False, status="idle")
 
 # ---------- give: nobody takes it -> keep holding; a pull -> open ----------
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6, "give": [-6] * 6}
+fetch.motion.poses = lambda: {"ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6, "give": [-6] * 6}
 fetch.GIVE_WAIT_S = 0.3
 reset()
 st = run(fetch.start, ok)
@@ -764,7 +764,7 @@ fetch.GIVE_WAIT_S = 5.0
 threading.Timer(0.2, fetch.release_now).start()                            # "thank you" / Release
 st = run(fetch.give)
 assert st["status"] == "done" and not st["holding"] and ("open",) in calls, (st, calls)
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
+fetch.motion.poses = lambda: {"ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
 
 # ---------- another process holds it: give / place here take it over ----------
 reset()
@@ -823,7 +823,7 @@ fetch._pose("carry")
 assert calls == [("pose", "carry")], calls
 fetch._pose("carry")                                                          # there already: no move
 assert calls == [("pose", "carry")], calls
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
+fetch.motion.poses = lambda: {"ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
 # ---------- place spots: the pick spot only while the base stands where it picked ----------
 seen_table = {"spots": None}
 skills.on_table = lambda spots, table: (seen_table.update(spots=list(spots), table=table), [s for s in spots if s[1] >= 680])[1]
@@ -837,7 +837,7 @@ assert (-160.0, 600.0) not in tries and tries and seen_table["table"] == -402.0,
 fetch.place_spots({**held, "table": None}, (1.0, 2.0, 0.5), [cup_near])
 assert seen_table["table"] == -405.0                                          # from the other cup: -340 - 65
 # ---------- missions (docs/17): steps in order, moves checked, receive by the finger sensor ----------
-fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6, "give": [-6] * 6}
+fetch.motion.poses = lambda: {"ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6, "give": [-6] * 6}
 fetch.MOVE_SPEED, fetch.RECEIVE_DI_S, fetch.GIVE_POLL_S = 100.0, 0.05, 0.01
 real_state, real_close = fetch.gripper.state, fetch.gripper.close
 fetch.gripper.state = lambda: {**hand, "object_in_front": hand.get("front", False),

@@ -46,7 +46,7 @@ All of Lumi's parts share one network, the **robot LAN** (`192.168.10.x`). It ha
 
 | What | Address | For |
 |---|---|---|
-| **Dashboard** | http://192.168.10.240:8100/view | Everyday use: cameras, map, Greeter / Patrol, STOP |
+| **Dashboard** | http://192.168.10.240:8100/view | Everyday use: cameras, map (markers added on the base show within 20 s), arm poses and Wave, Greeter / Patrol, STOP |
 | **Robot API** (Swagger) | http://192.168.10.240:8100/docs | Every endpoint of this software with "Try it out": status, base, body, arm, gripper, skills, tasks, cameras, assistant |
 | API health | http://192.168.10.240:8100/health | `{"ok": true}` while the API runs |
 | Camera picture | http://192.168.10.240:8100/camera/torso.jpg (or `head.jpg`) | Latest frame of one camera; `/camera/<name>.mjpg` is a live stream |

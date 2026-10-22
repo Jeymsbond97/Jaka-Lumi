@@ -28,7 +28,7 @@ fetch._lift_to = lambda mm: None
 fetch._pose = lambda name, speed=None: calls.append(("pose", name))
 fetch._line_holding = lambda name: calls.append(("line", name))
 fetch._in_hand = lambda: hand["holding"]
-fetch.motion.poses = lambda: {"look": [0] * 6, "give": [0] * 6, "tuck": [0] * 6}
+fetch.motion.poses = lambda: {"look": [0] * 6, "give": [0] * 6}
 fetch.gripper.state = lambda: {"holding": hand["holding"], "closed": hand["holding"], "object_in_front": hand["front"]}
 fetch.gripper.open_ = lambda: (calls.append(("open",)), hand.update(holding=False), fetch.gripper.state())[-1]
 fetch.gripper.close = lambda wait=True: (calls.append(("close",)), hand.update(holding=hand["front"]),

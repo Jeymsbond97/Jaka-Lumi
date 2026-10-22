@@ -196,7 +196,7 @@ assert steps.check(S("go p1 | place"), True, M) == []
 assert steps.check(S("receive cup | give"), False, M) == []
 assert steps.check(S("move forward 4"), False, M)                   # longer than MOVE_MAX_M
 assert steps.check(S("go p3,p99"), False, M)                        # not on the map
-assert steps.check(S("pick cup | arm fold"), False, M)              # the cup would tip
+assert steps.check(S("pick cup | arm fold"), False, M)              # not with a cup in the hand
 assert steps.check(S("arm open"), False, M) == []
 
 # ---- read-back ----

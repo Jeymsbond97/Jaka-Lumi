@@ -9,23 +9,25 @@ and `--start` for the detector. Line numbers may move; search the name.
 
 | File:line | Name | Now | What it does |
 |---|---|---|---|
-| `robot/motion.py:29` | `JOINT_SPEED` | slow 10, normal 25, route 40 °/s | Joint move speeds. "normal" / "route" are also the dashboard's Arm pose card "Normal" / "Fast". **route 40 is an estimate**, not run live yet |
-| `robot/motion.py:30` | `JOINT_ACCEL` | slow 30, normal 75, route 200 °/s² | Joint move acceleration per speed (vendor: under 720). **route 200 is an estimate** |
-| `robot/motion.py:31` | `LINEAR_SPEED` | slow 20, normal 50 mm/s | Straight move speeds |
-| `robot/motion.py:32` | `ACCEL_FACTOR` | 3.0 | Straight moves: acceleration = speed × this per second |
-| `manipulation/arm_route.py` | `SPEED` | "route" | Joint moves along the pose graph (to `look`, `carry`, `give`, `tuck`, `wave_out`, `wave_start`, `wave`) with an empty hand, all sent at once; the wave's way up |
-| `manipulation/arm_route.py` | `HOLD_SPEED` | "slow" | The same with something in the hand: one move at a time, each to a full stop |
-| `manipulation/arm_route.py` | `TOL` | 10 | **Estimate**: the controller's transition radius (`joint_move` `tol`, no unit in the vendor doc) at each via-point of an empty-hand route (wave_out on the wave's way up and down): the arm blends through instead of stopping. The corner cut (half of each move next to it) is checked. 0 = a full stop at each via-point, still with no pause |
+| `robot/motion.py:29` | `JOINT_SPEED` | slow 10, normal 25, route 40 °/s | Joint move speeds. "normal" / "route" are also the dashboard's Arm pose card "Normal" / "Fast". **route 40 is an estimate** (empty-hand pose-graph moves) |
+| `robot/motion.py:30` | `LINEAR_SPEED` | slow 20, normal 50 mm/s | Straight move speeds |
+| `robot/motion.py:31` | `ACCEL_FACTOR` | 3.0 | Straight moves: acceleration = speed × this per second |
+| `robot/motion.py:32` | `JOINT_ACCEL_FACTOR` | 1.5 | **Estimate**: joint moves: acceleration = speed × this per second (route 60 °/s², normal 37.5, slow 15). × 3 stopped at each pose with a jolt that shook the robot (2026-10-21); lower = softer start and stop, longer moves |
+| `manipulation/arm_route.py` | `SPEED` | "route" | Joint moves along the pose graph (to `look`, `carry`, `give`, `ready`, `wave_out`, `wave_start`, `wave`) with an empty hand; the wave's way up |
+| `manipulation/arm_route.py` | `HOLD_SPEED` | "slow" | The same with something in the hand |
 | `manipulation/skills.py:40` | `EMPTY_SPEED` | "normal" | Arm with nothing in the hand: the joint move from `look` to above a cup |
 | `manipulation/skills.py:42` | `HOLDING_SPEED` | "slow" | With an object in the hand, and the last 10 cm down onto an object and up from it |
 | `manipulation/skills.py:50` | `ABOVE_MM` | 100 mm | Height above the grasp from where the arm goes straight down (slow) |
 | `tasks/fetch.py:41` | `MAX_TILT_DEG` | 15° | How far a held cup may lean on any move |
 | `manipulation/wave.py` | `SWINGS` | 2 | The wave: times `wave_start` → `wave` → `wave_start` (the two taught poses, J3 −2.5° ↔ −17.2°) |
-| `manipulation/wave.py` | `SWING_SPEED` | "normal" | `motion.JOINT_SPEED` of the swings, all queued (the owner liked 25 °/s); the way up goes as `arm_route.goto` |
-| `robot/motion.py` | `SLOW_DEG_S`, `EXTRA_S` | 5 °/s, 10 s | The longest a joint move may take: the largest joint travel summed over the queued moves at this slow rate (or 3× the planned time if longer), plus `EXTRA_S`; then the arm is stopped. Measured: long moves ran 4.3–7 °/s whatever the speed asked |
-| `robot/motion.py` | `STILL_S` | 2 s | An arm standing this long, not at the end and the controller's queue not empty, has stopped short: stopped, the rest of the queue dropped |
-| `manipulation/arm_route.py` | `HEAD_CLEAR_MM` | 250 mm | **Estimate**: the gripper (flange, grasp point, finger tips) keeps this from the head's turning centre (`head_cam.head_centre()`) on every pose-graph move, the wave and straight moves with an object; the head camera is 102 mm from it, the head's size is not measured (`look` keeps 327 mm; look → tuck passes at 175 mm and is refused) |
-| `manipulation/arm_route.py` | `EDGES` | give–carry, carry–look, look–wave_out, wave_out–wave_start, wave_start–wave, look–ready, look–tuck | The only joint moves between named poses |
+| `manipulation/wave.py` | `SWING_SPEED` | "normal" | `motion.JOINT_SPEED` of the swings (the owner liked 25 °/s). The swings are queued back to back (no stop between them, the owner's choice); the way up goes as `arm_route.goto`, a stop at each pose |
+| `manipulation/wave.py` | `ARRIVE_SPEED` | "normal" | The way up's last move, wave_out → wave_start (J1 60°): at "route" (40 °/s) it stopped hard at wave_start (2026-10-21); "slow" if still hard |
+| `robot/motion.py` | `SLOW_DEG_S`, `EXTRA_S` | 5 °/s, 10 s | The longest a joint move may take: its largest joint travel at this slow rate (or 3× the planned time if longer), plus `EXTRA_S`; then the arm is stopped. Measured: long moves ran 4.3–7 °/s whatever the speed asked |
+| `robot/motion.py` | `STILL_S` | 2 s | An arm standing this long short of its target has stopped short: stopped, nothing more sent |
+| `robot/motion.py` | `SETTLE_S` | 0.3 s | **Estimate**: after each arrival (inpos, joints within 0.3°) the arm stands this long before the next move of a route or wave. Going straight from one move into the next shook the whole robot (2026-10-21) |
+| `manipulation/arm_route.py` | `HEAD_CLEAR_MM` | 250 mm | **Estimate**: the gripper (flange, grasp point, finger tips) keeps this from the head's turning centre (`head_cam.head_centre()`) on every pose-graph move, the wave and straight moves with an object; the head camera is 102 mm from it, the head's size is not measured (`look` keeps 327 mm) |
+| `manipulation/arm_route.py` | `EDGES` | give–carry, carry–look, look–wave_out, wave_out–wave_start, wave_start–wave, look–ready | The only joint moves between named poses |
+| `api/dashboard.html` | `MAP_POLL_MS` | 20000 ms | The dashboard reads the map's markers again this often (markers added on the base, a map switched) |
 | `manipulation/arm_route.py` | `JOIN_DEG` | 20° | An arm at no pose (free drive, stopped half way) joins the graph by one checked joint move only when every joint is this close to a pose; else it does not move and asks to be brought near `look` |
 | `manipulation/arm_route.py` | `AT_POSE_DEG`, `EXACT_DEG` | 3°, 1° | At a pose for programs and `check` / further than 1° from the nearest pose a route first goes to it |
 

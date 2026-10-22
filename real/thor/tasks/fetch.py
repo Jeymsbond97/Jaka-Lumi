@@ -2238,8 +2238,8 @@ def _arm(pose):
             skills._held.clear()
             _set(holding=False)
         log(f"gripper {pose}: {st}")
-    elif pose == "fold":
-        _pose("tuck")
+    elif pose == "fold":                         # the arm's home
+        _pose(LOOK_POSE)
     elif pose == "reach":                        # the hand held out, as for a hand-over
         if "give" not in motion.poses():
             raise FetchError("I haven't learned how to reach out yet.")

@@ -1,6 +1,7 @@
 """Self-check of the pose graph (manipulation/arm_route.py) with a fake arm and toy kinematics (no robot):
 python tests/test_arm_route.py"""
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -14,14 +15,14 @@ from vision import head_cam
 fetch.STATE_FILE = Path(tempfile.mkdtemp()) / "lumi_task.json"     # never the real /dev/shm file
 POSES = {"look": [0.0] * 6, "carry": [20.0, 0, 0, 0, 0, 0], "give": [40.0, 0, 0, 0, 0, 0],
          "wave_out": [0.0, -20, 0, 0, 0, 0], "wave_start": [0.0, -20, 20, 0, 0, 0],
-         "wave": [0.0, -20, 20, 0, 20, 0], "ready": [0.0, 0, -20, 0, 0, 0],
-         "tuck": [-20.0, 0, 0, 0, 0, 0]}
+         "wave": [0.0, -20, 20, 0, 20, 0], "ready": [0.0, 0, -20, 0, 0, 0]}
 FAR = np.array([0.0, 0.0, 5000.0])                                  # the head far away: nothing near it
 head = {"centre": FAR}
 motion.poses = lambda: dict(POSES)
 head_cam.head_centre = lambda: head["centre"]
 gripper.state = lambda: {"holding": False, "ai": [160]}
 arm_route.log = fetch.log = lambda *a: None
+motion.SETTLE_S = 0.05                                              # quick here; the pause itself is checked below
 
 
 class FakeArm:
@@ -82,7 +83,8 @@ use(POSES["give"])
 assert arm_route.goto("look") == ["carry", "look"]                  # after giving: give -> carry -> look
 assert arm_route.goto("give") == ["carry", "give"]                  # to give: look -> carry -> give
 use(POSES["wave"])
-assert arm_route.goto("tuck") == ["wave_start", "wave_out", "look", "tuck"]     # fold: through look
+assert arm_route.goto("look") == ["wave_start", "wave_out", "look"]  # fold: down to look
+assert not any("tuck" in e for e in arm_route.EDGES)
 use(POSES["look"])
 assert arm_route.goto("wave_start") == ["wave_out", "wave_start"]   # up: never look -> wave_start directly
 assert {"look", "wave_start"} not in [set(e) for e in arm_route.EDGES]
@@ -134,19 +136,19 @@ refused(arm_route.NOT_TAUGHT, arm_route.goto, "wave")               # no way to 
 refused(arm_route.NOT_TAUGHT, arm_route.goto, "nowhere")
 POSES["wave_start"] = [0.0, -20, 20, 0, 0, 0]
 
-# ---------- empty hand: all moves sent at once, blended at via-points, the wait only for the end; holding: one by one --
+# ---------- every move to a stop, settled, then the next: SPEED empty, HOLD_SPEED holding, old accel, no blending ----
 
 
 class QueueArm(FakeArm):
-    """Queues joint moves like the controller: each get_data shows the next one done (and inpos, as a stop at a
-    via-point could); stop_program empties the queue. `on_move(k)` / `on_poll()` run before the k-th move / a poll."""
+    """Queues joint moves like the controller: each get_data shows the next one done; stop_program empties the queue.
+    `on_move(k)` / `on_poll()` run before the k-th move / a poll. log: (command, speed, accel, keys, time)."""
 
     def __init__(self, joints, on_move=None, on_poll=None):
         super().__init__(joints)
         self.queue, self.log, self.on_move, self.on_poll = [], [], on_move, on_poll
 
     def __call__(self, name, **a):
-        self.log.append((name, a.get("speed"), a.get("tol")))
+        self.log.append((name, a.get("speed"), a.get("accel"), set(a), time.time()))
         if name == "joint_move":
             if self.on_move:
                 self.on_move(len(self.sent))
@@ -158,7 +160,7 @@ class QueueArm(FakeArm):
                 self.on_poll()
             if self.queue:
                 self.j = self.queue.pop(0)
-            return {"joint_actual_position": list(self.j), "inpos": True}
+            return {"joint_actual_position": list(self.j), "inpos": getattr(self, "inpos_always", False) or not self.queue}
         if name == "stop_program":
             self.queue.clear()
             return {"errorCode": "0"}
@@ -167,46 +169,69 @@ class QueueArm(FakeArm):
         return super().__call__(name, **a)
 
     def moves(self):
-        return [(s, t) for n, s, t in self.log if n == "joint_move"]
+        return [(s, acc, keys) for n, s, acc, keys, _ in self.log if n == "joint_move"]
 
 
 def order(fake):
-    return [n for n, _, _ in fake.log if n in ("joint_move", "get_data")]
+    return [e[0] for e in fake.log if e[0] in ("joint_move", "get_data")]
 
 
 fake = arm.cmd = QueueArm(POSES["look"])
 assert arm_route.goto("wave_start") == ["wave_out", "wave_start"] and fake.j == POSES["wave_start"]
 route = motion.JOINT_SPEED[arm_route.SPEED]
-assert fake.moves() == [(route, arm_route.TOL), (route, None)], fake.moves()     # blended at wave_out, exact at the end
-assert order(fake)[:2] == ["joint_move"] * 2 and order(fake).count("get_data") >= 2, order(fake)   # inpos at wave_out
-fake = arm.cmd = QueueArm(POSES["look"])                                           # did not end the wait
-arm_route.goto("wave_start", holding=True)
+keys = {"relFlag", "jointPosition", "speed", "accel"}                              # no tol: never blended
+assert fake.moves() == [(route, route * motion.JOINT_ACCEL_FACTOR, keys)] * 2, fake.moves()
 assert order(fake) == ["joint_move", "get_data", "joint_move", "get_data"], order(fake)
-assert fake.moves() == [(motion.JOINT_SPEED[arm_route.HOLD_SPEED], None)] * 2, fake.moves()
-assert motion.JOINT_SPEED[arm_route.HOLD_SPEED] < route
+arrived = [e for e in fake.log if e[0] == "get_data"][0][4]
+second = [e for e in fake.log if e[0] == "joint_move"][1][4]
+assert second - arrived >= motion.SETTLE_S * 0.9, second - arrived                 # stood at wave_out first
+fake = arm.cmd = QueueArm(POSES["look"])
+arm_route.goto("wave_start", holding=True)
+hold = motion.JOINT_SPEED[arm_route.HOLD_SPEED]
+assert order(fake) == ["joint_move", "get_data", "joint_move", "get_data"], order(fake)
+assert fake.moves() == [(hold, hold * motion.JOINT_ACCEL_FACTOR, keys)] * 2 and hold < route, fake.moves()
 
-# STOP while the moves are sent, or while the arm runs them: stopped, the queue emptied after the last move sent
+# STOP while a move is sent, while the arm runs it, or while it stands between two: stopped, nothing more sent
 fake = arm.cmd = QueueArm(POSES["look"], on_move=lambda k: k == 1 and motion.stop())
 try:
     arm_route.goto("wave_start")
     raise AssertionError("went on after STOP")
 except motion.MotionError as e:
     assert str(e) == "stopped"
-names = [n for n, _, _ in fake.log]
-assert names[-1] == "stop_program" and names.count("joint_move") == 2, names
-assert fake.queue == [] and "get_data" not in names, names
+names = [e[0] for e in fake.log]
+assert names[-1] == "stop_program" and names.count("joint_move") == 2 and fake.queue == [], names
 fake = arm.cmd = QueueArm(POSES["look"], on_poll=motion.stop)
 try:
     arm_route.goto("wave_start")
     raise AssertionError("went on after STOP")
 except motion.MotionError as e:
     assert str(e) == "stopped" and fake.queue == [] and fake.j == POSES["look"], (e, fake.j)
+fake = arm.cmd = QueueArm(POSES["look"])
+fake.on_poll = lambda: threading.Timer(0.1, motion.stop).start()                 # pressed just after the arrival
+motion.SETTLE_S = 0.5
+try:
+    arm_route.goto("wave_start")
+    raise AssertionError("went on after STOP")
+except motion.MotionError as e:
+    assert str(e) == "stopped" and fake.sent == [POSES["wave_out"]], fake.sent
+motion.SETTLE_S = 0.05
 
-# a route through its last pose before the end (a wave): the wait ends only with the queue empty, at the end
+
+# queued (the wave's swings): all sent before any poll, the wait ends only at the end with the queue empty, though
+# the arm passes the last pose before (inpos there too)
 a_, b_ = POSES["wave_start"], POSES["wave"]
 fake = arm.cmd = QueueArm(a_)
-motion.move_path([(b_, "slow", 0.0), (a_, "slow", 0.0), (b_, "slow", 0.0), (a_, "slow", 0.0)])
-assert fake.queue == [] and fake.j == a_ and order(fake).count("get_data") >= 4, order(fake)
+fake.inpos_always = True
+motion.move_path([(b_, "normal"), (a_, "normal"), (b_, "normal"), (a_, "normal")], queued=True)
+assert order(fake)[:5] == ["joint_move"] * 4 + ["get_data"] and fake.queue == [] and fake.j == a_, order(fake)
+assert order(fake).count("get_data") >= 4, order(fake)
+fake = arm.cmd = QueueArm(a_, on_move=lambda k: k == 2 and motion.stop())      # STOP while they are sent
+try:
+    motion.move_path([(b_, "normal"), (a_, "normal"), (b_, "normal"), (a_, "normal")], queued=True)
+    raise AssertionError("went on after STOP")
+except motion.MotionError as e:
+    names = [e_[0] for e_ in fake.log]
+    assert str(e) == "stopped" and names[-1] == "stop_program" and fake.queue == [] and "get_data" not in names, names
 
 
 class SlowArm(QueueArm):
@@ -234,27 +259,16 @@ class SlowArm(QueueArm):
 
 extra, still = motion.EXTRA_S, motion.STILL_S
 motion.EXTRA_S, motion.STILL_S = 0.0, 0.5
-fake = arm.cmd = SlowArm(POSES["look"], deg_s=8.0)                  # 40 deg asked at 40 deg/s: planned 1 s, takes 5 s
-motion.move_path(arm_route.moves([POSES["wave_out"], POSES["wave_start"]]))
+fake = arm.cmd = SlowArm(POSES["look"], deg_s=8.0)                  # 20 deg asked at 40 deg/s: planned 0.5 s, takes 2.5
+motion.move_path([(POSES["wave_out"], "route"), (POSES["wave_start"], "route")])
 assert fake.j == POSES["wave_start"] and fake.queue == [], fake.j
 fake = arm.cmd = SlowArm(POSES["look"], deg_s=8.0, stall_at=[0.0, -20, 5, 0, 0, 0])   # stuck on the way: stopped
 try:
-    motion.move_path(arm_route.moves([POSES["wave_out"], POSES["wave_start"]]))
+    motion.move_path([(POSES["wave_out"], "route"), (POSES["wave_start"], "route")])
     raise AssertionError("waited on a stalled arm")
 except motion.MotionError as e:
     assert "stopped before" in str(e) and fake.queue == [] and fake.log[-1][0] == "stop_program", (e, fake.log[-1])
 motion.EXTRA_S, motion.STILL_S = extra, still
-
-# the blend's corner cut is checked: a head inside the corner at wave_out refuses the blended route, not the one by one
-f, g, tip, _ = arm_route._gripper([0.0, 0.0, 0.0] + list(skills.GRASP_RPY))
-head["centre"] = np.array([0.0, -330.0, 330.0]) + g                  # 270+ mm from both moves, 212 from the cut
-for j0, j1 in ((POSES["look"], POSES["wave_out"]), (POSES["wave_out"], POSES["wave_start"])):
-    assert arm_route.profile(j0, j1, head["centre"])[0] >= arm_route.HEAD_CLEAR_MM
-fake = use(POSES["look"])
-refused(arm_route.NEAR_HEAD, arm_route.goto, "wave_start")
-assert fake.sent == []
-assert arm_route.goto("wave_start", holding=True) == ["wave_out", "wave_start"]
-head["centre"] = FAR
 
 # ---------- Cobo π programs only from look; hand_shaking never ----------
 fake = use(POSES["carry"])

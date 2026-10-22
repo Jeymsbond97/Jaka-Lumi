@@ -1520,7 +1520,7 @@ class Lumi:
         self.keep_listening()
 
     def arm_pose(self, target):
-        """'reach': the Cobo π program ARM_REACH_PROGRAM (record it once), only from look; 'fold': tuck along the
+        """'reach': the Cobo π program ARM_REACH_PROGRAM (record it once), only from look; 'fold': to look along the
         pose graph (arm_route, checked first, moved in the background); 'open' / 'close': the gripper. True when
         started, False when not learned, None when refused (the reason is said)."""
         if target in ("open", "close"):
@@ -1530,7 +1530,7 @@ class Lumi:
         try:
             if target == "fold":
                 holding = self.fetch_status() == "holding"
-                seq = arm_route.plan("tuck", holding=holding)
+                seq = arm_route.plan(arm_route.HOME, holding=holding)
                 threading.Thread(target=safe, args=(arm_route.move, seq, None, holding), daemon=True).start()
             else:
                 arm_route.start_program(ARM_REACH_PROGRAM)
@@ -1999,7 +1999,9 @@ class Lumi:
                 mouth.say(done[target][0] if en else done[target][1])
             ok = self.arm_pose(target)
             if ok:
-                if target not in done:
+                if target == "fold":
+                    mouth.say("Okay." if en else "네.")
+                elif target not in done:
                     mouth.say("Here you go." if en else "여기요.")
             elif ok is False:
                 mouth.say("Sorry, I haven't learned that arm movement yet." if en else "죄송해요, 그 팔 동작은 아직 못 배웠어요.")

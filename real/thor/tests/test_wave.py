@@ -27,6 +27,7 @@ gripper.state = lambda: {"holding": hand["holding"]}
 base = {"move_status": "idle"}
 agv.status = lambda: dict(base)
 wave.log = arm_route.log = lambda *a: None
+motion.SETTLE_S = 0.01                                              # quick here (tests/test_arm_route.py checks it)
 
 
 class FakeArm:
@@ -89,14 +90,17 @@ a.sent.clear()
 a.j = list(swing)                                                   # stopped at wave: back to wave_start, then swings
 wave.wave()
 assert a.sent == [top] + [swing, top] * wave.SWINGS, a.sent
-names = []                                                          # the way up as arm_route.goto sends it, then the
-arm.cmd = lambda name, **k: (names.append((name, k.get("speed"), k.get("tol"))), a(name, **k))[1]   # swings, each queued
+names = []                                                          # the way up as goto, move by move; then the swings
+arm.cmd = lambda name, **k: (names.append((name, k.get("speed"), "tol" in k)), a(name, **k))[1]   # as goto
 a.j = list(LOOK)
 wave.wave()
-sent = [(n, v, t) for n, v, t in names if n in ("joint_move", "get_data")]
+sent = [e for e in names if e[0] in ("joint_move", "get_data")]
 route, swing_s = motion.JOINT_SPEED[arm_route.SPEED], motion.JOINT_SPEED[wave.SWING_SPEED]
-assert sent[:3] == [("joint_move", route, arm_route.TOL), ("joint_move", route, None), ("get_data", None, None)], sent
-assert sent[3:4 + 2 * wave.SWINGS] == [("joint_move", swing_s, None)] * 2 * wave.SWINGS + [("get_data", None, None)], sent
+arrive = motion.JOINT_SPEED[wave.ARRIVE_SPEED]                      # into wave_start softer than the route speed
+assert arrive < route and wave.ARRIVE_SPEED == "normal"
+assert sent == [("joint_move", route, False), ("get_data", None, False), ("joint_move", arrive, False),
+                ("get_data", None, False)] + \
+    [("joint_move", swing_s, False)] * 2 * wave.SWINGS + [("get_data", None, False)], sent      # swings back to back
 assert wave.SWING_SPEED == "normal"
 arm.cmd = a
 a.j = list(top)
