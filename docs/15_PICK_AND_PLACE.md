@@ -117,6 +117,27 @@ Grip force cannot be set from software with digital outputs. It comes from the g
 - **"Put it here" / "on the table"**: find free space on the support plane near the speaker (or next to the named object), at least the object's footprint plus a margin from other objects and the edge. Lower until the object is ~1 cm above the surface, open, back off up, tuck.
 - **"Give it to me"**: turn to the person who spoke and hold the object at chest height ~40 cm in front of the robot. Open when the person takes it (a pull on the arm or the object leaving the finger sensor) or after they say "okay / got it". Then tuck.
 
+### 3.7 Arm pose graph
+
+The arm goes between named poses only along this graph (`manipulation/arm_route.py`), one joint move per edge:
+
+```
+give - carry - look - wave_out - wave_start - wave
+                |  \
+              ready  tuck
+```
+
+- Every arm action starts from `look`; the pick and place approach moves go out from `look` and come back to it (`skills._prepare`, `skills._back_home`). With the object in the hand fetch goes the same edges as straight lines (`fetch._line_holding`): after a pick table → `carry` → `look`; to give `look` → `carry` → `give`; back `give` → `carry` → `look`.
+- The wave: `look` → `wave_out` (gripper away from the head, 402 mm from its centre) → `wave_start` (hand above the head, 349 mm), then `wave` ↔ `wave_start` (`wave` = `wave_start` with J5 +21.7°) `SWINGS` times, ending at `wave_start` (`manipulation/wave.py`). The arm stays there; the next arm action goes `wave_start` → `wave_out` → `look` first. There is no `look` – `wave_start` edge (that move passes 267 mm from the head; through `wave_out` the closest is 309 mm).
+- An arm at no pose (free drive, a stop half way) joins the graph only by one checked joint move to the nearest pose, every joint within `JOIN_DEG` (20°); further away nothing moves and Lumi says "My arm is in a position I don't know … Please bring it near its look pose by hand." / "팔이 모르는 자세라서 …". The task's own way back from the table goes straight to `look` (`leaf`).
+- Each joint move is checked before the first one starts, at 21 points (kine_forward): joint limits, `motion.MAX_TRAVEL`, gripper ≥ `HEAD_CLEAR_MM` from the head's turning centre, no dip more than `skills.PATH_SAG_MM` below both ends, a held cup's lean ≤ 15°. Straight moves with the object also get the head check (`fetch._line_rows`).
+- All graph moves run at `arm_route.SPEED` ("slow").
+- Cobo π programs (`/arm/run`, `tools/arm_program.py`) start only with the arm at `look` (every joint within 3°); `hand_shaking.jks` never. "Reach out to me" by voice runs no program: the graph to `give`, then at most 150 mm straight toward the person's seen hand or body, checked (`fetch.reach`, docs/14).
+- Checked with the real kinematics (read-only, 2026-10-21): give → carry, carry → look, look ↔ ready pass; look → tuck is refused (the gripper passes 175 mm from the head), so "fold" is refused until a safer tuck or a pose between is taught. Taught and run live slow (2026-10-21): `wave_out`, `wave_start`, `wave`; measured gripper to head centre on the way: look → wave_out 309 mm, wave_out → wave_start 323, wave_start ↔ wave 270. From `wave` → `wave_start`, four swings, down `wave_start` → `wave_out` → `look` worked.
+
+    python manipulation/arm_route.py check [pose]    # the route from here, each move's head distance / lowest z / lean; moves nothing
+    python manipulation/arm_route.py goto <pose>     # go there along the route, slow, the owner at the STOP
+
 ---
 
 ## 4. Software layout
@@ -147,9 +168,9 @@ Each stage ends with a test on the robot; the next starts only when it passes.
 | P2 ✅ | **Arm motion from code**: checked joint and linear moves (`motion.py`), tuck / ready / reach poses, speed presets, stop | Arm moves to named poses from the API and stops on STOP |
 | P3 ✅ | **Camera extrinsics**: ArUco on the gripper, `calib.py` | A point seen by the camera maps to the arm base frame within ±10 mm |
 | P4 ✅ | **Objects**: `objects.py` detects, colours, measures; `/objects` and a dashboard overlay | Cup / apple / bottle on a table: position ±1 cm, width ±5 mm |
-| P5 🟡 | **Reach planning**: `reach.py` with the MuJoCo model, lift / waist / base choice, clearance checks. Done on the robot without the model: grasp turned about the vertical (0…±60°), lift to the table's height (measured with depth), base shift, search by turning on the spot (`skills.py`, `tasks/fetch.py`, [16](16_FETCH_TASKS.md)) | For objects on the table, the plan says reachable or not reachable and why, and agrees with the real arm in 10 test placements |
+| P5 🟡 | **Reach planning**: `reach.py` with the MuJoCo model, lift / waist / base choice, clearance checks. Done on the robot without the model: grasp turned about the vertical (0…±60°), lift to the table's height (measured with depth), base shift, one search for picking and placing (ahead with both cameras, waist and head to each side, a base turn, the other lift end; `_look_around`) (`skills.py`, `tasks/fetch.py`, [16](16_FETCH_TASKS.md)) | For objects on the table, the plan says reachable or not reachable and why, and agrees with the real arm in 10 test placements |
 | P6 🟡 | **Pick**: `skills.pick` with sensor and AI_1 checks, failure handling. Live by fetch 2026-10-15: 4 of 4 grasps held (one from a box 12 cm higher, lift 193 mm) | 8 of 10 picks of a cup at different positions; every failure detected and reported |
-| P7 🟡 | **Place and give**: free-space search, hand-over. Live 2026-10-15: put down upright on the table and on the box (seen-table spots, lift fitted); hand-over opens only on "thank you" / Release (AI_1 can't feel a pull), Release not yet run live. 2026-10-20 on a round table 1–5 cm lower than the proven one (lift at 0) no place spot was ever found after the base drove up to it: the grid's near rows were below the camera's view and the table, read "sink", counted as an obstacle; changed offline ([16](16_FETCH_TASKS.md) step 9), not yet live | Objects placed upright within ±2 cm; hand-over works with a person |
+| P7 🟡 | **Place and give**: free-space search, hand-over. Live 2026-10-15: put down upright on the table and on the box (seen-table spots, lift fitted); hand-over opens only on "thank you" / Release (AI_1 can't feel a pull), Release not yet run live. 2026-10-20 on a round table 1–5 cm lower than the proven one (lift at 0) no place spot was ever found after the base drove up to it: the grid's near rows were below the camera's view and the table, read "sink", counted as an obstacle; changed offline ([16](16_FETCH_TASKS.md) step 9), not yet live. Live 2026-10-20 17:59 a table measured right (−385 mm) got no spot: only the held grasp turn was tried; put down now tries every grasp turn and wrist like the pick (`skills.place_options`, cup upright, offline), and the pick stores the table under the cup (`table_near` when its bottom is not in view). The table's height read −324 … −555 mm for one table (the median of every sight line: chair backs and seats, its edge); table heights are now the level top only (`skills.flat_top`, −386 mm from the same frame), a table seen further away is gone to at once, a named thing is matched exactly first and the closest surface taken otherwise (offline, not yet live) | Objects placed upright within ±2 cm; hand-over works with a person |
 | P8 🟡 | **Voice**: intents, object choice by the LLM on the image, spoken progress and reasons. Done in code: "pick up the (colour) cup", "move the cup", "put it down / back" (rules + LLM action), API `/skills/*`, dashboard button; not yet run live. Still open: choice among several objects by the LLM, "put it here" | "Find the red cup and put it here" works end to end with two cups on the table |
 | P9 🟡 | **Fetch with driving**: go to a marker, pick there, come back, give. Live 2026-10-15: drove with the cup towards p6, the base stalled on the way (cancelled), the cup stayed held | A cup is fetched from another table and handed over |
 
@@ -231,8 +252,8 @@ width of a cup reads about 8 mm under the width the fingers meet (white tumbler:
 |---|---|---|
 | `MIN_WIDTH`, `MAX_WIDTH` | 61, 92 mm | belly opens to 96, tips close to 59; the tips open only to 88, so over 84 is the owner's call and not tried live |
 | `BELLY_MIN_MM` | 72 mm | thinner is held between the tips (the belly closes only to 70) |
-| `TIPS_GRASP_MM` | 0 mm | a tips grasp at the normal height; 25 mm higher left the tips at the rim and they closed on nothing |
-| `TIP_MM` | 60 mm | finger tips beyond the grasp point along the fingers (`FINGER_DIR`: they point down in the grasp, not along the flange z); used by `path_heights` and `fetch.arm_points_3d` |
+| `TIPS_OFFSET` | [−0.4, −4.6, 28.2] mm, flange frame | a tips grasp puts the object's axis here, from the grasp point (the hooks' belly centre): the fingers lie level, the hook ring goes down over the object, the tips are ~28 mm further out along the flange z axis. Taught by the owner on the 66 mm spray can 2026-10-22 (`data/grasp_tips_teach.json`) after the first live try closed on nothing: the belly centre at the can's axis (belly closes to 70) |
+| `TIP_MM` | 60 mm | the hand's lowest part this far below the grasp point (`FINGER_DIR` = straight down in the grasp), a margin, not measured: the fingers lie level (the taught tips grasp had the grasp point 113 mm above the table, owner's tape: finger plane 135); used by `path_heights` and `fetch.arm_points_3d` |
 
 Picks with `skills.py pick` (owner at the STOP):
 
@@ -245,3 +266,25 @@ Picks with `skills.py pick` (owner at the STOP):
 
 Shiny metal gives unstable depth (width and position jump between frames). Paper cups are crushed by the close,
 which cannot be stopped half way (docs/10): they need another force setting or other fingers.
+
+## 10. What the fingers can take (2026-10-20)
+
+The cup fingers have one grasp: from above, fingers down, closing across the object at the taught grasp point.
+`skills.GRASPS` lists the COCO classes Lumi is asked for, with their Korean name and either how they are taken or
+why not (`skills.refusal`: said in English and Korean before anything moves; `fetch.validate`, `_pick_here`,
+`plan_pick`). Every pick still passes the width limits (§9) and every reach check.
+
+| Class | Taken | Why |
+|---|---|---|
+| cup | upright: grasp point 40 mm below the top (`BELOW_RIM_MM`) | the taught grasp; proven on cups 84–85 mm (§9) |
+| apple, orange, sports ball | round: grasp point at the equator (half the height, or half the width when the bottom is not in view), raised until the finger tips (`TIP_MM` below the grasp point) stay `TIP_CLEAR_MM` above what it stands on; refused when that leaves less than `ROUND_BITE_MM` above the grasp point ("too low for my fingers") | not tried live. `TIP_MM` (60 mm) is not measured: with it an 80 mm apple is held 10 mm below its top, a lower one refused |
+| bottle | by the body: grasp point `BELOW_SHOULDER_MM` (80 mm) below where the body begins (`objects.body`: the depth points cut in 10 mm height slices, from the top down the first slice at least `BODY_FRACTION` 0.9 as wide as the body); the body's width chooses hooks or tips (`grip_width`: body + `SEEN_UNDER_MM`, 61–92 mm; tips: `TIPS_OFFSET`); the hand comes down from (and goes back up to) `TIP_MM` over its top (`clear_above`); refused when the hand's lowest part would come within `TIP_CLEAR_MM` of the table under it (`table_near`, measured in `look`; else its lowest point seen: "body too short"), or when no body was measured | 66 mm spray can (owner's tape: 25 cm tall, 20.7 cm round the body) 2026-10-22: cap / neck from the top −153 down to ~−198 mm read 43–53 wide (≈ 50 mm long: the owner's "5.3 cm" is its length), the shoulder at −202, the body 58–62 seen (66–70 at the fingers: tips), its bottom often just out of the frame (table −396 … −402). First live try (40 mm below the shoulder, the can's axis at the belly centre): closed on nothing. The owner then taught the tips grasp (`TIPS_OFFSET`, grasp point 80 mm below the shoulder); the plan at the taught grasp turn is 8 mm / 1.6° from the taught flange. Not tried live again |
+| wine glass, vase | no | glass / ceramic: even force level 1 (~90 N) may break it |
+| bowl | no | wide and shallow: a steel bowl was missed / knocked over (2026-10-19) |
+| banana, carrot, cell phone, remote, book, mouse, scissors, toothbrush, fork, knife, spoon | no | thinner than the tips close (59 mm), or lower than the tips reach below the grasp point |
+| sandwich, cake, donut, hot dog, pizza, broccoli, teddy bear | no | soft: crushed like the paper cups |
+| laptop, keyboard, potted plant, clock, handbag, backpack, umbrella, suitcase, hair drier, toaster | no | wider than the tips open (88 mm) or heavy |
+
+Put down uses the same grasp point under the top as the pick (`_held["below"]`). The width refusals ("too big", "too small") are said in English and Korean. Any other class: "I can't pick up
+a …". A received thing (from a hand, docs/17) can be any of them: the person puts it between the fingers.
+

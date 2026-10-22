@@ -24,22 +24,24 @@ as it is (docs/14); a single move / turn / arm command by voice keeps its fast p
 |---|---|---|
 | `go` | `to`: a marker, `"here"` (where the command was given), or a list (one of them at random) | `_drive_to` |
 | `move` | `dir`: forward / back / left / right, `m` (`MOVE_MIN_M` … `MOVE_MAX_M`) | `_move`: left / right = `_turn(±90)` (arm sweep checked) then forward; at `LIFT_DRIVE_MM`, in `MOVE_SEGMENT_M` pieces at `MOVE_SPEED`, before each piece the base's way (`_straight_clear`) and the arm's (`line_hits`) checked again with the live lidar, a held object checked after it; stopped short = the mission fails with the reason. On the charger: forward allowed (the way is checked), back refused |
-| `turn` | `deg` (+ left) | `_turn` (arm sweep checked; not on the charger) |
+| `turn` | `deg` (+ left), ±360 all the way round | `_turn` (arm sweep checked; not on the charger); 360°: two half turns, each checked (a 360° goal is the start pose to the base) |
 | `pick` | `object`, `colour` | `_pick_here` (the look / reach / pick part of a fetch) |
-| `receive` | `object` | `_receive`: arm to `give`, hand open, "Please put the cup in my hand."; when DI_1 has seen something for `RECEIVE_DI_S`: "Let go of it, then say okay." and the hand closes **only on that word** ("okay", "done", "thank you", "됐어", or Release in the dashboard), never while fingers may be in it; then AI_1 must say holding. Nothing put in, or no okay, within `RECEIVE_WAIT_S`: back to look, hand open, failed |
+| `receive` | `object`, `from_hand` (optional) | `_receive`: arm to `give`, hand open, "Please put the cup in my hand, let go, and say okay."; the hand closes **only on that word** ("okay", "done", "thank you", "됐어", or Release in the dashboard), never while fingers may be in it. DI_1 (below the gripper, docs/10) seeing something for `RECEIVE_DI_S` only makes Lumi say "Let go of it, then say okay." After the close AI_1 must say holding; closed on nothing: hand open, "My hand closed on nothing, there was nothing to take.", failed. Nothing put in, or no okay, within `RECEIVE_WAIT_S`: back to look, hand open, failed. `from_hand` ("take this from my hand"): `scene.person_holds()` False → "I don't see anything in your hand.", nothing moves (can't tell: goes on); then from `give` the open hand moves straight towards `scene.object_in_hand()` at give's height, at most `RECEIVE_REACH_MM`, stopping `RECEIVE_SHORT_MM` before it (IK-checked; not seen: stays at give). Not live |
 | `say` | `text` (the command's own words) | spoken as written |
-| `place` | `on`: null or {`name` (camera class), `colour`, `side`} | a `side`: turn 90° that way first (checked); a named thing or a table with a colour: `_put_on` (that thing, found by class and colour); else `_put_down` (any free table spot) |
+| `place` | `on`: null or {`name` (camera class), `colour`, `side`, optional `alts` ("the table or chair"), `prefer` ("the lower one")} | a `side`: turn 90° that way first (checked); a named thing, a table with a colour or "which one": `_put_on` (exactly that thing first, else the surface seen that comes closest to what was said, said aloud; docs/16 9a); else `_put_down` (any free table spot). One search, then straight to what was seen |
 | `give` | `person` (optional: "bring it to James at p6", "p6에 있는 제임스한테 갖다줘"; who it is for, see §4) | `_give` (opens on "thank you" / Release; nobody takes it = failed, still holding) |
 | `hold` | – | nothing: the mission ends holding |
-| `arm` | reach / fold / open / close | reach = the `give` pose, fold = `tuck`, open / close = gripper |
+| `arm` | reach / fold / open / close | reach = the `give` pose, fold = `look`, open / close = gripper |
 | `wait` | `s`: seconds | `_wait`: waits there ("waiting at p3"); time someone talks to Lumi (pause) does not count; "go on" ends it early |
 | `wait` | `s`: null | at the end of a mission ("go to p3 and stay there"): the mission ends there, status `waiting` (step "waiting at p3"); any new command or Stop is taken as usual. In the middle ("go to the exit, wait there, then go home"): waits until someone says "go on" / "you can go" (`fetch.proceed`), or Stop. No time limit |
 | `wait` | `s`, `until: "instruction"` | waits there for the person at the place to say what to do (§4), at most `s` (`WAIT_ORDER_S` when no time is said); their command is read back, a spoken yes, done there ("here" in it = that place), then the rest of the mission. Nobody: "Nobody told me what to do, I'll go on." and the rest of the mission |
-| `receive` | `object`, `wait_s` | "wait until someone gives you a cup": the receive above with the hand held out up to `wait_s` (`WAIT_GIVE_S` when no time is said) instead of `RECEIVE_WAIT_S`. Nobody: hand back to look, open, "Nobody gave me the cup.", the mission fails there (it does not drive on or back: the rest needs the cup) |
+| `receive` | `object`, `wait_s` | "wait until someone gives you a cup": the receive above with the hand held out up to `wait_s` (`WAIT_GIVE_S` when no time is said) instead of `RECEIVE_WAIT_S`; "okay" counts only after DI_1 saw something (talk around it during a long wait must not close the hand). Nobody: hand back to look, open, "Nobody gave me the cup.", the mission fails there (it does not drive on or back: the rest needs the cup) |
 
 Checked before anything moves (`steps.check`): `pick` / `receive` need an empty hand, `place` / `give` a full one,
 `arm` reach / fold an empty one, `arm open` is refused while holding (it would fall: "put it down" or "hand it
-over" instead); every field is validated (the dashboard sends the steps back as JSON); every marker must be on the map; a `move` over `MOVE_MAX_M` is refused; a wait over `WAIT_MAX_S` (30 min) is refused ("I wait at most 30 minutes."). **Something
+over" instead); every field is validated (the dashboard sends the steps back as JSON); every marker must be on the map; a `move` over `MOVE_MAX_M` is refused; a wait over `WAIT_MAX_S` (30 min) is refused ("I wait at most 30 minutes."); a
+`pick` / `receive` of a thing the fingers can't take is refused with its reason (`skills.refusal`: "The bottle is too
+narrow at the top for my fingers ..."). **Something
 handed over (`receive`) can't be put down on a table yet**: where it sits in the fingers is not measured, so the
 height to let go at is not known; it can be handed over, carried and held.
 
@@ -71,12 +73,52 @@ height to let go at is not known; it can be handed over, carried and held.
    "기다려 줄래?") or as a word to get attention ("wait, go to p2", "잠깐만, …") it is not one, and a command of waits
    only ("wait here", "hold on a second") is talk, not a mission. "Wait there and do what they tell you" is one
    instruction wait; "wait for someone to give you the cup" / "누가 컵 주면 받아서" a receive with `wait_s`.
+4a. **The hand.** "Take this from me", "take the cup from me", "hold this", "이거 받아", "드릴게요" (the same words as
+   `brain.hand_request`) are a `receive` with `from_hand`; "pass me the cup", "can I have the apple?", "컵 좀 줘" as the
+   first clause are a `pick` then a `give` (from the table in front, then over). "..., then hold it" after another step
+   stays a `hold`. Said alone, these go the quick way in `lumi.hand_command` (docs/14), not as a mission, except "pass
+   me the cup" (two steps, read back).
 5. **Named people.** "bring it to James at p6", "…to James, he is at p6", "James is at p6, take it to him",
    "p6에 있는 제임스한테 갖다줘": a drive there and a give to James. A name with no place ("give it to James") is
    asked about, unless Lumi drives somewhere first in the same command. Who sends it ("Anvar asks you to…", "from
    Lisa", "안바르가 보내는 거야") is not a step; it is kept with the mission (`steps.sender`). Names are kept as
-   written ("Mr. Park", "김 부장님"; 씨 and a final 이 are taken off Korean names).
-6. **Read back.** Voice: "Take the cup, turn right and drive 1 m, then put it on the table. Is that right?"; only a
+   written ("Mr. Park", "김 부장님"; 씨 and a final 이 are taken off Korean names). People and places in any order:
+   "go to Sarah at the stage and give her the cup", "Sarah is at booth two, bring her the cup", "bring it to Sarah,
+   who is at booth two", "사라는 부스 투에 있어, 컵 갖다줘", "컵을 사라한테 갖다 줘, 사라는 부스 투에 있어"; "tell Sarah
+   the meeting is at 3" is a `say`.
+5a. **Said as people say it.** Before the reading (in `lumi.answer`, `brain.self_correct`): a correction inside the
+   sentence is applied ("take the cup, go to start, no, end, and give it to James", "스타트로 가, 아니 엔드로 가서 줘",
+   "wait 10 seconds, no, 20 seconds"); "..., never mind" / "아니 됐어" takes the command back ("Okay.", nothing
+   moves); a correction that can't be read for sure is asked ("Sorry, which one did you mean?"). Fillers anywhere
+   ("go to, uh, the stage"), "먼저 / 그다음 / 마지막으로", "I'd like you to", ordinals ("first ..., second ..."), Korean
+   -고 나서 / -ㄴ 다음에 / -ㄴ 후에 and the honorific -시- ("가셔서", "받으시고", "기다리신 후에"), "갔다 와" / "다녀와" (there and
+   back), "after you get to the stage, ...", and a clause whisper wrote without commas ("go to stage wait 10 seconds
+   come back": split at the step verbs, every piece must read). "..., not booth two" is no drive there.
+   "거기서 기다려" is a wait there, not "거기 서" (stop). A part that is a command but no step ("go to the stage and
+   wave", "... and follow me", "... and dance", "... and tell ..." not read) is never done half: "Sorry, I can't do
+   that as part of a task: wave. Please ask me one thing at a time." / "I didn't understand: ..." — when the
+   sentence is no chain (5b).
+5b. **A chain of commands, questions and talk** (`assistant/chain.py`, `lumi.chain_run`; owner 2026-10-22): a
+   sentence cut at and / then / 그리고 / -고 / -서 whose parts are each a run of steps, a keyword command (look,
+   lift, wave, arm, come, follow, go, turn, move, pick, put) or a question ("look at me and wave", "put it down
+   and wave", "웨이브 하고 나 봐", "go to p5 and tell me the weather", "고개 들고 몇 시야?", "go to the stage and
+   dance" -> it drives, then says it can't dance) is done part by part in the order said, each started when the
+   one before is over (trip, mission, pick, wave, head and lift still). Steps next to each other run as one
+   mission (no read-back; a whole sentence of steps is still a mission with its read-back). A part that can't be
+   done says why (Patrol off, arm off, holding, unknown place) and the rest goes on; after a mission part that
+   failed, the parts that drive or need the hand are not done and Lumi says so ("So I didn't do this part:
+   come back."); in-place parts and answers still are. Follow only as the last part. "Stop" or new words end the
+   chain. Not a chain: one command, "turn around and look" (the head), "come here, I need help", talk only.
+   "Take the cup and put it back" / "컵 집었다가 제자리에 놔" is pick + place here (put back where it was picked);
+   after a drive "put it back" is asked. "한 바퀴 돌아" / "spin around" in a mission is a turn of 360°. The
+   dashboard's Command box (`/tasks/parse`) applies the same `brain.self_correct` first. The box reads every sentence
+   exactly as voice (both on `lumi.route`, `tests/test_command_box.py`): a mission, a fetch (only with an object named),
+   a command or chain done by the assistant as if heard (`/tasks/command`), or what voice would only answer (shown,
+   nothing to start); the LLM only on Enter, for words the rules leave, as by voice. "X point" / "X 포인트" after any marker
+   name is that marker ("let's go exit point and go p9 point", "first X then Y"); the Command box never reads a
+   fetch when the text names no object.
+6. **Read back.** Voice: "Take the cup, turn right and drive 1 m, then put it on the table. Is that right?" (marker
+   names said with spaces: "go to booth 2", "table front"); only a
    spoken yes starts it (silence: "Should I do it? Please say yes or no.", three times, then cancelled), anything
    else cancels it ("Please say the whole command again."). Dashboard: the steps are
    listed, ✕ drops one (read again by `/tasks/steps/describe`), Start runs it.
@@ -138,6 +180,11 @@ from someone not named in the mission is refused; the dashboard's Stop always wo
   `tests/test_mission_wait.py`: what Lumi does with words during a wait and the status answers.
 - Waits: `tests/steps_cases6.py` (written blind by an agent from the wait spec: 329 commands, ~48 % Korean, 50 must
   stay unread, 9 too long, 25 near misses that must not be a mission), in `tests/test_steps.py`: 2035 / 2035.
+- Three or four steps in one breath on the conference map: `tests/steps_cases7.py` (EN / KO / mixed, every speech
+  level, corrections inside, read-backs), in `tests/test_steps.py`; `tests/test_mission_route.py`: the same through
+  `lumi.read_mission` (a mission, the plain fetch, or asked: never half done) and the Greeter-only rule.
+- `tests/test_task_switches.py`: missions, fetches, carry, give, place and commands started from the dashboard with
+  both switches off (refused), Greeter only (in place only) and Patrol (all); "stop" always.
 - `tests/voice_check.py`: every command spoken by Lumi's TTS, heard by the robot's whisper, read again; the
   reading must equal the typed one (logs/voice_check.log). Round 1: 440 / 600; the misses are mostly marker names
   in Korean ("p3로" heard "피세로") and "1미터" heard "2m" (the read-back and the spoken yes catch these). Round 3
@@ -151,5 +198,5 @@ from someone not named in the mission is refused; the dashboard's Stop always wo
 ## 6. Values
 
 `MOVE_MIN_M` 0.1 m, `MOVE_MAX_M` 3.0 m, `TURN_MAX_DEG` 360°, `WAIT_SHORT_S` 10 s, `WAIT_MAX_S` 30 min,
-`WAIT_GIVE_S` 5 min, `WAIT_ORDER_S` 5 min (`assistant/steps.py`), `WAIT_POLL_S` 0.2 s, `MOVE_SPEED` 0.10 m/s,
+`WAIT_GIVE_S` 5 min, `WAIT_ORDER_S` 5 min (`assistant/steps.py`), `WAIT_POLL_S` 0.05 s, `MOVE_SPEED` 0.10 m/s,
 `MOVE_SEGMENT_M` 0.25 m, `RECEIVE_WAIT_S` 30 s, `RECEIVE_DI_S` 0.5 s (`tasks/fetch.py`). Estimates, to be tuned live (docs/TUNING.md).
