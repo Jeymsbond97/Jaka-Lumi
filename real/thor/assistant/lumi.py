@@ -117,7 +117,7 @@ WAKE = re.compile(r"\b(hi|hey|hello|okay|ok|hai|high)?[\s,.!]*(lumi|loomi|lumie|
                   r"|루미|누미", re.I)
 WAKE_REPLY = {"en": "Yes? How can I help?", "ko": "네? 무엇을 도와드릴까요?"}
 NAME_ONLY = re.compile(r"^\s*(hi |hey |hello )?(lumi|loomi|rumi|루미)[\s,.!?]*$", re.I)
-FETCH_STOP = re.compile(r"\b(stop|halt|freeze|don'?t move)\b|멈춰|그만|정지|스톱|거기 ?서|움직이지 ?마", re.I)
+FETCH_STOP = re.compile(r"\b(stop|halt|freeze|don'?t move)\b|멈춰|그만|정지|스톱|거기 ?서(?=[\s!.~,]*$)|움직이지 ?마", re.I)   # not "거기서 기다려"
 FETCH_GIVE = re.compile(r"\bgive (it|that|this|the \w+)( to me)?\b|\bhand (it )?(over|to me)\b|줘|주세요|건네", re.I)
 FETCH_PLACE = re.compile(r"\b(put|place|set) (it|that|this|the \w+) (down|on the table)\b|테이블에 ?(놔|놓|둬)|내려 ?(놔|놓)", re.I)
 FETCH_BRING_IT = re.compile(r"\bbring (it|that|this)\b|가져와|가져다 ?줘|갖다 ?줘", re.I)   # no object named
@@ -147,6 +147,8 @@ MOVING_ACTIONS = {"go_to", "come", "come_back", "follow", "move", "turn", "arm",
                   "lift"}
 BASE_ACTIONS = {"go_to", "come", "come_back", "follow", "move", "turn"}   # need the base: Patrol on
 DRIVE_STEPS = {"go", "move", "turn"}                                     # mission steps that drive
+FIX_SAY = (("Okay.", "네."),                                        # a command taken back in the same sentence
+           ("Sorry, which one did you mean? Please say it again.", "죄송해요, 어느 쪽 말씀이세요? 다시 한 번 말씀해 주세요."))
 BASE_OFF_SAY = ("I can't drive or turn my waist right now. Switch on Patrol for that.",   # Greeter only: a base /
                 "지금은 이동하거나 허리를 돌릴 수 없어요. 패트롤을 켜 주세요.")             # waist motion asked for
 ARM_OFF_SAY = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")   # an arm action with the arm switched off
@@ -912,6 +914,17 @@ class Lumi:
                 return True
             else:
                 say = driving.say_move(d, float(n), got[2], lang)
+        elif got[0] == "turn":                              # "again" / "a bit more" after a turn
+            hist.append((text, f"ACTION: turn {got[1]}"))
+            if self.base_off("turn"):
+                return True
+            log(f"  action turn {got[1]} (again)")
+            if not self.modes.drive:
+                say = "Sorry, driving is switched off." if lang == "en" else "죄송해요, 지금은 이동할 수 없어요."
+            elif not self.move_by("turn", got[1]):
+                return True
+            else:
+                say = "Okay." if lang == "en" else "네."
         elif got[0] == "refuse":
             d, n = got[1].split()
             say = driving.say_refused(d, float(n), lang)
@@ -1328,6 +1341,9 @@ class Lumi:
         if unread:
             log(f"  mission: unread {unread} ({by})")
             problem = brain_mod.place_problem(" ".join(unread), self.markers)   # "go to booth" with two booths
+            if not problem and all(brain_mod.intent(u, self.markers) for u in unread):
+                problem = (f"Sorry, I can't do that as part of a task: {', '.join(unread)}. Please ask me one thing at a time.",
+                           "죄송해요, 그건 작업 중에 함께 할 수 없어요. 하나씩 말씀해 주세요.")
             self.fetch_say(*(problem or (f"Sorry, I didn't understand: {', '.join(unread)}. Please say it again.",
                                          "죄송해요, 일부를 이해하지 못했어요. 다시 말씀해 주세요.")))
             self.keep_listening()
@@ -2044,6 +2060,14 @@ class Lumi:
             mouth.say("Sorry, I only understand English and Korean." if self.lang == "en" else "죄송해요, 영어와 한국어만 이해해요.")
             self.keep_listening()
             return
+        fixed = brain_mod.self_correct(text, self.markers)   # "go to start, no, end", "컵 집어, 아니 병"
+        if fixed != text:
+            log(f"  corrected in the sentence: {fixed!r}")
+            if not fixed:                                  # None: not read for sure, asked; "": taken back ("never mind")
+                mouth.say(FIX_SAY[fixed is None][self.lang != "en"])
+                self.keep_listening()
+                return
+            text = fixed
         if self.voice_setting(text, last):                 # "speak louder", "천천히 말해", then "조금 더": before drive "again"
             return
         if self.fixed_answer(text, last):                  # "what can you do?" then "yes", the songs, after a song "again"
@@ -2516,8 +2540,9 @@ class Lumi:
 
 def stop_order(text, markers):
     """"stop", "freeze", "멈춰": stop everything at once. Not "stop talking" and not a question about the stop button."""
-    return bool(FETCH_STOP.search(text)) and (brain_mod.intent(text, markers) or ("",))[0] not in ("quiet", "look") and \
-        not brain_mod.STOP_TALK.search(text) and "?" not in text
+    asked = bool(brain_mod.STOP_ASK.match(brain_mod.CALLING.sub("", text)))   # "can you stop?", "멈출 수 있어?": stop
+    return bool(FETCH_STOP.search(text) or asked) and (brain_mod.intent(text, markers) or ("",))[0] not in ("quiet", "look") \
+        and not brain_mod.STOP_TALK.search(text) and ("?" not in text or asked)
 
 
 def own_command(text, last=""):
@@ -2552,6 +2577,11 @@ def talk_fate(text):
     return "talk"
 
 
+NOT_A_STEP = re.compile(r"^\W*(?:(?:please|and|then|also)\s+)*(?:dance|jump|fly|swim|climb|sit(?: down)?|sleep|cook|draw|"
+                        r"sing|clap|spin|bow|kneel|do a (?:dance|flip|trick)|tell|ask|say|show|call|find|look for|search|"
+                        r"bring|take|give|hand|put|carry|deliver)\b|.*(?:춤|점프|날아|수영|박수)", re.I)   # a part not read: asked
+
+
 def read_mission(text, markers):
     """(steps, unread, by) when the words are a command of several steps (unread: parts not understood), else None.
     A single move / turn / arm / go, or words that are only partly a plain command, stay with the other paths."""
@@ -2564,8 +2594,11 @@ def read_mission(text, markers):
         return None                                # "say hello in Korean", "say again?": talk, not a task
     if unread and got and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
         got, unread, by = steps.read(text, markers)          # clearly several steps: the LLM may read it
+    elif unread and got and any((brain_mod.intent(u, markers) or ("",))[0] not in ("", "weather", "search", "fetch")
+                                or NOT_A_STEP.match(u) for u in unread):
+        return got, unread, by                     # "go to the stage and wave": no task step, asked, never half done
     elif unread:
-        return None                                # "go to p1 and wait": the old paths (rules, the LLM) answer it
+        return None                                # "come here, I need help": the old paths (rules, the LLM) answer it
     if not got:
         return None
     plain = not steps.is_mission(got) and (len(got) == 1 or (brain_mod.intent(text, markers) or ("",))[0] == "fetch")

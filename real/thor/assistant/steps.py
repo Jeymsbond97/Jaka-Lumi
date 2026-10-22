@@ -37,18 +37,37 @@ _DIR = r"(forward|ahead|straight|back(?:wards?)?|left|right)"
 _DIR_KO = r"(앞으로|뒤로|왼쪽으로|오른쪽으로)"
 _FILL = (r"(?:please|let'?s|lets|hey lumi|hi lumi|hey|hi|lumi|loomi|rumi|okay|ok|alright|all right|so|well|real quick|if you can|if you could|자|저기|저기요|혹시|instead|um+|uh+|er|hmm|thank you|thanks|now|then|and|also|first|next|"
          r"finally|after that|there|for me|again|carefully|slowly|could you|can you|would you|will you|lumi야|루미야|루미|음|응|어|야 로봇|로봇아|로봇야|"
-         r"감사합니다|고마워요|고마워|고맙습니다|좀)")
+         r"감사합니다|고마워요|고마워|고맙습니다|좀|먼저|우선|일단|그다음|그 다음|마지막으로|다시|lastly|first of all|"
+         r"(?:i'?d|i would) like you to|i want you to|i need you to|you should|kindly|go ahead and|maybe|possibly|"
+         r"do me a favou?r and|be a dear and|right away|quickly|if you don'?t mind)")
 _PEOPLE = r"(?:them|him|her|someone|somebody|the person(?: there)?|people|the people|everyone|everybody|the guests?)"
 # where one step ends and the next starts
-_SPLIT = re.compile(r"\s*(?:,|;|\.(?=\s|$)|\band then\b|\bthen\b|\band\b|\bafter that\b|그리고|그 다음에?|다음에)\s*")
+_SPLIT = re.compile(r"\s*(?:,|;|\.(?=\s|$)|\band then\b|\bthen\b|\band\b|\bafter that\b|\bafterwards\b|\bonce you'?re there\b|"
+                    r"\bwhen you get there\b|그리고 나서|그러고 나서|그런 다음에?|그 후에?|그리고|그 ?다음에?|그담에|다음에)\s*")
 _SPLIT_KO = re.compile(r"(?<=[가-힣](?:고|서))(?<!라고)(?<!다고)(?<!자고)(?<!냐고)(?<!에서)(?<!말고)\s+(?!있)|(?<=다가)\s+")   # "들고 ", "가서 ": a verb
                                                                                         # joining two steps, not a quote
 
 def _norm(text, markers=()):
     """Lower case, marker names and numbers as written (assistant/wording.py: "피쓰리로" -> "p3로", "half a meter" ->
     "0.5 m", "오십 센치" -> "0.5 m", "table front" -> "table_front" on a map with it), titles without their dot."""
-    t = re.sub(r"\b(mr|mrs|ms|dr|prof)\. ", r"\1 ", wording.durations(wording.norm(text, markers)) + " ")
-    return re.sub(r"\b(?:take|pick up|pick|grab)\s?(?:해서|하고)", "집어서", t).strip()   # "컵 take해서": mixed
+    t = re.sub(r"\b(mr|mrs|ms|dr|prof)\. ", r"\1 ", wording.durations(brain.unfill(wording.norm(text, markers))) + " ")
+    t = re.sub(r"\b(?:take|pick up|pick|grab)\s?(?:해서|하고)", "집어서", t)   # "컵 take해서": mixed
+    t = re.sub(r"(?<=[가-힣])고\s*나서(?=[\s,]|$)", "고", t)                     # "가고 나서" = "가고"
+    for honour, plain in _HON_KO:                                                 # "가셔서" = "가서", "받으시고" = "받고"
+        t = re.sub(rf"(?<![가-힣]){honour}(?=[\s,.!?]|$)", plain, t)
+    return re.sub(r"(?<![가-힣])(간|온|집은|잡은|든|받은|준|놓은|돈|기다린|들른|가신|오신|기다리신|받으신|집으신|잡으신|드신|주신|놓으신)"
+                  r"\s*(?:다음에?|후에?|뒤에?)(?=[\s,]|$)",
+                  lambda m: _AFTER_KO[m.group(1)], t).strip()                       # "p3에 간 다음에" = "p3에 가고"
+
+
+_AFTER_KO = {"간": "가고", "온": "오고", "집은": "집고", "잡은": "잡고", "든": "들고", "받은": "받고", "준": "주고", "놓은": "놓고",
+             "돈": "돌고", "기다린": "기다리고", "들른": "들르고", "가신": "가고", "오신": "오고", "기다리신": "기다리고",
+             "받으신": "받고", "집으신": "집고", "잡으신": "잡고", "드신": "들고", "주신": "주고", "놓으신": "놓고"}
+_HON_KO = [("가셔서", "가서"), ("가시고", "가고"), ("가셨다가", "갔다가"), ("오셔서", "와서"), ("오시고", "오고"),
+           ("돌아오셔서", "돌아와서"), ("기다리셔서", "기다려서"), ("기다리시고", "기다리고"), ("기다리셨다가", "기다렸다가"),
+           ("드시고", "들고"), ("드셔서", "들어서"), ("받으시고", "받고"),
+           ("받으셔서", "받아서"), ("집으시고", "집고"), ("집으셔서", "집어서"), ("잡으시고", "잡고"), ("잡으셔서", "잡아서"),
+           ("놓으시고", "놓고"), ("놓으셔서", "놓아서"), ("드리시고", "드리고")]
 
 
 # ---------- one clause -> one step ----------
@@ -95,7 +114,8 @@ def _support(t):
 def _go(c, markers):
     if brain.COME_BACK.fullmatch(re.sub(r"(?<=[와가])(?:서|고)$", "", c)):
         return {"do": "go", "to": "here"}                 # "come back", "go back where you were", "원래 자리로 돌아와"
-    m = re.fullmatch(r"(?:(?:go|drive|head|come|move|return|get)(?: back)?(?: over)?|(?:bring|take|carry) it(?: back)?)"
+    m = re.fullmatch(r"(?:(?:go|drive|head|come|move|return|get|walk|roll|run|proceed|navigate|travel|hurry|make your way|"
+                     r"take yourself)(?: back)?(?: over| on| ahead)?|(?:bring|take|carry) it(?: back)?)"
                      r" to (?:the )?(?:(?:a )?random (?:one )?of |one of |any of )?(?:the )?(.+?)(?: point| marker)?", c)
     if m:
         to = _places(m.group(1), markers)
@@ -112,8 +132,11 @@ def _go(c, markers):
     m = re.fullmatch(r"(?:bring|take|carry) it (?:back )?here", c)
     if m:
         return {"do": "go", "to": "here"}
+    m = re.fullmatch(r"(.+?)\s*(?:에|으로|로)?\s*(?:갔다 ?와|갔다 ?오고|갔다 ?와서|다녀와|다녀오고|다녀와서|갔다 ?올래|다녀올래)(?:요|줘)?", c)
+    if m and (to := _places(m.group(1), markers)) and len(to) == 1:
+        return [{"do": "go", "to": to[0]}, {"do": "go", "to": "here"}]   # "p3 갔다 와": there and back
     m = re.fullmatch(r"(?:(?:이거|이것|그거)\s+)?(.+?)\s*(?:중에서?|중)?\s*(?:아무 ?데나|아무 ?곳에나|하나|한 ?곳)?\s*"
-                     r"(?:으로|로|에|까지)?\s*(?:가져가|가져와|가져다 ?줘|가져다|갖다 ?줘|갖다|가|와|가 ?줘|돌아가|돌아와|갔다가)"
+                     r"(?:으로|로|에|까지)?\s*(?:가져가|가져와|가져다 ?줘|가져다|갖다 ?줘|갖다|가|와|가 ?줘|돌아가|돌아와|갔다가|이동해|이동하고|이동해서|이동)"
                      r"(?:서|고|세요|줘|요)?|(\S+?)(?:으로|로)", c)
     if m:
         to = _places(re.sub(r"\s*(?:중에서?|중)\s*(?:아무 ?데나|아무 ?곳에나|하나|한 ?곳)?$", "", m.group(1) or m.group(2)),
@@ -132,7 +155,8 @@ def _move(c):
     pats = (rf"(?:(?:go|move|drive|step|walk|come|back up|head)\s+)?(?:to (?:the |your )?)?{_DIR}\s+(?:by\s+)?{_NUM} m",
             rf"(?:(?:go|move|drive|step|walk|come|back up|head)\s+)?{_NUM} m\s+(?:to (?:the |your )?)?{_DIR}",
             rf"(?:go|move|drive|step|walk|head)\s+{_NUM} m()",
-            rf"{_DIR_KO}\s*{_NUM} m\s*(?:가|가고|가서|이동|이동해|움직여|와)(?:세요|줘)?")
+            rf"{_DIR_KO}\s*{_NUM} m\s*(?:가|가고|가서|이동|이동해|움직여|와|갔다가|갔다)(?:세요|줘)?",
+            rf"(){_NUM} m\s*(?:더\s*)?(?:가|가고|가서|이동해|이동하고|이동해서|전진|전진해|전진하고)(?:세요|줘)?")   # "1미터 가": forward
     for p in pats:
         m = re.fullmatch(p, c)
         if m:
@@ -195,7 +219,10 @@ def _pick_receive(c, markers):
         return src and to and len(src) == 1 and [{"do": "go", "to": src[0]}, {"do": "pick", "object": obj, "colour": col},
                                                  {"do": "go", "to": to if len(to) > 1 else to[0]}] or None
     m = re.fullmatch(rf"(?:pick up|pick|take|grab|get|lift)(?: up)? (?:the |a |an |that |this )?(?:({COL}) )?({OBJ})s?"
-                     rf"(?: up)?(?: from (?:the )?(.+?))?", c)
+                     rf"(?: up)?(?: (?:from|at|off) (?:the )?(.+?))?", c)
+    if m and m.group(3) and re.fullmatch(r"(?:the )?table(?: (?:there|here))?|there|here", m.group(3)):
+        obj, col = _thing(m.group(1), m.group(2))                # "take a cup from the table there": here
+        return [{"do": "pick", "object": obj, "colour": col}]
     if m:
         obj, col = _thing(m.group(1), m.group(2))
         if m.group(3) and re.fullmatch(r"me|my hands?|(?:the )?person|him|her|them", m.group(3)):
@@ -207,7 +234,8 @@ def _pick_receive(c, markers):
                 return None
             out.insert(0, {"do": "go", "to": src[0]})
         return out
-    m = re.fullmatch(rf"(?:pick up|pick|take|grab|get) (?:the |a |an )?(?:({COL}) )?({OBJ})s? (?:to|over to) (.+)", c)
+    m = re.fullmatch(rf"(?:pick up|pick|take|grab|get|bring|carry) (?:the |a |an |this |that )?(?:({COL}) )?({OBJ})s? "
+                     rf"(?:over )?to (.+)", c)
     if m:
         to = _places(m.group(3), markers)
         obj, col = _thing(m.group(1), m.group(2))
@@ -219,10 +247,14 @@ def _pick_receive(c, markers):
         obj, col = _thing(m.group(2), m.group(3))
         back = [{"do": "go", "to": "here", "implied": True}] if m.group(4).startswith("가져") else []   # "bring"
         return src and len(src) == 1 and [{"do": "go", "to": src[0]}, {"do": "pick", "object": obj, "colour": col}] + back
-    m = re.fullmatch(rf"(?:({COL})\s*)?({OBJ})\s*(?:을|를)?\s*(?:들고|잡고|집고|들어|잡아|집어|챙겨|집어줘|잡아줘|들어줘)(?:서)?", c)
+    m = re.fullmatch(rf"(?:({COL})\s*)?({OBJ})\s*(?:을|를)?\s*(?:들고|잡고|집고|들어|잡아|집어|챙겨|챙기고|가지고|집어줘|잡아줘|들어줘)(?:서)?", c)
     if m:
         obj, col = _thing(m.group(1), m.group(2))
         return [{"do": "pick", "object": obj, "colour": col}]
+    m = re.fullmatch(rf"(?:({COL})\s*)?({OBJ})\s*(?:을|를)?\s*(?:가져오고|가져와서|가져와|가지고 ?오고|가지고 ?와서|가지고 ?와)", c)
+    if m:                                                 # "p2 가서 | 컵 가져오고": pick there, then back (unless a drive follows)
+        obj, col = _thing(m.group(1), m.group(2))
+        return [{"do": "pick", "object": obj, "colour": col}, {"do": "go", "to": "here", "implied": True}]
     return None
 
 
@@ -234,12 +266,15 @@ def _say(c):
 
 def _give(c):
     if re.fullmatch(rf"(?:give|hand) (?:it|that|this|the (?:(?:{COL}) )?(?:{OBJ})s?)?(?: over)?"
-                    rf"(?: to (?:me|you|{_PEOPLE}|the person there|whoever is there))?(?: there)?"
+                    rf"(?: to (?:me|you|{_PEOPLE}|the person there|whoever is(?: there)?|anyone(?: there)?|anybody(?: there)?|"
+                    rf"the (?:first )?(?:person|one) you (?:see|meet)))?(?: there)?"
+                    r"|wait (?:there )?(?:until|till) (?:someone|somebody|anyone|they|he|she) takes? it(?: from you)?"
                     r"|hand it over|(?:give|hand) it", c) or \
             re.fullmatch(rf"(?:그거|그것을?|(?:(?:{COL})\s*)?(?:{OBJ})(?:을|를)?)?\s*(?:줘|주고|주세요|건네 ?줘|건네주고|"
                          rf"건네 ?주세요|건네)", c):
         return {"do": "give"}
-    if re.fullmatch(r"(?:거기 있는\s*)?(?:나한테|저한테|나에게|저에게|그 사람한테|사람한테|그분께|분께|분한테)\s*"
+    if re.fullmatch(r"(?:거기 (?:있는|계신)\s*)?(?:나한테|저한테|나에게|저에게|그 사람한테|사람한테|그분께|분께|분한테)\s*"
+                    rf"(?:(?:이거|그거|이것|그것|이걸|그걸|(?:(?:이|그)\s*)?(?:{OBJ})(?:을|를)?)\s*)?"
                     r"(?:줘|주고|주세요|건네|건네줘|건네주고|건네주세요|건네 ?줘|건네 ?주세요|드려|드리고|갖다 ?줘|갖다 ?주세요)", c) or \
             re.fullmatch(r"(?:이|그|저|두|세|네) ?분(?:께|한테|에게)\s*(?:줘|주고|드려|드리고|건네|건네 ?줘|건네 ?드려)", c):
         return {"do": "give"}
@@ -290,7 +325,8 @@ def _arm(c):
 _DUR = r"(?:(\d+(?:\.\d+)?) s|(a (?:moment|second|sec|bit|little(?: bit| while)?|short (?:time|while))|"\
        r"one (?:moment|second|sec)|briefly|just a (?:moment|second|sec)))"         # wording.durations wrote "<n> s"
 _DUR_KO = r"(?:(\d+(?:\.\d+)?) s|(잠깐만|잠시만|조금만|잠깐|잠시|조금))"
-_STAY_EN = r"(?:wait|stay|remain|pause|hang on|hold on|stand by|stay put|sit tight|wait around|stand there|stay there)"
+_STAY_EN = (r"(?:wait|stay|remain|pause|hang on|hold on|stand by|stay put|sit tight|wait around|stand there|stay there|"
+            r"hang around|stick around|hang out|chill)")
 _THERE = r"(?: (?:right )?(?:there|here)| for me)*"
 _GIVER = (r"(?:someone|somebody|anyone|anybody|a person|the person(?: there)?|they|people|a guest|the guests?|"
           r"someone there|he|she|them|him|her|a visitor|[a-z][a-z'-]+)")
@@ -382,8 +418,10 @@ def _wait(c, markers, after):
     m = re.fullmatch(rf"(.+?)(?:에서|에)\s*(?:가\s*)?{_KO_WAIT}(?:\s*줘)?", c)
     if m and _at_place(m.group(1), markers):
         return [{"do": "go", "to": _at_place(m.group(1), markers)}, {"do": "wait", "s": None}]
+    if re.fullmatch(rf"{_STAY_EN}(?: (?:right )?(?:there|here))? (?:for|until) (?:my|our) (?:call|signal|word|go)", c):
+        return [{"do": "wait", "s": None}]                 # "wait for my call": until told to go on
     if re.fullmatch(rf"{_STAY_EN}(?: (?:right )?(?:there|here)| for me| until (?:i|we) (?:come back|call you|tell you"
-                    r"(?: to go(?: on)?)?|say so)| until further notice| until (?:someone|somebody|they) tells? you to go(?: on)?)+"
+                    r"(?: to (?:go(?: on)?|come back|return|move on))?|say so)| until further notice| until (?:someone|somebody|they) tells? you to go(?: on)?)+"
                     r"|(?:거기|여기|그 ?자리)(?:서|에서|에)?\s*" + _KO_WAIT + r"(?:\s*줘)?|가만히 있어", c):
         return [{"do": "wait", "s": None}]
     if after and re.fullmatch(rf"(?:wait|stay|remain|stand by|stay put|wait around)|{_KO_BARE}(?:\s*줘)?", c):
@@ -398,7 +436,8 @@ def _wait(c, markers, after):
 
 _POLITE = re.compile(r"(?<=[가-힣])\s*(?:주십시오|주시겠어요|주시겠습니까|주실 수 있나요|주실 수 있습니까|주실 수 있어요|"
                      r"줄 수 있어요|줄 수 있어|주실래요|줄래요?|줘 ?봐요?|줘요?|주세요|죠)\??$")   # every speech level
-_HONORIFIC = [(r"(가|와|놔|돌아|집어|잡어|잡아|들어|줘)봐요?$", r"\1"),                    # "가봐", "놔봐": try / do it
+_HONORIFIC = [(r"(가|와|놔|돌아|집어|잡어|잡아|들어|줘) ?봐요?$", r"\1"),                  # "가봐", "놔 봐": try / do it
+              (r"(?<=[가-힣]) ?주시고$", "고"), (r"(?<=[가-힣]) ?주셔서$", "서"),             # "가 주시고": 가고
               (r"가(?:십시오|세요|시죠|요)$", "가"), (r"오(?:십시오|세요|시죠)$", "와"), (r"도(?:십시오|세요)$", "돌아"),
               (r"드리(?:십시오|세요)$", "드려"), (r"(?:주|드리)십시오$", "줘"), (r"물러나(?:세요|십시오|요)?$", "가"),
               (r"회전(?:해|하세요|하십시오|해요)$", "돌아"), (r"말씀(?:해|하세요|하십시오|해요|해 주세요)$", "말해"),
@@ -476,6 +515,17 @@ def _person(c, markers):
                 return None
             out.append({"do": "go", "to": to[0]})
         return out + [{"do": "give", "person": m.group(3), "where": bool(where)}]
+    m = re.fullmatch(rf"(?:go|drive|head) (?:over )?to {_NAME} (?:at|in|by) (.+)", c)
+    if m and _is_name(m.group(1), markers) and (to := _places(m.group(2), markers)) and len(to) == 1:
+        return [{"do": "go", "to": to[0]}, {"do": "_for", "person": m.group(1)}]   # the next give is for them
+    m = re.fullmatch(rf"(?:bring|take|carry|fetch) (him|her|them|{_NAME}) (?:the |a |an |this |that )?(?:({COL}) )?({OBJ})s?", c)
+    if m and (m.group(1) in ("him", "her", "them") or _is_name(m.group(1), markers)):
+        obj, col = _thing(m.group(3), m.group(4))         # "bring her the cup": pick it, then to her (_NAME is group 2)
+        who = "_them" if m.group(1) in ("him", "her", "them") else m.group(1)
+        return [{"do": "pick", "object": obj, "colour": col}, {"do": "give", "person": who, "where": False}]
+    m = re.fullmatch(r"who(?:'s| is| are) (?:(?:waiting|standing|sitting) )?(?:at|in|by) (.+)", c)
+    if m and (to := _places(m.group(1), markers)) and len(to) == 1:
+        return [{"do": "_at", "person": None, "to": to[0]}]     # "bring it to Sarah, who is at booth two"
     m = re.fullmatch(rf"(?:{_NAME}(?: is| 's)|(?:he|she|they)(?:'s| is| are)) (?:(?:waiting|standing|sitting) )?"
                      rf"(?:(?:at|in|by) (.+)|(?:right )?(here))", c)
     if m and (m.group(1) is None or _is_name(m.group(1), markers) or m.group(1) in ("he", "she", "they")):
@@ -497,7 +547,7 @@ def _person(c, markers):
             return out
     # Korean
     m = re.fullmatch(rf"(?:이거|이것(?:을)?|이 (?:{OBJ})(?:을|를)?|(?:({COL})\s*)?({OBJ})(?:을|를)?)?\s*(?:들고|집어서|잡고)?\s*"
-                     rf"(.+?)에 (?:있는|계신) {_KNAME}\s*(?:씨)?(?:한테|에게|께)\s*(?:(?:({COL})\s*)?({OBJ})(?:을|를)?\s*)?"
+                     rf"(.+?)에 (?:있는|계신) {_KNAME}\s*(?:씨)?(?:한테|에게|께)\s*(?:(?:이|그|저)\s*)?(?:(?:({COL})\s*)?({OBJ})(?:을|를)?\s*)?"
                      rf"{_GIVE_KO}", c)
     if m and m.group(6):                                       # "p6에 있는 제임스한테 컵 갖다줘": the object after the name
         return _person(f"{m.group(5) or ''} {m.group(6)} {m.group(3)}에 있는 {m.group(4)}한테 줘".strip(), markers)
@@ -511,7 +561,7 @@ def _person(c, markers):
     m = re.fullmatch(rf"(?:이거 |이것 )?여기 있는 {_KNAME}(?:한테|에게|께)\s*{_GIVE_KO}", c)
     if m and _ko_name(m.group(1)) not in _NOT_KNAME:
         return [{"do": "go", "to": "here"}, {"do": "give", "person": _ko_name(m.group(1)), "where": True}]
-    m = re.fullmatch(rf"{_KNAME}(?:이|가) (.+?)에(?:서)? (?:있어|있어요|있대|기다려|기다려요|기다리고 있어)(?:,? (?:이거 )?{_GIVE_KO})?", c)
+    m = re.fullmatch(rf"{_KNAME}(?:이|가|은|는) (.+?)에(?:서)? (?:있어|있어요|있대|기다려|기다려요|기다리고 있어)(?:,? (?:이거 )?{_GIVE_KO})?", c)
     if m and _ko_name(m.group(1)) not in _NOT_KNAME:
         to = _places(m.group(2), markers)
         if not to or len(to) > 1:
@@ -519,9 +569,12 @@ def _person(c, markers):
         if re.search(_GIVE_KO + "$", c):
             return [{"do": "go", "to": to[0]}, {"do": "give", "person": _ko_name(m.group(1)), "where": True}]
         return [{"do": "_at", "person": _ko_name(m.group(1)), "to": to[0]}]
-    m = re.fullmatch(rf"{_KNAME}\s*(?:씨)?(?:한테|에게|께)\s*{_GIVE_KO}", c)
-    if m and _ko_name(m.group(1)) not in _NOT_KNAME:
-        return [{"do": "give", "person": _ko_name(m.group(1)), "where": False}]
+    m = re.fullmatch(rf"(?:(?:({COL})\s*)?({OBJ})(?:을|를)?\s+)?{_KNAME}\s*(?:씨)?(?:한테|에게|께)\s*(?:(?:이|그|저)\s*)?"
+                     rf"(?:(?:{COL})\s*)?(?:(?:{OBJ})(?:을|를)?|이거|그거)?\s*{_GIVE_KO}", c)
+    if m and _ko_name(m.group(3)) not in _NOT_KNAME:
+        pick = [{"do": "pick", "object": brain.OBJECTS[m.group(2)], "colour": brain.COLOURS.get(m.group(1))}] \
+            if m.group(2) else []                          # "컵을 사라한테 갖다 줘": take it first
+        return pick + [{"do": "give", "person": _ko_name(m.group(3)), "where": False}]
     m = re.fullmatch(rf"(.+?)에 있는 {_KNAME}(?:한테|에게|께)\s*(?:({COL})\s*)?({OBJ})(?:을|를)?\s*받(?:아|아서|고)", c)
     if m and _ko_name(m.group(2)) not in _NOT_KNAME:
         to = _places(m.group(1), markers)
@@ -601,11 +654,12 @@ def _clause(c, markers, after=None):
 
 
 def _clause_steps(c, markers, after=None):
-    c = re.sub(rf"^(?:{_FILL}[\s,]+)+|(?:[\s,]+{_FILL})+$", "", c.strip(" .!?")).strip(" .!?,")
+    c = re.sub(r"^(?:second(?:ly)?|third(?:ly)?|fourth|first(?:ly)?|step \d)[\s,]+", "", c.strip(" .!?"))   # "second, go to ..."
+    c = re.sub(rf"^(?:{_FILL}[\s,]+)+|(?:[\s,]+{_FILL})+$", "", c).strip(" .!?,")
     if re.search(r"[가-힣]", c):
         c = re.sub(r"\s+", " ", c)
         c = re.sub(r"\s좀\s", " ", c)
-        c = re.sub(r"^(?:야\s+)?로봇(?:아|야)?[,\s]+", "", c)       # "야 로봇", "로봇아": calling it
+        c = re.sub(r"^(?:야\s+)?로봇(?:아|야)?[,\s]+|^야[,\s]+(?!로봇)", "", c)       # "야 로봇", "로봇아", "야": calling it
         c = c.replace("그리퍼를", "손을").replace("물러나", "뒤로 물러나") if "뒤로" not in c else c.replace("그리퍼를", "손을")
         c = re.sub(r"(\d m)만", r"\1", c)                            # "1미터만"
         bare = _POLITE.sub("", c).strip()
@@ -628,17 +682,24 @@ def _clause_steps(c, markers, after=None):
         return []
     if re.fullmatch(r"(?:(?:it'?s |this is )?from|on behalf of) [a-z][a-z'-]+|[가-힣 ]+(?:이|가) (?:보내는|보낸) (?:거야|건데)", c):
         return []
-    m = re.fullmatch(rf"(?:(?:pass|hand|give|get) me|(?:can|could|may) i (?:have|get|grab|take)|lemme have|let me have|"
+    m = re.fullmatch(rf"(?:(?:pass|hand|give|get|bring|fetch) me|(?:can|could|may) i (?:have|get|grab|take)|lemme have|let me have|"
                      rf"(?:would you )?mind (?:passing|handing|giving) me) (?:the |that |this |a |an |one )?"
                      rf"(?:({COL}) )?({OBJ})s?(?: (?:on|from|off) the table| over(?: here)?| there| please)?"
                      rf"|(?:(?:나|저)(?:한테|에게)?\s*)?(?:({COL})\s*)?({OBJ})\s*(?:을|를)?\s*(?:하나만?\s*)?(?:(?:나|저)(?:한테|에게)\s*)?"
-                     r"(?:줘|주세요|줘요|건네 ?줘|건네 ?주세요|건네|주실래요|줄래요?|주시겠어요)", c)
-    if m and after is None:                       # "pass me the cup", "컵 좀 줘": from the table in front, then over
-        obj, col = _thing(m.group(1) or m.group(3), m.group(2) or m.group(4))
-        return [{"do": "pick", "object": obj, "colour": col}, {"do": "give"}]
+                     r"(?:줘|주세요|줘요|건네 ?줘|건네 ?주세요|건네|주실래요|줄래요?|주시겠어요|갖다 ?줘|가져다 ?줘|갖다 ?주세요|가져다 ?주세요)", c)
+    if m and (after or not re.match(r"(?:bring|fetch) me\b", c)):   # "pass me the cup", "컵 좀 줘": from the table in
+        obj, col = _thing(m.group(1) or m.group(3), m.group(2) or m.group(4))   # front, then over; after a drive: back
+        # here first; "bring me the cup" alone stays the plain fetch
+        back = [{"do": "go", "to": "here", "implied": True}] if after and after["do"] in ("go", "move", "turn") else []
+        return [{"do": "pick", "object": obj, "colour": col}] + back + [{"do": "give"}]
     who = _person(c, markers)
     if who is not None:
         return who
+    m = re.fullmatch(r"(?:after|once|when|as soon as) you(?:'ve| have)? (?:get|got|arrive|arrived|reach|reached|are|'re|come)"
+                     r"(?: (?:at|to|in))? (?:the )?(.+?)(?: point)?", c)
+    if m and (to := _places(m.group(1), markers)) and len(to) == 1:
+        return [{"do": "go", "to": to[0]}]                 # "after you get to the stage, ...": there first
+    c = re.sub(r"^go (?:and )?(?=(?:grab|get|pick|take|fetch)\b)", "", c)   # "go grab the cup"
     c = re.sub(r"^back ?up\b", "move back", c)
     c = re.sub(r"^(go|move|drive) write\b", r"\1 right", c)          # whisper's "go write 1 meter"
     c = re.sub(r"\bstraight ahead\b", "forward", c)
@@ -657,7 +718,8 @@ def _clause_steps(c, markers, after=None):
                          r"(?:요| ?주세요)?", c):
         return [{"do": "go", "to": "here"}, {"do": "give"}]
     if re.fullmatch(r"(?:여기로\s*)?(?:돌아와|돌아오고|돌아와서|와)(?:요|줘)?|(?:여기로|이리) 와(?:서|요|줘)?"
-                    r"|이리와|come (?:back )?here|come back", c):
+                    r"|이리와|come (?:back )?here|come back|(?:come |go |get )?(?:right |straight )?back (?:here|to me)|"
+                    r"come (?:right|straight) back(?: here)?", c):
         return [{"do": "go", "to": "here"}]
     s = _wait(c, markers, after)
     if s is not None:
@@ -665,7 +727,7 @@ def _clause_steps(c, markers, after=None):
     for f in (_go, _move, _turn, _give, _hold, _arm):
         s = f(c, markers) if f is _go else f(c)
         if s:
-            return [s]
+            return s if isinstance(s, list) else [s]
     s = _pick_receive(c, markers)
     if s:
         return s
@@ -680,7 +742,7 @@ def _clause_steps(c, markers, after=None):
 # ---------- whole commands ----------
 _STEP_VERB = (r"(?:go|come|drive|head|return|give|hand|put|place|set|leave|take|pick|grab|get|bring|carry|turn|move|"
               r"wait|hold|keep|open|close|reach|fold|receive|ask|find|look for)\b")
-_SAY_EN = re.compile(rf"\b(?:(?:say|announce)\b|tell {_PEOPLE}(?: that)?)\s*[:.,]?\s*(?:[\"“‘']([^\"”’]+?)[\"”’']"
+_SAY_EN = re.compile(rf"\b(?:(?:say|announce)\b|tell (?:{_PEOPLE}|(?!me\b|us\b|you\b|it\b)[a-z][a-z'-]+)(?: that)?)\s*[:.,]?\s*(?:[\"“‘']([^\"”’]+?)[\"”’']"
                      rf"|(.+?)(?=\s*(?:[,.]?\s*(?:and\s+|then\s+|and then\s+)+{_STEP_VERB}|[,.]\s*then\b|"
                      r"[,.]\s*(?:wait|stay) (?:for |there|here|until|\d|a |an |one |two |three |five |ten |half )|"
                      rf"(?<!\bmr)(?<!\bms)(?<!\bdr)(?<!\bmrs)(?<!\bprof)\.\s+[a-z]|$)))", re.I)
@@ -726,6 +788,23 @@ _INTERJECTION = re.compile(r"^(?:(?:(?:oh|ah|um|uh) )?(?:wait(?: wait)*|hold on|
                            r"\s*[,.!]+\s*)+(?!then\b|and\b|after\b)(?=\S)")
 
 
+_PIECE = re.compile(r"\s+(?=(?:go|come|wait|turn|pick up|grab|give|hand|put|bring|drive|move|head|return|stay)\b)")
+
+
+def _pieces(c, markers, after):
+    """A clause read as several steps when it splits at step verbs and every piece reads; else None."""
+    parts = _PIECE.split(c)
+    if len(parts) < 2 or re.search(r"[가-힣]", c):
+        return None
+    out = []
+    for p in parts:
+        got = _clause(p, markers, out[-1] if out else after)
+        if not got:
+            return None
+        out += got
+    return out
+
+
 def rules(text, markers=()):
     """(steps, unread clauses). Steps are merged where two clauses mean one ("look for the table" + "put it there")."""
     cut, says = _cut_says(text)
@@ -738,9 +817,15 @@ def rules(text, markers=()):
         got = [{"do": "say", "text": says[int(m.group(1))]}] if m else _clause(c, markers, steps[-1] if steps else None)
         if got is None and steps and steps[-1] == {"do": "go", "to": "home"} and re.fullmatch(r"charge(?: yourself)?|충전해", c):
             continue
-        if got is None and steps and steps[-1]["do"] == "go":
+        no = re.fullmatch(r"(?:but |and )?(?:not|never) (?:to )?(?:the )?(.+?)", c.strip())
+        if got is None and no and (to := _places(no.group(1), markers)):
+            if not any(s_["do"] == "go" and s_["to"] in to for s_ in steps):
+                continue                                 # "take the cup to the stage, not booth two"
+        elif got is None and steps and steps[-1]["do"] == "go":
             to = _places(re.sub(r"^(?:(?:and )?then )?(?:to )?(?:the )?", "", c.strip()), markers)
             got = to and [{"do": "go", "to": to if len(to) > 1 else to[0]}]
+        if got is None and not m and "§" not in c:
+            got = _pieces(c, markers, steps[-1] if steps else None)   # whisper wrote no commas: "go to p3 wait 10 s come back"
         if got is None or (not m and "§" in c):
             unread.append(re.sub(r"§(\d+)§", lambda x: says[int(x.group(1))], c))
             continue
@@ -773,10 +858,17 @@ def _people(steps, unread, text):
     """Put a give to a named person together with where they are ("bring it to James, he is at p6"): a drive there
     before it. A named person nobody says where: unread (Lumi asks), unless Lumi drives somewhere first. A give
     followed by a put-down there ("... and put it on his desk"): the put-down is what is meant."""
-    ats, out = [s for s in steps if s["do"] == "_at"], []
+    ats, out, for_ = [s for s in steps if s["do"] == "_at"], [], None
     for s in steps:
         if s["do"] == "_at":
             continue
+        if s["do"] == "_for":
+            for_ = s["person"]
+            continue
+        if s == {"do": "give"} and for_:
+            s, for_ = {"do": "give", "person": _orig(for_, text)}, None   # "go to Sarah at the stage and give her the cup"
+        elif s == {"do": "give"} and any(a["person"] for a in ats):
+            s = {"do": "give", "person": next(a["person"] for a in ats if a["person"]), "where": False}   # "사라는 ... 컵 갖다줘"
         if s["do"] == "give" and "where" in s:
             where = s.pop("where")
             if not where:
@@ -1146,8 +1238,9 @@ def _en(s, last=False):
     if d == "go":
         to = s["to"]
         if isinstance(to, list):
+            to = [brain.place_said(x) for x in to]
             return f"go to one of {', '.join(to[:-1])} or {to[-1]}"
-        return "come back here" if to == "here" else "go to my dock" if to == "home" else f"go to {to}"
+        return "come back here" if to == "here" else "go to my dock" if to == "home" else f"go to {brain.place_said(to)}"
     if d == "move":
         if s["dir"] in ("left", "right"):
             return f"turn {s['dir']} and drive {s['m']:g} m"
@@ -1187,8 +1280,8 @@ def _ko(s, last=False):
     if d == "go":
         to = s["to"]
         if isinstance(to, list):
-            return f"{', '.join(to)} 중 한 곳으로 가고"
-        return "여기로 돌아오고" if to == "here" else "충전소로 가고" if to == "home" else f"{to} 위치로 가고"
+            return f"{', '.join(brain.place_said(x) for x in to)} 중 한 곳으로 가고"
+        return "여기로 돌아오고" if to == "here" else "충전소로 가고" if to == "home" else f"{brain.place_said(to)} 위치로 가고"
     if d == "move":
         side = {"forward": "앞으로", "back": "뒤로", "left": "왼쪽으로", "right": "오른쪽으로"}[s["dir"]]
         return f"{side} {s['m']:g}미터 가고"

@@ -213,7 +213,7 @@ print("steps ok")
 fake = {}
 steps._ollama = lambda messages, fmt: fake["lang"] if fmt == "json" else fake["steps"]
 fake["lang"] = {"language": "English"}
-cmd = "grab the bottle and then kindly roll over to p4, after that put it onto the white table"
+cmd = "grab the bottle and then kindly zip over to p4, after that put it onto the white table"
 fake["steps"] = {"steps": [{"do": "pick", "object": "bottle"}, {"do": "go", "to": ["p4"]},
                            {"do": "place", "on": {"name": "dining table", "colour": "white"}}]}
 got, unread, by = steps.read(cmd, M)
@@ -251,8 +251,8 @@ assert llm_says("go to p1, then roll back 1.5 m and wiggle", [{"do": "go", "to":
 assert llm_says("kindly roll forward 1 m and then wiggle", [{"do": "move", "dir": "forward", "m": 1},
                 {"do": "move", "dir": "forward", "m": 1}])[2] == "rules"                 # said once, driven twice
 assert llm_says("don't take the cup, just roll over to p1", [{"do": "go", "to": ["p1"]}])[2] == "rules"
-assert llm_says("take the cup and then roll over to p1", [{"do": "go", "to": ["p1"]}])[2] == "rules"  # pick left out
-got = llm_says("take the cup and then roll over to p1", [{"do": "pick", "object": "cup"}, {"do": "go", "to": ["p1"]}])
+assert llm_says("take the cup and then zip over to p1", [{"do": "go", "to": ["p1"]}])[2] == "rules"  # pick left out
+got = llm_says("take the cup and then zip over to p1", [{"do": "pick", "object": "cup"}, {"do": "go", "to": ["p1"]}])
 assert got[2] == "llm" and got[0] == S("pick cup | go p1"), got
 
 # ---- lists: only "or" / one of / 중 is a choice; "and" is both, in turn ----
@@ -293,3 +293,27 @@ assert llm_says("go to p2, then chill there and wiggle", [{"do": "go", "to": ["p
 assert llm_says("go to p2, then chill there and do whatever the visitors tell you", [{"do": "go", "to": ["p2"]},
                 {"do": "wait", "s": None, "until": "instruction"}])[0] == S("go p2 | wait order")
 print("steps wait ok")
+
+# ---- three or four steps in one breath on the conference map (tests/steps_cases7.py) ----
+from assistant import brain
+from tests import steps_cases7 as c7
+failed = []
+for text, want in list(c7.CASES.items()) + [(brain.self_correct(t, c7.CONF), w) for t, w in c7.FIXED.items()]:
+    got, unread = steps.rules(text, c7.CONF)
+    if want == "?":
+        ok = bool(unread) or bool(steps.check(got, False, c7.CONF))
+    else:
+        ok = not unread and got == [short(x.strip()) for x in want.split(" | ")]
+    if not ok:
+        failed.append(text)
+        print(f"FAIL {text!r}\n  want {want}\n  got  {got}\n  unread {unread}")
+for want, (en, ko) in c7.READ_BACK.items():
+    s_ = [short(x.strip()) for x in want.split(" | ")]
+    for lang, said in (("en", en), ("ko", ko)):
+        if steps.describe(s_, lang) != said:
+            failed.append(want)
+            print(f"FAIL read-back {lang} {want!r}\n  want {said}\n  got  {steps.describe(s_, lang)}")
+print(f"{len(c7.CASES) + len(c7.FIXED) - sum(1 for f in failed if f in c7.CASES or f in c7.FIXED.values())}/"
+      f"{len(c7.CASES) + len(c7.FIXED)} read right on the conference map")
+assert not failed
+print("steps conference ok")

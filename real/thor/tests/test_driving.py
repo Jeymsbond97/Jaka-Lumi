@@ -151,4 +151,11 @@ for m, v in ((0.01, "-0.050"), (0.3, "-0.120")):
     assert vel == {v}, (m, vel)
 fetch.speed_factor = 1.0
 fetch.agv.request, skills.moved = real_request, real_moved
+# "again" / "a bit more" right after a turn (2026-10-21)
+_turn = driving.last_command([("turn left", "ACTION: turn left 90")])
+assert _turn == ("turn", "left 90"), _turn
+for _t, _want in {"again": ("turn", "left 90"), "한 번 더": ("turn", "left 90"), "one more time": ("turn", "left 90"),
+                  "a bit more": ("turn", "left 15"), "조금 더": ("turn", "left 15")}.items():
+    assert driving.read(brain._norm(_t), _turn) == _want, (_t, driving.read(brain._norm(_t), _turn))
+assert driving.read("a bit more", ("turn", "around 180")) == ("ask", "")
 print("driving: all self-checks passed")

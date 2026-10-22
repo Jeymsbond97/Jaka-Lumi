@@ -22,6 +22,7 @@ LITTLE_M = 0.5               # m; "a little", "a bit", "조금", "좀" (as befor
 TINY_M = 0.05                # m; "a tiny bit", "a hair", "a few centimetres", "살짝"; estimate
 SPAN_M = 0.2                 # m; "한 뼘", one hand span; estimate
 STEP_M = 0.5                 # m; one step ("two steps", "한 걸음", "반 걸음"); estimate of a person's step
+TURN_MORE_DEG = 15.0         # deg; "a bit more" right after a turn: this much further the same way
 
 DIRS = (("back", r"\bback(?:wards?)?\b|\bbackward\b|\breverse\b|^(?:let'?s )?(?:bake|big)\b(?= \d| half| a )|뒤로|뒤쪽|후진|"
                  r"물러"),                                    # whisper's "let's bake / big one meter"
@@ -130,7 +131,7 @@ def speed(t):
 
 def read(t, last=None, talking=False):
     """What a sentence asks of the base, or None (not about driving):
-    ("move", "back 0.2", exact) | ("speed", +1 | -1) | ("refuse", "back 5") | ("ask", "back" | "").
+    ("move", "back 0.2", exact) | ("turn", "left 90") | ("speed", +1 | -1) | ("refuse", "back 5") | ("ask", "back" | "").
     `last` is the move / speed just before (last_command(history)): "more" / "again" repeat it. With none and
     `talking` (the turn before was conversation) "more" is left to the conversation, else it is asked about."""
     t = clean(t)
@@ -142,6 +143,10 @@ def read(t, last=None, talking=False):
             return None if talking else ("ask", "")          # "more" of what?
         if LESS.search(t):
             return ("speed", -1) if last[0] == "speed" else None
+        if last[0] == "turn" and re.search(r"\b(?:more|bit|little)\b|조금|좀|살짝|약간", t) and \
+                not re.search(r"\bagain\b|한 ?번|똑같이|아까처럼|(?:one|1) more time|once more", t):
+            side = last[1].split()[0]                        # "a bit more" after "turn left": a little further
+            return ("turn", f"{side} {TURN_MORE_DEG:g}") if side in ("left", "right") else ("ask", "")
         return last
     if last and last[0] == "move" and re.search(r"\bmore\b|더", t) and direction(t) is None and not JOINED.search(t):
         n, exact = amount(t)                                 # "just a few centimetres more", "10센티 더"
@@ -160,12 +165,14 @@ def _checked(d, n, exact):
 
 
 def last_command(history):
-    """The move or speed change of the turn just before, from brain history ("ACTION: move back 0.2"), else None."""
+    """The move, turn or speed change of the turn just before, from brain history ("ACTION: move back 0.2"), else None."""
     if not history:
         return None
-    m = re.match(r"ACTION: (move|speed) (\S+)(?: (\S+))?", history[-1][1] or "")
+    m = re.match(r"ACTION: (move|speed|turn) (\S+)(?: (\S+))?", history[-1][1] or "")
     if not m:
         return None
+    if m.group(1) == "turn":                                 # "turn left" then "again": the same turn
+        return ("turn", "around 180" if m.group(2) == "around" else f"{m.group(2)} {m.group(3) or 90}")
     if m.group(1) == "speed":
         return ("speed", int(m.group(2)))
     return ("move", f"{m.group(2)} {m.group(3)}", True) if m.group(3) else None

@@ -203,7 +203,7 @@ for word, val in OBJ_KO[:5]:
 for t in ["take the cup, go to p3 and give it to Mina", "pick up the bottle, turn around and give it to me",
           "go to p2, wait 10 seconds and come back", "컵 집어서 p3로 가서 줘", "pick up the apple and hand it to me",
           "take the cup and put it on the chair", "사과 집어서 나한테 줘"]:
-    add("mission", t, "mission | action:fetch")
+    add("mission", t, "mission | action:fetch | refuse" if "bottle" in t else "mission | action:fetch")   # the bottle: why not
 
 # ---------- status ----------
 for t in ["what are you holding?", "what's in your hand?", "where are you going?", "what are you doing?", "뭐 하고 있어?",

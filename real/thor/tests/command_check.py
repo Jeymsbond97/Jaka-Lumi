@@ -5,8 +5,9 @@
     .venv/bin/python tests/command_check.py --cached     # the LLM's answers from the last --llm run where the text is
                                                          # the same (fast, after a rule change)
     .venv/bin/python tests/command_check.py receive      # only this intent
+    .venv/bin/python tests/command_check.py --new        # only the second set (tests/command_cases2.py); --old the first
 
--> logs/command_check.md / .json. The order is lumi.answer()'s with nothing running and the hand empty ("idle") or
+-> logs/command_check.md / .json (rules only: logs/command_check_rules.*). The order is lumi.answer()'s with nothing running and the hand empty ("idle") or
 holding something ("holding"): stop, what the cameras see (seeing.answer), status, the hand (brain.hand_request), mission, goodbye / closing words, song,
 keyword rules, then the LLM's action line acted on as lumi.answer() does. Nothing moves; the LLM is only asked.
 """
@@ -19,15 +20,20 @@ import time
 
 from assistant import brain, driving, lumi, seeing
 from audio import sing
-from tests.command_cases import CASES
+from tests.command_cases import CASES as CASES1
+from tests.command_cases2 import CASES as CASES2   # 2026-10-21 night: new wordings, the conference map
 from tests.conversation_check import NOW, markers
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUT = ROOT / "logs" / "command_check"
 HOLDING_NOW = "I'm holding a cup and waiting for what to do with it."
 NO_MOTION = {"seeing", "talk", "unclear", "status", "empty_hand", "refuse", "search", "weather", "llm?", "ask", "speed"}
-QUICK = {"go_to", "come", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put", "move_object", "fetch",
-         "look", "lift", "wave"}   # lumi.quick_command
+QUICK = {"go_to", "come", "follow", "come_back", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put",
+         "move_object", "fetch", "look", "lift", "wave"}   # lumi.quick_command
+
+
+class NoLLM(Exception):
+    """A rules-only run reached the mission reader's LLM pass."""
 
 
 def seen(text):
@@ -46,10 +52,15 @@ def rules(text, state, marks, b):
     holding = state == "holding"
     if lumi.FOREIGN_SCRIPT.search(text):
         return "unclear"
+    fixed = brain.self_correct(text, marks)              # "go to start, no, end"
+    if not fixed:
+        return "ask" if fixed is None else "talk"
+    text = fixed
     t = brain._norm(text)                                # lumi.drive_words: speed, "again", how far?, too far
     drive = driving.read(t, driving.last_command(b.history), driving.talking(b.history))
     if drive and (drive[0] != "move" or drive != driving.read(t, None, True)):
         return {"speed": lambda d: f"speed {'faster' if d[1] > 0 else 'slower'}", "move": lambda d: f"action:move {d[1]}",
+                "turn": lambda d: f"action:turn {d[1]}",
                 "refuse": lambda d: "refuse", "ask": lambda d: "ask"}[drive[0]](drive)
     if lumi.NAME_ONLY.match(text):
         return "talk"
@@ -70,7 +81,8 @@ def rules(text, state, marks, b):
                 "refuse": lambda h: "refuse", "ask": lambda h: "talk"}[hand[0]](hand).strip()
     read = lumi.read_mission(text, marks)
     if read:
-        return "talk" if read[1] else "mission"
+        from assistant import steps                      # lumi.mission_request: refused before anything moves
+        return "talk" if read[1] else "refuse" if steps.check(read[0], holding, marks) else "mission"
     if lumi.talk_fate(text) == "end":
         return "end"
     if lumi.talk_fate(text) == "wait":
@@ -86,6 +98,7 @@ def rules(text, state, marks, b):
 def llm(text, state, marks, b):
     """(route, action line, first sentence) from the real model, acted on like lumi.answer()."""
     brain.FORCED_LANG["lang"] = "ko" if brain.HANGUL.search(text) else "en"
+    text = brain.self_correct(text, marks) or text
     gen = b.respond_stream(text, marks, now=HOLDING_NOW if state == "holding" else NOW)
     head = next(gen)
     first = next(gen, "") or ""
@@ -136,20 +149,31 @@ def ok(expect, got):
 
 
 def main(args):
+    global OUT
     marks = markers()
     use_llm, cached = "--llm" in args, "--cached" in args
+    cases = CASES2 if "--new" in args else CASES1 if "--old" in args else CASES1 + CASES2
     only = [a for a in args if not a.startswith("-")]
     old = {}
     if cached and OUT.with_suffix(".json").exists():
         old = {(r["text"], r["state"], str(r["before"])): r for r in json.loads(OUT.with_suffix(".json").read_text())
                if r.get("raw")}
+    if not use_llm and not cached:
+        OUT = OUT.with_name("command_check_rules")       # a rules-only run keeps the last LLM run's report
+    if not use_llm:                                      # a mission's LLM pass (lumi.read_mission) only with --llm
+        from assistant import steps
+        steps._ollama = lambda *a: (_ for _ in ()).throw(NoLLM())
     rows, t0 = [], time.time()
-    for i, c in enumerate(c for c in CASES if not only or c["intent"] in only):
+    for i, c in enumerate(c for c in cases if not only or c["intent"] in only):
         b = brain.Brain()
         if c["before"]:
             b.history.append(tuple(c["before"]))
         brain.FORCED_LANG["lang"] = c["lang"] if c["lang"] in ("en", "ko") else "ko"
-        got, raw, first = rules(c["text"], c["state"], marks, b), "", ""
+        mk = c.get("markers") or marks
+        try:
+            got, raw, first = rules(c["text"], c["state"], mk, b), "", ""
+        except NoLLM:
+            got, raw, first = "llm?", "", ""
         if got is None:
             key = (c["text"], c["state"], str(c["before"]))
             if key in old:
@@ -158,7 +182,7 @@ def main(args):
                 got = act(a, tgt, first, c["state"])
             elif use_llm:
                 try:
-                    got, raw, first = llm(c["text"], c["state"], marks, b)
+                    got, raw, first = llm(c["text"], c["state"], mk, b)
                 except Exception as e:                          # noqa: BLE001 - a crash is a failure of that case
                     got, raw = "error", repr(e)
             else:
