@@ -153,6 +153,9 @@ and `--start` for the detector. Line numbers may move; search the name.
 | `audio/ears.py` | `PROMPT`, `LANG_PROMPT` | "Hi Lumi. Hey Lumi. 루미야."; one per language | Whisper's prompt (spells the name); `LANG_PROMPT` when asked again in one language (the mixed prompt made it write Korean in Latin letters) |
 | `audio/ears.py` | `MIN_LOGPROB` | −1.0 | Below this average log-probability Lumi asks to say it again |
 | `audio/ears.py` | `KO_BONUS`, `ODD_KO_BONUS` | 0.3, 0.3 | How much more a Hangul transcription counts when whisper named another language / wrote English with a word no dictionary has (forced to English, Korean comes back translated) |
+| `audio/ears.py` | `VAD_P`, `MIN_SPEECH_S` | 0.3, 0.1 s | A sound needs this many seconds of 32 ms frames Silero calls speech (probability above `VAD_P`), else it is music or noise and never reaches whisper. Real clips 2026-10-22: music only 0–0.13 s, speech 0.45 s and more. Higher drops more music but also short words in echo ("네.", "Stop." are 0.3–0.4 s) |
+| `audio/ears.py` | `SPEECH_PER_SYLLABLE` | 0.05 s | A text needs this much speech per syllable, else it came from music ("감사합니다." from 0.2 s of speech frames). Spoken cases have 0.08 s and more |
+| `audio/ears.py` | `NOT_SAID` | no word, a leading "-", 자막 / 시청해 주셔서 / thanks for watching | Whisper's subtitle texts for music, dropped |
 | `audio/ears.py` | `BEAM_SIZE` | 0 (greedy) | Whisper beam search; 5 was +3 of 254 cases (within noise) and slower |
 | `assistant/llm_direct.py` | `KEEP_EVERY_S` | 60 s | How often Ollama is told to keep the model loaded (it doesn't see the direct requests) |
 

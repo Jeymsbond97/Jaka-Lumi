@@ -373,7 +373,7 @@ add("fetch", "bring the cup from start to table front", "action:fetch | mission"
 add("fetch", "pass me the cup", "mission | action:fetch")
 add("fetch", "can I have the apple?", "mission | action:fetch")
 add("fetch", "컵 좀 줘", "mission | action:fetch")
-add("fetch_refuse", "bring me a bottle from the stage", "refuse | talk | ask")
+add("fetch", "bring me a bottle from the stage", "action:fetch | mission")   # bottles by their body since 2026-10-22
 add("fetch_unknown", "bring me a cup from the kitchen", "refuse | talk | ask | action:fetch")   # parse_fetch asks
 add("fetch_not", "I brought my own cup", "talk")
 

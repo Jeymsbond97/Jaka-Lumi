@@ -1946,7 +1946,7 @@ class Lumi:
         if not text or self.interrupted():
             if not self.interrupted():
                 log(f"  heard nothing (mic noise {ears.last.get('noise')}, threshold {ears.last.get('threshold')}, "
-                    f"loudest {ears.last.get('peak')})")
+                    f"loudest {ears.last.get('peak')}{', ' + ears.last_stt['dropped'] if ears.last_stt.get('dropped') else ''})")
             return False
         self.who_spoke(u)
         self.answer(text)
@@ -2357,6 +2357,14 @@ class Lumi:
             self.act(head_["action"], head_["target"])
         first = next(gen, None)
         log(f"  first sentence after {time.time() - t:.1f} s")
+        promise = brain_mod.promised(first) if head_["action"] == "none" else None
+        if promise == "sing" or promise == "wave" and not self.arm_off():   # the reply says it: Lumi does it
+            log(f"  the reply promises {promise}: done")
+            if promise == "sing":
+                gen.close()
+                self.sing_song(text)
+                return
+            self.act("wave", "")
         if head_["action"] in ("none", "sing") and not repeating and look_up_unsure(about, first, text):
             gen.close()                                    # the model does not know: look it up instead
             log(f"  not sure ({first[:60]!r}) - looking it up")

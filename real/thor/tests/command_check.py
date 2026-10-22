@@ -6,6 +6,7 @@
                                                          # the same (fast, after a rule change)
     .venv/bin/python tests/command_check.py receive      # only this intent
     .venv/bin/python tests/command_check.py --new        # only the second set (tests/command_cases2.py); --old the first
+    .venv/bin/python tests/command_check.py --songs      # only the song set (tests/song_cases.py) -> logs/song_check.*
 
 -> logs/command_check.md / .json (rules only: logs/command_check_rules.*). The order is lumi.answer()'s with nothing running and the hand empty ("idle") or
 holding something ("holding"): stop, what the cameras see (seeing.answer), status, the hand (brain.hand_request), mission, goodbye / closing words, song,
@@ -23,6 +24,7 @@ from audio import sing
 from tests.command_cases import CASES as CASES1
 from tests.command_cases2 import CASES as CASES2   # 2026-10-21 night: new wordings, the conference map
 from tests.command_cases3 import CASES as CASES3   # the same night, written blind from docs/14 and docs/17
+from tests.song_cases import CASES as SONGS        # 2026-10-22: song requests and near misses, written blind
 from tests.conversation_check import NOW, markers
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -86,7 +88,7 @@ def rules(text, state, marks, b):
         return "talk" if read[1] else "refuse" if steps.check(read[0], holding, marks) else "mission"
     if lumi.talk_fate(text) == "end":
         return "end"
-    if sing.asked(text):
+    if sing.asked(text, b.history[-1][1] if b.history else ""):
         return "sing"
     rule = brain.intent(text, marks)
     if rule and rule[0] in QUICK:
@@ -102,6 +104,8 @@ def llm(text, state, marks, b):
     head = next(gen)
     first = next(gen, "") or ""
     gen.close()
+    if head["action"] == "none" and brain.promised(first):   # lumi.answer() does what the reply promises
+        head = {"action": brain.promised(first), "target": ""}
     target = (brain._mentions(text, marks).get("object") or "") if head["action"] == "receive" else head["target"]
     return act(head["action"], target, first, state), f"{head['action']} {target}".strip(), first
 
@@ -153,7 +157,9 @@ def main(args):
     global OUT
     marks = markers()
     use_llm, cached = "--llm" in args, "--cached" in args
-    cases = CASES2 if "--new" in args else CASES3 if "--blind" in args else CASES1 if "--old" in args else \
+    if "--songs" in args:
+        OUT = OUT.with_name("song_check")
+    cases = SONGS if "--songs" in args else CASES2 if "--new" in args else CASES3 if "--blind" in args else CASES1 if "--old" in args else \
         CASES1 + CASES2 + CASES3
     only = [a for a in args if not a.startswith("-")]
     old = {}

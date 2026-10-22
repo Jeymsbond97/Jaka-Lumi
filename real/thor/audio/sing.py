@@ -64,6 +64,9 @@ SONG_LIST = re.compile(r"\b(?:what|which) (?:kinds? of |sort of |other )?(?:song
                        r"아는\s*노래|부를\s*(?:수\s*있는|줄\s*아는)\s*노래|노래\s*목록", re.I)
 NOT_REQUEST = re.compile(r"\b(?:do|did) you (?:really )?(?:like|love|enjoy)\b|"
                          r"\bwho sings?\b|\bfavou?rite\b|좋아하는|좋아해|잘\s*(?:해|하|불러)", re.I)
+NOT_ASKED = re.compile(r"\b(?:don'?t|do not|never)\s+(?:\w+\s+)?(?:sing|play)\b|\b(?:i|we)(?:'ll| will|'m going to)? sing\b|"
+                       r"(?:부르|하|틀|불르)지\s*(?:마|말)|노래방", re.I)   # "don't sing", "I'll sing later", "노래 부르지 마":
+                                                                        # no song, also when the LLM says sing
 # right after a song (or the list of songs): a short word switches or repeats it
 AFTER_SONG = re.compile(r"^\W*(?:(?:lumi|ok|okay|no|nah|um|please|then|now|and)\W+)*(?:sing |play )?"
                         r"(?:another(?: one)?|(?:the )?next(?: one)?|a different one|something (?:else|different)|"
@@ -81,7 +84,8 @@ FILLER = {"sing", "a", "an", "the", "song", "songs", "me", "us", "for", "please"
           "one", "another", "different", "other", "next", "little", "short", "can", "you", "could", "would", "will", "to",
           "it", "that", "this", "together", "with", "and", "your", "nice", "hey", "hi", "ok", "okay", "play", "music",
           "in", "korean", "english", "else", "let's", "lets", "let", "go", "now", "pretty", "beautiful", "my", "kids",
-          "children", "children's", "cute", "fun", "favorite", "favourite", "of", "yours", "so", "just", "maybe", "then"}
+          "children", "children's", "cute", "fun", "favorite", "favourite", "of", "yours", "so", "just", "maybe", "then",
+          "anything", "whatever", "any"}
 UNKNOWN = {"en": "Sorry, I don't know that song yet. I can sing {}.", "ko": "그 노래는 아직 몰라요. {} 부를 수 있어요."}
 LIST = {"en": "I can sing {}. Which one would you like?", "ko": "{} 부를 수 있어요. 어떤 노래 불러 드릴까요?"}
 
@@ -102,7 +106,7 @@ def asked(text, last=""):
     `last` is the assistant's answer just before (brain history): right after a song a short "another one" /
     "again" / "그거 말고" is a song too, right after the list of songs also a title alone ("Arirang")."""
     t = text or ""
-    if NOT_REQUEST.search(t) or SONG_LIST.search(t):
+    if NOT_REQUEST.search(t) or NOT_ASKED.search(t) or SONG_LIST.search(t):
         return False
     if re.match(r"ACTION: (?:sing|none songs)\b", last or "") and AFTER_SONG.search(t):
         return True
@@ -134,7 +138,8 @@ def _unknown_title(text):
         if after and after[0] not in FILLER:          # "sing yesterday"; "sing for everyone" is no title
             return True
     m = re.search(r"(\S+?)\s*(?:을|를)?\s*(?:좀\s*)?(?:불러|들려)", text or "")
-    return bool(m) and not re.search(r"노래|좀|곡|하나|루미|아무|뭐|뭔가|^(한|또|더|다시|거|걸|것)$", m.group(1))
+    return bool(m) and not re.search(r"노래|좀|곡|하나|루미|아무|뭐|뭔가|^(한|또|더|다시|거|걸|것|네|예|응|그럼|좋아요?|어서|빨리)$",
+                                     m.group(1).strip(",.!?~ "))
 
 
 def choose(text, lang="en", last=None):

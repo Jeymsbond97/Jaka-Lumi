@@ -6,6 +6,8 @@ microphones, sent through ears.transcribe() exactly as Lumi does, then through L
     .venv/bin/python tests/asr_check.py --prompt "..."   # another whisper prompt than ears.PROMPT
     .venv/bin/python tests/asr_check.py --cases 2        # the second set (tests/asr_cases2.py)
     .venv/bin/python tests/asr_check.py --cases 3        # noise and talk not to Lumi (tests/asr_cases3.py)
+    .venv/bin/python tests/asr_check.py --cases 4        # music only, and speech over soft music (tests/asr_cases4.py)
+    .venv/bin/python tests/asr_check.py --no-vad         # without the speech detector and the subtitle-text filter
     .venv/bin/python tests/asr_check.py --heard          # also the real clips in logs/heard/ (text only, no judgement)
     .venv/bin/python tests/asr_check.py --set LANG_RETRY=False --tag before   # an ears constant; -> logs/asr_check_before.md
 
@@ -33,6 +35,7 @@ from audio import ears
 from tests.asr_cases import CASES
 from tests.asr_cases2 import CASES as CASES2
 from tests.asr_cases3 import CASES as CASES3
+from tests import asr_cases4
 from tests.command_check import rules
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -140,6 +143,8 @@ def judge(c, heard, stt):
         if heard and (lumi.WAKE.search(heard) or lumi.HELLO_ONLY.match(heard)):
             return "slip", "wake word"
         got = route(heard, brain.Brain()) if heard else "llm"
+        if c.get("music") and heard and ears.understood():      # in a conversation any text taken is a turn
+            return "slip", f"a turn ({got})"
         return ("slip", got) if heard and ears.understood() and re.match(
             r"action|receive|give|place|stop|mission|sing", got) else ("right", "")
     if not heard:
@@ -174,20 +179,27 @@ def main(args):
             setattr(ears, k, type(getattr(ears, k))(eval(v)))
     only = args[args.index("--only") + 1] if "--only" in args else None
     tag = args[args.index("--tag") + 1] if "--tag" in args else ""
+    if "--no-vad" in args:                                       # before 2026-10-22: every sound went to whisper
+        ears.MIN_SPEECH_S, ears.SPEECH_PER_SYLLABLE, ears.NOT_SAID = -1.0, 0.0, re.compile(r"(?!)")
     if "--port" in args:                                         # a whisper-server already running there
         global STT_PORT
         STT_PORT = int(args[args.index("--port") + 1])
     start_server()
     rng = np.random.default_rng(5)
     rows, t0 = [], time.time()
-    pool = {"1": CASES, "2": CASES2, "3": CASES3}[args[args.index("--cases") + 1] if "--cases" in args else "1"]
+    pool = {"1": CASES, "2": CASES2, "3": CASES3, "4": asr_cases4.CASES}[args[args.index("--cases") + 1] if "--cases" in args else "1"]
     cases = [c for c in pool if not only or re.search(only, c["text"])]
     for i, c in enumerate(cases):
         voice, speed = VOICES[i % len(VOICES)], [0.85, 0.95, 1.05, 1.15][(i // len(VOICES)) % 4]
         x = synth(c["say"], voice, speed)
+        if c.get("music") and not c["say"]:                      # music only
+            x = asr_cases4.music(c["music"])
+        elif c.get("music"):                                     # speech over music, music_db below it
+            m = asr_cases4.music(c["music"], len(x) / ears.RATE)[:len(x)]
+            x = x + m * np.sqrt(np.mean(x ** 2) / (np.mean(m ** 2) + 1e-12)) / 10 ** (c["music_db"] / 20)
         for rname in rooms:
             others = [synth(pool[(i * 7 + k * 13) % len(pool)]["say"], VOICES[(i + k + 3) % 10], 1.0) * 0.5
-                      for k in range(3)] if ROOMS[rname]["babble"] else ()
+                      for k in range(3)] if ROOMS[rname]["babble"] and c["say"] else ()   # music alone: no people
             audio = room(x, ROOMS[rname], rng, others)
             t1 = time.time()
             heard = ears.transcribe(audio, ears.PROMPT)

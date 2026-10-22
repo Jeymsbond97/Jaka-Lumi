@@ -23,6 +23,7 @@ from assistant import knowledge
 from assistant import llm_direct
 from assistant import wording
 from assistant import web
+from audio import sing                                     # its words only (no sound on import)
 from vision import objects
 from robot import head as head_hw                         # its ranges only (no call on import)
 
@@ -289,7 +290,9 @@ A place must be one of the marker names exactly; a place that is not on the list
 "주방") is go_to none: say which places you know, never pick the nearest. fetch only when an object is named.
 Short Korean commands are commands: "컵 가져다 줘" -> fetch cup, "컵 옮겨" -> move_object cup, "잡아" -> pick.
 - quiet: the visitor wants silence ("be quiet", "stop talking", "shut up", "조용히 해", "그만 말해").
-- sing: the visitor asks for a song. A real song with music then plays: only write a short "Okay!" / "네!".
+- sing: the visitor asks for a song or for music ("play / make / do some music", "음악 틀어 줘", "한 곡 해 줘"), or
+  says yes / "any" / "you choose" / "아무거나" to your offer of a song. You make music by singing one of your songs:
+  never say you can't play music. A real song with music then plays: only write a short "Okay!" / "네!".
   A joke is not a song: "tell me a joke", "prove it", "try again" after a joke is none, with a short joke.
 - weather <place>: the visitor asks about the weather (place in English; - means here, Seoul).
 - search <query>: you need facts from the internet you do not know (news, prices, opening hours, people...).
@@ -1383,10 +1386,23 @@ IN_LANGUAGE = re.compile(r"^\s*(and |then |now |okay,? |and say it |say (it|that
                          r"\s*[!?.~]*\s*$", re.I)
 WAVE_ASK = re.compile(r"\bwav(e|ing)(?![a-z])|\bwith your hand\b|\bshake (?:your |my )?hands?\b(?! with\b)|흔들|손 ?인사|인사.*손으로|손으로.*인사", re.I)
 AGAIN = re.compile(r"\b(?:again|once more|one more time|another one)\b|한 ?번 ?더|다시|또 ?(?:해|보여|불러)", re.I)
-DO_IT = re.compile(r"^\W*(?:(?:okay|ok|then|so|well|go on|come on)\W+)*(?:do it|show me|go ahead|let'?s see(?: it)?|"
+DO_IT = re.compile(r"^\W*(?:(?:okay|ok|sure|yes|yeah|then|so|well|go on|come on)\W+)*(?:do it|show me|go ahead|let'?s see(?: it)?|"
                    r"try it|go for it|please do)(?:\W+(?:then|now|please))*\W*$|"
                    r"^\W*(?:그럼|자|어디)?\s*(?:한 ?번\s*)?(?:해 ?봐|해 ?줘|해 ?보세요|해 ?주세요|보여 ?줘|보여 ?주세요)(?:요)?\W*$", re.I)
 SING_ASK = re.compile(r"\bsing|\bsong|\bmusic\b|노래|한 ?곡|불러", re.I)
+PROMISE = {   # Lumi's own sentence saying it does this now ("Okay! I'll sing a song for you.", "아리랑을 불러 드릴게요.")
+    "sing": re.compile(r"\b(?:i'll|i will|let me|i'm going to) sing\b|\bhere(?:'s| is| comes| goes) (?:a |my |one |the )?song\b|"
+                       r"(?:불러|들려)\s*(?:드릴게요|드리겠습니다|줄게|볼게요)|부를게요", re.I),
+    "wave": re.compile(r"\b(?:i'll|i will|let me) wave\b|흔들어\s*(?:드릴게요|볼게요|줄게)|흔들게요", re.I),
+}
+NOT_NOW = re.compile(r"\b(?:if|when|later|after|once|next time)\b|나중에|끝나면|으면|다면", re.I)   # "... if you'd like"
+
+
+def promised(sentence):
+    """'sing' / 'wave' when Lumi's sentence says it does that now, else None: lumi.answer() then does it although the
+    model's action line was none ("Start with one." -> "Okay! I'll sing a song for you." and silence, 2026-10-22)."""
+    s = sentence or ""
+    return None if NOT_NOW.search(s) else next((a for a, r in PROMISE.items() if r.search(s)), None)
 LOOK_MORE = re.compile(r"^\W*(?:and|now|then|and now)?\s*(up|down|left|right)\W*$|"
                        r"^\W*(?:이제|그럼|그리고)?\s*(위|아래|왼쪽|오른쪽)(?:도|로|으로|요|도요)?\W*$", re.I)  # right after a look
 LOOKUP_MORE = re.compile(r"\b(he|she|him|his|her|they|them|their|there|it|that)\b|거기|그 ?사람|그분|그거|그게|그곳|왜|"
@@ -1703,19 +1719,24 @@ class Brain:
         """The action line checked against the turn before: a song only when one is asked for (or asked again),
         "and down?" right after a look looks down, a follow-up question ("how old is he?", "거기 입장료는?") right
         after a lookup is looked up too."""
+        if header and header["action"] == "sing" and sing.NOT_ASKED.search(text):
+            return {"action": "none", "target": ""}        # "Don't sing.", "어제 노래방 갔어요."
         if not header or not self.history:
             return header
         last_q, last_a = self.history[-1]
         m = re.match(r"\s*\**ACTION\**\s*:\s*(\w+)", last_a)
         before, action = (m.group(1).lower() if m else ""), header["action"]
-        if action == "sing" and before != "sing" and (not SING_ASK.search(text) or SING_ECHO.match(text)):
-            return {"action": "none", "target": ""}        # "Prove it." after "do you have a sense of humour?"
+        if action == "sing" and before != "sing" and (SING_ECHO.match(text) or not SING_ASK.search(text) and
+                                                      not SING_ASK.search(f"{last_q} {last_a}")):
+            return {"action": "none", "target": ""}        # "Prove it." after "do you have a sense of humour?";
+                                                           # "Start with one." after Lumi offered its songs is a song
         if DO_IT.match(text) and action in ("none", "unclear"):
             asked = "wave" if WAVE_ASK.search(last_q) else "sing" if SING_ASK.search(last_q) else None
             if asked:                                      # "손 흔들 줄 알아?" -> "해 봐": now do it
                 return {"action": asked, "target": ""}
         if before in ("wave", "sing") and action in ("none", "unclear") and AGAIN.search(text) and not \
-                re.search(r"\b(?:say|tell|repeat|explain)\b|말해|말씀", text, re.I):
+                re.search(r"\b(?:say|tell|repeat|explain|what|who|where|when|why|which)\b|말해|말씀|뭐|누구|어디|언제|왜",
+                          text, re.I):                     # "What's your name again?" after a song asks the name
             return {"action": before, "target": ""}      # "would you mind doing it again?" after a wave
         look = LOOK_MORE.match(text)
         if before == "look" and look and action in ("none", "unclear"):

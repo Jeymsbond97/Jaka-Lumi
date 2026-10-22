@@ -9,6 +9,8 @@ from audio import ears
 ears.ensure_stt_server = lambda: None
 ears.HEARD_DIR = ears.ROOT / "logs" / "asr_check" / "heard_test"
 AUDIO = np.zeros(16000, np.int16)
+real_speech_seconds = ears.speech_seconds
+ears.speech_seconds = lambda audio: 1.0          # the cases below are speech; the detector is checked at the end
 
 
 def fake(answers):
@@ -50,4 +52,26 @@ assert ears.transcribe(AUDIO) == "" and asked == [None, "no prompt"], asked
 # the name really said: kept
 asked = fake({None: ("Hey Lumi.", "english", 0.9, -0.05), "no prompt": ("Hey, Liumu!", "english", 0.9, -0.8)})
 assert ears.transcribe(AUDIO) == "Hey Lumi." and asked == [None, "no prompt"], asked
+# music or noise (no speech frames): whisper is not asked
+ears.speech_seconds = lambda audio: 0.03
+asked = fake({None: ("-끝-", "korean", 0.9, -0.01)})
+assert ears.transcribe(AUDIO) == "" and asked == [] and "no speech" in ears.last_stt["dropped"], asked
+# whisper's subtitle texts for music, with some speech frames: dropped
+ears.speech_seconds = lambda audio: 0.4
+for text in ["-끝.", "- 네.", "-", "...", "자막 제공 및 광고를 포함하고 있습니다.", "Thanks for watching!"]:
+    fake({None: (text, "korean", 0.9, -0.01)})
+    assert ears.transcribe(AUDIO) == "", text
+fake({None: ("네.", "korean", 0.9, -0.1)})
+assert ears.transcribe(AUDIO) == "네."
+# more words than the speech held: "감사합니다." from 0.2 s of speech frames is music; from 0.4 s it was said
+ears.speech_seconds = lambda audio: 0.2
+fake({None: ("감사합니다.", "korean", 0.9, -0.01)})
+assert ears.transcribe(AUDIO) == "" and "from 0.20 s" in ears.last_stt["dropped"]
+ears.speech_seconds = lambda audio: 0.4
+assert ears.transcribe(AUDIO) == "감사합니다."
+# the detector itself: silence and piano-like music have no speech (the model file is local, models/)
+if real_speech_seconds(AUDIO) is not None:
+    from tests.asr_cases4 import synth
+    assert real_speech_seconds(AUDIO) == 0.0
+    assert real_speech_seconds((synth(0, 3.0) * 8000).astype(np.int16)) < ears.MIN_SPEECH_S
 print("ears ok")

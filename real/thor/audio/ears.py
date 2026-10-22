@@ -106,6 +106,22 @@ _words = set()
 last_stt = {}                    # language / confidence of the last transcription (see understood())
 
 
+VAD_MODEL = ROOT / "models/silero_vad.onnx"   # Silero VAD v5.1.2 (MIT), 2.3 MB, from github.com/snakers4/silero-vad
+                                 # /raw/v5.1.2/src/silero_vad/data/silero_vad.onnx; missing: every sound goes to whisper
+VAD_P = 0.3                      # a 32 ms frame is speech when Silero's probability is above this
+MIN_SPEECH_S = 0.1               # s of speech frames an utterance needs, else it is music or noise and whisper is not
+                                 # asked: soft music passes mic.py's level check and whisper writes "-", "-끝-", "감사합니다."
+                                 # for it. logs/heard 2026-10-22 12:17-12:29: the 27 clips of music only had 0-0.13 s
+                                 # (those above 0.1 s came back as "-" / "Lumi." and are dropped anyway), the 23 of
+                                 # speech 0.45 s and more; tests/asr_check.py --cases 4
+SPEECH_PER_SYLLABLE = 0.05       # s of speech frames a text needs per syllable: whisper's "감사합니다." for music came
+                                 # with 0.13-0.29 s (0.03-0.06 s per syllable); spoken cases (tests/asr_check.py, 898)
+                                 # have 0.08 s and more, 1 % below 0.11 s
+NOT_SAID = re.compile(r"^\W*$|^\s*-|자막|시청해\s*주셔서|thanks? (?:you )?for watching|subtitles? by", re.I)
+                                 # whisper's subtitle habits on music: no word at all, a dialogue dash ("-끝-", "- 네."),
+                                 # a caption credit ("자막 제공 및 광고를 포함하고 있습니다.")
+_vad = {}
+
 BEAM_SIZE = 0                    # whisper beam search width (0: the server's greedy decoding)
 HEARD_DIR = ROOT / "logs" / "heard"   # the last HEARD_KEEP utterances as wav, to check what Lumi really heard
 HEARD_KEEP = 50
@@ -128,6 +144,31 @@ def _infer(wav, prompt, language=None):
     logprob = sum(s.get("avg_logprob", 0.0) for s in segs) / len(segs) if segs else 0.0
     lang = out.get("language") or out.get("detected_language")
     return out.get("text", "").strip(), lang, out.get("detected_language_probability"), logprob
+
+
+def speech_seconds(audio):
+    """Seconds of speech in int16 mono 16 kHz audio by Silero VAD (music, hum and knocks give ~0), or None when the
+    model file is missing."""
+    import numpy as np
+    if "s" not in _vad:
+        if not VAD_MODEL.exists():
+            return None
+        import onnxruntime
+        opt = onnxruntime.SessionOptions()
+        opt.intra_op_num_threads = 1
+        _vad["s"] = onnxruntime.InferenceSession(str(VAD_MODEL), opt, providers=["CPUExecutionProvider"])
+    x = audio.astype(np.float32) / 32768
+    state, ctx, n = np.zeros((2, 1, 128), np.float32), np.zeros(64, np.float32), 0
+    for i in range(0, len(x) - 511, 512):                # 32 ms frames, each with the 64 samples before it
+        c = np.concatenate([ctx, x[i:i + 512]])
+        p, state = _vad["s"].run(None, {"input": c[None], "state": state, "sr": np.array(RATE, np.int64)})
+        ctx, n = c[-64:], n + (p[0, 0] > VAD_P)
+    return n * 512 / RATE
+
+
+def syllables(text):
+    """Hangul syllables plus English vowel groups: how long the text takes to say, roughly."""
+    return len(re.findall(r"[가-힣]", text)) + len(re.findall(r"[aeiouy]+", re.sub(r"[^a-z]", " ", text.lower())))
 
 
 def names(text):
@@ -175,6 +216,11 @@ def transcribe(audio, prompt=PROMPT):
             old.unlink()
     except OSError:
         pass
+    last_stt.clear()
+    speech = speech_seconds(audio)
+    if speech is not None and speech < MIN_SPEECH_S:
+        last_stt.update(text="", dropped=f"no speech ({speech:.2f} s): music or noise")
+        return ""
     text, lang, prob, logprob = _infer(wav, prompt)
     text = names(text)
     asked = {}
@@ -200,8 +246,13 @@ def transcribe(audio, prompt=PROMPT):
         text = ""                                # the prompt's name written for a clap, a cough, "はい" (see CALL_ONLY)
     if lang == "english" and re.search(r"[가-힣]", text):
         lang = "korean"                          # "Red cup. 집어줘." tagged English: the Korean is real
-    last_stt.clear()
-    last_stt.update(text=text, language=lang, lang_prob=prob, logprob=round(logprob, 2))
+    if text and NOT_SAID.search(text):
+        last_stt.update(text="", language=lang, dropped=f"{text!r}: whisper's subtitle text, nothing said")
+        return ""
+    if speech is not None and speech < SPEECH_PER_SYLLABLE * syllables(text):
+        last_stt.update(text="", language=lang, dropped=f"{text!r} from {speech:.2f} s of speech: music or noise")
+        return ""
+    last_stt.update(text=text, language=lang, lang_prob=prob, logprob=round(logprob, 2), speech_s=speech)
     # whisper writes things like "[BLANK_AUDIO]" or "(music)" for non-speech
     return "" if text.startswith(("[", "(", "*")) else text
 
@@ -230,6 +281,7 @@ def heard_lang(default="en"):
 def listen(wait_s=8.0, on_start=None, abort=None, full=False):
     """Record one utterance and transcribe it. Returns text or None (nobody spoke, or aborted).
     full=True: returns (text, mic.Utterance) instead, for the sound direction."""
+    last_stt.pop("dropped", None)                # why the last sound was not taken (for the log), this call only
     u = record(wait_s, on_start, abort)
     if u is not None:
         last["peak"] = round(u.peak)
