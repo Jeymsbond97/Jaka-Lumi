@@ -152,17 +152,16 @@ def _distance(query):
     """The straight-line distance between the two places a "how far" question names (one: from Seoul), or ''."""
     if not HOW_FAR.search(query):
         return ""
-    for form in BETWEEN:
+    for form in BETWEEN:                         # the first form whose two places are both found
         m = form.search(query)
-        if m:
-            names = m.groups() if len(m.groups()) == 2 else (DEFAULT_PLACE, m.group(1))
-            break
+        if not m:
+            continue
+        names = m.groups() if len(m.groups()) == 2 else (DEFAULT_PLACE, m.group(1))
+        a, b = (_place(DEFAULT_PLACE if re.fullmatch(r"here|this place|you|여기", n.strip(), re.I) else n.strip())
+                for n in names)
+        if a and b and not any(p.get("population", 0) < TOWN and p not in FIXED for p in (a, b)):   # "the moon":
+            break                                                                              # a French village
     else:
-        return ""
-    a, b = (_place(DEFAULT_PLACE if re.fullmatch(r"here|this place|you|여기", n.strip(), re.I) else n.strip())
-            for n in names)
-    if not a or not b or any(p.get("population", 0) < TOWN and p not in FIXED for p in (a, b)):   # "the moon": a
-                                                                                       # village in France
         return ""
     la1, lo1, la2, lo2 = map(math.radians, (a["latitude"], a["longitude"], b["latitude"], b["longitude"]))
     km = 2 * 6371 * math.asin(math.sqrt(math.sin((la2 - la1) / 2) ** 2 +

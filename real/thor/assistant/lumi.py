@@ -2605,8 +2605,9 @@ def talk_fate(text):
     (anything else; "I see", "got it", "그렇구나", "알겠어요" are understanding, "I see?", "그래요?" a check: answered)."""
     if says_goodbye(text):
         return "end"
-    if brain_mod.is_closing(text) and (THANKS.search(text) or not brain_mod.UNDERSTOOD.search(text)):
-        return "wait"
+    if brain_mod.is_closing(text) and (THANKS.search(text) or not brain_mod.UNDERSTOOD.search(text)) or \
+            THANKS.search(text) and not THANKS_REST.sub("", THANKS.sub("", text)):
+        return "wait"                                      # "Thanks a bunch.", "Good to know. Thanks.", "고마워요~"
     return "talk"
 
 

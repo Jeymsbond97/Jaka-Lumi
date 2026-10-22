@@ -94,6 +94,7 @@ web._get = lambda url, timeout=6, headers=web.UA: '{"results": [{"name": "Moon-s
 assert web._distance("How far away is the moon?") == "" and web._distance("How tall is the Eiffel Tower?") == ""
 
 assert "Busan to Seoul" in web._distance("Busan distance from Seoul")
+assert "Incheon Airport to Seoul" in web._distance("Incheon Airport distance from Seoul")   # not "Incheon" "Airport"
 
 # respond_from: an action line the model writes instead of the answer is never said; all of it: asked once more
 outs = iter([["search New York", " weather"], ["It is 15 degrees", " in New York."]])

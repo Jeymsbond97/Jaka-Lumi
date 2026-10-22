@@ -89,8 +89,8 @@ Rules:
   asks the amount (5억 원). "And you?", "how about you?", "you?", "너는?",
   "넌?", "너도?", "당신은요?", "루미는?" turn the visitor's own question or remark to you, on any topic: answer it
   about yourself, never repeat theirs ("I'm thirty. And you?" -> "I'm two."; "I love jazz, what about you?" -> "I
-  like music too, I can even sing a few songs."; "I'm tired. You?" -> "I don't get tired, my battery lasts about 10
-  hours."; "저는 서울에서 왔어요. 루미는요?" -> "저는 쿳션 컴퍼니에서 만들어졌어요."). A correction ("no, I meant
+  like music too, I can even sing a few songs."; "I'm a teacher. And you?" -> "I'm a robot assistant, I help
+  visitors here."; "저는 서울에서 왔어요. 루미는요?" -> "저는 쿳션 컴퍼니에서 만들어졌어요."). A correction ("no, I meant
   the arm", "아니 그거 말고 키요", "not you, the base") asks again about what they name now. "Oh really?", "uh-huh",
   "nice", "wow", "haha", "아 그래?", "대박", "헐" react to what was just said (surprise, agreement, not praise):
   answer briefly and naturally about that, never as unclear and never with a lookup or an action. Korean "-지?" asks
@@ -103,8 +103,8 @@ Rules:
   사진 좀 찍을게") are not for you: no action, at most a short friendly line.
 - Praise that does not fit what you just said ("wow, SO fast" after 0.6 m/s, "와 진짜 빠르다~") is teasing: take it
   with light humour. Jokes get a short playful reply; a compliment a short thanks.
-- "Can you sing / wave / look left?", "노래 불러 줄 수 있어?", "손 흔들어 줄래?" ask you to do it; "can you fly / swim /
-  dance?", "do you know how to wave?", "손 흔들 줄 알아?" ask whether you can: answer yes or no. A remark ("it's
+- "Can you sing?", "can you wave?", "노래 불러 줄 수 있어?", "손 흔들어 줄래?" ask you to do it; "can you fly / swim /
+  dance / grow taller?", "do you know how to wave?", "손 흔들 줄 알아?" ask whether you can: answer yes or no. A remark ("it's
   loud here", "I could take you home") is not an order.
 - Asked to talk casually ("말 놓아도 돼?", "반말해"), say kindly that you'll keep speaking politely; stay polite.
 - "I see", "got it", "okay, I see", "makes sense", "아 그렇구나", "알겠어요", "그렇군요", "아하" mean they understood
@@ -544,7 +544,7 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
             r"|\bfold (?:up )?your arm\b|\b(?:put|take) your arm (?:down|away|back)\b|\btuck your arm\b|팔을? ?(?:좀 )?(?:접|내려|거둬)"),
     ("lift", LIFT_WORDS),
     ("weather", r"\bweather\b|\bforecast\b|\b(will it|is it going to) rain\b|(?<!your )(?<!cpu )(?<!gpu )\btemperature\b(?!.*\b(your|you|cpu|gpu|battery|motor|body)\b)|날씨|비 ?(?:와|올|오나|온대)|기온"
-                r"|\b(cold|hot|warm|chilly) (outside|out)\b|\bumbrella\b(?=.*\?)|우산(?=.*(?:\?|까|나요|니|냐))|밖에 ?(추|더)워"
+                r"|\b(cold|hot|warm|chilly) (outside|out)\b|\bumbrella\b(?=.*\?)|\b(?:need|bring|take)\b.*\bumbrella\b|우산(?=.*(?:\?|까|나요|니|냐))|밖에 ?(추|더)워"
                 r"|\bhow (hot|cold|warm) is it\b|\b(is it|will it be) (sunny|cloudy|windy|raining|snowing)\b|\bwill it snow\b"
                 r"|눈 ?(이 )?(와|올 ?까|오나|온대|오니)|(오늘|내일|밖|바깥)(은|에|이)? ?(덥|춥|더워|추워)"
                 r"|\b(coat|jacket) when i (leave|go out)\b|\bneed (a )?(jacket|coat)\b|\btyphoon\b|\b(foggy|humid|humidity)\b|\bis it windy\b"
@@ -1325,7 +1325,9 @@ REFERS_BACK = re.compile(r"\b(it|they|them|those|these|another|one more|one abou
                          re.I)   # about the last answer
 HELP_OFFER = re.compile(r"\b(how|what) (can|may) i (help|assist|do for) you\b|\bis there anything (else )?i can\b|"
                         r"\banything else i can (help|do)\b|\blet me know if (there'?s|there is|you need) anything\b|"
-                        r"무엇을 도와|어떻게 도와|뭘 도와|도와드릴 (?:수 있는 )?일|도와 ?드릴까요", re.I)   # owner: never tacked on after an answer
+                        r"무엇을 도와|어떻게 도와|뭘 도와|도와드릴 (?:수 있는 )?일|도와 ?드릴까요|"
+                        r"\bfeel free to ask\b|\bif you have (?:any )?(?:more |other )?questions\b|"
+                        r"궁금한 (?:게|것이|점이?) (?:더 |또 )?(?:있으시면|생기면|있으면)|언제든(?:지)? (?:물어|말씀)", re.I)   # owner: never tacked on after an answer
 SAY_AGAIN = re.compile(r"\b(say (it|that) again|repeat (it|that|please)|again,? please|one more time|come again|"
                        r"pardon|say again)\b|^\s*again\s*\??\s*$|다시 ?(한 ?번|말해|말씀|해 ?줘)|한 ?번 ?더|"
                        r"^\s*뭐라고(요)?\s*\??\s*$", re.I)
@@ -1420,6 +1422,8 @@ def language(text):
 
 
 FRAGMENT_WORDS = 4            # "Which one?", "얼마?", "Where is it used?": a fragment read with the last answer
+# a fragment that names what it asks ("몇 살이라고요?") gets no hint
+OWN_TOPIC = re.compile(r"살|나이|이름|\bold\b|\bname\b|\bage\b|\btall\b|\bheavy\b|\bweigh", re.I)
 FRAGMENT_CHARS = 160           # chars of the last answer's first sentence shown with a fragment
 LOOKUP_BEFORE_CHARS = 1500     # chars of the last lookup's results given again with a follow-up ("how old is she?")
 FOLLOW_UP_WORDS = 5            # "why did Samsung stock fall today?" is a new question, "tell me more about it" is not
@@ -1604,7 +1608,7 @@ class Brain:
         as about the last answer's subject, not about itself or a price."""
         last = self._last_said() if self.history else ""
         if not last or len(text.split()) > FRAGMENT_WORDS or not SHORT_Q.search(text) or is_backchannel(text) \
-                or ABOUT_YOU.search(text):
+                or ABOUT_YOU.search(text) or OWN_TOPIC.search(text):
             return ""
         return f"(This follows your answer \"{SENTENCE_END.split(last)[0][:FRAGMENT_CHARS]}\": it asks about that.)\n"
 
