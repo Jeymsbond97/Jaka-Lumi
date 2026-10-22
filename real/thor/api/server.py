@@ -986,18 +986,19 @@ def task_parse(body: ParseBody):
         got, unread, by = steps.read(body.text, markers, llm=False)
         if unread and got and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
             got, unread, by = steps.read(body.text, markers)          # clearly several steps: the LLM may read it
-        if got and unread and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
+        problem = unread and brain.place_problem(" ".join(unread), markers)    # "go to p12", "go to booth" (two)
+        if problem or got and unread and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
             return {"action": None, "task": None, "sentence": "–", "read_by": by,
-                    "problems": [f"I didn't understand: {', '.join(unread)}"]}
+                    "problems": [problem[0] if problem else f"I didn't understand: {', '.join(unread)}"]}
         if got and steps.is_mission(got):
             return {"action": "steps", "steps": got, "lang": "ko" if brain.HANGUL.search(body.text) else "en",
                     "sender": steps.sender(body.text),
                     "read_by": by, **_steps_said(got, markers)}
     if fetch.check_hand():                            # the camera sees the hand; a stale "holding" is forgotten
         return _held_parse(body, markers)
-    if body.text.strip() and got and not unread and {s["do"] for s in got} <= {"receive", "arm"}:
+    if body.text.strip() and got and not unread and {s["do"] for s in got} <= {"receive", "arm", "go"}:
         return {"action": "steps", "steps": got, "lang": "ko" if brain.HANGUL.search(body.text) else "en",   # "take this
-                "sender": steps.sender(body.text), "read_by": by, **_steps_said(got, markers)}   # from my hand", "open your hand"
+                "sender": steps.sender(body.text), "read_by": by, **_steps_said(got, markers)}   # from my hand", "open your hand", "go to stage"
     if brain.place_on(body.text) and not brain._mentions(body.text, markers).get("object"):   # "put it on the table"
         return {"action": None, "task": None, "sentence": "–", "problems": ["My hand is empty, I'm not holding anything."]}
     fields, read_by = brain.fetch_from_text(body.text, markers) if body.text.strip() else ({}, "rules")

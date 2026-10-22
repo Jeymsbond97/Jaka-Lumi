@@ -24,7 +24,7 @@ Each part has its own controller on the robot's network; this software talks to 
 - **Talk in English and Korean.** Wake it by name ("Lumi", "Hi Lumi", "루미야") from anywhere; it finds who called by voice direction and camera and answers in English or Korean. Follow-up questions keep the topic, and it can be interrupted while it speaks.
 - **Answer questions**, from its own knowledge and from the internet: date and time, weather, Wikipedia, news.
 - **Greet people.** In Greeter mode it greets a person who stops in front of it and asks how it can help.
-- **Go to places.** "Come here" brings it to about 1 m in front of the caller; "go to p2", "go home" to a marker on the office map. In Patrol mode it drives its round and stops only for a person in its path. It goes to the charger on low battery.
+- **Go to places.** "Come here" brings it to about 1 m in front of the caller; "go to p2", "go home", "go to table front" to any marker on the active map, its names said in English, Korean or mixed. In Patrol mode it drives its round and stops only for a person in its path. It goes to the charger on low battery.
 - **Pick up a cup and put it back.** It finds the cup with the torso camera, plans the grasp, picks it, can drive holding it, and puts it back where it was.
 - **Stop on "stop" / "멈춰"**: the base, the arm and its own speech.
 

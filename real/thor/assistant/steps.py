@@ -44,10 +44,10 @@ _SPLIT = re.compile(r"\s*(?:,|;|\.(?=\s|$)|\band then\b|\bthen\b|\band\b|\bafter
 _SPLIT_KO = re.compile(r"(?<=[가-힣](?:고|서))(?<!라고)(?<!다고)(?<!자고)(?<!냐고)(?<!에서)(?<!말고)\s+(?!있)|(?<=다가)\s+")   # "들고 ", "가서 ": a verb
                                                                                         # joining two steps, not a quote
 
-def _norm(text):
+def _norm(text, markers=()):
     """Lower case, marker names and numbers as written (assistant/wording.py: "피쓰리로" -> "p3로", "half a meter" ->
-    "0.5 m", "오십 센치" -> "0.5 m"), titles without their dot ("Mr. Park")."""
-    t = re.sub(r"\b(mr|mrs|ms|dr|prof)\. ", r"\1 ", wording.durations(wording.norm(text)) + " ")
+    "0.5 m", "오십 센치" -> "0.5 m", "table front" -> "table_front" on a map with it), titles without their dot."""
+    t = re.sub(r"\b(mr|mrs|ms|dr|prof)\. ", r"\1 ", wording.durations(wording.norm(text, markers)) + " ")
     return re.sub(r"\b(?:take|pick up|pick|grab)\s?(?:해서|하고)", "집어서", t).strip()   # "컵 take해서": mixed
 
 
@@ -59,6 +59,9 @@ def _place(word, markers):
     exact = next((mk for mk in markers if mk.lower() == w or mk.lower() == w.replace(" ", "")), None)
     if exact:
         return exact
+    close = wording.close_names(w, markers) if re.fullmatch(r"[a-z][a-z0-9_ ]*", w) else []
+    if len(close) == 1:
+        return close[0]                                  # a whisper slip of one name ("stagee로 가")
     m = re.fullmatch(brain._place_re(markers), word.strip())
     if m:
         return brain._resolve(m, markers)
@@ -97,10 +100,9 @@ def _go(c, markers):
     if m:
         to = _places(m.group(1), markers)
         return to and {"do": "go", "to": to if len(to) > 1 else to[0]}
-    m = re.fullmatch(r"(?:go|drive|head) (?:the )?(p\d+|final|dock2|exit)", c)          # whisper drops the "to"
-    if m:
-        to = _places(m.group(1), markers)
-        return to and {"do": "go", "to": to[0]}
+    m = re.fullmatch(r"(?:go|drive|head) (?:the )?([a-z][a-z0-9_]*)", c)                 # whisper drops the "to"
+    if m and m.group(1) not in ("home", "here") and (to := _places(m.group(1), markers)):
+        return {"do": "go", "to": to[0]}
     if re.fullmatch(r"go (?:home )?(?:to )?charge(?: yourself)?|충전하러 (?:집으로 )?가", c):
         return {"do": "go", "to": "home"} if "home" in markers else None
     m = re.fullmatch(r"(?:go|drive|head|come|return)(?: back)? (home|here)|come back", c)
@@ -532,9 +534,9 @@ def _person(c, markers):
     if m and _places(m.group(1), markers) and len(_places(m.group(1), markers)) == 1:
         return [{"do": "go", "to": _places(m.group(1), markers)[0]}, {"do": "place", "on": {
             "name": brain.SUPPORTS[m.group(3)], "colour": brain.COLOURS.get(m.group(2)), "side": None}}]
-    m = re.fullmatch(r"(p\d+|final|dock2|exit|home) (?:테이블|책상|식탁)(?: 위)?에 (?:놔|놓아|올려놔)", c)
-    if m:
-        return [{"do": "go", "to": m.group(1)}, {"do": "place", "on": {"name": "dining table", "colour": None,
+    m = re.fullmatch(r"([a-z][a-z0-9_]*) (?:테이블|책상|식탁)(?: 위)?에 (?:놔|놓아|올려놔)", c)
+    if m and (to := _places(m.group(1), markers)) and to != ["here"]:
+        return [{"do": "go", "to": to[0]}, {"do": "place", "on": {"name": "dining table", "colour": None,
                                                                        "side": None}}]
     if re.fullmatch(r"\S+ (?:없으니까|없어서|없대|없네)|거기로 갈게|내가 거기로 갈게|거기 있을게", c):
         return []
@@ -727,7 +729,7 @@ _INTERJECTION = re.compile(r"^(?:(?:(?:oh|ah|um|uh) )?(?:wait(?: wait)*|hold on|
 def rules(text, markers=()):
     """(steps, unread clauses). Steps are merged where two clauses mean one ("look for the table" + "put it there")."""
     cut, says = _cut_says(text)
-    t = _protect_lists(_norm(cut), markers)
+    t = _protect_lists(_norm(cut, markers), markers)
     t = _INTERJECTION.sub("", t)
     steps, unread = [], []
     for c in _split(t):
@@ -805,7 +807,7 @@ def read(text, markers=(), llm=True):
     clauses unread, the LLM reads the whole command and its answer is kept only if every value in it is written in
     the command (_checked). "other": the LLM says it is not English or Korean, nothing is taken."""
     s, u = rules(text, markers)
-    if not u or not llm or len(_split(_norm(_cut_says(text)[0]))) < 2:
+    if not u or not llm or len(_split(_norm(_cut_says(text)[0], markers))) < 2:
         return s, u, "rules"
     got = _llm(text, markers)
     if got == "other":
@@ -907,7 +909,7 @@ def _said(word_map, value, t):
 
 def _checked(raw, text, markers):
     """One LLM step in the reader's form, only when every value in it is written in the command; else None."""
-    t, flat = _norm(text), re.sub(r"\s+", " ", text.lower())
+    t, flat = _norm(text, markers), re.sub(r"\s+", " ", text.lower())
     num = lambda x: re.search(rf"(?<![\w.]){float(x):g}(?![\d.])", t)
     d = raw.get("do")
     if d == "go":

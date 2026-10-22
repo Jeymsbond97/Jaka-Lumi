@@ -663,7 +663,6 @@ class Lumi:
     def __init__(self, args):
         self.a = args
         self.brain = Brain()
-        self.markers = agv.markers()
         self.current = None              # the track we are talking with
         self.mission_hold = None         # "talk" / "safety": a mission is halted for someone (mission_talk)
         self.asked_go_on = False         # "Can I go on with my task?" was asked
@@ -691,6 +690,15 @@ class Lumi:
             self.patrol = Patrol(route, args.once, args.pause)
         self.vision = None if args.no_camera else Vision(args.camera)
         log(f"markers: {self.markers}")
+
+    @property
+    def markers(self):
+        """The active map's marker names (agv.known_markers: a new map is seen within seconds)."""
+        return self._markers if getattr(self, "_markers", None) is not None else agv.known_markers()
+
+    @markers.setter
+    def markers(self, names):                    # a fixed list (self-checks)
+        self._markers = names
 
     # ---------- actions ----------
     def turn_head(self, yaw=None, pitch=None):
@@ -1319,8 +1327,9 @@ class Lumi:
         got, unread, by = read
         if unread:
             log(f"  mission: unread {unread} ({by})")
-            self.fetch_say(f"Sorry, I didn't understand: {', '.join(unread)}. Please say it again.",
-                           "죄송해요, 일부를 이해하지 못했어요. 다시 말씀해 주세요.")
+            problem = brain_mod.place_problem(" ".join(unread), self.markers)   # "go to booth" with two booths
+            self.fetch_say(*(problem or (f"Sorry, I didn't understand: {', '.join(unread)}. Please say it again.",
+                                         "죄송해요, 일부를 이해하지 못했어요. 다시 말씀해 주세요.")))
             self.keep_listening()
             return True
         log(f"  mission ({by}): {got}")
@@ -1901,12 +1910,22 @@ class Lumi:
             mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
             return
         self.start_trip(place)
-        mouth.say(f"Okay, I'm going to {place}." if en else f"네, {place}로 갈게요.")
+        name = brain_mod.place_said(place)
+        mouth.say(f"Okay, I'm going to {name}." if en else f"네, {name}로 갈게요.")
         self.keep_listening()
 
     def quick_command(self, text):
         """A command the keyword rules recognise for sure: confirm with a ready phrase and act, no LLM wait."""
         rule = brain_mod.intent(text, self.markers)
+        if not rule and brain_mod.place_problem(text, self.markers):
+            agv.known_markers(fresh=True)               # not on the list: the map may have just changed
+            rule = brain_mod.intent(text, self.markers)
+            problem = not rule and brain_mod.place_problem(text, self.markers)
+            if problem:
+                log(f"  place: {problem[0]}")
+                mouth.say(problem[0] if self.lang == "en" else problem[1])
+                self.keep_listening()
+                return True
         if rule and rule[0] in MOVING_ACTIONS and self.mission_running():
             self.fetch_say("Sorry, I'm on a task right now. I can help you when I've finished.",
                            "죄송해요, 지금 다른 일을 하고 있어요. 끝나면 도와드릴게요.")
@@ -1985,8 +2004,8 @@ class Lumi:
                 mouth.say("Sorry, I haven't learned that arm movement yet." if en else "죄송해요, 그 팔 동작은 아직 못 배웠어요.")
             return True
         self.start_trip(target)                           # go_to: start driving, then say so
-        name = "my charging dock" if target == "home" else target
-        mouth.say(f"Okay, I'm going to {name}." if en else ("네, 충전소로 갈게요." if target == "home" else f"네, {target}로 갈게요."))
+        name = "my charging dock" if target == "home" else brain_mod.place_said(target)
+        mouth.say(f"Okay, I'm going to {name}." if en else ("네, 충전소로 갈게요." if target == "home" else f"네, {name}로 갈게요."))
         self.current, self.voice_until = None, 0.0
         return True
 

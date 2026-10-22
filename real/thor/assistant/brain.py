@@ -473,8 +473,8 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
     ("come", r"\bcome (?:back )?(here|to me|closer|over here|over)\b|\bcome\b.*\bme\b|이리 ?(?:돌아 ?)?와|여기로 ?(?:돌아 ?)?와|가까이 ?와|"
              r"나한테 ?(?:돌아 ?)?와"),
     ("go_home", r"\bgo (back )?(home|to (the |your )?(dock(?!2)|charger|charging))|\bgo charge|충전하러|집(?:에|으로) ?가|충전기로"),
-    ("go_point", r"\b(?:go|drive|move|head|come|return)(?: back)? to (?:the )?(?:point |marker )?([a-z]+\d*)\b|(\d+)\s*번\s*(?:으로|포인트)"   # after _norm:
-                 r"|^\W*(?:(?:루미야?|lumi|hey lumi)\W*)?(?:좀\s*)?(?:point\s+)?([a-z]+\d*)\s*(?:으로|로|에)\s*(?:좀\s*)?"   # "p3로 가 줘":
+    ("go_point", r"\b(?:go|drive|move|head|come|return)(?: back)? to (?:the )?(?:point |marker )?([a-z][a-z0-9_]*)\b|(\d+)\s*번\s*(?:으로|포인트)"   # after _norm:
+                 r"|^\W*(?:(?:루미야?|lumi|hey lumi)\W*)?(?:좀\s*)?(?:point\s+)?([a-z][a-z0-9_]*)\s*(?:으로|로|에)\s*(?:좀\s*)?"   # "p3로 가 줘":
                  r"(?:가|와|이동해|돌아가|돌아 ?와)"                                                             # all of it
                  r"(?:\s*줘요?|\s*주세요|요|자|줄래)?\s*[.!?]*$"),
     ("sing", r"\bsing\b|\ba song\b|노래"),
@@ -532,7 +532,7 @@ CALLING = re.compile(r"^\W*(?:(?:hey|hi|okay|ok|so|um+|uh+|alright|please|well|n
 
 def intent(text, markers=()):
     """(action, target) for clear requests, or None. Backs up the LLM's ACTION line."""
-    t = _norm(text)                                         # "point five" -> "point 5"
+    t = _norm(text, markers)                                # "point five" -> "point 5"
     asks = re.search(r"^\s*(how(?! about (?:you|we) (?!\w+ing\b)\w)|why(?! don'?t you\b)|what if)\b|\b(how do you|how can you|can you carry|are you able)\b|"
                      r"\b(can|could) you (pick( up)?|lift|hold|grab|take) (a|an|any)\b|"   # "can you pick up a bottle?"
                      r"^\s*(what|when|which|at what|do you|does|is it|are you)\b|몇|언제|얼마|"   # "at what level do you go back?"
@@ -633,9 +633,10 @@ _PLACE_WORD = rf"(?:point|marker|포인트)\s*(\d+)|(?<![a-z])p\s?(\d+)(?!\d)|(\
 _NOT_OBJ = r"(?:not|instead of) (?:the |a |an )?$"            # "not the apple, the cup": the apple is not meant
 
 
-def _norm(text):
-    """Lower case, marker names and numbers as written (wording.py: "피쓰리" -> "p3", "point one" -> "p1")."""
-    t = wording.norm(text)
+def _norm(text, markers=()):
+    """Lower case, marker names and numbers as written (wording.py: "피쓰리" -> "p3", "point one" -> "p1", with the
+    map's markers "table front" -> "table_front")."""
+    t = wording.norm(text, markers)
     for word, digit in NUMBER_WORDS.items():                # "one of them" -> "1 of them"
         t = re.sub(rf"\b{word}\b", digit, t)
     return t
@@ -664,7 +665,7 @@ def _as_place(name):
 def _mentions(text, markers):
     """What the words name: {"object", "colour", "prefer", "source", "dest", "finish"}, only the fields mentioned.
     "object" / "source" / "dest" is None when the word is there but unknown."""
-    t, out = _norm(text), {}
+    t, out = _norm(text, markers), {}
     objs = [m for m in re.finditer(rf"(?:({_COL})\s*)?(?<![a-z])({_OBJ})s?(?![a-z])", t)
             if not re.search(_NOT_OBJ, t[:m.start()]) and not re.match(r"\s*(?:말고|아니고|아니라)", t[m.end():])]
     if objs:
@@ -701,7 +702,7 @@ def _mentions(text, markers):
 def named_place(text, marker, markers):
     """True when the words name this marker ("p1", "point one", "피원", "1번", "home", "the charger", "go back").
     A one-letter marker ("a") only after "point" / "marker" or as the last word of "to a": not the article."""
-    t = _norm(text)
+    t = _norm(text, markers)
     if marker == "home" and re.search(r"\bgo back\b|돌아가|\b(?:home|dock|charger|charging station)\b|집(?:으로|에)|"
                                       r"충전|도크", t):
         return True
@@ -710,6 +711,41 @@ def named_place(text, marker, markers):
                               rf"\s+(?:and|then)\b|,)", t))
     return bool(re.search(rf"(?<![a-z]){re.escape(marker.lower())}(?![a-z0-9])", t)) or \
         any(_resolve(m, markers) == marker for m in re.finditer(_place_re(markers), t))
+
+
+def place_said(name):
+    """A marker name as Lumi says it ("table_front" -> "table front")."""
+    return re.sub(r"[_-]+", " ", name)
+
+
+def no_place_say(word, markers):
+    """(en, ko): this map has no place called `word`, and the places it has."""
+    known = ", ".join(place_said(m) for m in markers) or "none"
+    return (f"I don't have a place called {place_said(word)} on this map. I know: {known}.",
+            f"이 지도에는 {place_said(word)}라는 곳이 없어요. 제가 아는 곳은 {known}이에요.")
+
+
+_GO_WORD = re.compile(r"\b(?:go|drive|move|head|come|return|bring it|take it)(?: back)? to (?:the )?(?:point |marker )?"
+                      r"([a-z][a-z0-9_]*)\b|(?<![a-z0-9_])([a-z][a-z0-9_]*)\s*(?:으로|로|에서|까지)")
+
+
+def place_problem(text, markers):
+    """(en, ko) when the words send Lumi to a place this map does not have ("go to p12"), or to a word that is close
+    to several marker names ("booth" with booth_1 and booth_2: which one?); None otherwise. Other unknown words
+    ("go to sleep", "go to the left") are not places for sure: the LLM answers them."""
+    known = {m.lower() for m in markers}
+    for m in _GO_WORD.finditer(_norm(text, markers)):
+        word = m.group(1) or m.group(2)
+        if word in known or word in ("here", "me", "home"):
+            continue
+        close = wording.close_names(word, markers) or [n for n in markers if n.lower().startswith(word + "_")]
+        if len(close) > 1:
+            names = [place_said(n) for n in close]
+            return (f"Did you mean {', '.join(names[:-1])} or {names[-1]}?",
+                    f"{', '.join(names[:-1])} 아니면 {names[-1]} 중 어디 말씀이세요?")
+        if re.fullmatch(r"p\d+", word) and not close:
+            return no_place_say(word, markers)
+    return None
 
 
 def fetch_problems(task):
@@ -963,7 +999,7 @@ def hand_request(text, holding, b=None, markers=(), whole=True):
     hand while holding; None for anything else (a pick from the table, a mission of several steps, a question).
     holding: something is in the hand now. "give me the cup" with the hand empty is a pick and give (a mission).
     whole: the words are a whole command (not one clause of a mission): several steps in it are the mission reader's."""
-    t = CALLING.sub("", _norm(text).strip())             # "루미야, 이리 줘", "혹시 저 줘요", "um, put it down"
+    t = CALLING.sub("", _norm(text, markers).strip())    # "루미야, 이리 줘", "혹시 저 줘요", "um, put it down"
     if HAND_Q.search(t) or re.search(r"\b(?:don'?t|do not|never) (?:\w+ )?(?:give|hand|pass|put|place|take|hold|drop|set|"
                                     r"leave|let)\b|지 ?마", t) or MULTI.search(t):
         return None                                     # "can you give things to people?", "don't give it to him"
@@ -1032,7 +1068,7 @@ def parse_correction(text, task, markers=(), field=None):
     field: the field a bare answer is about ("source" / "dest"), when Lumi just asked for it ("p2" -> that field)."""
     m, task = _mentions(text, markers), dict(task)
     if field in ("source", "dest") and not {"source", "dest"} & set(m):
-        p = re.search(_place_re(markers), _norm(text))
+        p = re.search(_place_re(markers), _norm(text, markers))
         if p:
             m[field] = _as_place(_resolve(p, markers))
     changed = [k for k, v in m.items() if task.get(k) != v and not (k == "colour" and "object" not in m)]
@@ -1526,11 +1562,12 @@ class Brain:
             action = "none"
         say = None
         if action == "go_to":
-            target = next((mk for mk in markers if mk.lower() == target.lower()), None)
+            said, target = target, next((mk for mk in markers if mk.lower() == target.lower()), None)
+            if not target and said.lower() not in ("", "none"):
+                say = place_problem(f"go to {said}", markers) or no_place_say(said, markers)   # "go_to kitchen"
             if target and not named_place(text, target, markers):
                 target = None                              # "take me to the meeting room" -> p1: a guess, not driven
-                say = ("I don't know that place. I can go to: " + ", ".join(markers) + ".",
-                       "그 장소는 제가 몰라요. 제가 갈 수 있는 곳은 " + ", ".join(markers) + "이에요.")
+                say = no_place_say("that", markers)
             action = "go_to" if target else "none"
         bare = CALLING.sub("", text)
         if action in MOTIONS and (QUESTION_START.search(bare) and not (action in ("give", "receive") and

@@ -6,9 +6,13 @@ through norm(), so a place or a number is read the same way everywhere.
     "파이널로" -> "final로"     "도크 투", "dock two" -> "dock2"     "엑시트" -> "exit"     "홈으로" -> "home으로"
     "일 미터 반", "1미터 50센치", "one and a half meters" -> "1.5 m"     "오십 센치", "half a meter" -> "0.5 m"
 Only clear forms are changed: "피로 가" (no number), "PE로", "피자", "이번에" stay as they are, and Lumi asks.
+With the map's marker names (norm(text, names)) any name is read as said: "table front" / "테이블 프론트" ->
+"table_front", "booth two" / "부스 투" -> "booth_2", "스타트로" -> "start로", and a word after "to" / "from" one
+letter off one name only ("go to the stagee") -> that name.
 
     python assistant/wording.py "피쓰리로 가서 일 미터 앞으로 가"
 """
+import difflib
 import re
 import sys
 
@@ -44,6 +48,14 @@ NAMED = [   # other markers on the map, as said / as whisper writes them -> the 
     (r"(?:포인트|마커)\s*(?:에이|a)(?![a-z])" + _KO_END, "point a"), (r"(?:포인트|마커)\s*(?:비|b)(?![a-z])" + _KO_END, "point b"),
     (r"(?<![가-힣])(?:에이|a)\s*지점", "point a"), (r"(?<![가-힣])(?:비|b)\s*지점", "point b"),   # "에이 지점으로 가"
 ]
+
+# English words of marker names as people say them in Korean: plain transliterations only, never a translation
+KO_SPOKEN = {"start": ["스타트"], "end": ["엔드"], "final": ["파이널", "화이널"], "middle": ["미들"], "home": ["홈"],
+             "stage": ["스테이지"], "booth": ["부스"], "table": ["테이블"], "front": ["프론트", "프런트"],
+             "init": ["이닛", "이니트"], "exit": ["엑시트", "엑싯"], "dock": ["도크"], "point": ["포인트"]}
+KO_NOT_ALONE = {"table", "point"}     # "테이블에 놔" is the table, "포인트" a p-number: Korean form only inside a longer name
+NOT_SLIPS = {"point", "marker", "here", "there", "me", "home", "table", "left", "right", "back", "front", "it", "them"}
+CLOSE = 0.8                           # difflib ratio for a whisper slip of a marker name ("stagee" -> stage)
 
 
 def sino(word):
@@ -169,10 +181,55 @@ def durations(t):
     return t
 
 
-def norm(text):
-    """Lower case, numbers first ("point five meters" is a distance), then marker names."""
+def _key(name):
+    return re.sub(r"[\s_.-]", "", name.lower())
+
+
+def close_names(word, names):
+    """Marker names a spoken word may be when it is none of them exactly (a whisper slip): one letter or so off, the
+    same digits ("booth3" is not booth_2, "p12" not p1). Several back: ask which one."""
+    if len(_key(word)) < 3 or word in NOT_SLIPS:
+        return []
+    by = {_key(n): n for n in names if re.findall(r"\d+", n) == re.findall(r"\d+", word)}
+    return [by[k] for k in difflib.get_close_matches(_key(word), by, n=3, cutoff=CLOSE)]
+
+
+def _spoken(name):
+    """A regex for a marker name as said: its words / numbers with spaces, "_", "-" or nothing between them, a number
+    also as a word ("two", "투"), an English word also in Hangul (KO_SPOKEN)."""
+    toks = re.findall(r"[a-z]+|\d+|[가-힣]+", name.lower())
+    parts = []
+    for tok in toks:
+        alts = [tok] + (KO_SPOKEN.get(tok, []) if len(toks) > 1 or tok not in KO_NOT_ALONE else [])
+        if tok.isdigit():
+            alts += [w for w, n in {**EN_NUM, **KO_EN_NUM}.items() if n == int(tok)]
+        parts.append("(?:" + "|".join(sorted(map(re.escape, alts), key=len, reverse=True)) + ")")
+    return rf"(?<![a-z0-9_가-힣])" + r"[\s_.-]*".join(parts) + rf"(?![a-z0-9_])(?:(?<=[a-z0-9])|{_KO_END})"
+
+
+def map_names(t, names):
+    """Marker names of this map in normalised text written as the names (lower case), then one-name slips after a
+    place word ("to the stagee")."""
+    names = [n for n in names if not re.fullmatch(r"p\d+", n.lower())]       # p-numbers: markers() above
+    for n in sorted(names, key=len, reverse=True):
+        t = re.sub(_spoken(n), n.lower(), t)
+    known = {n.lower() for n in names}
+
+    def slip(m):
+        for w in (m.group(2).split()[0], m.group(2)):          # one word, then two ("table fronts")
+            if w in known:
+                break
+            close = close_names(w, names)
+            if len(close) == 1:
+                return m.group(1) + close[0].lower() + m.group(2)[len(w):]
+        return m.group(0)
+    return re.sub(r"(\b(?:to|from|at|toward|towards) (?:the )?)([a-z][a-z0-9_]*(?: [a-z0-9]+)?)", slip, t)
+
+
+def norm(text, names=()):
+    """Lower case, numbers first ("point five meters" is a distance), then marker names (names: the map's)."""
     t = " " + (text or "").lower().replace("’", "'") + " "
-    return re.sub(r"\s+", " ", markers(numbers(t))).strip()
+    return re.sub(r"\s+", " ", map_names(markers(numbers(t)), names)).strip()
 
 
 if __name__ == "__main__":

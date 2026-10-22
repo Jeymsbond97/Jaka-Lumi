@@ -7,10 +7,13 @@
 import json
 import socket
 import sys
+import time
 import uuid
 
 AGV = ("192.168.10.10", 31001)
 DOCK_FALLBACK = "충전위치로"      # dock marker name on the old map; on any map the type-11 marker is used
+MARKERS_FRESH_S = 5.0            # known_markers() reads the list again after this long: a new map is seen within it
+_known = {"t": 0.0, "names": []}
 
 
 def request(command, timeout=3.0):
@@ -51,6 +54,17 @@ def markers():
     names = list((request("/api/markers/query_brief").get("results") or {}).keys())
     dock = dock_marker()
     return ["home" if n == dock else n for n in names]
+
+
+def known_markers(fresh=False):
+    """markers(), read again when older than MARKERS_FRESH_S or when fresh (a name was not on the list); the last
+    list while the base does not answer."""
+    if fresh or time.time() - _known["t"] > MARKERS_FRESH_S:
+        try:
+            _known.update(names=markers(), t=time.time())
+        except OSError:                          # ConnectionError and socket.timeout are OSErrors
+            pass
+    return _known["names"]
 
 
 def go(marker):
