@@ -24,8 +24,8 @@ import numpy as np
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SONGS = ROOT / "data" / "songs"
 MINE = SONGS / "mine"           # the owner's songs: local only
-YAW_SWAY = 25.0                 # deg; head yaw stays within +- this while singing (owner)
-PITCH_RANGE = (0.0, 15.0)       # deg, absolute head pitch while singing (0 = level, + = up)
+YAW_SWAY = 40.0                 # deg; head yaw stays within +- this while singing (owner: wider, 2026-10-21)
+PITCH_RANGE = (0.0, 28.0)       # deg, absolute head pitch while singing (0 = level, + = up; owner: higher)
 # head timing measured by the owner (2026-10-20, body API, vel = acc = 100, head.status polled every 20 ms): the head
 # starts 0.2 s after the call and turns ~40 deg/s after that (15 / 6 deg diagonal reached at 0.87 s, 25 / 10 deg at
 # 1.12 s); the call returns ~0.1 s after it arrives. Speed is no higher above vel 50. Overlapping moveto calls hang
@@ -34,14 +34,14 @@ REACH_S = 0.5                   # s from the call until a small move arrives (st
 RETURN_S = 0.6                  # s from the call until it returns, for a small move
 HEAD_DEG_S = 40.0               # deg/s of the larger axis at vel >= VEL_FULL
 VEL_FULL = 50                   # speed ratio % from which the head is at its full speed
-VEL_LIVELY, VEL_CALM, VEL_CALMEST = 100, 70, 50   # speed ratio %: energetic / calm / the calmest parts
-ENERGETIC = 0.5                 # music energy (0..1) from which the head bobs on the beat
+VEL_LIVELY, VEL_CALM, VEL_CALMEST = 100, 100, 80   # speed ratio %: energetic / calm / the calmest parts
+ENERGETIC = 0.4                 # music energy (0..1) from which the head bobs on the beat
 CALMEST = 0.15                  # below this energy the head sways slowly
-BOB_DEG = (4.0, 8.0)            # deg, a beat's bob (diagonal nod / tilt), alternating sides
-ACCENT_DEG = (15.0, 25.0)       # deg, a bar's or phrase's accent: a quick sweep with a dip
-SWAY_DEG = (6.0, 12.0)          # deg, a calm sway
-ACCENT_EVERY_S = 1.6            # s, at least this between two accents
-CENTRE_PITCH = 6.0              # deg; the dance moves around yaw 0, this pitch
+BOB_DEG = (7.0, 12.0)           # deg, a beat's bob (diagonal nod / tilt), alternating sides
+ACCENT_DEG = (25.0, 38.0)       # deg, a bar's or phrase's accent: a quick sweep with a dip
+SWAY_DEG = (12.0, 20.0)         # deg, a calm sway
+ACCENT_EVERY_S = 1.2            # s, at least this between two accents
+CENTRE_PITCH = 12.0             # deg; the dance moves around yaw 0, this pitch
 GAP_S = 0.02                    # s between a call returning and the next one
 MIN_CHANGE = (1.5, 0.8)         # deg; every move changes yaw and pitch at least this much
 MIN_TURN_DEG = 20.0             # two moves in a row differ in direction by at least this (never one line)
@@ -49,13 +49,31 @@ HEAD_VEL = 70                   # speed ratio % for turning to yaw 0 / pitch 0 b
 LATE_S = 0.4                    # s; a move this late is skipped (the previous one took longer)
 RETURN_WAIT_S = 3.0             # s a new song waits for the head to get back from the last one
 
-SING = re.compile(r"\bsing\b|\bplay (me )?(a |some |another )?(song|music)\b|\b(another|different|next|other) song\b|"
-                  r"노래 ?(를 ?)?(좀 ?)?(불러|들려|해|부탁|한 ?곡|틀어)|다른 ?노래|딴 ?노래|다음 ?노래", re.I)
-SING_TITLE = re.compile(r"(불러|들려) ?(줘|주세요|줄래|봐|볼래)")          # "아리랑 불러 줘": a title said with it
-NOT_REQUEST = re.compile(r"^\s*(?:(?:lumi|hey lumi)[\s,]*)?(?:can|could|do|did|will) you (?:really )?(?:sing|like singing)"
-                         r"\s*[?.!]*$|\bwho sings?\b|\bfavou?rite\b|좋아하는|할 ?수 ?있|잘 ?(해|하|불러)", re.I)
-AGAIN = re.compile(r"\bagain\b|\bone more time\b|한 ?번 ?더|다시", re.I)
-ANOTHER = re.compile(r"\b(another|different|next|other)\b|\bsomething else\b|다른|딴|다음", re.I)
+SING = re.compile(r"\bsing\b|\bsay (?:a |some )?songs?\b|"                    # whisper writes "let's say song"
+                  r"\b(?:play|put on|turn on|start)(?: me| us)? (?:a |some |any |another |the |your )?(?:songs?|music|tunes?)\b|"
+                  r"\b(?:another|different|next|new|other) (?:song|tune)\b|\b(?:want|like|love) to hear (?:a |some )?(?:song|music)\b|"
+                  r"^\W*(?:lumi\W*)?(?:a |some )?(?:song|music)(?:\W+(?:please|lumi))*\W*$|"
+                  r"(?:노래|음악|(?<![가-힣])곡)\s*(?:를|을|좀|하나|한\s*곡|한\s*번|한번|도|이나|나|이든|든|라도|\s)*"
+                  r"(?:불러|부르|들려|해|틀어|틀|뽑아|부탁|재생|플레이|(?:할|부를)\s*(?:수|줄)\s*(?:있|알))|"
+                  r"노래\s*(?:좀|하나)?\s*(?:듣고\s*싶|들을래|듣자)|(?:다른|딴|다음)\s*(?:노래|곡)|(?:다른|딴)\s*(?:거|걸|걸로)\s*(?:불러|들려|틀어)|^\W*(?:노래|음악)\s*(?:좀|하나)?\W*$", re.I)
+SING_TITLE = re.compile(r"(불러|들려|틀어) ?(줘|주세요|줄래|봐|볼래)|\b(?:sing|play)\b")    # "아리랑 불러 줘": a title said with it
+SONG_LIST = re.compile(r"\b(?:what|which) (?:kinds? of |sort of |other )?(?:songs?|music|tunes)\b|\bwhat can you sing\b|"
+                       r"\bsongs? (?:do |can |could )?you (?:know|sing|have)\b|\b(?:know|have) any (?:other )?songs\b|"
+                       r"\b(?:list|names?) of (?:your |the )?songs\b|"
+                       r"(?:무슨|어떤|뭔|어느)\s*(?:노래|곡)(?!\s*(?:이든|든|이나|나|라도))|노래\s*(?:는|를|은)?\s*(?:뭐|뭘|몇)|"
+                       r"아는\s*노래|부를\s*(?:수\s*있는|줄\s*아는)\s*노래|노래\s*목록", re.I)
+NOT_REQUEST = re.compile(r"\b(?:do|did) you (?:really )?(?:like|love|enjoy)\b|"
+                         r"\bwho sings?\b|\bfavou?rite\b|좋아하는|좋아해|잘\s*(?:해|하|불러)", re.I)
+# right after a song (or the list of songs): a short word switches or repeats it
+AFTER_SONG = re.compile(r"^\W*(?:(?:lumi|ok|okay|no|nah|um|please|then|now|and)\W+)*(?:sing |play )?"
+                        r"(?:another(?: one)?|(?:the )?next(?: one)?|a different one|something (?:else|different)|"
+                        r"not (?:this|that)(?: one)?|(?:it |that )?again|one more(?: time)?|once more|more)"
+                        r"(?:\W+(?:please|lumi))*\W*$|"
+                        r"^\W*(?:루미야?\W*)?(?:아니\W*)?(?:(?:그거|그\s*노래|이거|이\s*노래)\s*말고(?:\s*(?:다른|딴)\s*(?:거|걸로|노래))?|"
+                        r"(?:다른|딴)\s*(?:거|걸|걸로|것)|다음\s*(?:거|곡|노래)?|한\s*번\s*더|하나\s*더|다시|또)"
+                        r"\s*(?:요|줘|해\s*줘|불러\s*줘|들려\s*줘|부탁해요?|해요|주세요)?\W*$", re.I)
+AGAIN = re.compile(r"\bagain\b|\bone more time\b|\bonce more\b|한 ?번 ?더|다시", re.I)
+ANOTHER = re.compile(r"\b(another|different|next|other)\b|\bsomething else\b|\bnot (this|that)\b|다른|딴|다음|말고", re.I)
 STOP = re.compile(r"\b(stop|enough|halt|quiet|shh+)\b|멈춰|그만|스톱|정지|조용", re.I)
 KOREAN = re.compile(r"\bkorean\b|한국", re.I)
 ENGLISH = re.compile(r"\benglish\b|영어", re.I)
@@ -65,6 +83,7 @@ FILLER = {"sing", "a", "an", "the", "song", "songs", "me", "us", "for", "please"
           "in", "korean", "english", "else", "let's", "lets", "let", "go", "now", "pretty", "beautiful", "my", "kids",
           "children", "children's", "cute", "fun", "favorite", "favourite", "of", "yours", "so", "just", "maybe", "then"}
 UNKNOWN = {"en": "Sorry, I don't know that song yet. I can sing {}.", "ko": "그 노래는 아직 몰라요. {} 부를 수 있어요."}
+LIST = {"en": "I can sing {}. Which one would you like?", "ko": "{} 부를 수 있어요. 어떤 노래 불러 드릴까요?"}
 
 _head_thread = None
 
@@ -78,12 +97,23 @@ def songs():
     return out
 
 
-def asked(text):
-    """Do these words ask Lumi to sing ("sing a song", "노래 불러 줘", "sing Arirang", "다른 노래")?"""
+def asked(text, last=""):
+    """Do these words ask Lumi to sing ("sing a song", "노래 불러 줘", "sing Arirang", "다른 노래", "can you sing?")?
+    `last` is the assistant's answer just before (brain history): right after a song a short "another one" /
+    "again" / "그거 말고" is a song too, right after the list of songs also a title alone ("Arirang")."""
     t = text or ""
-    if NOT_REQUEST.search(t):
+    if NOT_REQUEST.search(t) or SONG_LIST.search(t):
         return False
+    if re.match(r"ACTION: (?:sing|none songs)\b", last or "") and AFTER_SONG.search(t):
+        return True
+    if (last or "").startswith("ACTION: none songs") and _title(t, songs()):
+        return True
     return bool(SING.search(t)) or bool(SING_TITLE.search(t) and _title(t, songs()))
+
+
+def list_asked(text):
+    """"What songs can you sing?", "무슨 노래 알아?": the titles are said."""
+    return bool(SONG_LIST.search(text or "")) and not NOT_REQUEST.search(text or "")
 
 
 def stop_words(text):
@@ -104,7 +134,7 @@ def _unknown_title(text):
         if after and after[0] not in FILLER:          # "sing yesterday"; "sing for everyone" is no title
             return True
     m = re.search(r"(\S+?)\s*(?:을|를)?\s*(?:좀\s*)?(?:불러|들려)", text or "")
-    return bool(m) and not re.search(r"노래|좀|곡|하나|루미|아무|뭐|뭔가|^(한|또|더|다시)$", m.group(1))
+    return bool(m) and not re.search(r"노래|좀|곡|하나|루미|아무|뭐|뭔가|^(한|또|더|다시|거|걸|것)$", m.group(1))
 
 
 def choose(text, lang="en", last=None):
@@ -124,10 +154,15 @@ def choose(text, lang="en", last=None):
     return random.choice(pool) if pool else None
 
 
-def unknown_reply(lang):
+def unknown_reply(lang, lines=UNKNOWN):
     names = [s["title_ko" if lang == "ko" else "title"] for s in songs().values()]
     joined = ", ".join(names[:-1]) + (" and " if lang == "en" else ", ") + names[-1] if len(names) > 1 else "".join(names)
-    return UNKNOWN[lang].format(joined + ("" if lang == "en" else "를" if _no_final(names[-1]) else "을"))
+    return lines[lang].format(joined + ("" if lang == "en" else "를" if _no_final(names[-1]) else "을"))
+
+
+def list_reply(lang):
+    """Every title: "I can sing Arirang, ... and Love Attack. Which one would you like?"."""
+    return unknown_reply(lang, LIST)
 
 
 def _no_final(word):
@@ -239,14 +274,14 @@ def head_targets(song, seed=0):
         if kind == "accent":                          # a sweep across to the other side, dipping
             side = -1 if y > 0 else 1
             ty = side * rng.uniform(*ACCENT_DEG) * 0.7 + 0.3 * y
-            tp = max(lo, min(p, CENTRE_PITCH + 2) - rng.uniform(4, 6))
+            tp = rng.choice((max(lo, min(p, CENTRE_PITCH + 2) - rng.uniform(6, 10)), min(hi, CENTRE_PITCH + rng.uniform(8, 14))))   # dip or lift
         elif kind == "bob":
             size = rng.uniform(*BOB_DEG)
             ty = y + side * size * rng.uniform(0.7, 1.0)
-            tp = (p - size * 0.5 if p > CENTRE_PITCH else p + size * 0.5) + rng.uniform(-1, 1)
+            tp = (p - size * 0.8 if p > CENTRE_PITCH else p + size * 0.8) + rng.uniform(-1, 1)   # diagonal
         else:
             ty = side * rng.uniform(*SWAY_DEG)
-            tp = CENTRE_PITCH + rng.uniform(-3, 3)
+            tp = CENTRE_PITCH + rng.uniform(-8, 8)
         ty -= 0.15 * y if kind == "bob" else 0.0       # bobs drift back toward the middle
         dy, dp = _bend(y, p, ty - y, tp - p, last)
         call = t - reach_time(dy, dp, vel)            # lands on the beat

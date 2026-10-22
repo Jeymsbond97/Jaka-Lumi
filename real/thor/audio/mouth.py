@@ -26,13 +26,17 @@ DEVICE = "plughw:CARD=Device,DEV=0"          # "USB Audio Device"
 VOICE = "F1"                                  # F1-F5 female, M1-M5 male
 STEPS = 4                                     # quality/speed: 4 fast ... 8 best
 SPEED = 0.92                                  # < 1 = slower; 1.05 sounded rushed
+SPEED_MIN, SPEED_MAX = 0.72, 1.2              # what "speak slower / faster" may set (Supertonic takes 0.7 to 2.0)
+SPLIT_WORDS = 8                               # a first sentence this long is said in two parts, cut after its first
+                                              # comma: the first part is synthesised in ~0.7 s instead of ~1.8 s
 VOLUME = 55                                   # % of the USB speaker mixer (100 % disturbed people in the office)
 CACHED = ["Hi, I'm Lumi, the assistant robot. How can I help you?", "안녕하세요, 저는 루미예요. 무엇을 도와드릴까요?",
           "Yes?", "네?", "Okay, I'm coming.", "네, 갈게요.", "I'm right here.",
           "Sorry, I can't get closer from here.", "How can I help you?", "무엇을 도와드릴까요?",
           "Let me check.", "확인해 볼게요.", "Okay, I'll be quiet.", "네, 조용히 할게요.",
           "Sorry, I'm not connected to the internet right now, so I can't look that up.",
-          "Yes? How can I help?", "네? 무엇을 도와드릴까요?", "Okay, I'm going to my charging dock.", "네, 충전소로 갈게요.",
+          "Yes? How can I help?", "네? 무엇을 도와드릴까요?",
+          "Welcome back! How can I help you?", "다시 오셨네요, 무엇을 도와드릴까요?", "Okay, I'm going to my charging dock.", "네, 충전소로 갈게요.",
           "Sorry, driving is switched off."] + [f"Okay, I'm going to p{i}." for i in range(1, 11)]
 
 _tts = None
@@ -40,6 +44,7 @@ _style = None
 _cache = {}
 _volume_set = False
 _recent = []                                  # (time, sentence) Lumi said lately: to tell its own echo from a visitor
+last_voice = 0.0                              # time.time() when the last say_stream() began to play (lumi.py logs it)
 
 
 def recent_speech(seconds=30.0):
@@ -64,6 +69,22 @@ def set_volume(percent=None):
     if percent is not None:
         VOLUME_FILE.write_text(str(int(max(0, min(100, percent)))))
     subprocess.run(["amixer", "-q", "-c", "Device", "sset", "Speaker", f"{volume()}%"], check=False)
+
+
+SPEED_FILE = ROOT / "data" / "speech_speed.txt"        # set by voice ("speak slower", assistant/voice_words.py)
+
+
+def speed():
+    try:
+        return max(SPEED_MIN, min(SPEED_MAX, float(SPEED_FILE.read_text().strip())))
+    except (FileNotFoundError, ValueError):
+        return SPEED
+
+
+def set_speed(value):
+    """Store the speaking speed; the cached fixed phrases were made at the old one, so they are made when said."""
+    SPEED_FILE.write_text(f"{max(SPEED_MIN, min(SPEED_MAX, value)):.2f}")
+    _cache.clear()
 
 
 def _set_volume():
@@ -91,6 +112,14 @@ def lang_of(text):
 def sentences(text):
     parts = re.split(r"(?<=[.!?。！？])\s+", text.strip())
     return [p for p in parts if p]
+
+
+def first_parts(sentence):
+    """A long first sentence cut after its first comma (3 words in or later), so the voice starts sooner."""
+    m = re.search(r"[,;]\s", sentence)
+    if len(sentence.split()) < SPLIT_WORDS or not m or len(sentence[:m.start()].split()) < 3:
+        return [sentence]
+    return [sentence[:m.start() + 1], sentence[m.end():]]
 
 
 _play_lock = threading.Lock()                # one sentence at a time (a skill's result is spoken from another thread)
@@ -128,7 +157,7 @@ def _play_pcm(pcm, rate, abort):
 def _synth(text, lang):
     if text in _cache:
         return _cache[text]
-    wav, _ = _tts.synthesize(text, voice_style=_style, lang=lang, total_steps=STEPS, speed=SPEED)
+    wav, _ = _tts.synthesize(text, voice_style=_style, lang=lang, total_steps=STEPS, speed=speed())
     return np.asarray(wav).reshape(-1)
 
 
@@ -144,14 +173,19 @@ def say_stream(pieces, lang=None, abort=None):
         try:
             for piece in pieces:
                 for s in sentences(piece):
-                    spoken.append(s)
-                    q.put((s, _synth(s, lang or lang_of(s))))
+                    for part in [s] if spoken else first_parts(s):
+                        spoken.append(part)
+                        q.put((part, _synth(part, lang or lang_of(part))))
         finally:
             q.put(None)
 
+    global last_voice
     threading.Thread(target=synth, daemon=True).start()
+    first = True
     while (item := q.get()) is not None:
         text, wav = item
+        if first:
+            last_voice, first = time.time(), False
         _recent.append((time.time(), text))
         del _recent[:-12]
         if not _play(wav, rate, abort):

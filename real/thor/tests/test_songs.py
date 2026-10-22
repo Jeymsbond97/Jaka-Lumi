@@ -17,9 +17,14 @@ ASKED = {"sing a song": True, "Lumi, sing me a song please": True, "sing Arirang
          "can you sing a song?": True, "sing another song": True, "노래 불러 줘": True, "노래 한 곡 해 줘": True,
          "아리랑 불러 줘": True, "곰 세 마리 불러 줄래?": True, "다른 노래": True, "노래해 줘": True,
          "play some music": True, "sing a Korean song": True,
-         "can you sing?": False, "do you like singing?": False, "what's your favourite song?": False,
-         "좋아하는 노래 있어요?": False, "노래 할 수 있어요?": False, "사람 좀 불러 줘": False, "go to p3": False,
-         "happy birthday, Lumi": False, "stop": False}
+         "can you sing?": True, "노래 할 수 있어요?": True, "sing song": True, "sing music": True, "play music": True,
+         "Can you sing song?": True, "let's say song": True, "노래해": True, "음악 틀어 줘": True, "노래 하나 해 줘": True,
+         "노래 하나 불러 줘": True, "아무 노래나 불러 줘": True, "put on some music": True, "다음 곡": True,
+         "노래 듣고 싶어": True, "루미야 sing a song 해 줘": True, "sing Fantastic Baby": True, "play a song": True,
+         "do you like singing?": False, "what's your favourite song?": False, "what music do you like?": False,
+         "좋아하는 노래 있어요?": False, "노래 잘해?": False, "사람 좀 불러 줘": False, "택시 불러 줘": False, "go to p3": False,
+         "happy birthday, Lumi": False, "stop": False, "I like this music": False, "노래방 가자": False,
+         "누가 이 노래 불렀어?": False, "what songs can you sing?": False, "another one": False, "그거 말고": False}
 wrong = {t: w for t, w in ASKED.items() if sing.asked(t) != w}
 assert not wrong, wrong
 
@@ -38,6 +43,23 @@ for _ in range(30):                                  # unnamed: a song in the la
     assert sing.choose("sing for everyone", "en") is not None
     assert sing.choose("sing it again", "en", last="row_row") == "row_row"
     assert sing.choose("한 번 더 불러 줘", "ko", last="arirang") == "arirang"
+LISTED = ["what songs can you sing?", "which songs do you know?", "what songs do you know", "무슨 노래 알아?",
+          "어떤 노래 부를 수 있어?", "아는 노래 뭐 있어?", "노래 목록 알려 줘", "what can you sing?"]
+assert all(sing.list_asked(t) and not sing.asked(t) for t in LISTED), [t for t in LISTED if not sing.list_asked(t)]
+assert not any(sing.list_asked(t) for t in ["sing a song", "어떤 노래든 불러 줘", "what's your favourite song?", "go to p3"])
+assert all(SONGS[sid]["title"] in sing.list_reply("en") for sid in SONGS) and "어떤 노래" in sing.list_reply("ko")
+AFTER = "ACTION: sing arirang"                       # right after a song: a short word switches or repeats it
+for t in ["another one", "next", "next one", "a different one", "something else", "not this one", "다른 거",
+          "다음 거", "그거 말고", "딴 거", "one more"]:
+    assert sing.asked(t, AFTER) and not sing.asked(t), t
+    assert all(sing.choose(t, "en", "arirang") not in (None, "arirang") for _ in range(10)), t
+assert sing.asked("그 노래 말고 다른 거 불러 줘") and sing.choose("그 노래 말고 다른 거 불러 줘", "ko", "arirang") != "arirang"
+for t in ["again", "한 번 더", "다시"]:
+    assert sing.asked(t, AFTER) and sing.choose(t, "en", "arirang") == "arirang", t
+for t in ["that was bad", "go to p3", "thank you", "what time is it"]:
+    assert not sing.asked(t, AFTER), t
+assert sing.asked("Arirang", "ACTION: none songs\n...") and sing.asked("판타스틱 베이비", "ACTION: none songs\n...")
+assert not sing.asked("Arirang") and not sing.asked("go to p3", "ACTION: none songs\n...")
 assert "Arirang" in sing.unknown_reply("en") and "Twinkle" in sing.unknown_reply("en")
 assert "아리랑" in sing.unknown_reply("ko")
 assert all(sing.stop_words(t) for t in ["stop", "Lumi stop", "멈춰", "그만", "그만해", "enough", "스톱"])
@@ -48,7 +70,7 @@ for sid, song in SONGS.items():                      # head moves like a singer'
     for seed in range(5):
         targets = sing.head_targets(song, seed=seed)
         assert len(targets) >= 8, sid
-        assert all(abs(y) <= 25 and 0 <= p <= 15 for _, y, p, _ in targets), (sid, targets)
+        assert all(abs(y) <= sing.YAW_SWAY and sing.PITCH_RANGE[0] <= p <= sing.PITCH_RANGE[1] for _, y, p, _ in targets), (sid, targets)
         assert all(50 <= v <= 100 for *_, v in targets), sid
         assert sum(v >= 70 for *_, v in targets) >= 0.5 * len(targets), sid             # lively, slow only when calm
         moves = [(targets[0][1], targets[0][2])] + [(b[1] - a[1], b[2] - a[2]) for a, b in zip(targets, targets[1:])]
@@ -70,6 +92,9 @@ if "BIGBANG_FANTASTIC_BABY" in SONGS:                # the owner's songs are onl
     assert sing.choose("sing fantastic baby", "en") == "BIGBANG_FANTASTIC_BABY"
     assert sing.choose("판타스틱 베이비 불러 줘", "ko") == "BIGBANG_FANTASTIC_BABY"
     assert sing.asked("판타스틱 베이비 불러 줘")
+    assert sing.choose("play fantastic baby", "en") == "BIGBANG_FANTASTIC_BABY"
+if "MEOMUREU_DREAMED_ADULT" in SONGS:
+    assert sing.asked("꿈꾸던 어른이 되었나요 불러 줘") and sing.choose("꿈꾸던 어른이 되었나요 불러 줘", "ko") == "MEOMUREU_DREAMED_ADULT"
 
 
 class FakeHead:
@@ -112,7 +137,7 @@ sing._head_thread.join(2)
 assert len(head.moves) >= 3, head.moves                                  # to 0 / 0, moved with the song ...
 assert head.moves[0] == [120.0, 5.0, 0.0, 0.0], head.moves[0]
 assert head.moves[-1] == [120.0, 5.0, 0.0, 0.0], head.moves[-1]           # ... and back to 0 / 0
-assert all(abs(m[2]) <= 25 and 0 <= m[3] <= 15 for m in head.moves), head.moves
+assert all(abs(m[2]) <= sing.YAW_SWAY and sing.PITCH_RANGE[0] <= m[3] <= sing.PITCH_RANGE[1] for m in head.moves), head.moves
 
 head = FakeHead()
 t0 = time.time()
@@ -169,5 +194,36 @@ threading.Timer(0.3, lambda: heard.append("thank you")).start()   # whisper's gu
 t0 = time.time()
 L.sing_song("sing twinkle twinkle")
 assert time.time() - t0 > 4.5 and L.pending_text is None
+
+# lumi.answer(): "again" right after a song is the song (not the drive words), "Can you sing song?" tagged Korean
+# by whisper is still sung, "what songs can you sing?" lists them
+said = []
+lumi.mouth.say = lambda text, lang=None, abort=None: said.append(text)
+lumi.ears.last_stt = {"language": "english", "logprob": -0.1}
+L.closing_pending = None
+L.follow_stop = lambda text: False
+L.keep_listening = lambda: None
+L.speak_abort = lambda: False
+L.drive_words = lambda text: (_ for _ in ()).throw(AssertionError(f"drive words got {text!r}"))
+L.skill_busy = lambda: False
+L.sing_song = lambda text: sung.append(("sing", text))
+L.brain.history = [("sing Arirang", "ACTION: sing arirang")]
+L.answer("again")
+assert sung[-1] == ("sing", "again"), sung
+L.answer("그거 말고")
+assert sung[-1] == ("sing", "그거 말고"), sung
+L.brain.history = []
+L.answer("what songs can you sing?")
+assert "Which one would you like?" in said[-1] and L.brain.history[-1][1].startswith("ACTION: none songs"), said
+lumi.ears.understood = lambda *a: False              # English words tagged 'korean' (logs/lumi.log 2026-10-21 11:30)
+lumi.ears.heard_clearly = lambda *a: True
+lumi.ears.last_stt = {"language": "korean", "logprob": -0.08}
+passed = []                                          # past the "say it again" gate, in English; stop there
+L.drive_words = lambda text: passed.append(text) or True
+L.answer("Can you sing song?")
+assert L.lang == "en" and passed == ["Can you sing song?"] and not said[-1].startswith("죄송"), (L.lang, passed, said)
+L.answer("I'll see you next time.")                  # whisper's English for noise: still asked again
+assert passed == ["Can you sing song?"] and said[-1].startswith("죄송"), said
+assert lumi.own_command("Can you sing song?") and not lumi.own_command("I'll see you next time.")
 lumi.sing.sing = real_sing
 print("songs ok")

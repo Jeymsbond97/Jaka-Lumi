@@ -36,8 +36,10 @@ START_FACTOR = 1.8               # speech = louder than START_FACTOR x backgroun
 MIN_LEVEL = 250                  # ... and at least this RMS (head array; room noise is ~180)
 MIN_LEVEL_CLIP = 300             # ... (clip mic: close to the mouth, quiet room noise)
 START_FRAMES = 4                 # 120 ms of speech to start
+END_LEVEL = 1.0                  # quiet = below this x the start threshold (0.7 kept room noise ~180-250 "speech")
 END_SILENCE = 0.6                # s of quiet that ends an utterance
-MAX_UTTERANCE = 12.0             # s
+MAX_UTTERANCE = 8.0              # s (12 s: in a room with music an utterance never got quiet enough
+                                 # to end, every one ran the full 12 s, 2026-10-21)
 PRE_ROLL = 10                    # frames kept before the start (300 ms)
 AFTER_SPEAKING = 0.4             # s still ignored after Lumi stopped talking (room echo)
 BARGE_IN = True                  # clip mic: keep listening while Lumi talks (interruptions)
@@ -85,7 +87,7 @@ class Segmenter:
             return None
         self.frames.append(frame)
         self.peak = max(self.peak, level)
-        self.silent = self.silent + 1 if level < self.threshold * 0.7 else 0
+        self.silent = self.silent + 1 if level < self.threshold * END_LEVEL else 0
         if self.silent * FRAME / RATE >= END_SILENCE or now - self.started > MAX_UTTERANCE:
             out = (self.frames, self.started, now, self.peak)
             self.frames, self.voiced, self.in_speech = [], 0, False

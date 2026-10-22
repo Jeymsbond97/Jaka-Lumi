@@ -123,7 +123,7 @@ def transcribe(audio, prompt=PROMPT):
     try:
         HEARD_DIR.mkdir(parents=True, exist_ok=True)
         (HEARD_DIR / time.strftime("%H%M%S.wav")).write_bytes(wav)
-        for old in sorted(HEARD_DIR.glob("*.wav"))[:-HEARD_KEEP]:
+        for old in sorted(HEARD_DIR.glob("*.wav"), key=lambda p: p.stat().st_mtime)[:-HEARD_KEEP]:   # by time: names wrap at midnight
             old.unlink()
     except OSError:
         pass
@@ -138,7 +138,7 @@ def transcribe(audio, prompt=PROMPT):
     last_stt.clear()
     last_stt.update(text=text, language=lang, lang_prob=prob, logprob=round(logprob, 2))
     # whisper writes things like "[BLANK_AUDIO]" or "(music)" for non-speech
-    return "" if (text.startswith("[") or text.startswith("(")) else text
+    return "" if text.startswith(("[", "(", "*")) else text
 
 
 def understood(min_logprob=MIN_LOGPROB):
@@ -149,6 +149,12 @@ def understood(min_logprob=MIN_LOGPROB):
     if lang not in LANGS or last_stt.get("logprob", 0.0) < min_logprob:
         return False
     return bool(re.search(r"[가-힣]", text)) == (lang == "korean")
+
+
+def heard_clearly(min_logprob=MIN_LOGPROB):
+    """English or Korean said clearly, whatever script whisper wrote it in ("Can you sing song?" came tagged
+    'korean', 2026-10-21): lumi.py takes it only for its own fixed commands."""
+    return last_stt.get("language") in LANGS and last_stt.get("logprob", 0.0) >= min_logprob
 
 
 def heard_lang(default="en"):
