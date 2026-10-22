@@ -544,10 +544,10 @@ MORE = [
     ]),
     # a move longer than 3 m or an unknown object: say why, do not drive
     ("chat | about_self | action:none", "en", [
-        ("kid", "move forward ten meters", r"\b3\b|three|too far"), ("visitor", "pick up my laptop", r"cup|bottle|apple|banana|orange|can'?t|cannot"),
+        ("kid", "move forward ten meters", r"\b3\b|three|too far"), ("visitor", "pick up my laptop", r"cup|bottle|apple|banana|orange|can'?t|cannot|too big|too thin|fingers"),
     ]),
     ("chat | about_self | action:none", "ko", [
-        ("kid", "앞으로 10미터 가", r"3|세 ?미터|멀"), ("visitor", "내 노트북 집어 줘", r"컵|병|사과|바나나|오렌지|못|없"),
+        ("kid", "앞으로 10미터 가", r"3|세 ?미터|멀"), ("visitor", "내 노트북 집어 줘", r"컵|병|사과|바나나|오렌지|못|없|커요"),
     ]),
 
     # ------------------------------------------------------------ missions

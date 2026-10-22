@@ -23,7 +23,7 @@ from assistant import brain
 from assistant import steps
 from assistant import lumi
 from audio import sing
-from assistant.lumi import FAREWELL_WORDS, STATUS_Q
+from assistant.lumi import STATUS_Q
 from tests.conversation_cases import CASES
 from tests.status_cases import NOT_STATUS, STATUS
 
@@ -68,6 +68,13 @@ def rules_route(text, lang, marks):
         return "action:stop", "", None, ""
     if lumi.status_question(text):
         return "status", NOW if lang == "en" else NOW_KO, None, ""
+    hand = brain.hand_request(text, False, None, marks)          # lumi.hand_command, nothing held
+    if hand:
+        if hand[0] == "receive":
+            from manipulation import skills
+            no = hand[1] and skills.refusal(hand[1])
+            return ("none", no[0 if lang == "en" else 1], None, "") if no else ("action:receive", "", None, "")
+        return ("empty_hand", lumi.EMPTY_HAND_SAY[lang], None, "") if hand[0] in ("give", "place") else ("none", "", None, "")
     read = lumi.read_mission(text, marks)
     if read and read[1]:
         return "mission_unread", f"unread: {read[1]}", None, ""
@@ -75,15 +82,19 @@ def rules_route(text, lang, marks):
         return "mission", steps.describe(read[0]), None, ""
     if lumi.empty_hand_request(text):                            # nothing is held in these checks
         return "empty_hand", lumi.EMPTY_HAND_SAY[lang], None, ""
-    if lumi.says_goodbye(text):
-        return "action:end", "", None, ""
-    if brain.is_closing(text):
-        return ("action:end" if FAREWELL_WORDS.search(text) else "chat"), "", None, ""
+    fate = lumi.talk_fate(text)
+    if fate != "talk":
+        return ("action:end" if fate == "end" else "chat"), "", None, ""
     if sing.asked(text):                                         # lumi.sing_song: a real song plays
         return "action:sing", "", None, ""
     rule = brain.intent(text, marks)
     if rule and rule[0] in QUICK:
         a, tgt = rule
+        if a in ("pick", "move_object"):                         # lumi.object_task: the reason the fingers can't
+            from manipulation import skills
+            no = skills.refusal(next((c for c in set(brain.OBJECTS.values()) if tgt.endswith(c)), ""))
+            if no:
+                return "none", no[0 if lang == "en" else 1], None, ""
         if a == "search" and lumi.not_online(text):              # lumi.quick_command refuses it
             return "none", lumi.not_known(lang), None, ""
         return (a if a in ("weather", "search") else f"action:{a} {tgt}".strip()), "", None, ""
@@ -121,10 +132,20 @@ def route(text, lang, marks):
     return "talk" if r == "none" else r, reply, first, f"{a} {tgt}".strip()
 
 
+def refused(alt):
+    """True for an expected pick / move of a thing the fingers can't take: lumi answers with the reason instead."""
+    from manipulation import skills
+    w = re.sub(r"^action:", "", alt).split(None, 1)
+    return len(w) == 2 and w[0] in ("pick", "move_object") and \
+        any(skills.refusal(c) for c in set(brain.OBJECTS.values()) if w[1].endswith(c))
+
+
 def route_ok(expect, got):
     for alt in expect.split(" | "):
+        if got == "none" and refused(alt):
+            return True
         if alt in TALK or alt == "other_language":
-            if got == "talk" or (alt == "other_language" and got == "unclear"):
+            if got in ("talk", "none") or (alt == "other_language" and got == "unclear"):
                 return True
             continue
         if alt.startswith("action:") and got.startswith("action:"):

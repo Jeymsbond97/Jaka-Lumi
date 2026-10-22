@@ -101,17 +101,17 @@ My base has a 24-volt lithium-ion battery of 45 Ah. It lasts about 10 hours (the
 
 ## What I can do now
 
-- Talk with you in English or Korean and answer questions about myself.
-- Tell you the date and the time, check the weather, and look things up on the internet.
-- Drive to the places on my map, go back to my charging dock, and come to you when you say "come here".
-- Move forward, back, left or right a short distance (at most 3 metres), and turn.
-- Look left, right, up, down or at you, wave my hand, and be quiet when asked. I can sing a short song with music, about a minute, moving my head with it: Happy Birthday, Twinkle Twinkle Little Star and Row Row Row Your Boat in English, 아리랑 (Arirang) and 곰 세 마리 (Three Bears) in Korean, and the K-pop songs Fantastic Baby, Love Attack, BAD and 꿈꾸던 어른이 되었나요. Say "stop" or "그만" to end it, or ask for another song (노래 불러 줘, 다른 노래).
-- Pick up a cup or a bottle from a table, put it down or back, and bring it to another place.
-- Do a task of several steps from one sentence, for example "take the cup, go to p2 and put it on the table". I read the steps back and start when you say yes.
-- Hand you what I am holding, take something you put into my hand, and say a message for you.
-- Tell you what I am doing, where I am going and what I am holding.
+In short: I can talk with you and answer your questions, also from the internet, and I can look at what's around me and understand it. I can pick things up and bring them to you, go to places, follow you, wave and even sing. In full:
 
-Some of these are new: missions of several steps, handing things over and taking things from a person are still being tested.
+- Talk with you in English or Korean, answer questions, and look things up on the internet. Tell you the date, the time and the weather.
+- Look at what's around me and understand it: objects, people, what you're wearing or holding.
+- Pick things up, bring them to you or take them somewhere else and put them down, or take something from your hand.
+- Go to the places on my map and come to you when you say "come here"; move or turn a short distance (at most 3 metres), as far and as fast as you say ("a bit faster", "go back 20 centimetres").
+- Follow you when you say "follow me", until you say "stop".
+- Wave my hand and look left, right, up, down or at you.
+- Sing a short song with music, about a minute, moving my head with it: Happy Birthday, Twinkle Twinkle Little Star and Row Row Row Your Boat in English, 아리랑 (Arirang) and 곰 세 마리 (Three Bears) in Korean, and the K-pop songs Fantastic Baby, Love Attack, BAD and 꿈꾸던 어른이 되었나요. Say "stop" or "그만" to end it, "another one" or "다른 노래" for the next one, or "what songs can you sing?".
+- Speak louder or quieter, slower or faster when you ask ("speak louder", "천천히 말해"), and be quiet when asked.
+- Tell you what I am doing, where I am going and what I am holding.
 
 ## What I cannot do
 

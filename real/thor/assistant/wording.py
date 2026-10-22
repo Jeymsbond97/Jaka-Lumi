@@ -20,11 +20,12 @@ KO_EN_NUM = {"원": 1, "투": 2, "쓰리": 3, "스리": 3, "뜨리": 3, "트리"
 NATIVE = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9, "열": 10}
 SINO = {"일": 1, "이": 2, "삼": 3, "사": 4, "오": 5, "육": 6, "륙": 6, "칠": 7, "팔": 8, "구": 9}
 _D = "[일이삼사오육륙칠팔구]"
-_SINO = rf"(?:(?:{_D}?백)(?:{_D}?십)?{_D}?|{_D}?십{_D}?|{_D})"     # 일 … 구백구십구 ("사십오", "백팔십")
+_SINO = rf"(?:{_D}?천(?:{_D}?백)?(?:{_D}?십)?{_D}?|(?:{_D}?백)(?:{_D}?십)?{_D}?|{_D}?십{_D}?|{_D})"   # 일 … 구천구백구십구
 TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
 NUM_WORDS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8",
              "nine": "9", "ten": "10", "a": "1", "an": "1", "한": "1", "두": "2", "세": "3", "네": "4"}
-UNIT = r"(?:m|meters?|metres?|cm|centimet(?:er|re)s?|미터|센티(?:미터)?|센치(?:미터)?)"
+UNIT = (r"(?:m|meters?|metres?|metals?|cm|centimet(?:er|re)s?|mm|millimet(?:er|re)s?|km|kilomet(?:er|re)s?|miles?|"
+        r"미터|센티(?:미터)?|센치(?:미터)?|밀리(?:미터)?|킬로(?:미터)?(?!그램)|마일)")   # whisper writes "metal" for meter
 _CM = r"(?:cm|centimet(?:er|re)s?|센티(?:미터)?|센치(?:미터)?)"
 # what may follow a number said in Korean words for it to be a marker: a particle, a place word, or no more Hangul
 # ("피삼으로", "피파이브 앞에", "피일에서"; not "피투성이", "피오나")
@@ -41,6 +42,7 @@ NAMED = [   # other markers on the map, as said / as whisper writes them -> the 
     (r"\bw[\s.-]p\b|더블[유류]\s?피" + _KO_END, "wp"),
     (r"(?<![가-힣])홈" + _KO_END, "home"),
     (r"(?:포인트|마커)\s*(?:에이|a)(?![a-z])" + _KO_END, "point a"), (r"(?:포인트|마커)\s*(?:비|b)(?![a-z])" + _KO_END, "point b"),
+    (r"(?<![가-힣])(?:에이|a)\s*지점", "point a"), (r"(?<![가-힣])(?:비|b)\s*지점", "point b"),   # "에이 지점으로 가"
 ]
 
 
@@ -51,7 +53,7 @@ def sino(word):
         if ch in SINO:
             part = SINO[ch]
         else:
-            n += (part or 1) * {"십": 10, "백": 100}[ch]
+            n += (part or 1) * {"십": 10, "백": 100, "천": 1000}[ch]
             part = 0
     return n + part
 
@@ -72,11 +74,14 @@ def markers(t):
     for name_re, name in NAMED:
         t = re.sub(name_re, name, t)
     t = re.sub(rf"{_P}\s*[.-]?\s*(\d+)(?!\d|\.\d)", lambda m: f"p{m.group(1)}", t)       # "P.3", "p 3", "피3", "포인트 3"
+    t = re.sub(r"(?<![\w.])(\d+)\s?(?:p(?:\s+(?:point|포인트))?|point|포인트)(?![a-z\d])(?!\s*\d)",   # "10p point",
+               lambda m: f"p{m.group(1)}", t)                                            # "10p", "10 point"
     t = re.sub(rf"(?<!\d )(?<![a-z] point ){_P}\s*[.-]?\s*({'|'.join(EN_NUM)})(?![a-z])(?!\s*{UNIT}\b)",
                lambda m: f"p{EN_NUM[m.group(1)]}", t)                                    # "point three", "p two"
     t = re.sub(rf"{_P}\s*({ko}|{_SINO}){_KO_END}", lambda m: f"p{_num(m.group(1))}", t)  # "피쓰리", "포인트 삼"
-    t = re.sub(r"\b(to|from|at) (the )?(?:piece|peace|pee|pea) ?(\d+)\b",                  # whisper's "go to piece 6"
+    t = re.sub(r"\b(to|from|at) (the )?(?:piece|peace|pee|pea|pit|pi|pe) ?(\d+)\b",                  # whisper's "go to piece 6"
                lambda m: f"{m.group(1)} {m.group(2) or ''}p{m.group(3)}", t)
+    t = re.sub(r"\b(p\d+)\s+(?:point|포인트)(?![a-z])(?!\s*(?:a|b|\d)(?![a-z]))", r"\1", t)   # "p10 point"
     return t
 
 
@@ -86,6 +91,12 @@ def numbers(t):
     t = re.sub(r"\bone and a half\b", "1.5", t)
     t = re.sub(rf"\b({'|'.join(TENS)})(?:[ -]({'|'.join(list(EN_NUM)[:9])}))?\b",
                lambda m: str(TENS[m.group(1)] + EN_NUM.get(m.group(2), 0)), t)
+    t = re.sub(rf"\b(?:a|one|1) thousand\b|\b(\d+|{'|'.join(EN_NUM)}) thousand\b",
+               lambda m: str(1000 * _num(m.group(1)) if m.group(1) else 1000), t)     # "a thousand", "five thousand"
+    t = re.sub(rf"\b([2-9]|{'|'.join(list(EN_NUM)[1:9])}) hundred(?: and)?(?: (\d+))?\b",
+               lambda m: str(100 * _num(m.group(1)) + int(m.group(2) or 0)), t)       # "two hundred and fifty"
+    t = re.sub(rf"\b({'|'.join(TEEN)}|eleven|twelve)\b(?=\s*{UNIT}(?![a-z]))",
+               lambda m: str(TEEN.get(m.group(1)) or EN_NUM[m.group(1)]), t)          # "fifteen centimetres"
     t = re.sub(r"\b(?:a|one) hundred(?: and)? (\d+)\b", lambda m: str(100 + int(m.group(1))), t)
     t = re.sub(r"\b(?:a|one) hundred\b", "100", t)
     t = re.sub(rf"(?<![\w.])(\d|{'|'.join(list(EN_NUM)[:9])}) point (\d|{'|'.join(list(EN_NUM)[:9])})\s*(?={UNIT}\b)",
@@ -107,7 +118,12 @@ def numbers(t):
             t = re.sub(rf"(?<![가-힣]){w}\s*(?={UNIT})", d + " ", t)
     t = re.sub(rf"(?<![\d.])0(\d)\s*(?={UNIT}(?![a-z]))", r"0.\1 ", t)      # whisper's "05 meters": 0.5 m
     t = re.sub(rf"(\d+(?:\.\d+)?)\s*{_CM}(?![a-z])", lambda m: f"{float(m.group(1)) / 100:g} m", t)
-    t = re.sub(r"(\d+(?:\.\d+)?)\s*(?:meters?|metres?|미터)", r"\1 m", t)
+    t = re.sub(r"(\d+(?:\.\d+)?)\s*(?:mm|millimet(?:er|re)s?|밀리(?:미터)?)(?![a-z])",
+               lambda m: f"{float(m.group(1)) / 1000:g} m", t)
+    t = re.sub(r"(\d+(?:\.\d+)?)\s*(?:km|kilomet(?:er|re)s?|킬로(?:미터)?(?!그램))(?![a-z])",
+               lambda m: f"{float(m.group(1)) * 1000:g} m", t)
+    t = re.sub(r"(\d+(?:\.\d+)?)\s*(?:miles?|마일)(?![a-z])", lambda m: f"{float(m.group(1)) * 1609.344:g} m", t)
+    t = re.sub(r"(\d+(?:\.\d+)?)\s*(?:meters?|metres?|metals?|미터)", r"\1 m", t)
     t = re.sub(r"(?<![\d.])(\d+) m (0\.\d+) m", lambda m: f"{int(m.group(1)) + float(m.group(2)):g} m", t)  # "1미터 50센치"
     t = re.sub(r"(?<![\d.])(\d+)(?: m)? and (?:a )?(?:half|0\.5)(?: m)?", lambda m: f"{int(m.group(1)) + 0.5:g} m", t)
     t = re.sub(r"(?<![\d.])(\d+) ?m 반", lambda m: f"{int(m.group(1)) + 0.5:g} m", t)

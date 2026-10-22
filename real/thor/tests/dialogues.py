@@ -1222,6 +1222,18 @@ DIALOGUES = [
       T("강아지처럼 짖어 봐!", must=[KO]),
       T("야옹!", must=[KO]),
       T("안녕!", "none | end")),
+    D("visitor", "follow-up", "en",                     # fragments and the question turned back (2026-10-21 live)
+      T("How old are you?", must=[AGE]),
+      T("I'm thirty. And you?", must=[AGE], check="says its own age again, briefly"),
+      T("Oh really?", must=[r"\w"], no=[r"didn't catch|say (it|that) again"], check="reacts briefly, not unclear"),
+      T("What's the weather like?", "weather"),
+      T("And tomorrow?", "search | weather")),
+    D("visitor", "follow-up", "ko",
+      T("몇 살이에요?", must=[AGE]),
+      T("저는 서른 살이에요. 루미는요?", must=[AGE], check="자기 나이를 짧게 다시 말한다"),
+      T("헐 대박", must=[KO], no=[r"못 알아|다시 (한 번 )?말씀"], check="짧게 반응한다, unclear 아님"),
+      T("오늘 날씨 어때요?", "weather"),
+      T("그럼 내일은요?", "search | weather")),
 ]
 
 from tests.dialogues_more_a import DIALOGUES_MORE as _MORE_A     # written blind in a later round (2026-10-19)

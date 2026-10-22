@@ -46,7 +46,7 @@ add("about_self", "en", [
     ("engineer", "is the payload measured", r"estimate|not (been )?weighed|about"), ("kid", "can you lift me", NO),
     ("engineer", "what gripper do you have", r"zimmer|electric|two|finger"), ("engineer", "how wide can your gripper open", r"(?<!\d)6(?!\d)|(?<!\d)9(?!\d)|60|90"),
     ("visitor", "what can you pick up", r"cup"), ("visitor", "can you pick up a bottle", r"bottle|yes"),
-    ("visitor", "can you pick things up from the floor", NO), ("kid", "can you hold my phone", r"cup|bottle|apple|banana|orange|\bno\b|can'?t|cannot|only"),
+    ("visitor", "can you pick things up from the floor", NO), ("kid", "can you hold my phone", r"cup|bottle|apple|banana|orange|\bno\b|can'?t|cannot|only|too thin|fingers"),
     ("engineer", "how fast does your gripper close", r"one second|1 second|second"), ("engineer", "how do you know something is in your hand", r"sensor|camera|light"),
     ("visitor", "can you see me", r"camera|yes|see"), ("engineer", "how many cameras do you have", r"three|3|two|2"),
     ("engineer", "what cameras do you use", r"orbbec|gemini"), ("engineer", "how far can your cameras see", r"10"),

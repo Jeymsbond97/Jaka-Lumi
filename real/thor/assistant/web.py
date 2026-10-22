@@ -8,6 +8,7 @@ The robot network has no internet; the Thor reaches it through its own Wi-Fi. A 
     python assistant/web.py search "Jetson Thor"
 """
 import html
+import datetime
 import json
 import os
 import re
@@ -15,6 +16,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, wait
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]      # the project folder
@@ -23,6 +25,25 @@ DEFAULT_PLACE = "Seoul"
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux aarch64) LumiRobot/1.0"}
 _online = {"time": 0.0, "ok": False}
 PLACES = {"seoul": {"name": "Seoul", "latitude": 37.57, "longitude": 126.98}}   # known places: no geocoding request
+# Korean names -> the English name the geocoder knows (it finds 부산 as a village "Pusan", 제주 not at all, "Jeju" in Ethiopia)
+KO_PLACES = {
+    "서울": "Seoul", "부산": "Busan", "인천": "Incheon", "대구": "Daegu", "대전": "Daejeon", "광주": "Gwangju",
+    "울산": "Ulsan", "세종": "Sejong", "수원": "Suwon", "성남": "Seongnam-si", "고양": "Goyang", "용인": "Yongin-si",
+    "창원": "Changwon", "청주": "Cheongju", "전주": "Jeonju", "천안": "Cheonan", "포항": "Pohang", "김해": "Gimhae",
+    "제주": "Jeju City", "제주도": "Jeju City", "서귀포": "Seogwipo", "강릉": "Gangneung", "춘천": "Chuncheon", "원주": "Wonju",
+    "속초": "Sokcho", "경주": "Gyeongju", "여수": "Yeosu", "목포": "Mokpo", "안동": "Andong", "평창": "Pyeongchang",
+    "도쿄": "Tokyo", "오사카": "Osaka", "교토": "Kyoto", "후쿠오카": "Fukuoka", "삿포로": "Sapporo",
+    "베이징": "Beijing", "상하이": "Shanghai", "홍콩": "Hong Kong", "타이베이": "Taipei", "방콕": "Bangkok",
+    "싱가포르": "Singapore", "하노이": "Hanoi", "다낭": "Da Nang", "뉴욕": "New York", "런던": "London",
+    "파리": "Paris", "타슈켄트": "Tashkent", "사마르칸트": "Samarkand",
+    "jeju": "Jeju City", "seongnam": "Seongnam-si", "yongin": "Yongin-si",   # the plain English name is found elsewhere
+}
+
+
+def en_place(place):
+    """'부산', '부산시', '제주도', 'Jeju' -> 'Busan', 'Busan', 'Jeju City', 'Jeju City'; anything else unchanged."""
+    p = place.strip()
+    return KO_PLACES.get(p.lower()) or (KO_PLACES.get(p[:-1]) if p.endswith(("시", "도")) else None) or p
 WEATHER_TTL = 600                        # s a weather answer is reused (each web request takes ~2 s on the Wi-Fi)
 _weather = {}                            # place -> (time, text)
 
@@ -33,8 +54,8 @@ def _opener():
     return urllib.request.build_opener(*handlers)
 
 
-def _get(url, timeout=6):
-    req = urllib.request.Request(url, headers=UA)
+def _get(url, timeout=6, headers=UA):
+    req = urllib.request.Request(url, headers=headers)
     with _opener().open(req, timeout=timeout) as r:
         return r.read().decode("utf-8", errors="replace")
 
@@ -65,7 +86,7 @@ WEATHER_CODES = {0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "over
 
 def weather(place=DEFAULT_PLACE):
     """Current weather and today's range as a short English text, or None without internet."""
-    place = (place or DEFAULT_PLACE).strip() or DEFAULT_PLACE
+    place = en_place(place or DEFAULT_PLACE) or DEFAULT_PLACE
     key = place.lower()
     if key in _weather and time.time() - _weather[key][0] < WEATHER_TTL:
         return _weather[key][1]
@@ -107,29 +128,96 @@ STOP = {"the", "a", "an", "of", "in", "on", "at", "to", "for", "and", "or", "is"
         "when", "where", "which", "height", "tall", "meters", "metres", "current", "latest", "now", "today", "name",
         "date", "year", "founded", "founding", "company", "age", "old", "big", "size", "long", "length", "far",
         "distance", "population", "price", "cost", "number", "many", "much", "there"}
+BROWSER = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 "
+                         "Safari/537.36", "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"}
+WIKI_UA = {"User-Agent": "LumiRobot/1.0 (https://cutshion.com; cutshion@cutshion.com)"}   # Wikimedia answers 429
+                             # (too many requests) to a browser or bare robot name; a name with a contact it serves
+SEARCH_WAIT_S = 3.0          # s all sources get together; a slower one is left out (Naver ~0.5 s, Wikipedia ~1.5 s)
+PAGE_CHARS = 1800            # chars of the search page given to the LLM (it reads ~1000 tokens a second)
+BLOCK_CHARS = 700            # ... at most this much from one part of the page (an answer box, the news, one site)
+WIKI_CHARS = 600             # chars of the Wikipedia summary
+SEARCH_TTL = 600             # s a search result is reused (visitors ask the same things; follow-ups search again)
+SKIP_BLOCKS = re.compile(r'ad_section|data-meta-ssuid="(influencer|clip|image|qra|shortents|ex_csa|shopping)"|'
+                         r"가격비교|플러스 스토어|브라우저를 업데이트하세요")   # Naver page parts that never answer a question
+JUNK = re.compile(r"새 창 열림|새 창으로 열기|Keep에 (저장|바로가기)|Keep 바로가기|문서 저장하기|AI 출처 정보.*?자세히 보기|"
+                  r"이 (광고|정보)가 표시된 이유|정보확인 레이어 닫기|레이어 닫기|이전으로 이동|다음으로 이동|이전 다음|"
+                  r"동영상 바로재생( 버튼)?|펼치기|접기|공유하기|차트를 불러오는 중입니다\.|"
+                  r"환율을 (계산할|변환하는) 국가를 선택( [가-힣]+)+|환율우대 \d+%|환율우대없음")
+ASKED_AS = ((r"\bhow (tall|high)\b", "height"), (r"\bhow long\b", "length"), (r"\bhow old\b", "age"),
+            (r"\bhow far\b", "distance"), (r"\bhow deep\b", "depth"), (r"\bhow (big|large)\b", "size"),
+            (r"\bhow many people\b", "population"), (r"\bhow much\b", "price"), (r"\bwhat time\b", "hours"),
+            (r"\bwho won\b", "winner"), (r"\bwhere is\b", "location"))   # English question -> what a search engine wants
+ASK_WORDS = re.compile(r"\b(what'?s|what|who'?s|who|whom|which|where|when|why|how|is|are|was|were|the|a|an|do|does|did|"
+                       r"can|could|you|tell me|please|lumi|right now|i|me|my|and|he|she|his|her|it|its|they|their)\b|"
+                       r"[?,.!]", re.I)
+CURRENCIES = {"USD": ("US dollar", r"dollars?|usd|달러"), "EUR": ("euro", r"euros?|eur\b|유로"),
+              "JPY": ("Japanese yen", r"\byen\b|jpy|엔화"), "CNY": ("Chinese yuan", r"yuan|renminbi|cny|위안"),
+              "GBP": ("British pound", r"pounds? sterling|british pounds?|gbp|파운드"),
+              "VND": ("Vietnamese dong", r"vietnamese dong|vnd|동화"), "THB": ("Thai baht", r"baht|thb|바트"),
+              "KRW": ("Korean won", r"\bwons?\b|krw|원화")}
+COINS = {"bitcoin": r"bitcoin|btc|비트코인", "ethereum": r"ethereum|\beth\b|이더리움", "ripple": r"\bxrp\b|ripple|리플",
+         "solana": r"solana|솔라나", "dogecoin": r"doge|도지"}
+RATE_WORDS = re.compile(r"exchange|\brates?\b|convert|환율|환전|in (korean )?wons?\b|원으로|얼마", re.I)
+_searched = {}                               # query -> (time, text)
+_pool = ThreadPoolExecutor(6)
+
+
+def _text(page):
+    """Visible text of an HTML fragment on one line."""
+    page = re.sub(r"(?is)<(script|style|noscript|svg)[^>]*>.*?</\1>", " ", page)
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", page))).strip()
+
+
+def keywords(query):
+    """An English question as search words: "How tall is Son Heung-min?" -> "height Son Heung-min". Naver finds
+    English blogs about grammar for a whole English question, the right pages for the words. Korean stays as it is."""
+    if re.search(r"[가-힣]", query):
+        return query
+    q = query
+    for asked, word in ASKED_AS:
+        q = re.sub(asked, f" {word} ", q, flags=re.I)
+    return re.sub(r"\s+", " ", ASK_WORDS.sub(" ", q)).strip() or query
+
+
+def _naver(query):
+    """The Naver results page as text: answer boxes (exchange rates, stocks, people, sports), web pages, news, blogs;
+    ads, shopping and image strips left out. '' when nothing is found. Naver answers scripts like a browser and
+    has live answer boxes; it reads English questions too."""
+    page = _get("https://search.naver.com/search.naver?query=" + urllib.parse.quote(query), 4, BROWSER)
+    parts = []
+    for block in re.split(r'(?=<div class="_scrollLog")', page)[1:]:
+        if SKIP_BLOCKS.search(block[:3000]):
+            continue
+        text = re.sub(r"\s+", " ", JUNK.sub(" ", _text(block))).strip()
+        if len(text) > 20:
+            parts.append(text[:BLOCK_CHARS])
+    return "\n".join(parts)[:PAGE_CHARS]
+
+
+def _duckduckgo(query):
+    """Titles and snippets from DuckDuckGo, or ''; only when Naver fails (DuckDuckGo often asks scripts to solve a
+    picture puzzle)."""
+    page = _get("https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(query), 4, BROWSER)
+    hits = re.findall(r'class="result__a"[^>]*>(.*?)</a>.*?class="result__snippet"[^>]*>(.*?)</a>', page, re.S)
+    return "\n".join(f"{_text(t)}: {_text(s)}" for t, s in hits[:6])[:PAGE_CHARS]
 
 
 def _wikipedia(query, lang):
-    """Best-matching Wikipedia article summary + the matching snippets of the top results, or ''."""
-    api = f"https://{lang}.wikipedia.org"
+    """Intro of the Wikipedia article that fits the query best (one request), or ''."""
     words = [w for w in re.findall(r"\w+", query.lower()) if w not in STOP]
-    hits = []
     for q in (" ".join(words), query):                   # the names alone first: "height in metres" misleads search
         if not q:
             continue
-        found = json.loads(_get(f"{api}/w/api.php?action=query&list=search&srlimit=3&srprop=snippet&format=json&srsearch="
-                                + urllib.parse.quote(q)))   # full-text search, not just title prefixes
-        hits = found.get("query", {}).get("search", [])
-        if hits:
+        found = json.loads(_get(f"https://{lang}.wikipedia.org/w/api.php?action=query&format=json&generator=search"
+                                f"&gsrlimit=3&prop=extracts&exintro=1&explaintext=1&exlimit=3&redirects=1"
+                                f"&exchars={WIKI_CHARS}&gsrsearch=" + urllib.parse.quote(q), 3, WIKI_UA))   # full-text search
+        pages = sorted(found.get("query", {}).get("pages", {}).values(), key=lambda p: p.get("index", 9))
+        if pages:
             break
-    if not hits:
+    else:
         return ""
-    words = set(words)
-    best = max(hits, key=lambda h: len(words & set(re.findall(r"\w+", h["title"].lower()))))   # title that fits the question
-    page = json.loads(_get(f"{api}/api/rest_v1/page/summary/" + urllib.parse.quote(best["title"].replace(" ", "_"))))
-    clean = lambda t: html.unescape(re.sub(r"<[^>]+>", "", t)).strip()
-    snippets = "; ".join(f"{h['title']}: {clean(h['snippet'])}" for h in hits)
-    return f"Wikipedia, {page.get('title', '')}: {page.get('extract', '')[:700]}\nMatching text: {snippets}"
+    best = max(pages, key=lambda p: len(set(words) & set(re.findall(r"\w+", p["title"].lower()))))   # title that fits
+    return f"{best['title']}: {best.get('extract', '')}"
 
 
 def _news(query, lang, n=4):
@@ -137,31 +225,146 @@ def _news(query, lang, n=4):
     hl = "ko" if lang == "ko" else "en-US"
     gl = "KR" if lang == "ko" else "US"
     rss = _get(f"https://news.google.com/rss/search?hl={hl}&gl={gl}&ceid={gl}:{hl.split('-')[0]}&q="
-               + urllib.parse.quote(query))
+               + urllib.parse.quote(query), 3)
     items = re.findall(r"<item>.*?<title>(.*?)</title>.*?<pubDate>(.*?)</pubDate>", rss, re.S)[:n]
     return "\n".join(f"- {html.unescape(t)} ({d[:16]})" for t, d in items)
 
 
+def _money(query):
+    """Exchange rates to the Korean won (open.er-api.com, updated daily) and coin prices (CoinGecko, live) for the
+    currencies and coins the query names, or ''. Naver shows its rate box only for some wordings."""
+    lines = []
+    named = [c for c, (_, words) in CURRENCIES.items() if re.search(words, query, re.I)]
+    if named and RATE_WORDS.search(query):
+        r = json.loads(_get("https://open.er-api.com/v6/latest/USD", 3))
+        rates = r["rates"]
+        for c in [c for c in named if c != "KRW"] or ["USD"]:
+            won = rates["KRW"] / rates[c]
+            lines.append(f"1 {CURRENCIES[c][0]} = {won:,.2f} Korean won" + (f" (100 yen = {won * 100:,.0f} won)" if
+                         c == "JPY" else "") + (f" = {1 / rates[c]:,.4f} US dollars" if c != "USD" else ""))
+        lines.append(f"(exchange rates of {r['time_last_update_utc'][:16]})")
+    coins = [c for c, words in COINS.items() if re.search(words, query, re.I)]
+    if coins:
+        price = json.loads(_get("https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd,krw&ids="
+                                + ",".join(coins), 3))
+        lines += [f"1 {c} = {p['usd']:,} US dollars = {p['krw']:,} Korean won (now)" for c, p in price.items()]
+    return "\n".join(lines)
+
+
+BIRTH = (re.compile(r"\bborn(?: on)? ([A-Z][a-z]+ \d{1,2}, \d{4}|\d{1,2} [A-Z][a-z]+ \d{4})"),
+         re.compile(r"(?:출생|생년월일) ?:? ?(\d{4})\. ?(\d{1,2})\. ?(\d{1,2})"),
+         re.compile(r"(\d{4})년 (\d{1,2})월 (\d{1,2})일 ?(?:~|생|출생)"))
+
+
+BIRTH_YEAR = re.compile(r"\bborn (?:in )?(\d{4})\b|(\d{4})년생")     # the year only: the age is one of two
+
+
+def _born(m):
+    """The date a BIRTH match names, or None."""
+    if len(m.groups()) == 3:
+        return datetime.date(*map(int, m.groups()))
+    for form in ("%B %d, %Y", "%d %B %Y"):
+        try:
+            return datetime.datetime.strptime(m.group(1), form).date()
+        except ValueError:
+            pass
+    return None
+
+
+def with_ages(text, today=None):
+    """Each birth date in the text followed by the age it makes today ("born May 7, 1996 (30 years old today)"):
+    the LLM gets ages a year wrong."""
+    today = today or datetime.date.today()
+
+    def age(m):
+        try:
+            born = _born(m)
+        except ValueError:                       # "1992.13.40"
+            born = None
+        if not born:
+            return m.group(0)
+        years = today.year - born.year - ((today.month, today.day) < (born.month, born.day))
+        return f"{m.group(0)} ({years} years old today)"
+    for pattern in BIRTH:
+        text = pattern.sub(age, text)
+    def either(m):
+        years = today.year - int(m.group(1) or m.group(2))
+        return f"{m.group(0)} ({years - 1} or {years} years old today)"
+    return BIRTH_YEAR.sub(either, text)
+
+
 def search(query, n=4):
-    """Facts for a question: a Wikipedia summary + the latest news headlines, or None without internet.
-    (DuckDuckGo answers the robot with a bot check; Bing returns unrelated pages to scripts.)"""
+    """Text to answer a question from, fetched at the same time: exchange rates and coin prices when asked, the
+    Naver results page (DuckDuckGo when Naver fails), a Wikipedia summary and Google News headlines. "No results." when nothing is found,
+    None without internet. (Bing returns unrelated pages to scripts.)"""
     lang = "ko" if re.search(r"[가-힣]", query) else "en"
     q = re.sub(r"\b(what|who|whom|is|are|was|were|the|a|an|about|tell me|more|please|latest|news|today'?s?|any|how|"
                r"do|does|did|you|know|can|could|of|lumi)\b|[?,.!]", " ", query, flags=re.I)
     q = re.sub(r"\s+", " ", q).strip() or query
-    parts = []
-    for fn in (lambda: _wikipedia(q, lang), lambda: _news(q, lang, n)):
+    key = query.strip().lower()
+    if key in _searched and time.time() - _searched[key][0] < SEARCH_TTL:
+        return _searched[key][1]
+    jobs = {"Rates and prices": _pool.submit(_money, query)} if RATE_WORDS.search(query) or \
+        any(re.search(w, query, re.I) for w in COINS.values()) else {}
+    jobs |= {"Search results": _pool.submit(_naver, keywords(query)), "Wikipedia": _pool.submit(_wikipedia, q, lang)}
+    jobs["News headlines"] = _pool.submit(_news, q, lang, n)     # names who holds an office or won lately
+    wait(jobs.values(), timeout=SEARCH_WAIT_S)
+    found = {}
+    for name, job in jobs.items():
         try:
-            text = fn()
+            found[name] = job.result(timeout=0) if job.done() else ""
         except Exception:
-            text = None
-        if text is None:
-            continue
-        if text:
-            parts.append(text)
-    if not parts and not online():
+            found[name] = ""
+    if not found["Search results"]:
+        try:
+            found["Search results"] = _duckduckgo(keywords(query))
+        except Exception:
+            pass
+    text = with_ages("\n\n".join(f"{name}:\n{t}" for name, t in found.items() if t))
+    if not text:
+        return None if not online() else "No results."
+    _searched[key] = (time.time(), text)
+    return text
+
+
+OPENAI_KEY = Path.home() / ".config" / "lumi" / "openai_key"    # the owner's key, on this Thor only (never copied)
+OPENAI_MODEL = "gpt-5.4-mini"    # with web_search: right on live facts, 2-6 s (2026-10-21); ~1.5 cents a question
+OPENAI_WAIT_S = 12.0             # s; slower than this: the free search below answers instead
+OPENAI_HISTORY = 4               # earlier turns given along, for "and his age?"
+OPENAI_SAY = ("You are Lumi, a friendly service robot speaking aloud. Answer the question from a web search in 1-2 short "
+              "spoken sentences, in the question's language (English or Korean), the answer first. On 'tell me more' "
+              "give 2-3 new facts. Round long numbers; say heights, ages and scores exactly. Now it is {today} in Seoul, Korea (where Lumi is). Never "
+              "give a private person's address or phone number. No links, sources, lists or markdown.")
+CITATION = re.compile(r"\s*\(\[[^\]]*\]\([^)]*\)\)|\[([^\]]*)\]\([^)]*\)|https?://\S+|[*#`]")
+
+
+def openai_ready():
+    return OPENAI_KEY.exists()
+
+
+def openai_answer(question, history=()):
+    """A short spoken answer to a web question from OpenAI's web search, or None (no key, no internet, too slow).
+    history: earlier (heard, said) pairs of the conversation."""
+    if not openai_ready():
         return None
-    return "\n".join(parts) if parts else "No results."
+    turns = [{"role": r, "content": c} for h, a in list(history)[-OPENAI_HISTORY:] for r, c in (("user", h), ("assistant", a))
+             if c and not c.startswith("ACTION:")]
+    body = {"model": OPENAI_MODEL, "reasoning": {"effort": "low"}, "tools": [{"type": "web_search"}],
+            "instructions": OPENAI_SAY.format(today=datetime.datetime.now().strftime("%A %Y-%m-%d %H:%M")),
+            "input": turns + [{"role": "user", "content": question}]}
+    req = urllib.request.Request("https://api.openai.com/v1/responses", json.dumps(body).encode(),
+                                 {"Authorization": f"Bearer {OPENAI_KEY.read_text().strip()}",
+                                  "Content-Type": "application/json"})
+    try:
+        with _opener().open(req, timeout=OPENAI_WAIT_S) as r:
+            out = json.loads(r.read())
+    except (OSError, ValueError) as e:
+        print(f"openai: {e}", file=sys.stderr)
+        return None
+    text = " ".join(c.get("text", "") for o in out.get("output", []) if o.get("type") == "message"
+                    for c in o.get("content", []))
+    text = re.sub(r"\s+", " ", CITATION.sub(lambda m: m.group(1) or "", text)).strip()
+    return text or None
 
 
 if __name__ == "__main__":

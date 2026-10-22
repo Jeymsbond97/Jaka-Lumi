@@ -31,7 +31,7 @@ import sys
 import time
 
 from assistant import brain, lumi
-from tests.conversation_check import NOW, fill, llm_route, markers, rules_route
+from tests.conversation_check import NOW, fill, llm_route, markers, refused, rules_route
 from tests.dialogues import DIALOGUES
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -110,6 +110,8 @@ def action_ok(expect, got):
     """expect: 'none', 'search', 'go_to p3', 'end', ... alternatives split by ' | '."""
     for alt in expect.split(" | "):
         alt = alt.strip()
+        if got == "none" and refused(alt):
+            return True                                             # the reason the fingers can't take it
         if alt == "none" and got in ("none", "chat", "status"):
             return True
         if alt == "mission" and got.startswith("action:fetch"):
