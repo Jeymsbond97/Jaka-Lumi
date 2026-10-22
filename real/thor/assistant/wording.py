@@ -229,6 +229,8 @@ def map_names(t, names):
 ASR_SLIPS = [   # how whisper writes Korean commands (tests/asr_check.py, 2026-10-21) -> as said
     (r"([a-z0-9])\.?\s+(으로|로)\s*(?=가|와|이동|돌아)", r"\1\2 "),   # "P3. 로가줘", "final point. 로 가": one word
     (r"(?<=로)\s*가죠(?![가-힣])", " 가 줘"),                        # "p3로 가 줘" written "p3로 가죠"
+    (r"\blook (?:last|lest|less)(?=[\s.!,]*$)", "look left"), (r"\bdoc t\b", "dock 2"),     # said at the end
+    (r"고게(?=\s*(?:들|숙))", "고개"), (r"찝어", "집어"), (r"파이나(?=\s*(?:갔|가|로))", "파이널"),
 ]
 
 

@@ -96,10 +96,11 @@ ODD_KO_BONUS = 0.3               # English text with a word no dictionary has: K
                                  # Hangul and its log-probability + this beats the English one (tests/asr_check.py)
 WORDS_FILE = pathlib.Path("/usr/share/dict/words")
 OUR_WORDS = {"lumi", "cutshion", "okay", "ok", "hmm", "um", "uh"}
-SLIPS = [   # whisper's spellings of our names (tests/asr_check.py, logs/lumi.log 2026-10-21) -> the name
+SLIPS = [   # whisper's slips seen in tests/asr_check.py and logs/lumi.log (our names first) -> as said
     (r"\b(?:[kc]ut(?:s|t)?ch[aei]n|katchen|kutch and)(?= company|\b)", "Cutshion"),
     (r"\b(?:coaching|cushion|kitchen) (?=company)", "Cutshion "),
     (r"\bcushion(?=[은는이가을를의에])|커션|컷션", "쿳션"),
+    (r"난시(?=가?\s*어때)", "날씨"),                   # "오늘 난시가 어때요?" (lumi.log 2026-10-20)
 ]
 _words = set()
 last_stt = {}                    # language / confidence of the last transcription (see understood())
@@ -130,7 +131,7 @@ def _infer(wav, prompt, language=None):
 
 
 def names(text):
-    """Our names as whisper wrote them (SLIPS) -> the names; "Lumi야" -> 루미야."""
+    """Whisper's slips (SLIPS, our names) -> as said; "Lumi야" -> 루미야."""
     text = re.sub(r"\blumi(?=[야아])", "루미", text, flags=re.I)
     for slip, said in SLIPS:
         text = re.sub(slip, said, text, flags=re.I)
