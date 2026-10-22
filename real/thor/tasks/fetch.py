@@ -172,6 +172,10 @@ _rest = []                                   # the running mission's steps still
 _pause = threading.Event()                   # set by pause() (someone talks to Lumi on the way): drives halt, the run
                                              # waits at the next step; resume() goes on where it was
 _thread = None
+stay_put = False                             # set by assistant/lumi.py for a task asked by voice with only Greeter on:
+                                             # head and lift only, no base move, no waist turn (NEED_PATROL)
+NEED_PATROL = ("For that I'd have to drive or turn. Switch on Patrol, please.",
+               "그러려면 이동하거나 돌아야 해요. 패트롤을 켜 주세요.")
 _task = {"start_pose": None,                 # map pose (x, y, theta) where the current task was given
          "trip_from": None}                  # where Lumi stood before its last trip, task or mission: "come back"
                                              # returns there (lumi.come_back); short moves and turns don't set it
@@ -623,6 +627,9 @@ def _waist_to(rel):
     d = max(lo, min(hi, waist - _waist_turn() + rel)) - waist
     if abs(d) < 1.0:
         return True
+    if stay_put:
+        log("not turning my waist: Patrol is off")
+        return False
     _go_on()
     if _sweep_blocked(d, "turning my waist"):
         return False
@@ -645,13 +652,18 @@ def _waist_front():
     """Every base move starts with the waist at the front: navigation does not know the arm, and sideways it sticks
     out further. FetchError when the way back is not clear."""
     if not _waist_to(0.0):
+        if stay_put:
+            raise FetchError(*NEED_PATROL)
         raise FetchError("My arm can't turn back to the front: something is in its way.",
                          "팔을 앞으로 돌릴 수 없어요. 뭔가 막고 있어요.")
 
 
 def _turn(deg, holding=False, why="to look further"):
     """Turn the base on the spot by `deg` (+ = left), arm in look (holding: it is there already), the lift where it
-    is. False when it must not: charging, or the arm would hit something on the way (turn_hits)."""
+    is. False when it must not: Patrol off (stay_put), charging, or the arm would hit something on the way (turn_hits)."""
+    if stay_put:
+        log("not turning: Patrol is off")
+        return False
     if _charging():
         log("on the charger: I don't turn")
         return False
@@ -811,6 +823,8 @@ def _drive_to(place, say, watch_holding=False):
                 abs((th - pth + math.pi) % (2 * math.pi) - math.pi) < SAME_ANGLE_RAD:
             return
         place = {"x": x, "y": y, "theta": th}
+    if stay_put:
+        raise FetchError(*NEED_PATROL)
     _waist_front()
     head_ahead()
     _lift_to(LIFT_DRIVE_MM)
@@ -1065,7 +1079,9 @@ def _straight_clear(dist, speed=None):
 def _approach(obj, yaw, tried, goal=PICK_ZONE_CENTRE, holding=False):
     """One base move that should bring `obj` (x, y in the arm frame) to `goal`: turn on the spot and drive straight
     when the way is short and free; else navigation (around obstacles) to a stand-off point on a side of it not in
-    `tried`, facing it. FetchError when no side can be reached."""
+    `tried`, facing it. FetchError when no side can be reached, or Patrol is off (stay_put)."""
+    if stay_put:
+        raise FetchError(*NEED_PATROL)
     t = arm_xy()
     move = approach_move((obj["x"], obj["y"]), yaw, t, goal)
     if move is None:
@@ -2324,6 +2340,8 @@ def _straight(dist_m, speed=None):
     speed change applies at once) with joy_control (no turning), then stop. The last command lasts only the time
     left (no overshoot of up to 0.1 s). Stopped() on STOP; a pause stops it early. Returns the distance driven (m,
     by time)."""
+    if stay_put:
+        raise FetchError(*NEED_PATROL)
     rate = speed if callable(speed) else (lambda: speed or AXIS_SPEED)
     done, t = 0.0, time.time()
     try:

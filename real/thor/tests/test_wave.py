@@ -14,6 +14,7 @@ from tasks import fetch
 from vision import head_cam
 
 fetch.STATE_FILE = Path(tempfile.mkdtemp()) / "lumi_task.json"     # never the real /dev/shm file
+lumi.BUSY_FILE = str(fetch.STATE_FILE.parent / "lumi_busy.json")       # nor the real busy file
 LOOK = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 POSES = {"look": LOOK, "wave_start": [-50.0, 0.0, 0.0, 0.0, 0.0, 0.0], "wave": [-50.0, 0.0, 60.0, 0.0, 30.0, 0.0]}
 HEAD = np.array([-100.0, -200.0, 700.0])                               # mm, the head's turning centre in the toy arm

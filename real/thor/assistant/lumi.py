@@ -37,7 +37,11 @@ Behaviour
 Modes (switched live from the dashboard through /dev/shm/lumi_modes.json, see api/server.py /assistant/modes):
 - greeter: while standing, greet people who come close, talk, listen for "Hi Lumi".
 - patrol:  while driving anywhere (a marker picked on the dashboard, "go to p2", a --patrol route), stop for a
-           person in the path, greet and talk, then drive on to the same destination.
+           person in the path, greet and talk, then drive on to the same destination. Patrol also allows the
+           base and the waist by voice: with it off (Greeter only) Lumi does what it can standing in place (talk,
+           head, lift, arm and gripper within reach, wave) and refuses a drive, a base turn or a waist turn
+           (base_off says BASE_OFF_SAY; a task runs with fetch.stay_put). The dashboard's own buttons and "stop"
+           work either way.
 - wave / drive: wave when asked; allow "come here" and voice "go to".
 The dashboard's Go / Cancel are sent to this program (/dev/shm/lumi_cmd.json) while it runs, so it can stop
 for people on the way. A calibration session for the sound direction can also be started from there.
@@ -140,6 +144,17 @@ GIVE_ME = re.compile(r"\b(give|hand|mine|for me|to me|i'?ll take it|i will take 
                      r"제 거|제가 받을게|받을게", re.I)
 MOVING_ACTIONS = {"go_to", "come", "come_back", "follow", "move", "turn", "arm", "pick", "put", "move_object", "fetch", "give", "place", "wave",
                   "lift"}
+BASE_ACTIONS = {"go_to", "come", "come_back", "follow", "move", "turn"}   # need the base: Patrol on
+DRIVE_STEPS = {"go", "move", "turn"}                                     # mission steps that drive
+BASE_OFF_SAY = ("I can't drive or turn my waist right now. Switch on Patrol for that.",   # Greeter only: a base /
+                "지금은 이동하거나 허리를 돌릴 수 없어요. 패트롤을 켜 주세요.")             # waist motion asked for
+ARM_OFF_SAY = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")   # an arm action with the arm switched off
+ARM_TASKS = {"pick", "put", "move_object", "fetch", "give", "place", "receive", "wave"}   # + arm reach / fold
+
+
+def needs_arm(action, target=""):
+    """The action moves the arm (the gripper alone, open / close, does not ask for it)."""
+    return action in ARM_TASKS or action == "arm" and target not in ("open", "close")
 LIFT_VEL = 20                       # speed ratio % for a lift move asked by voice (head.VEL is 40)
 LIMIT_SAY = {"yaw": (f"I can turn my head up to {head.AXIS_LIMITS[2][1]:g} degrees each way.",
                      f"고개는 좌우로 {head.AXIS_LIMITS[2][1]:g}도까지 돌릴 수 있어요."),
@@ -262,6 +277,8 @@ CMD_FILE = "/dev/shm/lumi_cmd.json"       # written by api/server.py: {"id", "cm
                                           # | fetch | fetch_give | fetch_place | fetch_stop | fetch_carry | fetch_release | fetch_steps
                                           # | fetch_pause | fetch_resume}
 CALIB_FILE = "/dev/shm/lumi_calib.json"   # progress of a calibration session, for the dashboard
+BUSY_FILE = "/dev/shm/lumi_busy.json"     # what runs here now, for api/server.py robot_free(): {"busy": skill |
+                                          # follow | drive | wave | null} (fetch tasks are in lumi_task.json)
 CALIB_S = 120.0                    # s a calibration session lasts
 CALIB_NEAR = 2.0                   # m; the speaker for a calibration sample is the nearest person within this
 CALIB_ALONE_DEG = 30.0             # ... with nobody else within this angle (closer than 4 m)
@@ -657,6 +674,7 @@ class Lumi:
         self.closing_pending = None      # time of a weak closing word ("okay", "got it"): silence after it ends the talk
         self.lang = "en"
         self.skill_thread = None         # pick / put / move_object running in the background
+        self.busy_now = ""               # last written to BUSY_FILE ("" = nothing written yet)
         self.last_song = None            # the song sung last ("another song" is a different one)
         self.mic = mic.get()
         self.modes = Modes(args)
@@ -700,6 +718,7 @@ class Lumi:
                 raise wave_mod.WaveError(*why)
             if self.vision:
                 self.vision.arm_watch = True
+            self.publish_busy("wave")
             wave_mod.wave(on_start=(lambda: self.fetch_say(*ok)) if ok else None)
             return True
         except wave_mod.WaveError as e:
@@ -712,10 +731,42 @@ class Lumi:
         finally:
             if self.vision:
                 self.vision.arm_watch = False
+            self.publish_busy(None)
         return False
+
+    def base_off(self, action, target="", say=True):
+        """Greeter only (Patrol switched off on the dashboard): Lumi works standing in place (head, lift, arm,
+        gripper) but never drives, turns the base or the waist. True (and said unless `say` is False) if `action`
+        needs the base. The dashboard's own buttons and "stop" are not asked here."""
+        if action not in BASE_ACTIONS or self.modes.patrol:     # "stop" never reads the switches
+            return False
+        log(f"  {action} {target} refused: Patrol is off")
+        if say:
+            self.fetch_say(*BASE_OFF_SAY)
+            self.keep_listening()
+        return True
+
+    def arm_off(self):
+        """An arm action asked with the arm switched off (not powered / enabled in Cobo π): "Please enable my arm
+        first." is said, True. An arm that does not answer is left to the task's own checks."""
+        st = safe(arm.cmd, "get_robot_state")
+        if not isinstance(st, dict) or "enable" not in st or st.get("power") and st.get("enable"):
+            return False
+        log("  the arm is switched off: asked to enable it")
+        self.fetch_say(*ARM_OFF_SAY)
+        self.keep_listening()
+        return True
+
+    def stay(self, voice=True):
+        """Tasks asked by voice with only Greeter on stay in place (fetch.stay_put: head and lift only, no base, no
+        waist); the dashboard's tasks do not."""
+        from tasks import fetch
+        fetch.stay_put = voice and not self.modes.patrol
 
     def act(self, action, target):
         log(f"action: {action} {target}")
+        if self.base_off(action, target, say=False):            # answer() has said why
+            return
         if action in MOVING_ACTIONS and self.mission_running():
             log(f"  {action} refused: on a mission")             # the LLM's action must not take Lumi off its task
             return
@@ -800,6 +851,7 @@ class Lumi:
         if action == "move" and direction in ("back", "forward"):   # straight with joy_control, checked like a
             from tasks import fetch                               # mission's move: navigation may turn round and
             log(f"  move {direction} {amount:g} m straight")      # stops within its own tolerance
+            self.stay()
             try:
                 fetch.run_steps([{"do": "move", "dir": direction, "m": amount}], say=self.fetch_say)
             except fetch.FetchError as e:
@@ -842,6 +894,8 @@ class Lumi:
         elif got[0] == "move":                              # "again" / "a few centimetres more" after a move
             d, n = got[1].split()
             hist.append((text, f"ACTION: move {got[1]}"))
+            if self.base_off("move"):
+                return True
             log(f"  action move {got[1]} (again)")
             if not self.modes.drive:
                 say = "Sorry, driving is switched off." if lang == "en" else "죄송해요, 지금은 이동할 수 없어요."
@@ -873,9 +927,13 @@ class Lumi:
         # a stopped / failed task can still have the object in the hand: give / place must still work
         return "holding" if st.get("holding") and st.get("status") != "running" else st.get("status")
 
-    def fetch_finish(self, how, on=None):
-        """Give / place what the hand holds; a refusal ("I haven't learned how to hand things over yet") is spoken."""
+    def fetch_finish(self, how, on=None, voice=True):
+        """Give / place what the hand holds; a refusal ("I haven't learned how to hand things over yet") is spoken.
+        `voice`: asked by voice (else from the dashboard)."""
         from tasks import fetch
+        if voice and self.arm_off():
+            return
+        self.stay(voice)
         try:
             if how == "give":
                 fetch.give(say=self.fetch_say)
@@ -892,6 +950,9 @@ class Lumi:
     def fetch_start(self, task):
         """Start a task; "here" becomes the robot's map pose now, so it does not move with the robot."""
         from tasks import fetch
+        if any(task.get(k) not in (None, "here") for k in ("source", "dest")) and self.base_off("go_to"):
+            return                                     # Greeter only: a fetch from / to a place drives
+        self.stay()
         pose = safe(agv.pose)
         task = dict(task)
         for k in ("source", "dest"):
@@ -1262,6 +1323,8 @@ class Lumi:
             self.keep_listening()
             return True
         log(f"  mission ({by}): {got}")
+        if {st["do"] for st in got} & DRIVE_STEPS and self.base_off("go_to"):
+            return True
         if not self.modes.drive:
             self.fetch_say("Sorry, driving is switched off.", "죄송해요, 지금은 이동할 수 없어요.")
             return True
@@ -1277,6 +1340,7 @@ class Lumi:
             return True
 
         def start(s):
+            self.stay()
             try:
                 fetch.run_steps(s, say=self.fetch_say, sender=steps.sender(text))
             except fetch.FetchError as e:
@@ -1333,6 +1397,8 @@ class Lumi:
         if held:
             self.fetch_say(f"My hand is full, I'm holding {fetch.held_name()}.", "손에 이미 물건을 들고 있어요.")
             return
+        if self.arm_off():
+            return
         no = name and skills.refusal(name)
         if no:                                         # "take my laptop": my fingers can't hold it
             self.fetch_say(*no)
@@ -1359,6 +1425,7 @@ class Lumi:
             if not (sees or answer and (brain_mod.confirm_answer(answer) == "yes" or RECEIVE_OK.search(answer))):
                 self.fetch_say("Okay.", "네.")
                 return
+        self.stay()
         try:
             fetch.run_steps([{"do": "receive", "object": name, "from_hand": True}], say=self.fetch_say)
         except fetch.FetchError as e:
@@ -1397,6 +1464,8 @@ class Lumi:
         en = self.lang == "en"
         if self.skill_busy():
             mouth.say("I'm still busy with my arm." if en else "아직 팔로 하는 일이 있어요.")
+            return
+        if self.arm_off():
             return
         if action == "put":
             back = target == "back"
@@ -1489,6 +1558,7 @@ class Lumi:
             self.resume_mission()
         elif cmd in ("fetch", "fetch_give", "fetch_place", "fetch_stop", "fetch_carry", "fetch_release", "fetch_steps"):
             from tasks import fetch                      # dashboard tasks are confirmed there: no read-back
+            self.stay(voice=False)
             if cmd == "fetch":
                 try:
                     fetch.start(d["task"], say=self.fetch_say)
@@ -1510,7 +1580,7 @@ class Lumi:
                     log(f"  mission refused: {e}")
                     self.fetch_say(str(e), "죄송해요, 지금은 할 수 없어요.")
             else:
-                self.fetch_finish(cmd[6:], d.get("on"))
+                self.fetch_finish(cmd[6:], d.get("on"), voice=False)
         elif cmd == "calibrate":
             self.calib_until = time.time() + CALIB_S if d.get("on", True) else 0.0
             self.calib_n = 0
@@ -1543,6 +1613,29 @@ class Lumi:
         if speak:
             mouth.say("Okay, I'm going back." if en else "네, 원래 자리로 돌아갈게요.")
         return True
+
+    def publish_busy(self, what):
+        """Tell the API what runs (it refuses the dashboard's hand controls then); written only on a change."""
+        if what == getattr(self, "busy_now", ""):
+            return
+        self.busy_now = what
+        try:
+            tmp = BUSY_FILE + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump({"busy": what, "time": time.time()}, f)
+            os.replace(tmp, BUSY_FILE)
+        except OSError:
+            pass
+
+    def doing(self):
+        from tasks import follow
+        if self.skill_thread is not None and self.skill_thread.is_alive():
+            return "skill"
+        if follow.running():
+            return "follow"
+        if self.patrol is not None and self.patrol.mode in ("patrol", "going_home"):
+            return "drive"
+        return None
 
     def traveling(self):
         return self.patrol is not None and self.patrol.mode != "done"
@@ -1794,6 +1887,8 @@ class Lumi:
         """Drive to a place the visitor just agreed to; the conversation stays open."""
         en = self.lang == "en"
         self.brain.history.append((self.heard, f"ACTION: go_to {place}"))
+        if self.base_off("go_to"):
+            return
         if not self.modes.drive:
             mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
             return
@@ -1807,6 +1902,8 @@ class Lumi:
         if rule and rule[0] in MOVING_ACTIONS and self.mission_running():
             self.fetch_say("Sorry, I'm on a task right now. I can help you when I've finished.",
                            "죄송해요, 지금 다른 일을 하고 있어요. 끝나면 도와드릴게요.")
+            return True
+        if rule and (self.base_off(*rule) or needs_arm(*rule) and self.arm_off()):
             return True
         if not rule or rule[0] not in ("go_to", "come", "follow", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put",
                                        "move_object", "fetch", "look", "lift", "wave", "come_back"):
@@ -1980,6 +2077,10 @@ class Lumi:
         gen = self.brain.respond_stream(text, self.markers, now=self.now_doing()[0] + seeing.facts_for(text))
         head_ = next(gen)
         log(f"  action {head_['action']} {head_['target']} ({time.time() - t:.1f} s)")
+        if self.base_off(head_["action"], head_["target"]) or \
+                needs_arm(head_["action"], head_["target"]) and self.arm_off():   # the model's "Okay" is not said
+            gen.close()
+            return
         if head_["action"] == "come":
             gen.close()
             mouth.say("Okay, I'm coming." if self.lang == "en" else "네, 갈게요.")
@@ -2096,7 +2197,7 @@ class Lumi:
         if t is not None:
             return t
         view = CAMERA_HALF_FOV + (head.YAW_LIMIT if self.vision.camera == "head" else 0.0)
-        if abs(robot_angle) > view and self.modes.drive:
+        if abs(robot_angle) > view and self.modes.drive and self.modes.patrol:
             log(f"  caller outside the camera ({robot_angle:+.0f} deg): turning toward the voice")
             self.turn_head(0)
             safe(agv.turn_by, math.radians(robot_angle))
@@ -2117,7 +2218,7 @@ class Lumi:
         """Turn the head toward a waist-frame angle; turn the base too if it is outside the head's range."""
         if abs(robot_angle) <= head.YAW_LIMIT:
             self.turn_head(HEAD_SIGN * robot_angle)
-        elif self.modes.drive:
+        elif self.modes.drive and self.modes.patrol:
             log(f"  voice behind ({robot_angle:+.0f} deg): turning the base")
             self.turn_head(0)
             safe(agv.turn_by, math.radians(robot_angle))
@@ -2238,6 +2339,7 @@ class Lumi:
         """One pass of the camera behaviour (see the module docstring)."""
         self.modes.refresh()
         self.poll_commands()
+        self.publish_busy(self.doing())
         if self.patrol and self.patrol.mode == "done" and not self.a.patrol:
             self.patrol = None                             # a dashboard / voice trip has arrived
         moving = self.traveling()

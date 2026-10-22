@@ -355,7 +355,7 @@ real_start = follow.start
 follow.start = lambda see, say=None, people=None: started.append(see)
 track = types.SimpleNamespace(id=7, distance=1.8, angle=10.0, greeted=False, history=[1.7], last_seen=time.time())
 L.lang, L.voice_angle, L.voice_trusted = "en", 0.0, False
-L.modes = types.SimpleNamespace(drive=True)
+L.modes = types.SimpleNamespace(drive=True, patrol=True)
 L.skill_busy = lambda: False
 L.keep_listening = lambda: None
 L.fetch_say = lambda en, ko: spoken.append(en)

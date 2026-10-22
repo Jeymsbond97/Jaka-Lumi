@@ -44,8 +44,7 @@ HEAD_VEL = 50               # speed ratio %; the head is at its full speed from 
 HEAD_TIMEOUT_S = 5          # s; one head move (90 deg at ~40 deg/s takes ~2.5 s)
 
 CHARGER = ("I'm on the charger, I can't follow you from here.", "충전 중이라 따라갈 수 없어요.")
-ARM_OFF = ("My arm is switched off, so I can't drive safely. Please enable it.",
-           "팔이 꺼져 있어서 안전하게 이동할 수 없어요. 팔을 켜 주세요.")
+ARM_OFF = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")   # only when the arm must go to look
 ARM_BUSY = ("A program is running on my arm, so I can't follow you.", "팔에서 프로그램이 실행 중이라 따라갈 수 없어요.")
 LOST = ("I lost you, so I stopped. Stand in front of me and say follow me again.",
         "놓쳐서 멈췄어요. 제 앞에 서서 다시 따라오라고 말해 주세요.")

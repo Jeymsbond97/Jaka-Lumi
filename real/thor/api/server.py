@@ -96,17 +96,49 @@ def start_assistant(no_arm=False, no_drive=False):
                             start_new_session=True).pid
 
 
-def robot_free(manual=False):
-    """Refuse while the assistant owns the robot. manual: a hand control on the dashboard (jog, head, lift, gripper,
-    arm buttons), allowed beside Greeter while Lumi is not on a task or on patrol (Lumi may turn its head back to a
-    visitor afterwards)."""
-    if not assistant_pids():
-        return
+BUSY_FILE = Path("/dev/shm/lumi_busy.json")    # written by lumi.py: {"busy": skill | follow | drive | wave | null}
+BUSY_MSG = "Busy with a task. Pause or stop it first."
+_waving = threading.Event()                     # /arm/wave runs here
+
+
+def running_now():
+    """What the robot is doing now (a task or mission, a skill, following, a wave, a drive), None when idle. A
+    paused task does not count."""
     from tasks import fetch
-    busy = fetch.state().get("status") in ("running", "waiting") or read_modes().get("patrol")
-    if not manual or busy:
-        raise HTTPException(409, "Lumi is busy with a task or on patrol: stop it first." if manual else
-                            "The assistant (lumi.py) is running and owns the robot. POST /assistant/stop first.")
+    lumi = assistant_pids()
+    st = fetch.state()
+    if st.get("status") in ("running", "waiting") and not st.get("paused") and (lumi or fetch._busy()):
+        return "task"                           # (lumi or _busy: the file of a runner that died does not count)
+    if _skill["thread"] and _skill["thread"].is_alive():
+        return "skill"
+    if _route.thread and _route.thread.is_alive():
+        return "route"
+    if _waving.is_set():
+        return "wave"
+    if lumi:
+        try:
+            what = json.loads(BUSY_FILE.read_text()).get("busy")
+            if what:
+                return what
+        except (FileNotFoundError, ValueError):
+            pass
+    try:                                        # a drive to a marker / point / dock, by anyone
+        if agv.request("/api/robot_status", timeout=0.5)["results"].get("move_status") == "running":
+            return "drive"
+    except Exception:
+        pass
+    return None
+
+
+def robot_free(manual=False):
+    """manual: a hand control on the dashboard (jog, lift, waist, head, arm buttons and poses, gripper): refused while
+    something runs (running_now), allowed when idle or paused, Greeter / Patrol on or off. Anything else is refused
+    while the assistant runs (it owns the robot). STOP never asks here."""
+    if manual:
+        if running_now():
+            raise HTTPException(409, BUSY_MSG)
+    elif assistant_pids():
+        raise HTTPException(409, "The assistant (lumi.py) is running and owns the robot. POST /assistant/stop first.")
 
 
 def tail(path, n):
@@ -326,12 +358,15 @@ def body_move(body: BodyBody):
 @app.post("/arm/wave", tags=["arm"], summary="Wave from look along the checked route (manipulation/wave.py, slow)")
 def arm_wave():
     robot_free(manual=True)
+    _waving.set()
     try:
         wave.wave()
     except wave.WaveError as e:
         raise HTTPException(409, e.args[0])
     except motion.MotionError as e:
         raise HTTPException(409, str(e))
+    finally:
+        _waving.clear()
     return {"ok": True}
 
 
@@ -705,7 +740,7 @@ def arm_enable(body: OnBody):
 
 @app.post("/arm/run", tags=["arm"], summary="Run a Cobo π program (.jks) once; returns at once")
 def arm_run(body: ProgramBody):
-    robot_free()
+    robot_free(manual=True)
     if not arm.ready():
         raise HTTPException(409, "arm not ready: power/enable off, or a program is running")
     try:

@@ -36,7 +36,7 @@ HEAD_CLEAR_MM = 250.0                # mm the gripper keeps from the head's turn
                                      # is 102 mm from it, the head's size is not measured. `look` keeps 327 mm, tuck 266
 
 # Why Lumi does not wave, (English, Korean)
-OFF = ("My arm is switched off, so I can't wave.", "팔이 꺼져 있어서 손을 흔들 수 없어요.")
+OFF = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")
 BUSY = ("I'm busy with my arm right now.", "지금 팔로 하는 일이 있어요.")
 DRIVING = ("I can't wave while I'm moving.", "움직이는 동안에는 손을 흔들 수 없어요.")
 HOLDING = ("I'm holding something, so I won't wave.", "손에 물건을 들고 있어서 손을 흔들지 않을게요.")
