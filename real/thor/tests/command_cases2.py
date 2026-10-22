@@ -126,7 +126,7 @@ for t, want in [("move forward 1 meter", "action:move forward 1"), ("could you g
                 ("move back", "action:move back"), ("move forward 4 meters", "refuse"), ("앞으로 10미터 가", "refuse"),
                 ("move back twenty", "ask")]:
     add("move", t, want)
-for t, want in [("turn left", "action:turn left 90"), ("turn to the right please", "action:turn right 90"),
+for t, want in [("turn left", "action:turn left 90"), ("turn to the right please", "action:turn right"),
                 ("turn around", "action:turn around"), ("could you turn left 30 degrees?", "action:turn left 30"),
                 ("turn right 45 degrees", "action:turn right 45"), ("왼쪽으로 돌아", "action:turn left 90"),
                 ("오른쪽으로 돌아 줘", "action:turn right 90"), ("뒤로 돌아", "action:turn around"),

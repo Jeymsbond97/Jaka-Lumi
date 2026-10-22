@@ -278,6 +278,9 @@ Short Korean commands are commands: "컵 가져다 줘" -> fetch cup, "컵 옮�
   (jump, dance, fly, climb stairs, open doors, lift heavy things) is none: say plainly that you can't. A person, a
   chair, a table, a box or anything heavy you can't pick or carry: none, say so. With the action none never promise to do it ("I can!", "Okay, I'll hand it to you"): choose the
   action, or say you can't, or ask what they mean.
+- A condition or a later time is no order now ("when I say go, go to p1", "after the talk, come here", "if I
+  wave, follow me", "내가 가라고 하면 가", "나중에 와"): none, say you'll do it when they ask. In "go to p1, no, p2" /
+  "p1로 가, 아니 p2로" the last one counts. "Shake hands with me" is a handshake you can't do: none, offer a wave.
 - unclear: you did not understand what the visitor said or wants: ask them to repeat.
 - none: only talk.
 For weather and search only write the action line; the answer is made after the lookup.
@@ -364,7 +367,8 @@ COLOURS = {"white": "white", "red": "red", "blue": "blue", "green": "green", "ye
 _OBJ = "|".join(rf"(?<![가-힣]){w}(?![가-힣])|(?<![가-힣]){w}(?=[을를이가은는도만좀][^가-힣]|[을를이가은는도만좀]$)" if w in _KO_WORD
                 else re.escape(w) for w in sorted(OBJECTS, key=len, reverse=True))
 _COL = "|".join(COLOURS)
-STOP_TALK = re.compile(r"비상 ?정지|emergency stop|stop button|정지 ?버튼", re.I)   # about the stop button, not "stop!"
+STOP_TALK = re.compile(r"비상 ?정지|emergency stop|stop button|정지 ?버튼|\b(?:can'?t|cannot|couldn'?t|won'?t) stop\b|"
+                       r"\bbus stop\b|\bstop (?:by|sign)\b|non-?stop", re.I)   # about stopping, not "stop!"   # about the stop button, not "stop!"
 BEHIND_WORDS = (r"\blook(?:ing)? (?:over |to(?:wards?)? |at |in )?(?:the |your )?"    # "look at the back side", "look
                 r"(?:behind|back ?side|back(?:wards?)?|rear|big side)\b"          # at behind side", whisper's "big side"
                 r"(?! (?:at|on|up|in|of|to|and forth)\b)"                          # not "look back at me", "look at the back of"
@@ -464,13 +468,13 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
                   r"그만 ?(?:좀 ?)?(?:쳐다|바라)(?:봐|보세요)|"
                   r"(?:날|나를?|저를?|절)\s*(?:좀\s*)?(?:보지|쳐다보지) ?마|다른 ?(?:데|곳|쪽)(?:을|를)? ?(?:좀 )?봐"),
     ("stop", r"\b(stop|halt|freeze|don'?t move)\b|멈춰|정지|그만 ?가|거기 ?서(?=[\s!.~,]*$)|스톱|움직이지 ?마|^\s*(서[\s,!.]*){2,}$"),
-    ("follow", r"\b(?:follow|come with|come along with|walk with|tag along with)\s+(?:me|us)\b(?!\s+(?:on|at)\b)|"   # not "follow
+    ("follow", r"\b(?:follow|following|come with|come along with|walk with|tag along with)\s+(?:me|us)\b(?!\s+(?:on|at)\b)|"   # not "follow
                r"\bcome along\b|(?<!말 )(?<!말을 )따라\s?(?:와|오세요|오십시오|올래)|(?<!로 )(?:같이|함께)\s?(?:가자|가요|갑시다|걸어)"),   # me on instagram"
     ("fetch",rf"\b(fetch|bring|deliver|carry)\b.*\b({_OBJ}|it|that|this)s?\b|\b(take|get|grab)\b.*\b({_OBJ})s?\b.*\b(from|to)\b"
               rf"|\b(go|drive) to\b.*\b(get|take|grab|pick up|fetch|bring)\b.*\b({_OBJ})s?\b"
               rf"|\b(pick up|pick|take|grab|get)\b.*\b({_OBJ})s?\b.*\b(go|drive) to\b|({_OBJ}).*(집어서|들고).*가서"
               r"|가져와|가져다|갖다|가지고 ?와|에서.*(옮겨|가져)" rf"|({_OBJ}).*(집고|들고|가지고).*(와|줘)"),
-    ("come", r"\bcome (?:back )?(here|hear|to me|closer|over here|over)\b|\bcome\b.*\bme\b|이리 ?(?:좀 ?)?(?:돌아 ?)?(?:와|오세요|오십시오|올래)|"
+    ("come", r"\bcome (?:back )?(here|hear|to me|closer|over here|over|this way)\b|\bcome\b.*\bme\b|이리 ?(?:좀 ?)?(?:돌아 ?)?(?:와|오세요|오십시오|올래)|"
              r"여기로 ?(?:좀 ?)?(?:돌아 ?)?(?:와|오세요|오십시오)|가까이 ?(?:좀 ?)?(?:와|오세요)|"
              r"나한테 ?(?:돌아 ?)?와"),
     ("go_home", r"\bgo (back )?(home|to (the |your )?(dock(?!2)|charger|charging))|\bgo charge|충전하러|집(?:에|으로) ?가|충전기로"),
@@ -491,7 +495,8 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
              r"\bwave (?:at|to|your|hello|hi|bye|goodbye|back|again|for)\b|\bgimme a wave\b|\b(?:why don'?t you|if you (?:could|can|would)|"
              r"you (?:could|should|can|might)|could you|would you|can you|will you) (?:please |just )?wave\b(?!s)|\bgive (?:(?:them|him|her|us|me|everyone|the \w+) )?"
              r"a (?:little |quick |big |friendly )?wave\b|\bwave\s?(?:해|좀)|\bshake (?:your |a |my )?hands?\b(?! with\b)|\bsay (?:hi|hello|bye) with your hand\b|손 ?(?:을 |좀 |도 )?흔들|손 ?인사"),
-    ("turn", r"\bturn (a)?round\b|\bturn (left|right)\b|뒤로 ?돌|돌아 ?봐|왼쪽으로 ?돌|오른쪽으로 ?돌"),
+    ("turn", r"\bturn (a)?round\b|(?:왼쪽|오른쪽)으로 ?(?:\d+(?:\.\d+)? ?도 ?)?도(?:세요|십시오)|\bturn (?:to (?:the |your )?)?(left|right)\b|뒤로 ?돌|돌아 ?봐|"
+             r"(?:왼쪽|오른쪽)으로 ?(?:\d+(?:\.\d+)? ?도 ?)?돌"),
     ("make_way", r"\b(can|could|would) you (please )?move( a bit| a little| please)?\s*[?.!]*$|\bmove (aside|out of the way|over)\b|"
                  r"\b(make way|get out of the way|give me some room)\b|비켜|자리 ?(좀 )?(비워|옮겨)|길 ?(좀 )?(비켜|터)"),
     ("go_point", r"\b(?:go|come|drive|head) back (p\d+)\b"),                          # "come back p9": a place, not 1 m back
@@ -529,6 +534,10 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
 ]
 
 
+LATER = re.compile(r"^\s*(?:after|once|if|as soon as|before|unless|until)\b(?! (?:that|this|you (?:can|could|don'?t mind|would|"
+                   r"please))\b)|\b(?:later|tomorrow|tonight|next time|in an hour)\b|[가-힣](?<![정화측반전표라장내외평단])면\s(?!안 ?돼)|\byou'?ll (?:find|see)\b|\bat the corner\b|"
+                   r"\b(?:he|she|they|my \w+|his \w+|her \w+|our \w+|someone) (?:will|'ll|is going to|are going to)\b|"
+                   r"(?:^|\s)(?:나중에|이따가?|내일)\s", re.I)   # "after the talk ends, go to p1", "내가 가라고 하면": not now
 STOP_ASK = re.compile(r"(?:(?:can|could|would|will) you (?:please |just )?stop(?: (?:now|please|moving|driving|here|there))?|"
                       r"멈출 수 있(?:어|어요|니|나요)|멈춰 줄래요?|멈춰 줄 수 있(?:어|어요))\W*$", re.I)   # "can you stop?": stop
 
@@ -552,10 +561,8 @@ def intent(text, markers=()):
                      r"\b(can|could) you (pick( up)?|lift|hold|grab|take) (a|an|any)\b|"   # "can you pick up a bottle?"
                      r"^\s*(what|when|which|at what|do you|does|is it|are you)\b|몇|언제|얼마|"   # "at what level do you go back?"
                      rf"({_OBJ})(은|는)\s.*수 ?있|(루미가|로봇이)\s.*수 ?있|는 ?거 ?(돼|되나|가능)|"                                  # "물컵은 가져다줄 수 있어요?"
-                     r"어떻게|왜|혼자|스스로|\bby yourself\b|\bsomeone\b|줄 ?알아|할 ?줄|\bcome here often\b|"
-                     r"^\s*(?:after|once|if|as soon as|before|unless|until)\b(?! (?:that|this|you (?:can|could|don'?t mind|would|please))\b)|"
-                     r"\b(?:later|tomorrow|tonight|next time|in an hour)\b|(?:하|가|끝나|되|부르|말하)면\s(?!안 ?돼)|(?:^|\s)(?:나중에|이따가?|내일)\s",
-                     CALLING.sub("", t))   # "Lumi, is it hard to ...?", "after the talk ends, go to p1", "내가 가라고 하면"
+                     r"어떻게|왜|혼자|스스로|\bby yourself\b|\bsomeone\b|줄 ?알아|할 ?줄|\bcome here often\b",
+                     CALLING.sub("", t)) or LATER.search(CALLING.sub("", t))   # "Lumi, is it hard to ...?"
     visitor = re.search(r"^\W*(?:can|may|could|should|shall) (?:i|we)\b", CALLING.sub("", t))   # "can I come closer?"
     for action, pat in INTENTS:
         m = re.search(pat, t, re.I)
@@ -565,7 +572,7 @@ def intent(text, markers=()):
             return None                                     # "where's your emergency stop?", "how do I stop you?"
         if action == "look_away":
             return None if asks or "?" in t else ("look", "away")   # "don't look at me", "쳐다보지 마"
-        if action != "quiet" and re.search(r"(?<!why )\b(don'?t|do not|never)\b|(하|펴|가|잡|놓|열)지 ?마", t) and action != "stop":
+        if action != "quiet" and re.search(r"(?<!why )\b(don'?t|do not|never)\b|[가-힣]지 ?마(?:세요|요|라)?(?![가-힣])", t) and action != "stop":
             return None                                     # "don't go to p1", "손 펴지 마": not an order
         if asks and action in ("go_home", "go_point", "move", "make_way", "turn", "pick", "put", "move_object", "fetch", "come",
                                "arm", "grip_open", "grip_close", "wave", "look", "lift", "follow", "come_back"):
@@ -668,7 +675,7 @@ def _fix_kinds(t, markers):
     """The values in t a correction may replace: {kind: [match, ...]}: place, distance, angle, direction, object, colour."""
     names = sorted((re.escape(m.lower()) for m in markers if len(m) > 1), key=len, reverse=True)
     pats = {"place": rf"(?<![a-z0-9_])(?:p\d+|{'|'.join(names) or 'p0'})(?![a-z0-9_])",
-            "angle": r"\d+(?:\.\d+)?\s*(?:degrees?|도)", "distance": r"\d+(?:\.\d+)? m\b", "direction": _FIX_DIR,
+            "angle": r"\d+(?:\.\d+)?\s*(?:degrees?|도)", "distance": r"\d+(?:\.\d+)? m(?![a-z])", "direction": _FIX_DIR,
             "time": r"\d+(?:\.\d+)?\s*(?:seconds?|secs?|minutes?|mins?|초|분)(?![a-z가-힣])",
             "object": rf"(?<![a-z])(?:{_OBJ})s?(?![a-z])", "colour": rf"(?<![a-z])(?:{_COL})(?![a-z])"}
     out = {}
@@ -694,8 +701,9 @@ def self_correct(text, markers=()):
     "" when the command was taken back ("go to the stage, never mind", "스테이지로 가, 아니 됐어"); None when a
     correction is there but can't be read for sure (Lumi asks again, nothing moves); the text itself otherwise."""
     from assistant import steps
-    if re.search(r"\b(?:say|tell|announce)\b|말해|전해|[\"“”]", text, re.I):
-        return text                                      # a message to say may hold any words
+    if re.search(r"\b(?:say|tell|announce)\b|말해|전해|[\"“”]", text, re.I) or \
+            re.search(r"\b(?:stop|halt|freeze|don'?t move)\b|멈춰|정지|그만|스톱|움직이지 ?마|거기 ?서", text, re.I):
+        return text                                      # a message to say may hold any words; a stop always wins
     t = wording.norm(text, markers)
     end = re.search(r"[\s,.;!?]+(?:(?:oh|uh|um|아|음)\W+)?(?:never ?mind|forget (?:it|that|about it)|cancel (?:that|it)|"
                     r"(?:아니\s*)?(?:됐어요?|됐다|취소))\W*$", t)
@@ -704,10 +712,10 @@ def self_correct(text, markers=()):
     for _ in range(3):
         m = next((m for m in FIX.finditer(t) if m.start() > 0 and t[:m.start()].strip(" ,.;!?")), None)
         if not m:
-            return t if _ else text
+            return _recase(t, text) if _ else text
         left, right, said = t[:m.start()].strip(" ,.;!?"), t[m.end():].strip(" ,.;!?"), m.group(0)
         if not _reads(left, markers) and not {"distance", "angle", "direction"} & set(_fix_kinds(left, markers)):
-            return t if _ else text                      # "I like apples, no, I love them": talk, not a command
+            return _recase(t, text) if _ else text   # "I like apples, no, I love them": talk, not a command
         if not right or FIX_CANCEL.match(right):
             if right or _STRONG_NO.search(said):
                 return ""                                # taken back
@@ -743,12 +751,18 @@ def self_correct(text, markers=()):
                     fixed = fixed[:x.start()] + rk[kind][-1].group(0) + " " + fixed[x.start():]
             said_again = all(w in fixed.split() for w in tail.split())   # "turn left, no, turn right": "turn"
             new = next((c for c in ([] if said_again else [f"{fixed} {tail}"]) + [fixed] if _reads(c, markers)), None)
-        if new is None and _reads(first, markers):
-            new = instead()
+        if new is None and _reads(first, markers) and not set(rk) & set(_fix_kinds(clauses[-1], markers)):
+            new = instead()                              # another command ("go to the stage, no, come here")
         if new is None:
             return None
         t = f"{new}, {rest[0]}" if rest else new
-    return t
+    return _recase(t, text)
+
+
+def _recase(t, text):
+    """Words written as the original had them ("james" -> "James"): names keep their capital in the read-back."""
+    said = {w.lower(): w for w in re.findall(r"[A-Za-z][a-z]*[A-Z]?[a-z]*", text) if not w.islower()}
+    return re.sub(r"[a-z]+", lambda m: said.get(m.group(0), m.group(0)), t)
 
 
 # ---------- fetch tasks (docs/16 §4): strict parsing, nothing is guessed ----------
@@ -759,12 +773,12 @@ _PLACE_WORD = rf"(?:point|marker|포인트)\s*(\d+)|(?<![a-z])p\s?(\d+)(?!\d)|(\
 _NOT_OBJ = r"(?:not|instead of) (?:the |a |an )?$"            # "not the apple, the cup": the apple is not meant
 
 
-FILLER_IN = re.compile(r"(?<![\w'])(?:u+h+m*|u+m+|e+r+m*|hmm+)(?![\w'])[,.]*\s*|(?<![가-힣])(?:음+|어+)(?![가-힣])[,.]*\s*")
+FILLER_IN = re.compile(r"(?:,\s*)?(?<![\w'])(?:u+h+m*|u+m+|e+r+m*|hmm+)(?![\w'])[,.]*\s*|(?:,\s*)?(?<![가-힣])(?:음+|어+)(?![가-힣])[,.]*\s*")
 
 
 def unfill(t):
     """'go to the um the stage' -> 'go to the stage': fillers inside the words and the word said twice around them."""
-    t = FILLER_IN.sub("", t)
+    t = re.sub(r" {2,}", " ", FILLER_IN.sub(" ", t)).strip()
     return re.sub(r"\b(the|a|to) \1\b", r"\1", t)
 
 
@@ -1271,7 +1285,7 @@ IN_LANGUAGE = re.compile(r"^\s*(and |then |now |okay,? |and say it |say (it|that
                          r"^\s*(그거|그걸|그럼|다시|이번엔|이제)?\s*(한국어|영어|korean|english)\s?로(?!.*(대화|할 ?수|할 ?줄|돼요\?|되나))"
                          r"(요|는요|는|도)?\s*(다시\s*)?((말|말씀|얘기)?\s*해\s*(줘|주세요|줄래요?|줄 ?수 ?있어요?|봐요?)?)?"
                          r"\s*[!?.~]*\s*$", re.I)
-WAVE_ASK = re.compile(r"\bwav(e|ing)\b|\bwith your hand\b|\bshake (?:your |my )?hands?\b|흔들|손 ?인사|인사.*손으로|손으로.*인사", re.I)
+WAVE_ASK = re.compile(r"\bwav(e|ing)\b|\bwith your hand\b|\bshake (?:your |my )?hands?\b(?! with\b)|흔들|손 ?인사|인사.*손으로|손으로.*인사", re.I)
 SING_ASK = re.compile(r"\bsing|\bsong|\bmusic\b|노래|한 ?곡|불러", re.I)
 LOOK_MORE = re.compile(r"^\W*(?:and|now|then|and now)?\s*(up|down|left|right)\W*$|"
                        r"^\W*(?:이제|그럼|그리고)?\s*(위|아래|왼쪽|오른쪽)(?:도|로|으로|요|도요)?\W*$", re.I)  # right after a look
@@ -1748,6 +1762,8 @@ class Brain:
         if re.search(r"\b(bye|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|good night|i have to go|i'?m leaving)\b|안녕히|잘 ?가|잘 ?있어|"
                      r"다음에 봐|갈게요|가 ?볼게요|안녕\s*[.!]?$", text, re.I):
             action = "end"
+        if action in MOTIONS and LATER.search(bare):
+            action, target = "none", ""                    # "when I say go, go to the stage": not now
         rule = intent(text, markers)                       # clear wordings win over the small model's guess
         if rule and not (rule[0] == "search" and action in ("go_to", "come", "look", "weather", "sing")):
             action, target = rule

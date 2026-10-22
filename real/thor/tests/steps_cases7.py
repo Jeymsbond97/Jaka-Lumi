@@ -170,13 +170,14 @@ CASES.update({
     "take the cup and bring it to Sarah, who is at booth two": "pick cup | go booth_2 | give Sarah",
     "go to the stage and wait there until I tell you to come back": "go stage | wait",
     "go ahead to the stage and come back": "go stage | go here",
+    "take the cup, roll on over to the end, and let Sarah have it": "pick cup | go end | give Sarah",
     "pick up the cup, go forward half a meter, turn right, go forward one meter and put it on the table":
         "pick cup | move forward 0.5 | turn -90 | move forward 1 | place dining table",
 })
 
 # said with a correction inside: brain.self_correct reads it first (lumi.answer)
 FIXED = {
-    "take the cup, go to start, no, end, and give it to James": "pick cup | go end | give james",
+    "take the cup, go to start, no, end, and give it to James": "pick cup | go end | give James",
     "go to start, sorry, I mean the stage, then come back": "go stage | go here",
     "go to the stage, wait 10 seconds, no, 20 seconds, then come back": "go stage | wait 20 | go here",
     "컵 들고 스타트로 가, 아니 엔드로 가서 줘": "pick cup | go end | give",
@@ -194,4 +195,19 @@ READ_BACK = {
     "go table_front | wait 30 | go home":
         ("Go to table front, wait 30 seconds, then go to my dock.",
          "table front 위치로 가고 30초 기다리고 충전소로 갈게요."),
+}
+
+# for the LLM pass (tests/steps_llm_check.py): wordings the rules leave a part of, with what must come out ("?":
+# nothing may be kept; every value must be written in the words, steps.read checks that)
+LLM = {
+    "grab the cup, then zip over to booth two and pass it to whoever is standing there": "pick cup | go booth_2 | give",
+    "snag the apple, scoot over to the stage, and drop it on the table": "pick apple | go stage | place dining table",
+    "take the cup, roll on over to the end, and let Sarah have it": "pick cup | go end | give Sarah",
+    "head to the stage, hang tight for 20 seconds, then make your way back here": "go stage | wait 20 | go here",
+    "컵 챙겨서 스테이지 쪽으로 슝 가서 거기 계신 분께 건네 드려": "pick cup | go stage | give",
+    "스테이지 가서 한 20초 쉬었다가 돌아와": "go stage | wait 20 | go here",
+    "take the cup to the stage and juggle it": "?",
+    "go to the stage and then go to the kitchen": "?",
+    "take the cup, go to booth seven and give it to Sarah": "?",
+    "컵 들고 스테이지 가서 춤추고 와": "?",
 }

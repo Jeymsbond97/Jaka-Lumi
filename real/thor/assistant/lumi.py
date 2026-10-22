@@ -2063,7 +2063,7 @@ class Lumi:
             mouth.say("Sorry, I only understand English and Korean." if self.lang == "en" else "죄송해요, 영어와 한국어만 이해해요.")
             self.keep_listening()
             return
-        fixed = brain_mod.self_correct(text, self.markers)   # "go to start, no, end", "컵 집어, 아니 병"
+        fixed = text if self.mission_running() else brain_mod.self_correct(text, self.markers)   # "go to start, no, end"
         if fixed != text:
             log(f"  corrected in the sentence: {fixed!r}")
             if not fixed:                                  # None: not read for sure, asked; "": taken back ("never mind")
@@ -2542,8 +2542,10 @@ class Lumi:
 
 
 def stop_order(text, markers):
-    """"stop", "freeze", "멈춰": stop everything at once. Not "stop talking" and not a question about the stop button."""
-    asked = bool(brain_mod.STOP_ASK.match(brain_mod.CALLING.sub("", text)))   # "can you stop?", "멈출 수 있어?": stop
+    """"stop", "freeze", "멈춰": stop everything at once. Not "stop talking" and not a question about the stop button;
+    "can you stop?", "멈출 수 있어?" and "stop, where are you going?" do stop."""
+    asked = bool(brain_mod.STOP_ASK.match(brain_mod.CALLING.sub("", text)) or
+                 re.match(r"^\W*(?:stop|halt|freeze|멈춰|정지|스톱)\W*[,.!]", text, re.I))
     return bool(FETCH_STOP.search(text) or asked) and (brain_mod.intent(text, markers) or ("",))[0] not in ("quiet", "look") \
         and not brain_mod.STOP_TALK.search(text) and ("?" not in text or asked)
 

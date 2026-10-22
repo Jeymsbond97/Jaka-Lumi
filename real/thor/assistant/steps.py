@@ -55,14 +55,15 @@ def _norm(text, markers=()):
     t = re.sub(r"(?<=[가-힣])고\s*나서(?=[\s,]|$)", "고", t)                     # "가고 나서" = "가고"
     for honour, plain in _HON_KO:                                                 # "가셔서" = "가서", "받으시고" = "받고"
         t = re.sub(rf"(?<![가-힣]){honour}(?=[\s,.!?]|$)", plain, t)
-    return re.sub(r"(?<![가-힣])(간|온|집은|잡은|든|받은|준|놓은|돈|기다린|들른|가신|오신|기다리신|받으신|집으신|잡으신|드신|주신|놓으신)"
+    return re.sub(r"(?<![가-힣])(간|온|집은|잡은|든|받은|준|놓은|돈|기다린|들른|가신|오신|기다리신|받으신|집으신|잡으신|드신|주신|놓으신|도신)"
                   r"\s*(?:다음에?|후에?|뒤에?)(?=[\s,]|$)",
                   lambda m: _AFTER_KO[m.group(1)], t).strip()                       # "p3에 간 다음에" = "p3에 가고"
 
 
 _AFTER_KO = {"간": "가고", "온": "오고", "집은": "집고", "잡은": "잡고", "든": "들고", "받은": "받고", "준": "주고", "놓은": "놓고",
              "돈": "돌고", "기다린": "기다리고", "들른": "들르고", "가신": "가고", "오신": "오고", "기다리신": "기다리고",
-             "받으신": "받고", "집으신": "집고", "잡으신": "잡고", "드신": "들고", "주신": "주고", "놓으신": "놓고"}
+             "받으신": "받고", "집으신": "집고", "잡으신": "잡고", "드신": "들고", "주신": "주고", "놓으신": "놓고",
+             "도신": "돌고"}
 _HON_KO = [("가셔서", "가서"), ("가시고", "가고"), ("가셨다가", "갔다가"), ("오셔서", "와서"), ("오시고", "오고"),
            ("돌아오셔서", "돌아와서"), ("기다리셔서", "기다려서"), ("기다리시고", "기다리고"), ("기다리셨다가", "기다렸다가"),
            ("드시고", "들고"), ("드셔서", "들어서"), ("받으시고", "받고"),
@@ -91,7 +92,7 @@ def _place(word, markers):
 
 def _places(t, markers):
     """'p3, p5 or p7' / 'p3' / 'here' -> list of names, or None when one of them is not a place on the map."""
-    t = re.sub(r"^either\s+", "", t.strip())
+    t = re.sub(r"^(?:either|(?:a )?random (?:one )?of|one of|any of)(?: the)?\s+", "", t.strip())
     words = [w for w in re.split(r"\s*(?:,\s*(?:or|and)\b|,|\bor\b|\band\b|또는|(?<=[a-z\d])이나(?=\s)|(?<=[a-z\d])나(?=\s))\s*",
                                  t) if w.strip()]
     names = [_place(w, markers) for w in words]
@@ -115,7 +116,7 @@ def _go(c, markers):
     if brain.COME_BACK.fullmatch(re.sub(r"(?<=[와가])(?:서|고)$", "", c)):
         return {"do": "go", "to": "here"}                 # "come back", "go back where you were", "원래 자리로 돌아와"
     m = re.fullmatch(r"(?:(?:go|drive|head|come|move|return|get|walk|roll|run|proceed|navigate|travel|hurry|make your way|"
-                     r"take yourself)(?: back)?(?: over| on| ahead)?|(?:bring|take|carry) it(?: back)?)"
+                     r"take yourself)(?: back)?(?: on)?(?: over| ahead)?|(?:bring|take|carry) it(?: back)?)"
                      r" to (?:the )?(?:(?:a )?random (?:one )?of |one of |any of )?(?:the )?(.+?)(?: point| marker)?", c)
     if m:
         to = _places(m.group(1), markers)
@@ -156,6 +157,7 @@ def _move(c):
             rf"(?:(?:go|move|drive|step|walk|come|back up|head)\s+)?{_NUM} m\s+(?:to (?:the |your )?)?{_DIR}",
             rf"(?:go|move|drive|step|walk|head)\s+{_NUM} m()",
             rf"{_DIR_KO}\s*{_NUM} m\s*(?:가|가고|가서|이동|이동해|움직여|와|갔다가|갔다)(?:세요|줘)?",
+            rf"{_NUM} m\s*(?:만\s*)?{_DIR_KO}\s*(?:가|가고|가서|이동|이동해|움직여|와|갔다가)(?:세요|줘)?",
             rf"(){_NUM} m\s*(?:더\s*)?(?:가|가고|가서|이동해|이동하고|이동해서|전진|전진해|전진하고)(?:세요|줘)?")   # "1미터 가": forward
     for p in pats:
         m = re.fullmatch(p, c)
@@ -518,6 +520,9 @@ def _person(c, markers):
     m = re.fullmatch(rf"(?:go|drive|head) (?:over )?to {_NAME} (?:at|in|by) (.+)", c)
     if m and _is_name(m.group(1), markers) and (to := _places(m.group(2), markers)) and len(to) == 1:
         return [{"do": "go", "to": to[0]}, {"do": "_for", "person": m.group(1)}]   # the next give is for them
+    m = re.fullmatch(rf"let {_NAME} have (?:it|this|that|the (?:(?:{COL}) )?(?:{OBJ})s?)", c)
+    if m and _is_name(m.group(1), markers):
+        return [{"do": "give", "person": m.group(1), "where": False}]      # "let Sarah have it"
     m = re.fullmatch(rf"(?:bring|take|carry|fetch) (him|her|them|{_NAME}) (?:the |a |an |this |that )?(?:({COL}) )?({OBJ})s?", c)
     if m and (m.group(1) in ("him", "her", "them") or _is_name(m.group(1), markers)):
         obj, col = _thing(m.group(3), m.group(4))         # "bring her the cup": pick it, then to her (_NAME is group 2)
@@ -654,7 +659,7 @@ def _clause(c, markers, after=None):
 
 
 def _clause_steps(c, markers, after=None):
-    c = re.sub(r"^(?:second(?:ly)?|third(?:ly)?|fourth|first(?:ly)?|step \d)[\s,]+", "", c.strip(" .!?"))   # "second, go to ..."
+    c = re.sub(r"^(?:second(?:ly)?|third(?:ly)?|fourth|first(?:ly)?|last(?:ly)?|step \d)[\s,]+", "", c.strip(" .!?"))   # "second, go to ..."
     c = re.sub(rf"^(?:{_FILL}[\s,]+)+|(?:[\s,]+{_FILL})+$", "", c).strip(" .!?,")
     if re.search(r"[가-힣]", c):
         c = re.sub(r"\s+", " ", c)

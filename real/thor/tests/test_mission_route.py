@@ -46,6 +46,8 @@ FIX = {"go to start, no, end": "go to end", "스타트로 가, 아니 엔드로"
        "앞으로 1미터, 아니 2미터 가": "앞으로 2 m 가", "컵 집어, 아니 병": "병 집어", "go to the stage, never mind": "",
        "스테이지로 가, 아니 됐어": "", "go to the stage, no, the kitchen": None, "I like apples, no, I love them": None,
        "go to the stage, no rush": None, "no, go to the end": None}
+for text in ("stop, no, wait", "go to start, no wait, stop", "멈춰, 아니 기다려"):   # a stop is never rewritten
+    assert brain.self_correct(text, M) == text and lumi.stop_order(text, M), text
 for text, want in FIX.items():
     got = brain.self_correct(text, M)
     assert got == (text if want is None and text in ("I like apples, no, I love them", "go to the stage, no rush",

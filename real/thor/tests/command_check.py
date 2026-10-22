@@ -22,6 +22,7 @@ from assistant import brain, driving, lumi, seeing
 from audio import sing
 from tests.command_cases import CASES as CASES1
 from tests.command_cases2 import CASES as CASES2   # 2026-10-21 night: new wordings, the conference map
+from tests.command_cases3 import CASES as CASES3   # the same night, written blind from docs/14 and docs/17
 from tests.conversation_check import NOW, markers
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -152,7 +153,8 @@ def main(args):
     global OUT
     marks = markers()
     use_llm, cached = "--llm" in args, "--cached" in args
-    cases = CASES2 if "--new" in args else CASES1 if "--old" in args else CASES1 + CASES2
+    cases = CASES2 if "--new" in args else CASES3 if "--blind" in args else CASES1 if "--old" in args else \
+        CASES1 + CASES2 + CASES3
     only = [a for a in args if not a.startswith("-")]
     old = {}
     if cached and OUT.with_suffix(".json").exists():
@@ -176,9 +178,11 @@ def main(args):
             got, raw, first = "llm?", "", ""
         if got is None:
             key = (c["text"], c["state"], str(c["before"]))
-            if key in old:
+            if key in old:                               # the saved action line checked again by today's Brain._action
                 raw, first = old[key]["raw"], old[key]["first"]
-                a, _, tgt = raw.partition(" ")
+                head = brain.Brain._action("ACTION: " + raw, brain.self_correct(c["text"], mk) or c["text"], mk) or \
+                    {"action": "none", "target": ""}
+                a, tgt = head["action"], head["target"] if head["action"] != "receive" else raw.partition(" ")[2]
                 got = act(a, tgt, first, c["state"])
             elif use_llm:
                 try:

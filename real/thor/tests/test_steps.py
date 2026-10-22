@@ -1,7 +1,7 @@
 """Self-check of reading missions (docs/17), no robot, no LLM: python tests/test_steps.py
 
 Each case: command -> the steps it must give, written short:
-  go p1 | go p3,p5,p7 (one of them) | go here | move left 1 | turn -90 | pick white cup | receive cup |
+  go p1 | go p3,p5,p7 (one of them) | go here | move left 1 | turn -90 | pick white cup | receive cup | receive hand |
   say <text> | place | place white dining table left | give | hold | arm reach |
   wait (no time: stay / until go on) | wait 30 | wait order [600] (an instruction there) | receive cup wait [120]
 "?" as the steps: some words must stay unread (Lumi asks again, nothing runs)."""
@@ -23,6 +23,8 @@ def short(s):
         return {"do": "turn", "deg": float(w[1])}
     if do == "pick":
         return {"do": "pick", "object": w[-1], "colour": w[1] if len(w) == 3 else None}
+    if do == "receive" and w[1:] == ["hand"]:
+        return {"do": "receive", "object": None, "from_hand": True}       # "take this from me": from the person's hand
     if do == "receive":
         out = {"do": "receive", "object": w[1] if len(w) > 1 and w[1] != "wait" else None}
         if "wait" in w:
@@ -298,7 +300,9 @@ print("steps wait ok")
 from assistant import brain
 from tests import steps_cases7 as c7
 failed = []
-for text, want in list(c7.CASES.items()) + [(brain.self_correct(t, c7.CONF), w) for t, w in c7.FIXED.items()]:
+from tests import steps_cases8 as c8                 # written blind from docs/17 (2026-10-21 night), with corrections
+for text, want in list(c7.CASES.items()) + [(brain.self_correct(t, c7.CONF), w) for t, w in
+                                             list(c7.FIXED.items()) + list(c8.CASES.items())]:
     got, unread = steps.rules(text, c7.CONF)
     if want == "?":
         ok = bool(unread) or bool(steps.check(got, False, c7.CONF))
@@ -313,7 +317,7 @@ for want, (en, ko) in c7.READ_BACK.items():
         if steps.describe(s_, lang) != said:
             failed.append(want)
             print(f"FAIL read-back {lang} {want!r}\n  want {said}\n  got  {steps.describe(s_, lang)}")
-print(f"{len(c7.CASES) + len(c7.FIXED) - sum(1 for f in failed if f in c7.CASES or f in c7.FIXED.values())}/"
-      f"{len(c7.CASES) + len(c7.FIXED)} read right on the conference map")
+print(f"{len(c7.CASES) + len(c7.FIXED) + len(c8.CASES) - len(failed)}/{len(c7.CASES) + len(c7.FIXED) + len(c8.CASES)} "
+      "read right on the conference map")
 assert not failed
 print("steps conference ok")
