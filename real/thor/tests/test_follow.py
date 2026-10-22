@@ -1,0 +1,419 @@
+"""Self-check of "follow me" (tasks/follow.py, the hooks in assistant/lumi.py, brain.intent) with a fake base and
+fake person tracks, no robot, no network: python tests/test_follow.py"""
+import math
+import re
+import tempfile
+import threading
+import time
+import types
+from pathlib import Path
+
+import numpy as np
+
+from assistant import brain, lumi
+from robot import agv, head, motion
+from tasks import fetch, follow
+
+lumi.LOG_FILE = "/dev/null"                         # keep the assistant's real log clean
+tmp = Path(tempfile.mkdtemp())
+fetch.STATE_FILE = tmp / "lumi_task.json"           # never the real /dev/shm file
+follow.TICK_S = 0.02
+M = ["home", "p1", "p3"]
+
+
+def forbid(*a, **k):
+    raise AssertionError("a test reached the robot")
+
+
+fetch.motion.go = fetch.skills._ask = motion._ready = forbid
+fetch._charging = lambda: False
+fetch._at_pose = lambda name: True                  # the arm is in look already
+fetch._pose = lambda name, speed=None: None
+fetch._waist_front = lambda: None
+fetch.head_ahead = lambda: None
+fetch.arm_yaw = lambda: -86.0
+ARM = [np.array([0.44, 0.0]), np.array([0.52, 0.0]), np.array([0.60, 0.0])]   # flange, grasp point, tips (m)
+fetch.arm_points = lambda: ARM
+
+
+class Body:
+    """The body API behind robot/head.py: [lift, waist, yaw, pitch]; a moveto takes MOVE_S; overlaps are counted."""
+    MOVE_S = 0.05
+
+    def __init__(self):
+        self.pos, self.moves, self.busy, self.overlaps = [50.0, 0.0, 0.0, 0.0], [], 0, 0
+        self.lock = threading.Lock()
+        head._call = self.call
+
+    def call(self, path, body=None, timeout=2):
+        if path == "status":
+            return [{"enable": True, "pos": p} for p in self.pos]
+        if path != "moveto":
+            forbid()
+        with self.lock:
+            self.busy += 1
+            self.overlaps += self.busy > 1
+        time.sleep(self.MOVE_S)
+        with self.lock:
+            self.busy -= 1
+            self.pos = list(body["pos"])
+            self.moves.append((time.time(), threading.current_thread().name, *self.pos))
+        return {"code": 0}
+
+
+body = Body()
+HALF_FOV = 47.0                                     # deg; the head camera's half view (vision/person.py COLOR_HFOV / 2)
+
+
+class World:
+    """The base drives by the joy commands it gets (each lasts 0.5 s); a person walks; obstacles are points."""
+
+    def __init__(self, person=(3.0, 0.0), walk=(0.0, 0.0), walk_s=0.0, obstacles=(), path=None, fov=False):
+        self.x = self.y = self.th = 0.0
+        self.v = self.w = 0.0
+        self.t = self.t_cmd = self.t0 = time.time()
+        self.person, self.walk, self.walk_s, self.obstacles = np.array(person, float), np.array(walk), walk_s, obstacles
+        self.hidden = False
+        self.path, self.fov = path, fov             # path(t): the person's (x, y); fov: seen only by the head camera
+        self.cmds, self.dist = [], []
+        self.lock = threading.Lock()
+        agv.request = self.request
+        agv.pose = self.pose
+        agv.clearance = self.clearance
+
+    def _move(self):
+        now = time.time()
+        dt = max(0.0, min(now, self.t_cmd + 0.5) - self.t)  # a command lasts 0.5 s
+        self.x += self.v * math.cos(self.th) * dt
+        self.y += self.v * math.sin(self.th) * dt
+        self.th += self.w * dt
+        self.t = now
+
+    def request(self, cmd):
+        m = re.match(r"/api/joy_control\?linear_velocity=(-?[\d.]+)&angular_velocity=(-?[\d.]+)$", cmd)
+        if not m:
+            forbid()
+        with self.lock:
+            self._move()
+            self.v, self.w = float(m.group(1)), float(m.group(2))
+            self.t_cmd = time.time()
+            self.cmds.append((self.t_cmd, self.v, self.w))
+        return {"status": "OK"}
+
+    def pose(self):
+        with self.lock:
+            self._move()
+            return self.x, self.y, self.th
+
+    def clearance(self, x, y):
+        return min((math.hypot(x - ox, y - oy) for ox, oy in self.obstacles), default=float("inf"))
+
+    def person_at(self):
+        if self.path:
+            return np.array(self.path(time.time() - self.t0))
+        return self.person + self.walk * min(time.time() - self.t0, self.walk_s)
+
+    def see(self):
+        """What lumi.Vision.follow_view gives: (distance, angle deg + left, age s)."""
+        if self.hidden:
+            return None
+        x, y, th = self.pose()
+        px, py = self.person_at()
+        d = math.hypot(px - x, py - y)
+        self.dist.append(d)
+        a = (math.degrees(math.atan2(py - y, px - x) - th) + 180) % 360 - 180
+        if self.fov and abs(a - body.pos[2]) > HALF_FOV:
+            return None
+        return d, a, 0.0
+
+
+said = []
+
+
+def say(en, ko):
+    said.append(en)
+
+
+def wait_end(s=3.0):
+    t = time.time()
+    while follow.running() and time.time() - t < s:
+        time.sleep(0.01)
+    return not follow.running()
+
+
+# follows a person walking away, at most FOLLOW_MAX_MS, never inside the gap, turns toward them
+follow.FOLLOW_MAX_MS = 0.4                                                          # the walk below needs the full speed; the file value is tuned live
+w = World(person=(2.2, 0.4), walk=(0.3, 0.05), walk_s=2.0)
+follow.start(w.see, say)
+time.sleep(6.0)
+assert follow.running()
+assert follow.stop() and wait_end(0.5)
+vs, ws = [c[1] for c in w.cmds], [c[2] for c in w.cmds]
+assert max(vs) <= follow.FOLLOW_MAX_MS + 1e-9 and max(vs) > 0.85 * follow.FOLLOW_MAX_MS, max(vs)          # capped, and it got there
+assert max(abs(x) for x in ws) <= follow.TURN_MAX_RS + 1e-9
+assert min(vs) >= 0.0                                                               # never backwards
+assert min(w.dist) >= follow.FOLLOW_GAP_M, min(w.dist)                              # never closer than the gap
+assert w.dist[-1] < follow.FOLLOW_GAP_M + 0.15, w.dist[-1]                          # caught up and stands
+assert w.y > 0.1 and abs(w.see()[1]) < follow.TURN_DEAD_DEG + 1.0, (w.y, w.see())  # turned toward them
+assert w.cmds[-1][1:] == (0.0, 0.0)
+print(f"follow: ok (drove {w.x:.2f}, {w.y:.2f} m, top {max(vs):.2f} m/s, nearest {min(w.dist):.2f} m)")
+
+# closer than the gap: stands still (no forward, no turn)
+w = World(person=(0.8, 0.3))
+follow.start(w.see, say)
+time.sleep(0.5)
+follow.stop()
+assert wait_end(0.5) and all(c[1:] == (0.0, 0.0) for c in w.cmds) and abs(w.x) < 1e-9
+print("too close: stands still")
+
+# every stop word ends it at once (lumi.follow_stop, as answer() calls it); then "follow me" starts again
+L = lumi.Lumi.__new__(lumi.Lumi)
+stops = []
+L.stop_all = lambda: stops.append(1)
+STOP = ["stop", "Stop!", "enough", "that's enough", "wait", "wait, Lumi", "stay here", "you can stop", "hold on",
+        "don't follow me", "stop following me", "멈춰", "그만", "그만해", "거기 있어", "기다려", "여기 있어", "스톱", "정지", "서"]
+for word in STOP:
+    w = World(person=(3.0, 0.0))
+    follow.start(w.see, say)
+    time.sleep(0.15)
+    assert follow.running(), word
+    t_stop = time.time()
+    assert L.follow_stop(word), word
+    assert wait_end(0.3), word
+    assert w.cmds[-1][1:] == (0.0, 0.0) and all(c[1:] == (0.0, 0.0) for c in w.cmds if c[0] >= t_stop), word
+    assert stops and stops.pop() == 1
+for text in ("follow me", "go on", "keep going", "stay with me", "this way", "faster", "어디 가?"):
+    assert not follow.stop_word(text), text
+assert not L.follow_stop("stop")                                                    # not following: the old paths
+print(f"stop words: {len(STOP)} ok")
+
+# restarts on "follow me" again, also while following (the old loop ends first)
+w = World(person=(3.0, 0.0))
+follow.start(w.see, say)
+time.sleep(0.2)
+first = follow._thread
+follow.start(w.see, say)
+assert not first.is_alive() and follow.running()
+time.sleep(0.3)
+assert any(c[1] > 0 for c in w.cmds)
+follow.stop()
+assert wait_end(0.5)
+print("restart: ok")
+
+# lost: no sighting for LOST_S -> "I lost you", the base stopped
+said.clear()
+w = World(person=(3.0, 0.0))
+follow.start(w.see, say)
+time.sleep(0.3)
+w.hidden, t_lost = True, time.time()
+assert wait_end(follow.LOST_S + 1.0)
+assert said == [follow.LOST[0]], said
+assert w.cmds[-1][1:] == (0.0, 0.0) and all(c[1:] == (0.0, 0.0) for c in w.cmds if c[0] > t_lost + 0.05)
+print("lost: ok")
+
+# a stale sighting stands still, then counts as lost
+said.clear()
+w = World(person=(3.0, 0.0))
+t_old = time.time() - follow.STALE_S - 0.1
+follow.start(lambda: (3.0, 0.0, time.time() - t_old), say)
+assert wait_end(follow.LOST_S + 1.0) and said == [follow.LOST[0]] and all(c[1:] == (0.0, 0.0) for c in w.cmds)
+print("stale: ok")
+
+# something in the way: stops before the arm or the base gets there
+said.clear()
+w = World(person=(3.0, 0.0), obstacles=[(1.5, 0.0)])
+follow.start(w.see, say)
+assert wait_end(6.0)
+assert said == ["Something is in my way, so I stopped."], said
+assert 0.3 < w.x and w.x + ARM[-1][0] < 1.5 - 0.05 and w.cmds[-1][1:] == (0.0, 0.0), w.x
+print(f"obstacle: stopped at {w.x:.2f} m (finger tips {1.5 - w.x - ARM[-1][0]:.2f} m before it)")
+
+# on the charger: refused, said, the base never driven
+said.clear()
+fetch._charging = lambda: True
+w = World()
+follow.start(w.see, say)
+assert wait_end(1.0) and said and "charger" in said[0] and all(c[1:] == (0.0, 0.0) for c in w.cmds)
+fetch._charging = lambda: False
+print("charger: refused")
+
+# the arm switched off but in look: follows with the arm still; not in look: refused with the reason, never driven
+def arm_off():
+    raise motion.MotionError("arm is not powered / enabled")
+
+
+motion._ready = arm_off
+assert follow.ready() is None
+said.clear()
+w = World(person=(3.0, 0.0))
+follow.start(w.see, say)
+time.sleep(0.4)
+assert follow.running() and any(c[1] > 0 for c in w.cmds)
+follow.stop()
+assert wait_end(0.5)
+fetch._at_pose = lambda name: False
+assert follow.ready() == follow.ARM_OFF
+w = World()
+follow.start(w.see, say)
+assert wait_end(1.0) and said == [follow.ARM_OFF[0]] and all(c[1:] == (0.0, 0.0) for c in w.cmds), said
+motion._ready = lambda: (_ for _ in ()).throw(motion.MotionError("a Cobo π program is running"))
+assert follow.ready() == follow.ARM_BUSY
+fetch._at_pose = lambda name: (_ for _ in ()).throw(ConnectionError("no answer"))
+assert follow.ready() == follow.NO_ARM
+fetch._at_pose, motion._ready = (lambda name: True), forbid
+print("arm off: follows in look, refuses otherwise")
+
+# any other failure in prepare: said, the base at 0, the head free again, the thread ends
+said.clear()
+fetch._waist_front = lambda: 1 / 0
+w = World()
+follow.start(w.see, say)
+assert wait_end(1.0) and said and "went wrong" in said[0] and w.cmds and w.cmds[-1][1:] == (0.0, 0.0), said
+assert head.owners == ()
+fetch._waist_front = lambda: None
+print("failure in prepare: said, stopped")
+
+# the person walks around to behind (radius 2 m, 0 -> 150 deg in 6 s), seen by the head camera only: the head turns
+# first, the base after, the head comes back toward 0; head moves one at a time, toward the person
+said.clear()
+body.moves.clear()
+R = 2.0
+w = World(path=lambda t: (R * math.cos(math.radians(min(t, 6.0) * 25)), R * math.sin(math.radians(min(t, 6.0) * 25))),
+          fov=True)
+follow.start(w.see, say)
+time.sleep(9.0)
+assert follow.running() and not said, said
+follow.stop()
+assert wait_end(0.5)
+yaws = [m[4] for m in body.moves if m[1] == "follow head"]
+assert body.overlaps == 0 and len(yaws) >= 3, (body.overlaps, len(yaws))
+assert max(yaws) > follow.TURN_ONLY_DEG - 1 and min(yaws) >= -follow.HEAD_STEP_DEG, yaws                   # left, toward them
+assert abs(yaws[-1]) < 15.0, yaws[-1]                                                                      # back toward 0
+assert math.degrees(w.th) > 120.0 and all(m[5] == follow.HEAD_PITCH for m in body.moves), math.degrees(w.th)
+print(f"walk behind: head up to {max(yaws):.0f} deg, base turned {math.degrees(w.th):.0f} deg, {len(yaws)} head moves")
+
+# live 2026-10-21: "follow me" from a person at 0.54 m, -80 deg, the head turned to them; prepare() turned the head
+# ahead, they were out of its view, the track was dropped: "lost" before a single move. The head must stay on them.
+said.clear()
+fetch.head_ahead = lambda: head.moveto([*head.status()[:2], *fetch.HEAD_AHEAD])   # as the real one: the body moves
+body.pos[2] = -75.0                                                                 # lumi turned the head to them
+w = World(path=lambda t: (math.cos(math.radians(-75)) * (0.6 + 0.4 * min(t, 4.0)),
+                          math.sin(math.radians(-75)) * (0.6 + 0.4 * min(t, 4.0))), fov=True)
+follow.start(w.see, say)
+time.sleep(6.0)
+assert follow.running() and not said, said
+follow.stop()
+assert wait_end(0.5)
+assert any(c[2] < 0 for c in w.cmds) and math.degrees(w.th) < -30.0, math.degrees(w.th)     # turned toward them
+fetch.head_ahead, body.pos[2] = (lambda: None), 0.0
+print(f"follow me from aside: kept in view, base turned {math.degrees(w.th):.0f} deg")
+
+# while following only follow moves the head (lumi's turn_head, sing are skipped)
+w = World(person=(3.0, 0.0))
+follow.start(w.see, say)
+time.sleep(0.2)
+n = len(body.moves)
+assert head.moveto([50, 0, -60, 0]) is None and len(body.moves) == n
+follow.stop()
+assert wait_end(0.5) and head.owners == ()
+print("head owned while following")
+
+# re-lock: the track is lost but a person appears at about the same place -> followed on; somewhere else -> lost
+said.clear()
+w, gone, fresh = World(person=(3.0, 0.0)), [False], []
+follow.start(lambda: None if gone[0] else w.see(), say, people=lambda: fresh)
+time.sleep(0.3)
+gone[0] = True                                                                      # the track id is dropped
+time.sleep(0.5)
+fresh.append((w.see, 3.0, 8.0, 0.0))                                                # a new track where they were
+t_new = time.time()
+time.sleep(follow.LOST_S + 0.5)
+assert follow.running() and not said, said
+assert any(c[0] > t_new and c[1] > 0 for c in w.cmds)
+follow.stop()
+assert wait_end(0.5)
+said.clear()
+w = World(person=(3.0, 0.0))
+fresh = [(lambda: (3.0, 80.0, 0.0), 3.0, 80.0, 0.0)]
+follow.start(lambda: None if w.hidden else w.see(), say, people=lambda: fresh)
+time.sleep(0.3)
+w.hidden = True
+assert wait_end(follow.LOST_S + 1.0) and said == [follow.LOST[0]], said
+print("re-lock: ok")
+
+# lumi: act("stop") ends following; follow_me locks onto the person talking, refuses when it must
+lumi.agv.cancel = lumi.skills.cancel = lumi.arm.stop = lambda: None
+w = World(person=(3.0, 0.0))
+follow.start(w.see, say)
+time.sleep(0.1)
+L.act("stop", "")
+assert wait_end(0.3)
+
+spoken, started = [], []
+lumi.mouth.say = lambda text, **k: spoken.append(text)
+real_start = follow.start
+follow.start = lambda see, say=None, people=None: started.append(see)
+track = types.SimpleNamespace(id=7, distance=1.8, angle=10.0, greeted=False, history=[1.7], last_seen=time.time())
+L.lang, L.voice_angle, L.voice_trusted = "en", 0.0, False
+L.modes = types.SimpleNamespace(drive=True)
+L.skill_busy = lambda: False
+L.keep_listening = lambda: None
+L.fetch_say = lambda en, ko: spoken.append(en)
+L.vision = lumi.Vision.__new__(lumi.Vision)
+L.vision.tracks, L.vision.lock = [track], threading.Lock()
+L.current = track
+L.find_caller = lambda angle, trusted: None
+L.follow_me()
+assert started and "follow you" in spoken[-1], spoken
+d, a, age = started[-1]()
+assert (d, a) == (1.7, 10.0) and age < 1.0                                          # the nearer of median / newest
+L.vision.tracks = []
+assert started[-1]() is None                                                        # track gone: lost
+L.current, started[:] = None, []
+L.follow_me()
+assert not started and "can't see you" in spoken[-1]
+L.find_caller = lambda angle, trusted: track                                       # where the voice came from
+L.follow_me()
+assert started and L.current is track
+started.clear()
+L.modes.drive = False
+L.follow_me()
+assert not started and "switched off" in spoken[-1]
+L.modes.drive, L.skill_busy = True, lambda: True
+L.follow_me()
+assert not started and "on a task" in spoken[-1]
+L.skill_busy, real_ready = (lambda: False), follow.ready
+follow.ready = lambda: follow.ARM_OFF                                               # checked before "Okay"
+L.follow_me()
+assert not started and spoken[-1] == follow.ARM_OFF[0] and not any("follow you" in x for x in spoken[-1:])
+follow.ready = real_ready
+follow.start = real_start
+print("lumi hooks: ok")
+
+# the keyword rules: any wording EN / KO is "follow", talk about following is not
+FOLLOW = ["follow me", "Follow me, please.", "Lumi, follow me", "hey lumi follow me", "can you follow me?",
+          "please follow me", "follow me to p3", "come with me", "Come with me please", "walk with me",
+          "come along", "따라와", "따라와 줘", "나 따라와", "같이 가자", "루미야 따라와", "저 따라오세요",
+          "저 좀 따라와 주시겠어요?", "나랑 같이 가자", "같이 가요"]
+NOT = ["follow me on instagram", "You should follow me on Instagram!", "I follow you", "I follow you on twitter",
+       "do you follow me?", "did you follow me?", "don't follow me", "따라오지 마", "how do you follow people?",
+       "I'm following the news", "come here", "come to me", "p3로 같이 가자"]
+for text in FOLLOW:
+    assert brain.intent(text, M) == ("follow", ""), (text, brain.intent(text, M))
+    assert lumi.read_mission(text, M) is None, text                                  # not a mission of steps
+for text in NOT:
+    assert (brain.intent(text, M) or ("",))[0] != "follow", (text, brain.intent(text, M))
+assert brain.intent("stop following me", M) == ("stop", "")
+for text, want in (("can you tag along?", "follow"), ("I follow you on twitter", "none"),
+                   ("I like walking", "none"), ("follow me", "follow")):
+    got = brain.Brain._action("ACTION: follow -", text, M)["action"]                 # the LLM's line, checked
+    assert got == want, (text, got)
+print(f"intents: {len(FOLLOW)} follow, {len(NOT)} not")
+
+# quick_command answers "follow me" at once
+called = []
+L.follow_me = lambda: called.append(1)
+L.mission_running = lambda: False
+L.brain, L.markers = types.SimpleNamespace(history=[]), M
+assert L.quick_command("follow me") and called
+print("all follow checks passed")
