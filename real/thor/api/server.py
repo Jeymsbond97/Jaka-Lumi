@@ -38,6 +38,7 @@ from robot import motion
 from vision import objects
 from robot import head
 from manipulation import skills
+from manipulation import wave
 from api.control import jogger
 
 PORT = 8100
@@ -322,13 +323,16 @@ def body_move(body: BodyBody):
                                              (round(p, 2) for p in head.status())))}
 
 
-@app.post("/arm/wave", tags=["arm"], summary="Wave (Cobo π program hand_shaking.jks); returns at once")
+@app.post("/arm/wave", tags=["arm"], summary="Wave from look along the checked route (manipulation/wave.py, slow)")
 def arm_wave():
     robot_free(manual=True)
-    if not arm.ready():
-        raise HTTPException(409, "arm not ready: power/enable off, or a program is running")
-    arm.start()
-    return {"ok": True, "program": arm.WAVE}
+    try:
+        wave.wave()
+    except wave.WaveError as e:
+        raise HTTPException(409, e.args[0])
+    except motion.MotionError as e:
+        raise HTTPException(409, str(e))
+    return {"ok": True}
 
 
 @app.post("/arm/stop", tags=["arm"], summary="Stop the running arm program, motion or skill")
@@ -886,6 +890,7 @@ class TaskBody(BaseModel):
                                description='"here", {"marker": name} or {"x", "y" m, "theta" rad} in the map frame')
     dest: str | dict = Field(examples=[{"marker": "home"}], description="same forms as source")
     finish: str = Field("hold", examples=["hold"], description="hold (wait for give / place) or place on the table")
+    prefer: str | None = Field(None, examples=["small"], description="which of several: small, big, near, far, left, right")
 
 
 def _fetch_call(name, cmd, *args, **fields):
@@ -932,6 +937,7 @@ def task_parse(body: ParseBody):
     from assistant import brain, steps
     from tasks import fetch
     markers = agv.markers()
+    got = unread = by = None
     if body.text.strip():                             # a mission (docs/17): several steps the fetch / carry can't do
         got, unread, by = steps.read(body.text, markers, llm=False)
         if unread and got and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
@@ -945,12 +951,15 @@ def task_parse(body: ParseBody):
                     "read_by": by, **_steps_said(got, markers)}
     if fetch.check_hand():                            # the camera sees the hand; a stale "holding" is forgotten
         return _held_parse(body, markers)
+    if body.text.strip() and got and not unread and {s["do"] for s in got} <= {"receive", "arm"}:
+        return {"action": "steps", "steps": got, "lang": "ko" if brain.HANGUL.search(body.text) else "en",   # "take this
+                "sender": steps.sender(body.text), "read_by": by, **_steps_said(got, markers)}   # from my hand", "open your hand"
     if brain.place_on(body.text) and not brain._mentions(body.text, markers).get("object"):   # "put it on the table"
         return {"action": None, "task": None, "sentence": "–", "problems": ["My hand is empty, I'm not holding anything."]}
     fields, read_by = brain.fetch_from_text(body.text, markers) if body.text.strip() else ({}, "rules")
     task = {"object": fields.get("object"), "colour": fields.get("colour"),
             "source": fields.get("source") or body.source or "here", "dest": fields.get("dest") or body.dest,
-            "finish": fields.get("finish", "hold")}
+            "finish": fields.get("finish", "hold"), **({"prefer": fields["prefer"]} if fields.get("prefer") else {})}
     problems = [] if task["object"] else ["Which object? I know cup, bottle, apple, orange and banana."]
     problems += [x for x in _task_problems(task) if x not in problems]
     if read_by == "other":                       # not English or Korean: nothing else is worth saying
@@ -1000,7 +1009,7 @@ def steps_run(body: StepsBody):
 def _choices():
     """What the dialog may change by hand after reading a command."""
     from tasks import fetch
-    return {"object": list(fetch.OBJECTS), "colour": list(fetch.COLOURS), "finish": list(fetch.FINISH),
+    return {"object": list(fetch.PICKABLE), "colour": list(fetch.COLOURS), "finish": list(fetch.FINISH),
             "then": [t for t in fetch.THEN if t]}
 
 
@@ -1023,7 +1032,9 @@ def _held_parse(body, markers):
     if then == "give" and named and not re.search(r"\b(give|hand)\b|줘|주세요|건네", t):
         then = None                                   # "bring it to p2" is a carry, not a hand-over
     table = "dining table" if re.search(r"\bdin+(?:n|i)?ing\b|\bdinner table\b", t) else "table"   # as it was said
-    on_words = " ".join(w for w in (on.get("colour"), " or ".join(n.replace("dining table", table) for n in
+    which = {"low": "lower", "high": "higher", "small": "smaller", "big": "bigger", "far": "farther"}.get(
+        (on or {}).get("prefer"))                     # "the lower one": which of several
+    on_words = " ".join(w for w in (which, on.get("colour"), " or ".join(n.replace("dining table", table) for n in
                                                                     [on["name"]] + on.get("alts", []))) if w) if on else "table"
     if dest is None:
         if then:
@@ -1142,7 +1153,7 @@ def task_state():
 class ModesBody(BaseModel):
     greeter: bool | None = Field(None, description="standing: greet people who come close, talk, wake word")
     patrol: bool | None = Field(None, description="driving anywhere: stop for people in the way, talk, drive on")
-    wave: bool | None = Field(None, description="wave when greeting")
+    wave: bool | None = Field(None, description="wave when asked")
     drive: bool | None = Field(None, description='allow "come here" and voice "go to"')
 
 

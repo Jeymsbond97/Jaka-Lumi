@@ -17,7 +17,9 @@ lumi-wave/                      run with the venv: .venv/bin/python <folder>/<mo
 ├── assistant/                  the voice assistant
 │   ├── lumi.py                 main loop: tracking, greeting, conversation, commands, patrol, wake word
 │   ├── brain.py                answers (knowledge + gemma4), actions, rule-based intents
+│   ├── llm_direct.py           gemma4 straight on the runner Ollama started for it (~0.5 s less a request)
 │   ├── steps.py                missions: a command of several steps -> checked steps, read-back
+│   ├── driving.py              short drives and drive speed as said ("20센티 뒤로", "a tiny bit", "faster", "again")
 │   ├── wording.py              marker names and numbers as said (피쓰리, point three, 일 미터) -> written
 │   ├── fetch_dialog.py         voice read-back of fetch tasks and missions
 │   ├── talk_examples.py        620+ example exchanges (EN / KO); the closest few go with each question to the LLM
@@ -39,6 +41,7 @@ lumi-wave/                      run with the venv: .venv/bin/python <folder>/<mo
 ├── vision/                     cameras
 │   ├── camview.py              camera service (the only camera owner), RemoteDetector
 │   ├── person.py               YOLOv8n people (and objects) per frame
+│   ├── reid.py                 knowing a person again: face embedding, else clothes colours
 │   ├── objects.py              objects in mm in the arm base frame
 │   ├── calib.py                torso / head camera → arm base calibration
 │   ├── head_cam.py             head camera → arm base at any head yaw / pitch
@@ -50,9 +53,11 @@ lumi-wave/                      run with the venv: .venv/bin/python <folder>/<mo
 │   ├── motion.py               checked arm motion: named poses, joint and straight moves
 │   └── gripper.py              Zimmer gripper
 ├── manipulation/
-│   └── skills.py               pick / place / move an object
+│   ├── skills.py               pick / place / move an object
+│   └── wave.py                 the checked wave (asked for, empty hand, from look)
 ├── tasks/
-│   └── fetch.py                fetch tasks: drive, find, pick, carry, hold / place / give (docs/16)
+│   ├── fetch.py                fetch tasks: drive, find, pick, carry, hold / place / give (docs/16)
+│   └── follow.py               "follow me": follow a person with the base until a stop word
 ├── tests/                      self-checks without the robot
 ├── data/                       taught and calibrated values (see Shared state)
 ├── knowledge/                  texts Lumi answers from
@@ -120,8 +125,10 @@ Modules import each other by folder (`from robot import arm`, `from vision impor
 | `api/control.py` | Hold-to-move for the dashboard: base `joy_control`, head / waist / lift steps, arm relative joint moves | base, body, arm |
 | `assistant/lumi.py` | Voice assistant: tracking, greeting, conversation, commands, patrol, wake word | all |
 | `assistant/brain.py` | Answers: knowledge search + Ollama `gemma4:26b`, streamed, with an `ACTION:` line; rule-based intents | Ollama :11434 |
+| `assistant/llm_direct.py` | Chat with `gemma4` on the llama-server Ollama runs for it (found in `/proc`), the prompt rendered as Ollama does, so both share its prompt cache; `None` when not found, then `brain` asks Ollama | the runner's port, Ollama :11434 |
 | `assistant/knowledge.py` | Knowledge base (RAG): `knowledge/**/*.md` → bge-m3 vectors → `knowledge/index.npz` | llama-server :8095 |
 | `assistant/web.py` | Date / time, weather (open-meteo, cached), Wikipedia + Google News lookups | internet |
+| `assistant/seeing.py` | Spoken answers about what Lumi sees ("do you see a cup?", "what am I holding?", "what colour is my shirt?"), English and Korean, from `vision/scene.py` | camera service |
 | `audio/mic.py` | Always-on microphone: head array (8 ch) and wireless clip mic, cut into utterances, barge-in | AIUI mic, DJI Mic Mini |
 | `audio/ears.py` | Speech to text: whisper.cpp server (GPU, `large-v3-turbo`), language and confidence | whisper :8096 |
 | `audio/mouth.py` | Text to speech: Supertonic-3 (EN / KO, voice F1), sentence by sentence, cache | USB speaker |
@@ -130,7 +137,10 @@ Modules import each other by folder (`from robot import arm`, `from vision impor
 | `robot/drive_log.py` | Writes every base drive to the API log (start, on the way, standing still / seems stuck, arrived / failed / cancelled, E-stop, error codes), whoever drives; run by `api/server.py` | AGV status |
 | `vision/yolo_engine.py` | Builds the TensorRT engine from the ONNX model (run after a JetPack / TensorRT change) | TensorRT |
 | `vision/person.py` | YOLOv8s on the GPU (TensorRT engine `models/yolov8s.engine`); falls back to YOLOv8n on the CPU (ONNX, OpenCV DNN) when the engine does not load. People and the 80 COCO objects; distance from depth, angle from the box | TensorRT (`tensorrt-cu13`, `cuda-python`) |
+| `vision/reid.py` | Knowing a person again: face embedding (YuNet + SFace, OpenCV, CPU, ~10 ms per near person) when a face is seen, else a clothes-colour signature; `People` whom Lumi has greeted, in memory only (no picture, nothing on disk) | camera service (adds `look` / `face` to each person) |
 | `vision/objects.py` | Objects in the torso and head cameras (YOLO COCO classes): colour, centre / top / width / height in the arm base frame from depth + `data/camera_extrinsics.json` (head: `vision/head_cam.py`); called by the camera service, served as `/objects` | camera service |
+| `vision/scene.py` | What the cameras see now, as facts: things by class / colour with distance and side, people, the person in front (pose, clothes colours, gesture, what is in each hand, pointing target), a gemma4 look at the picture for the rest; docs/06 §7 | camera service, Ollama (VLM only) |
+| `vision/pose.py` | YOLO11s-pose on the GPU (TensorRT engine `models/yolo11s-pose.engine`): 17 body keypoints per person | TensorRT |
 | `vision/calib.py` | Torso camera → arm base calibration with the ArUco marker on the gripper (`collect`, `solve`, `check`; `--camera head` for the head camera, own samples and result file), see [docs/15_PICK_AND_PLACE.md §8](../../docs/15_PICK_AND_PLACE.md) | camera service, arm controller |
 | `vision/head_cam.py` | Head camera → arm base at any head yaw / pitch (`base_from_head`): the head axes measured with the arm holding the marker still (`measure yaw`, `measure pitch`, `fit`, `check`) | camera service, arm controller, body API |
 | `vision/camera_test.py`, `camera_fps.py` | Diagnostics: list cameras and save a frame (to `logs/`); count full frames per second (USB 2 vs 3) | stop the camera service first |
@@ -142,6 +152,7 @@ Modules import each other by folder (`from robot import arm`, `from vision impor
 | `robot/gripper.py` | Zimmer gripper: open / close / state (DO_1, DO_2, AI_1, DI_1), see [docs/10_GRIPPER.md](../../docs/10_GRIPPER.md) | tool I/O via the arm controller |
 | `manipulation/skills.py` | Pick and place: `plan` (dry run with IK for every waypoint), `pick`, `put_down` (back or a free spot), `move` an object to a spot or a free place; `cancel()` stops a running skill for good; the grasp taught in `data/grasp_teach.json`; refuses objects of the wrong width and unreachable plans with a spoken-style reason. Called by the CLI, the API (`/skills/*`, in the background) and the assistant (voice) | motion, gripper, objects |
 | `tasks/fetch.py` | Fetch tasks ([docs/16_FETCH_TASKS.md](../../docs/16_FETCH_TASKS.md)): drive to the source, find, shift the base if out of reach, pick, `carry`, drive to the destination, hold / place / give; state in `/dev/shm/lumi_task.json`; run by the API or the assistant | base, arm, gripper, camera service |
+| `tasks/follow.py` | "Follow me": follows the person's track with `joy_control` (gap 1 m, speed cap, each command checked with lidar + map for the base and the arm), arm in `look`, waist front, head ahead; ends on a stop word, "I lost you", or something in the way; a thread with a stop event (`stop()` sends 0 at once) | base, arm (look), assistant's person tracks |
 | `assistant/fetch_dialog.py` | Voice fetch: ask what is missing, read the task back, start on yes or silence, take corrections; read-back of a mission | |
 | `assistant/talk_examples.py` | Example exchanges by topic (greeting, name, age, jokes, kids, business...) in English and Korean; `pick()` gives the few closest to what was said, which go with the question to the LLM so the replies fit and vary | |
 | `assistant/steps.py` | Missions ([docs/17_MISSIONS.md](../../docs/17_MISSIONS.md)): a command of several steps -> checked steps (rules, then the LLM with every value checked against the words), `check` against the hand and the map, read-back EN / KO | Ollama :11434 (only for what the rules leave) |
@@ -208,6 +219,7 @@ Logs are in `logs/`: `lumi.log` (assistant), `lumi_console.log` (its stderr), `a
 | `models/yolov8n.onnx` | fallback person / object detector (CPU) | `YOLO("yolov8n.pt").export(format="onnx", imgsz=640, opset=12, simplify=True)` |
 | `models/yolov8s.onnx` | source of the GPU engine (`ultralytics` export of `yolov8s.pt`, 640, opset 17) | `YOLO("yolov8s.pt").export(format="onnx", imgsz=640, opset=17)` |
 | `models/yolov8s.engine` | GPU detector, built on this Thor from `yolov8s.onnx` (640, FP32, opset 17, `ultralytics` export). A TensorRT engine only runs on the TensorRT version and GPU it was built with: rebuild after a JetPack or TensorRT change | `vision/yolo_engine.py models/yolov8s.onnx models/yolov8s.engine` (about 100 s) |
+| `models/face_detection_yunet_2023mar.onnx`, `models/face_recognition_sface_2021dec.onnx` | face detector and face embedding for `vision/reid.py` (without them only the clothes are used) | github.com/opencv/opencv_zoo `models/face_detection_yunet/`, `models/face_recognition_sface/` |
 | `models/ggml-large-v3-turbo-q5_0.bin` | whisper model | Hugging Face `ggerganov/whisper.cpp` |
 | `models/supertonic3/` | TTS model | Hugging Face `Supertone/supertonic-3` |
 | `whisper.cpp/` | v1.9.5, built with CUDA | `cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=110 -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 12 --target whisper-server whisper-cli` |

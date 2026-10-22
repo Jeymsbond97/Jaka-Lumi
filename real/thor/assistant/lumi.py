@@ -8,13 +8,13 @@
 
 Behaviour
 - Every person the camera sees gets a track (an ID followed from frame to frame).
-- A new person who stays in the greeting zone is greeted once: Lumi turns its head to them,
-  waves and says hello. A second person who arrives is greeted the same way, then the talk goes on.
-- While a greeted person stays but says nothing, Lumi does not wave again; after PROMPT_S of silence
-  it asks "How can I help you?" (at most MAX_PROMPTS times).
+- A new person who stays in the greeting zone is greeted once: Lumi turns its head to them and says hello
+  (a greeting never moves the arm). A second person who arrives is greeted the same way, then the talk goes on.
+- While a greeted person stays but says nothing, after PROMPT_S of silence it asks "How can I help you?" (at most MAX_PROMPTS times).
 - When the person disappears from the camera (LOST_S), listening and speaking stop at once.
   Someone who comes back later is a new visit and is greeted again.
-- Voice commands (English / Korean): go to <marker>, go home, look left/right/up/down/center, wave, stop.
+- Voice commands (English / Korean): go to <marker>, go home, look left/right/up/down/center, wave, stop. The arm
+  waves only when asked, with an empty hand, from `look`, along a checked route (manipulation/wave.py).
 - Patrol (--patrol): drive marker to marker in a loop. Only a person in the robot's path (PATH_HALF_WIDTH to
   each side) closer than PATROL_NEAR_MAX makes Lumi stop and greet; people sitting beside the path are ignored.
   If the person says nothing for PATROL_WAIT_S, or the talk is over, or the person left, the patrol goes on
@@ -38,7 +38,7 @@ Modes (switched live from the dashboard through /dev/shm/lumi_modes.json, see ap
 - greeter: while standing, greet people who come close, talk, listen for "Hi Lumi".
 - patrol:  while driving anywhere (a marker picked on the dashboard, "go to p2", a --patrol route), stop for a
            person in the path, greet and talk, then drive on to the same destination.
-- wave / drive: wave when greeting; allow "come here" and voice "go to".
+- wave / drive: wave when asked; allow "come here" and voice "go to".
 The dashboard's Go / Cancel are sent to this program (/dev/shm/lumi_cmd.json) while it runs, so it can stop
 for people on the way. A calibration session for the sound direction can also be started from there.
 """
@@ -68,7 +68,11 @@ import re
 from robot import agv
 from robot import arm
 from assistant import brain as brain_mod
+from assistant import driving
+from assistant import abilities
+from assistant import voice_words
 from vision import camview
+from vision import reid
 from audio import doa
 from robot import gripper
 from audio import ears
@@ -79,19 +83,24 @@ from audio import mouth
 from audio import sing
 from robot import nav
 from manipulation import skills
+from manipulation import wave as wave_mod
 from assistant import web
 from assistant import fetch_dialog
+from assistant import seeing
 from assistant.brain import Brain
 
 NEAR_MIN, NEAR_MAX = 0.5, 1.2      # m, greeting zone
 PATROL_NEAR_MAX = 1.0              # m, on patrol: only people this close stop the robot
 STAY_MAX = 2.5                     # m, a greeted person farther than this counts as gone
 HOLD_S = 0.7                       # s in the zone before a greeting
+FACE_FRAMES = 3                    # faces seen on a track before Lumi decides who it is (the first ones are poor: in
+                                   # a track's first second median cosine 0.20 to the same person, the next 0.59)
+FACE_WAIT_S = 1.0                  # s after HOLD_S Lumi waits for those faces at most; then the clothes decide.
+                                   # 2026-10-21: 6 of 8 returns had 3 good faces within 1.7 s, the other two after 5 s
 LOST_S = 2.0                       # s not seen -> the person is gone (detections can miss a few frames)
 PROMPT_S = 12.0                    # s of silence before "How can I help you?"
 MAX_PROMPTS = 2
 TOO_CLOSE = 0.45                   # m, a running wave is stopped
-AUDIO_DELAY = 0.3                  # s between starting the wave and the greeting voice
 MATCH_DEG = 12.0                   # a detection belongs to the track with the closest angle within this
 OCCLUSION_DROP = 0.3               # m; while the arm moves, a sudden drop in distance is the arm in front of
                                    # the person, not the person moving: ignore it
@@ -129,7 +138,7 @@ CHANGE_WORDS = re.compile(r"\b(put|bring|take|go|place|instead|desk|table|chair|
 ELSEWHERE = re.compile(r"(으로|로)\s*(가져|갖다)|\b(to the|instead|over there)\b", re.I)   # bring it somewhere else
 GIVE_ME = re.compile(r"\b(give|hand|mine|for me|to me|i'?ll take it|i will take it|i can take it)\b|주세요|줘|내 거|"
                      r"제 거|제가 받을게|받을게", re.I)
-MOVING_ACTIONS = {"go_to", "come", "move", "turn", "arm", "pick", "put", "move_object", "fetch", "give", "place", "wave",
+MOVING_ACTIONS = {"go_to", "come", "come_back", "follow", "move", "turn", "arm", "pick", "put", "move_object", "fetch", "give", "place", "wave",
                   "lift"}
 LIFT_VEL = 20                       # speed ratio % for a lift move asked by voice (head.VEL is 40)
 LIMIT_SAY = {"yaw": (f"I can turn my head up to {head.AXIS_LIMITS[2][1]:g} degrees each way.",
@@ -149,10 +158,18 @@ COMPANY_Q = re.compile(r"\b(cutshion|barista robot|drawing robot|your (maker|mak
 VENUE_Q = re.compile(r"\b(here|conference|keynote|booths?|exhibitors?|restrooms?|toilets?|bathrooms?|venue|tickets?|"
                      r"admission|entrance fee|lunch break|who is speaking|speakers today)\b|\bthis (event|show|fair|expo|building)\b|"
                      r"여기|행사|부스|화장실|입장료|입장권|키노트|발표자|몇 ?시까지|운영 ?시간|이 건물", re.I)   # this event / building
+VENUE_ONLY = re.compile(r"\b(conference|keynote|booths?|exhibitors?|venue|who is speaking|speakers today)\b|"
+                        r"\bthis (event|show|fair|expo|building)\b|행사|부스|키노트|발표자|이 건물", re.I)   # never about elsewhere
+OUTSIDE_NAME = re.compile(r"(?<=\S )(?!I\b|Lumi\b|Cutshion\b)[A-Z][a-z]{2,}")      # a name, as typed or written by whisper
+OUTSIDE = re.compile(r"\b(?:museum|park|tower|palace|mall|store|shop|"
+                     r"restaurant|cafe|station|airport|library|zoo|hospital|bank|market|university)\b|"
+                     r"(?<![가-힣])(?!여기|거기|이곳|저기|오늘|지금|보통|주말|평일|내일)[가-힣]{2,}?(?:은|는|이|가|의)?\s+"
+                     r"(?:몇 ?시까지|운영 ?시간|입장료|입장권)", re.I)   # "루브르 몇 시까지 해?": a place elsewhere
 ABOUT_LUMI = re.compile(r"\b(you|your|yourself|lumi|battery|charging|payload|gripper|lidar)\b|너|네가|니가|넌|루미|당신|로봇|"
                         r"배터리|충전|센서|카메라|라이다|그리퍼|가반하중|팔 ?길이|무게|키가|속도|마이크", re.I)   # Korean drops "you"
 COMMAND_START = re.compile(r"^\s*(please\s+)?(go|come|take|bring|throw|put|give|pick|drive|move|turn|jump|dance|fly|"
-                           r"push|hit|kick|open|close|grab|carry|follow|show)\b", re.I)   # an order, not a question
+                           r"push|hit|kick|open|close|grab|carry|follow|show|run|scoot|spin|extend|leave|drop|hold|pass|hand|"
+                           r"sit|stand|wave|look|lift|raise|lower|climb|make|do)\b", re.I)   # an order, not a question
 EMPTY_HAND = re.compile(r"\b(give|hand|pass) (it|that|this)( (over|back|here))?( to me)?\b|\bhand (it )?over\b|"
                         r"\bcan i have (it|that|this)\b|(그거|이거|그것|그걸|이걸)\s*(이제|이리|좀|빨리)?\s*(나|저)?(한테|에게)?\s*"
                         r"(줘|주세요|건네)|"
@@ -177,14 +194,18 @@ NOT_KNOWN = {"en": ["I'm sorry, I don't have that information. A staff member ca
 def not_known(lang):
     return random.choice(NOT_KNOWN[lang])
 TALK_ASK_S = 15.0                   # s of silence while halted for someone -> "Can I go on with my task?", again -> go on
-FAREWELL_ONLY = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright|lumi|루미야?)[\s,.!]+)?(?:go on|you can go|i see|good|very good|"
-                           r"good job|great job|nice job|well done|got it,? thanks?|got it,? thank you|thanks,? got it|"
-                           r"가 ?보세요|가세요|가도 ?돼요?|잘했어요?|잘했네요?|좋아|좋네요?|수고했어요?|고생했어요?|그렇구나|"
-                           r"그렇군요|알았어,? 고마워|됐어,? 고마워요?)[\s.!~]*$", re.I)   # said alone: the talk is over
+FAREWELL_ONLY = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright|lumi|루미야?)[\s,.!]+)?(?:go on|you can go|good|very good|"
+                           r"good job|great job|nice job|well done|take care|"
+                           r"가 ?보세요|가세요|가도 ?돼요?|잘했어요?|잘했네요?|좋아|좋네요?|수고했어요?|고생했어요?|"
+                           r"됐어요?,? 고마워요?)[\s.!~]*$", re.I)   # said alone: the talk is over
+THANKS = re.compile(r"\bthank(?:s| you)\b|\bthanx\b|고마워|고맙|감사|땡큐", re.I)
+DONE_WORDS = re.compile(r"\bthat'?s (?:it|all|enough)\b|\bno,? thanks?\b|\bnothing(?: else)?\b|\benough\b|됐어|됐습니다|"
+                        r"그만", re.I)            # with thanks: "that's it, thank you", "됐어요 고마워요" end the talk
+WELCOME = {"en": ["You're welcome.", "My pleasure.", "Anytime."], "ko": ["천만에요.", "별말씀을요.", "네, 언제든지요."]}
 RECEIVE_OK = re.compile(r"\b(ok(ay)?|done|here you go|there you go|go ahead|thank|thanks|yes)\b|됐어|됐습니다|놨어|여기요|"
                         r"네|고마워|감사", re.I)     # the person has let go of what they handed over
 FETCH_THANKS = re.compile(r"\bthank|\bthanks\b|고마워|감사", re.I)
-_STATUS_P = r"^(?:(?:루미야?|너는?|넌|지금|거기서|여기서|저기요?|혹시|근데)[\s,]*)*"
+_STATUS_P = r"^(?:(?:루미야?|너는?|넌|지금|거기서|여기서|저기요?|혹시|근데|자|음|그럼)[\s,]*)*"
 STATUS_Q = re.compile(
     r"\bwhat(?:'re| are| r)? (?:exactly |else )?(?:are )?(?:you|u|ya)(?:'re| are)? (?:currently |now )?(?:doing|up to|working on|busy with)\b"
     r"(?! (?:tonight|tomorrow|later|this weekend|after|for (?:a )?(?:living|work)))|\bwhatcha doing\b|"
@@ -215,7 +236,7 @@ STATUS_Q = re.compile(
     r"(?:컵|병|사과|바나나|오렌지)(?:을|를)? ?들고 ?있(?:어|니|나요|어요)?\?|손이 ?비어|뭐 ?가져가는|그거 ?(?:누구 ?거|나 ?주는)", re.I)
 NOT_STATUS_NOW = re.compile(r"\b(tonight|after work|weekend|tomorrow|later today|for fun|in your free time)\b|주말|쉬는 날|"
                             r"저 사람|우리|내일|퇴근|나중에", re.I)    # not about what Lumi is doing now
-FAREWELL_WORDS = re.compile(r"\b(thanks?|thank you|bye|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|see ya|that'?s all|good night)\b|(?<=\S)[\s.,!]+안녕[\s.!~]*$|고마워|감사|안녕히|잘 ?가|"
+FAREWELL_WORDS = re.compile(r"\b(thanks?|thank you|bye|bay bay|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|see ya|that'?s all|good night)\b|(?<=\S)[\s.,!]+안녕[\s.!~]*$|고마워|감사|안녕히|잘 ?가|"
                             r"다음에|수고하세요|잘 ?있어|잘 ?있게|바이바이|빠이|(?<![가-힣])바이(?![가-힣])|땡큐|(?<![가-힣])간다[\s.!~]*$|i (have|need) to go|gotta go|i'?m leaving|"
                             r"nice (talking|meeting|chatting)( (to|with))? you|(was|been) nice to meet you|good night|take care|들어가세요|"
                             r"가 ?볼게요|갈게요|이만|나중에 봐요|또 봐요|좋은 하루|(^|\s)(나|저|우리|저희) (이제 )?(집에 )?(가|간다|가요|갑니다)[\s.!]*$",
@@ -224,7 +245,10 @@ HELLO_ONLY = re.compile(r"^\s*(hi|hey|hello|hiya)( there)?[\s,.!]*$|^\s*(안녕|
 CAMERA_HALF_FOV = 42.0             # deg; half the camera's view (+ the head's YAW_LIMIT for the head camera)
 WAKE_MAX_S = 6.0                   # s; longer utterances are not checked for the wake word
 BARGE_IN_LOGPROB = -0.6            # an interruption must be heard more clearly than a normal answer (-1.0)
-CLOSING_WAIT_S = 3.0               # s of silence after "okay" / "got it" before Lumi says goodbye
+BYE_WAVE = re.compile(r"\bb(?:ye|ay)[- ]?b(?:ye|ay)\b|바이 ?바이|빠이 ?빠이|잘 ?가", re.I)   # a goodbye with a wave
+CLOSING_WAIT_S = 8.0               # s of silence after "okay" / "thank you" / "네" before Lumi says goodbye
+ANSWER_ECHO_S = 10.0               # s of Lumi's speech a dialog answer is checked against for echo: only the question
+                                   # (the wake reply "Yes?" 20 s earlier swallowed the answer "Yes. Yes.", 2026-10-21)
 VOICE_SESSION_S = 15.0             # s a conversation started by voice (nobody in view) waits for the next words
 SPEAKER_MATCH_DEG = 25.0           # a voice direction belongs to the visible person within this angle
 DOA_MIN_CONF = 0.12                # below this the sound direction is not trusted
@@ -245,6 +269,9 @@ QUIET_S = 600.0                    # s Lumi greets nobody after "be quiet" (the 
 STUCK_S = 90.0                     # s without a main-loop pass -> stacks of all threads into the log
 GREETING = "Hi, I'm Lumi, the assistant robot. How can I help you?"   # same voice as every other answer
 PROMPT = {"en": "How can I help you?", "ko": "무엇을 도와드릴까요?"}
+WELCOME_BACK = {"en": "Welcome back! How can I help you?", "ko": "다시 오셨네요, 무엇을 도와드릴까요?"}
+RECENT_S = 150.0                   # s; someone known back within this while the talk was open: Lumi just listens on
+IN_VIEW_S = 0.5                    # s; a track seen this recently is someone else in view (not the one coming back)
 PATH_HALF_WIDTH = 0.4              # m to each side of the robot's centre line; on patrol only people in this
                                    # corridor are greeted (not people sitting at desks beside the aisle)
 CAMERA_STALL_S = 3.0               # s without a camera frame -> reopen the camera
@@ -256,6 +283,8 @@ PAUSE_AT_END = 3.0                 # s to wait at each patrol point
 
 
 LOG_FILE = os.path.join(ROOT, "logs", "lumi.log")
+if os.path.basename(os.path.dirname(os.path.abspath(sys.argv[0]))) == "tests":
+    LOG_FILE = os.devnull                       # a self-check (tests/*.py) never writes the real log
 
 
 def log(msg):
@@ -277,6 +306,9 @@ def safe(fn, *args, default=None):
         return default
 
 
+NOISE_WORDS = re.compile(r"\W*(?:u+m+|h?m+|uh+|ah+|oh+|boom|beep|ding|bang|pop|knock|음+|어+|아+)\W*", re.I)   # whisper for room sounds
+_doa_fit = threading.Lock()        # one sound-direction refit at a time
+
 class Track:
     _ids = itertools.count(1)
 
@@ -287,9 +319,18 @@ class Track:
         self.first_seen = self.last_seen = now
         self.zone_since = None
         self.greeted = False
+        self.look = self.face = None                   # clothes and face signatures (vision/reid.py)
+        self.faces = 0                                 # frames with a face
+        self.person = None                             # reid.Person once greeted: who this is
 
     def update(self, p, now, arm_moving=False, near_max=NEAR_MAX):
         self.angle, self.last_seen = p["angle_deg"], now
+        if p.get("look"):
+            self.look = reid.blend(self.look, p["look"])
+        self.face = reid.blend_face(self.face, p.get("face"))
+        self.faces += p.get("face") is not None
+        if self.person is not None:
+            self.person.seen(p.get("look"), p.get("face"), now)
         d = p["distance_m"]
         if not (arm_moving and self.history and d < self.distance - OCCLUSION_DROP):
             self.history.append(d)
@@ -315,6 +356,7 @@ class Vision(threading.Thread):
         self.camera = self.pick()
         self.det = camview.RemoteDetector(self.camera, HEAD_SIGN)   # the camera service owns the cameras
         self.tracks = []
+        self.people = reid.People()               # whom Lumi has greeted, in memory only
         self.lock = threading.Lock()
         self.arm_watch = False
 
@@ -390,7 +432,7 @@ class Vision(threading.Thread):
                 close = self.torso_close()
             if self.arm_watch and close:
                 log(f"person at {close[0]['distance_m']} m - STOP arm")
-                safe(arm.stop)
+                safe(motion.stop)                 # also ends the wave's waiting move at once
                 self.arm_watch = False
 
     @staticmethod
@@ -420,15 +462,27 @@ class Vision(threading.Thread):
         with self.lock:
             return track in self.tracks and track.distance <= STAY_MAX
 
+    def know(self, track):
+        """Who this track is: (known person, s since last seen) or (a new person, None). Sets track.person."""
+        now = time.time()
+        with self.lock:
+            taken = {t.person for t in self.tracks if t is not track and t.person and now - t.last_seen < IN_VIEW_S}
+            known = self.people.recall(track.look, track.face, now, taken)
+            gone = None if known is None else now - known.last_seen
+            track.person = known or self.people.add(track.look, track.face, now)
+            track.person.seen(None, None, now)
+        return track.person, gone
+
     def in_path(self, t):
         return self.corridor is None or abs(t.distance * math.sin(math.radians(t.angle))) <= self.corridor
 
     def to_greet(self):
-        """Nearest person waiting in the zone (and in the robot's path on patrol) not greeted yet."""
+        """Nearest person waiting in the zone (and in the robot's path on patrol) not greeted yet, once a few faces are
+        seen (who it is) or FACE_WAIT_S has passed."""
         now = time.time()
         with self.lock:
             ready = [t for t in self.tracks if not t.greeted and t.zone_since and now - t.zone_since >= HOLD_S
-                     and self.in_path(t)]
+                     and (t.faces >= FACE_FRAMES or now - t.zone_since >= HOLD_S + FACE_WAIT_S) and self.in_path(t)]
         return min(ready, key=lambda t: t.distance, default=None)
 
     def near_angle(self, angle, max_diff=SPEAKER_MATCH_DEG):
@@ -446,6 +500,20 @@ class Vision(threading.Thread):
         with self.lock:
             here = [t for t in self.tracks if t.greeted and t.distance <= STAY_MAX]
         return min(here, key=lambda t: t.distance, default=None)
+
+    def follow_view(self, track):
+        """(distance m, angle deg, age s) of the person being followed (tasks/follow.py), None once the track is
+        gone. The distance is the nearer of the median and the newest reading: the median lags when they stop."""
+        with self.lock:
+            if track not in self.tracks:
+                return None
+            return min(track.distance, track.history[-1]), track.angle, time.time() - track.last_seen
+
+    def follow_views(self):
+        """[(see, distance m, angle deg, age s)] of everyone in view: tasks/follow.py re-locks onto one of them."""
+        with self.lock:
+            tracks = list(self.tracks)
+        return [(lambda t=t: self.follow_view(t),) + v for t in tracks if (v := self.follow_view(t))]
 
 
 class Patrol:
@@ -615,29 +683,36 @@ class Lumi:
                 log(f"head error: {e}")
         threading.Thread(target=run, daemon=True).start()
 
-    def wave(self, wait_s=6.0):
-        """Start the wave program; if the arm is still waving for someone else, wait for it."""
-        if not self.modes.wave or self.skill_busy():     # never wave while a skill moves the arm
+    def wave(self, ok=None, quiet=False):
+        """Wave because someone asked or said "bye bye" in view (never on a greeting): manipulation/wave.py checks the
+        arm, the hand, the start pose and the whole path first; a refusal is said unless `quiet`. Not while following,
+        on a mission or a task. `ok`: (English, Korean) said once the wave is checked. True if waved."""
+        from tasks import follow
+        if not self.modes.wave:
+            log("  waving is switched off (dashboard)")
             return False
-        t = time.time()
-        while not safe(arm.ready, default=False) and time.time() - t < wait_s:
-            time.sleep(0.2)
-        if not safe(arm.ready, default=False):
-            log("arm not ready (power/enable off or busy)")
-            return False
-        if safe(arm.start, default="failed") == "failed":
-            return False
-        if self.vision:
-            self.vision.arm_watch = True
-            threading.Thread(target=self._end_arm_watch, daemon=True).start()
-        return True
-
-    def _end_arm_watch(self):
-        """Clear arm_watch when the wave program has finished."""
-        time.sleep(1.0)
-        while safe(arm.program_state, default="idle") != "idle":
-            time.sleep(0.3)
-        self.vision.arm_watch = False
+        st = self.fetch_status()
+        why = (wave_mod.HOLDING if st == "holding" else
+               wave_mod.BUSY if self.skill_busy() or self.mission_running() else
+               wave_mod.DRIVING if follow.running() else None)
+        try:
+            if why:
+                raise wave_mod.WaveError(*why)
+            if self.vision:
+                self.vision.arm_watch = True
+            wave_mod.wave(on_start=(lambda: self.fetch_say(*ok)) if ok else None)
+            return True
+        except wave_mod.WaveError as e:
+            log(f"  wave refused: {e.args[0]}")
+            if not quiet:
+                self.fetch_say(*e.args)
+        except (motion.MotionError, ConnectionError, OSError) as e:
+            log(f"  wave stopped: {e}")
+            self.fetch_say("I stopped my arm.", "팔을 멈췄어요.")
+        finally:
+            if self.vision:
+                self.vision.arm_watch = False
+        return False
 
     def act(self, action, target):
         log(f"action: {action} {target}")
@@ -647,16 +722,18 @@ class Lumi:
         if action == "look" and target == "me":
             angle = self.current.angle if self.current else self.voice_angle
             self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), 10)
-        elif action == "look" and target.split()[0:1] and target.split()[0] in LOOK:
+        elif action == "look" and target.split()[0:1] and (target.split()[0] in LOOK or target == "away"):
             self.look(target)
         elif action == "lift":
             self.lift(target)
         elif action == "wave":
             threading.Thread(target=self.wave, daemon=True).start()   # while the reply is spoken
         elif action == "stop":
+            from tasks import follow
+            safe(follow.stop)                                        # first: the base gets 0 at once
             safe(agv.cancel)
             safe(skills.cancel)
-            safe(arm.stop)
+            safe(motion.stop)                                        # also a wave's waiting move
         elif action == "go_to":
             if self.modes.drive:
                 self.start_trip(target)
@@ -664,6 +741,9 @@ class Lumi:
                 log("  driving by voice is switched off (dashboard: Come when called)")
         elif action in ("move", "turn"):
             self.move_by(action, target)
+        elif action == "come_back":
+            if self.modes.drive:
+                self.come_back()
         elif action == "arm":
             self.arm_pose(target)
         elif action in ("pick", "put", "move_object"):
@@ -699,16 +779,34 @@ class Lumi:
 
     def move_by(self, action, target):
         """'move forward 1' / 'move left 0.5' / 'turn around 180' / 'turn left 90', relative to where Lumi stands.
-        Driven as a normal base move to a map point, so obstacles are avoided. Returns False if not possible."""
+        Left / right are a normal base move to a map point, so obstacles are avoided; forward and back are a straight
+        drive of exactly that length (fetch._move). Returns False if not possible (an amount not read or past the
+        limit is never driven: driving.read has asked / refused it)."""
         if not self.modes.drive:
             log("  driving by voice is switched off (dashboard: Come when called)")
             return False
         parts = (target or "").split()
         direction = parts[0] if parts else "forward"
         try:
-            amount = float(parts[1]) if len(parts) > 1 else (1.0 if action == "move" else 90.0)
+            amount = float(parts[1]) if len(parts) > 1 else (driving.DEFAULT_M if action == "move" else 90.0)
         except ValueError:
-            amount = 1.0 if action == "move" else 90.0
+            if action == "move":
+                log(f"  move {target!r}: no distance read, not driven")
+                return False
+            amount = 90.0
+        if action == "move" and not driving.MOVE_MIN_M <= amount <= MAX_MOVE_M:
+            log(f"  move {amount:g} m: outside {driving.MOVE_MIN_M:g}..{MAX_MOVE_M:g} m, not driven")
+            return False
+        if action == "move" and direction in ("back", "forward"):   # straight with joy_control, checked like a
+            from tasks import fetch                               # mission's move: navigation may turn round and
+            log(f"  move {direction} {amount:g} m straight")      # stops within its own tolerance
+            try:
+                fetch.run_steps([{"do": "move", "dir": direction, "m": amount}], say=self.fetch_say)
+            except fetch.FetchError as e:
+                log(f"  move {direction} refused: {e}")
+                self.fetch_say(str(e), "죄송해요, 지금은 할 수 없어요.")
+                return False
+            return True
         pose = safe(agv.pose)
         if pose is None:
             return False
@@ -717,11 +815,48 @@ class Lumi:
             turn = math.radians({"left": 1, "right": -1}.get(direction, 1) * (180.0 if direction == "around" else amount))
             goal = (x, y, (th + turn + math.pi) % (2 * math.pi) - math.pi)
         else:
-            amount = max(0.1, min(MAX_MOVE_M, amount))
             side = {"forward": 0.0, "back": math.pi, "left": math.pi / 2, "right": -math.pi / 2}.get(direction, 0.0)
             goal = (x + amount * math.cos(th + side), y + amount * math.sin(th + side), th)
         log(f"  {action} {direction} {amount:g} -> map ({goal[0]:.2f}, {goal[1]:.2f}, {math.degrees(goal[2]):.0f} deg)")
-        self.start_trip(goal)
+        self.start_trip(goal, remember=False)               # a short move is no trip: "come back" stays
+        return True
+
+    def drive_words(self, text):
+        """Speed changes ("a bit faster", "너무 빨라"), "more" / "again" right after a move or a speed change, and a
+        drive asked about ("move back 20": how far?) or refused (past the limit): driving.read. Plain moves are left
+        to quick_command. A speed change is taken before a mission halts for talk: it applies to the move running
+        now. True if handled here."""
+        from tasks import fetch
+        hist = self.brain.history
+        t = brain_mod._norm(text)
+        got = driving.read(t, driving.last_command(hist), driving.talking(hist))
+        if not got or got[0] != "speed" and (self.mission_running() or got == driving.read(t, None, True)
+                                              and got[0] == "move"):
+            return False
+        lang = "en" if self.lang == "en" else "ko"
+        if got[0] == "speed":
+            old = fetch.speed_factor
+            new = safe(fetch.set_speed, old + got[1] * fetch.SPEED_STEP, default=old)
+            say = driving.say_speed(got[1], new, new != old, lang)
+            hist.append((text, f"ACTION: speed {got[1]}\n{say}"))
+        elif got[0] == "move":                              # "again" / "a few centimetres more" after a move
+            d, n = got[1].split()
+            hist.append((text, f"ACTION: move {got[1]}"))
+            log(f"  action move {got[1]} (again)")
+            if not self.modes.drive:
+                say = "Sorry, driving is switched off." if lang == "en" else "죄송해요, 지금은 이동할 수 없어요."
+            elif not self.move_by("move", got[1]):
+                return True
+            else:
+                say = driving.say_move(d, float(n), got[2], lang)
+        elif got[0] == "refuse":
+            d, n = got[1].split()
+            say = driving.say_refused(d, float(n), lang)
+        else:
+            say = driving.say_ask(got[1], lang)
+        log(f"  drive words {got}: {say}")
+        mouth.say(say)
+        self.keep_listening()
         return True
 
     def skill_busy(self):
@@ -773,7 +908,7 @@ class Lumi:
     def hear(self, wait_s):
         """One answer in a dialog: (text or None, understood)."""
         text = ears.listen(wait_s=wait_s, on_start=lambda: log("  hearing speech"))
-        if not text or self.own_echo(text):
+        if not text or self.own_echo(text, ANSWER_ECHO_S):
             return None, True
         ok = ears.understood()
         log(f"  answer: {text!r} [{ears.last_stt.get('language')}, confidence {ears.last_stt.get('logprob')}]")
@@ -813,6 +948,41 @@ class Lumi:
         self.fetch_say("Okay, I stopped.", "네, 멈췄어요.")
         self.keep_listening()
 
+    # ---------- answers by rule: what Lumi can do, its songs, its voice ----------
+    def fixed_answer(self, text, last):
+        """Answered without the LLM: what Lumi can do (assistant/abilities.py; the rest on "tell me more" / "yes"),
+        which songs it knows, and right after a song "another one" / "again" / "그거 말고" (audio/sing.py). True if
+        handled."""
+        if last.startswith("ACTION: sing") and sing.AFTER_SONG.search(text) and sing.asked(text, last):
+            self.sing_song(text)
+            return True
+        if sing.list_asked(text):
+            say, mark = sing.list_reply(self.lang), "ACTION: none songs"
+        else:
+            got = abilities.answer(text, self.lang, last)
+            if not got:
+                return False
+            say, mark = got[1], abilities.SHORT_MARK if got[0] == "short" else "ACTION: none -"
+        self.brain.history.append((text, f"{mark}\n{say}"))
+        log(f"  by rule: {say[:70]}")
+        mouth.say(say, abort=self.speak_abort)
+        self.keep_listening()
+        return True
+
+    def voice_setting(self, text, last):
+        """"Speak louder", "I can't hear you", "소리 좀 줄여", "천천히 말해", and "a bit more" / "조금 더" right after:
+        one step of the speaking volume or speed (assistant/voice_words.py), said at the new setting."""
+        got = voice_words.read(text, last)
+        if not got:
+            return False
+        kind, sign = got
+        say = voice_words.apply(kind, sign, self.lang)
+        self.brain.history.append((text, f"ACTION: voice {kind} {sign:+d}\n{say}"))
+        log(f"  voice {kind} {sign:+d} (volume {mouth.volume()} %, speed {mouth.speed():.2f}): {say}")
+        mouth.say(say)
+        self.keep_listening()
+        return True
+
     # ---------- singing (audio/sing.py) ----------
     def sing_song(self, text):
         """Sing a song for these words, the head moving with it. Blocks like speech; "stop" ends it at once, any
@@ -847,7 +1017,7 @@ class Lumi:
         if sing.stop_words(text):
             log(f"  stop singing: {text!r}")
             return True
-        if brain_mod.is_closing(text):                     # "thank you": often whisper's guess on music
+        if brain_mod.is_backchannel(text):                 # "thank you": often whisper's guess on music; "wow"
             return False
         log(f"  song interrupted: {text!r}")
         self.pending_text = text
@@ -1117,6 +1287,84 @@ class Lumi:
         self.keep_listening()
         return True
 
+    def hand_command(self, text):
+        """Take from the person's hand / hand over / put down / open while holding, in any wording
+        (brain.hand_request), and "no, the other one" right after a pick (brain.correction). True if handled."""
+        from tasks import fetch
+        if self.fetch_status() == "running":
+            return False                               # the task's own words (fetch_voice): "okay" while receiving
+        cor = brain_mod.correction(text, self.brain.history)
+        if cor:
+            if self.skill_thread is not None and self.skill_thread.is_alive():
+                safe(skills.cancel)                    # the arm may be going for the wrong one: stop it first
+            if cor[0] == "ask":
+                self.fetch_say(*cor[1])
+                self.keep_listening()
+            else:
+                self.brain.history.append((text, f"ACTION: pick {cor[1]}"))
+                self.object_task("pick", cor[1])
+            return True
+        if not (brain_mod.hand_request(text, False, self.brain, self.markers) or
+                brain_mod.hand_request(text, True, self.brain, self.markers)):
+            return False
+        held = self.fetch_status() == "holding" or bool(safe(fetch.check_hand))
+        kind, what = brain_mod.hand_request(text, held, self.brain, self.markers) or (None, None)
+        if kind is None:
+            return False
+        log(f"  hand: {kind} {what or ''} (holding {held})")
+        self.brain.history.append((text, f"ACTION: {kind} -"))
+        if kind == "receive":
+            self.receive_from_hand(what, held)
+        elif kind == "refuse":
+            self.fetch_say(*what)
+        elif not held:
+            mouth.say(EMPTY_HAND_SAY[self.lang])
+        else:
+            self.fetch_finish(kind, on=what if kind == "place" else None)
+        self.keep_listening()
+        return True
+
+    def receive_from_hand(self, name, held=False):
+        """Take `name` (or whatever it is) from the person's hand: only when the camera sees it there
+        (vision.scene.person_holds); can't tell -> ask once; then the mission receive step (hand out, waits for it
+        and "okay")."""
+        from tasks import fetch
+        ko = fetch.OBJECTS.get(name, "물건")
+        if held:
+            self.fetch_say(f"My hand is full, I'm holding {fetch.held_name()}.", "손에 이미 물건을 들고 있어요.")
+            return
+        no = name and skills.refusal(name)
+        if no:                                         # "take my laptop": my fingers can't hold it
+            self.fetch_say(*no)
+            return
+        try:
+            from vision import scene
+            sees = scene.person_holds(name)
+        except Exception as e:                         # noqa: BLE001 - no camera answer: ask
+            log(f"  person_holds: {e!r}")
+            sees = None
+        log(f"  receive {name}: the camera says {sees}")
+        if sees is False:
+            self.fetch_say(f"I don't see {('an ' if name[0] in 'aeiou' else 'a ') + name if name else 'anything'} in your hand.",
+                           f"손에 {ko}{'이' if name and (ord(ko[-1]) - 0xAC00) % 28 else '가'} 안 보여요." if name else
+                           "손에 아무것도 안 보여요.")
+            return
+        if sees is None:
+            self.fetch_say("Do you have something for me? Hold it out, please.", "저한테 주실 게 있어요? 앞으로 내밀어 주세요.")
+            answer, _ = self.hear(fetch_dialog.CONFIRM_S)
+            try:
+                sees = scene.person_holds(name)
+            except Exception:                          # noqa: BLE001
+                sees = None
+            if not (sees or answer and (brain_mod.confirm_answer(answer) == "yes" or RECEIVE_OK.search(answer))):
+                self.fetch_say("Okay.", "네.")
+                return
+        try:
+            fetch.run_steps([{"do": "receive", "object": name, "from_hand": True}], say=self.fetch_say)
+        except fetch.FetchError as e:
+            log(f"  receive refused: {e}")
+            self.fetch_say(str(e), "죄송해요, 지금은 받을 수 없어요.")
+
     def fetch_voice(self, text):
         """While a task runs or holds: stop / give / place / "thank you" while giving. True if handled."""
         status = self.fetch_status()
@@ -1158,7 +1406,16 @@ class Lumi:
         else:
             words = (target or "").lower().split()           # the LLM may write "the white cup"
             colour = next((brain_mod.COLOURS[w] for w in words if w in brain_mod.COLOURS and w != words[-1]), None)
-            name = next((brain_mod.OBJECTS[w] for w in reversed(words) if w in brain_mod.OBJECTS), "cup")
+            name = next((c for c in sorted(set(brain_mod.OBJECTS.values()), key=len, reverse=True)   # "wine glass",
+                         if " ".join(words).endswith(c)), None) or \
+                next((brain_mod.OBJECTS[w] for w in reversed(words) if w in brain_mod.OBJECTS), None)   # "hot dog"
+            if name is None:                                 # never a cup by default
+                mouth.say("Which object do you mean?" if en else "어떤 물건이요?")
+                return
+            no = skills.refusal(name)
+            if no:                                           # "pick up the bottle": why the fingers can't
+                mouth.say(no[0] if en else no[1])
+                return
             target = f"{colour} {name}" if colour else name
             if action == "pick":
                 said, done = (f"Okay, I'll pick up the {target}.", "네, 집어 볼게요."), ("I've got it.", "잡았어요.")
@@ -1259,13 +1516,33 @@ class Lumi:
             self.calib_n = 0
             self.write_calib("collecting" if self.calib_until else "stopped")
 
-    def start_trip(self, target, pause_s=0.0):
+    def start_trip(self, target, pause_s=0.0, remember=True):
         """Drive to a marker, a map point or a list of markers in order; with patrol mode on, people in the
-        way are greeted on the way."""
+        way are greeted on the way. `remember`: where Lumi stands now is where "come back" returns to."""
+        if remember:
+            from tasks import fetch
+            fetch._task["trip_from"] = safe(agv.pose) or fetch._task["trip_from"]
         if self.patrol:
             self.patrol.pause()
         self.patrol = Patrol(list(target) if isinstance(target, list) else [target], once=True, pause_s=pause_s)
         self.patrol.tick(force=True)
+
+    def come_back(self, speak=False):
+        """Back to where Lumi stood before its last trip, task or mission (fetch._task["trip_from"]); with none
+        remembered it asks where. `speak`: say so (the keyword rule; the LLM has said its own words)."""
+        from tasks import fetch
+        en = self.lang == "en"
+        pose = fetch._task["trip_from"]
+        if pose is None:
+            log("  come back: no start remembered")
+            mouth.say("Come back where?" if en else "어디로 돌아갈까요?")
+            self.keep_listening()
+            return False
+        log(f"  come back to ({pose[0]:.2f}, {pose[1]:.2f}, {math.degrees(pose[2]):.0f} deg)")
+        self.start_trip(tuple(pose), remember=False)
+        if speak:
+            mouth.say("Okay, I'm going back." if en else "네, 원래 자리로 돌아갈게요.")
+        return True
 
     def traveling(self):
         return self.patrol is not None and self.patrol.mode != "done"
@@ -1312,8 +1589,17 @@ class Lumi:
         text = (ears.transcribe(u.mono) or "").strip()
         if not text or self.own_echo(text):
             return False
+        from tasks import follow
+        if follow.running() and follow.stop_word(text):   # following: the base stops now, "stop" is answered next
+            follow.stop()
+            self.pending_text = "stop"
+            return True
         if not ears.understood(BARGE_IN_LOGPROB):        # unclear while Lumi talks = mostly Lumi's own voice
             log(f"  ignored while talking (unclear): {text!r}")
+            return False
+        if brain_mod.is_backchannel(text) and "?" not in text and not THANKS.search(text) and \
+                (brain_mod.UNDERSTOOD.search(text) or not brain_mod.is_closing(text)):
+            log(f"  back-channel while talking: {text!r} - go on")   # "uh huh", "I see", "그렇구나": listening
             return False
         if brain_mod.is_closing(text):
             log(f"  interrupted: {text!r} - stop talking, listen")
@@ -1325,9 +1611,9 @@ class Lumi:
         return False
 
     @staticmethod
-    def own_echo(text):
-        """The clip mic also hears Lumi: ignore what overlaps with what it just said."""
-        said = set(re.findall(r"\w+", mouth.recent_speech().lower()))
+    def own_echo(text, seconds=30.0):
+        """The clip mic also hears Lumi: ignore what overlaps with what it said in the last `seconds`."""
+        said = set(re.findall(r"\w+", mouth.recent_speech(seconds).lower()))
         words = re.findall(r"\w+", text.lower())
         return bool(words) and sum(w in said for w in words) / len(words) >= 0.6
 
@@ -1343,11 +1629,24 @@ class Lumi:
 
     # ---------- behaviour ----------
     def greet(self, track):
+        """A full greeting for someone new; someone known back: listen on, or a short welcome back."""
         track.greeted = True
+        who, gone = self.vision.know(track)
+        if gone is not None and gone < RECENT_S and who.talking:
+            log(f"person #{track.id} is back after {gone:.0f} s - listening on")
+            self.current = track
+            self.turn_head(HEAD_SIGN * track.angle)
+            return
+        if self.current is None:
+            self.brain.reset()
         self.current = track
+        if gone is not None:
+            log(f"WELCOME BACK person #{track.id} after {gone:.0f} s, at {track.distance} m, {track.angle:+.0f} deg")
+            self.turn_head(HEAD_SIGN * track.angle)
+            mouth.say(WELCOME_BACK[self.lang])
+            return
         log(f"GREET person #{track.id} at {track.distance} m, {track.angle:+.0f} deg")
-        self.turn_head(HEAD_SIGN * track.angle)
-        threading.Thread(target=self.wave, daemon=True).start()   # wave and talk at the same time
+        self.turn_head(HEAD_SIGN * track.angle)          # speech only: a greeting never moves the arm
         mouth.say(GREETING)                              # cached at start: plays at once
 
     def talk_turn(self):
@@ -1357,8 +1656,13 @@ class Lumi:
             self.answer(text)
             return True
         text, u = ears.listen(wait_s=4.0, on_start=lambda: log("  hearing speech"), abort=self.interrupted, full=True)
-        if text and self.own_echo(text):                   # the clip mic heard Lumi's own greeting / reply
+        if text and self.own_echo(text) and (u is None or u.source == "clip" or len(text.split()) <= 2):
+            # Lumi heard itself: the clip mic, or the room's echo of the last word on the head array (muted while Lumi
+            # talks); a longer head-array sentence is the visitor ("okay go to P9" after a list with p9, 2026-10-21)
             log(f"  ignored own voice: {text!r}")
+            text = None
+        if text and NOISE_WORDS.fullmatch(text.strip()):     # a cough, a beep, "um": not worth "say it again"
+            log(f"  ignored a sound: {text!r}")
             text = None
         if not text and self.closing_pending and time.time() - self.closing_pending > CLOSING_WAIT_S:
             log("  silence after a closing word - conversation over")
@@ -1376,6 +1680,20 @@ class Lumi:
             self.fetch_say("Can I go on with my task?", "하던 일 계속해도 될까요?")
         return True
 
+    def _doa_sample(self, mics, true_deg):
+        try:
+            c = doa.add_sample(mics, true_deg)
+            if c:
+                log(f"sound direction calibrated: {c}")
+        finally:
+            _doa_fit.release()
+
+    def say_stuck(self):
+        if self.patrol and self.patrol.stuck:
+            target, self.patrol.stuck = self.patrol.stuck, None
+            name = "my charging dock" if target == "home" else target
+            mouth.say(f"Sorry, I can't find a way to {name}. Something may be blocking the path.")
+
     def who_spoke(self, u):
         """Use the sound direction: pick the visible person who spoke; meanwhile collect calibration samples."""
         if not self.vision or u is None:
@@ -1384,9 +1702,9 @@ class Lumi:
         only = self.vision.only_person()
         if only is not None and only is self.current and only.distance <= 1.6 and u.seconds >= 0.8:
             # the only person in view is the one we talk to, close by: their angle is the truth
-            c = doa.add_sample(u.mics, only.angle - HEAD_SIGN * yaw)
-            if c:
-                log(f"sound direction calibrated: {c}")
+            if _doa_fit.acquire(blocking=False):          # the refit takes seconds (a grid over all samples): in the
+                threading.Thread(target=self._doa_sample, args=(u.mics, only.angle - HEAD_SIGN * yaw),   # background,
+                                 daemon=True).start()       # never before the answer (it held answers ~15 s, 2026-10-21)
             return
         cal = doa.load_calib()
         if not cal["fitted"]:
@@ -1413,14 +1731,40 @@ class Lumi:
     def look_up(self, text, action, target, t0=None):
         """Weather or web facts -> short spoken answer (interruptible)."""
         en = self.lang == "en"
+        if action == "search" and private_ask(text):        # never looked up, whoever it is about
+            log("  search refused: a person's private details")
+            mouth.say(PRIVATE_SAY["en" if en else "ko"])
+            return
+        found = {}                                         # fetched while "Let me check." is said (~1 s)
+        if action == "search" and web.openai_ready():      # OpenAI's web search answers, the free search if it can't
+            fetch = threading.Thread(target=lambda: found.update(said=web.openai_answer(text, self.brain.history)),
+                                     daemon=True)
+        else:
+            fetch = threading.Thread(target=lambda: found.update(
+                facts=web.weather(target) if action == "weather" else web.search(target)), daemon=True)
+        fetch.start()
         mouth.say("Let me check." if en else "확인해 볼게요.")
-        facts = web.weather(target) if action == "weather" else web.search(target)
+        fetch.join()
+        if found.get("said"):
+            said = mouth.say_stream(iter([found["said"]]), abort=self.speak_abort)
+            log(f"lumi ({time.time() - (t0 or time.time()):.1f} s, openai): {said}")
+            self.brain.history.append((text, found["said"]))
+            self.brain.last_lookup = text
+            if self.current is None:
+                self.voice_until = time.time() + VOICE_SESSION_S
+            return
+        if "said" in found:
+            found["facts"] = web.search(target)
+        facts = found.get("facts")
         log(f"  {action} {target!r}: {(facts or 'NO INTERNET')[:120]}")
         if facts is None:
             mouth.say("Sorry, I'm not connected to the internet right now, so I can't look that up."
                       if en else "죄송해요, 지금은 인터넷에 연결되어 있지 않아서 찾아볼 수 없어요.")
         else:
-            said = mouth.say_stream(self.brain.respond_from(text, facts), abort=self.speak_abort)
+            asked = text
+            if action == "weather":                        # misheard words ("원하는 날씨가 어때요?") made the LLM say it
+                asked = f"{text} (the weather)"            # found nothing although the weather was there
+            said = mouth.say_stream(self.brain.respond_from(asked, facts), abort=self.speak_abort)
             log(f"lumi ({time.time() - (t0 or time.time()):.1f} s): {said}")
         if self.current is None:
             self.voice_until = time.time() + VOICE_SESSION_S
@@ -1434,6 +1778,8 @@ class Lumi:
         """Say a goodbye that fits the conversation, forget it, and drive on if Lumi was on the way."""
         bye = self.brain.farewell(text, self.lang)
         log(f"  goodbye: {bye}")
+        if text and BYE_WAVE.search(text) and self.current is not None and self.vision and self.vision.present(self.current):
+            threading.Thread(target=self.wave, kwargs={"quiet": True}, daemon=True).start()   # only if safe: else no arm
         mouth.say(bye, abort=self.speak_abort)
         self.current, self.voice_until, self.closing_pending = None, 0.0, None
         self.brain.reset()
@@ -1462,8 +1808,8 @@ class Lumi:
             self.fetch_say("Sorry, I'm on a task right now. I can help you when I've finished.",
                            "죄송해요, 지금 다른 일을 하고 있어요. 끝나면 도와드릴게요.")
             return True
-        if not rule or rule[0] not in ("go_to", "come", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put",
-                                       "move_object", "fetch", "look", "lift", "wave"):
+        if not rule or rule[0] not in ("go_to", "come", "follow", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put",
+                                       "move_object", "fetch", "look", "lift", "wave", "come_back"):
             return False
         action, target = rule
         en = self.lang == "en"
@@ -1484,9 +1830,8 @@ class Lumi:
         if action in ("pick", "put", "move_object"):
             self.object_task(action, target)
             return True
-        if action == "wave":
-            mouth.say("Okay!" if en else "네!")
-            threading.Thread(target=self.wave, daemon=True).start()
+        if action == "wave":                                   # a refusal is said by wave()
+            threading.Thread(target=self.wave, args=(("Okay!", "네!"),), daemon=True).start()
             return True
         if action == "look":
             limited = self.act("look", "me") if target == "me" else self.look(target)
@@ -1502,9 +1847,15 @@ class Lumi:
         if not self.modes.drive:
             mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
             return True
+        if action == "come_back":
+            self.come_back(speak=True)
+            return True
         if action == "come":
             mouth.say("Okay, I'm coming." if en else "네, 갈게요.")
             self.come_to(self.current)
+            return True
+        if action == "follow":
+            self.follow_me()
             return True
         if action in ("move", "turn"):
             d, n = (target.split() + ["", ""])[:2]
@@ -1512,9 +1863,8 @@ class Lumi:
                 say_en = "Okay, turning around." if d == "around" else f"Okay, turning {d}."
                 say_ko = "네, 뒤로 돌게요." if d == "around" else ("네, 왼쪽으로 돌게요." if d == "left" else "네, 오른쪽으로 돌게요.")
             else:
-                say_en = f"Okay, moving {d} {n} metre{'s' if n not in ('1', '0.5') else ''}." if d != "back" \
-                    else f"Okay, moving back {n} metre{'s' if n not in ('1', '0.5') else ''}."
-                say_ko = {"forward": "앞으로", "back": "뒤로", "left": "왼쪽으로", "right": "오른쪽으로"}.get(d, "") + f" {n}미터 갈게요."
+                exact = driving.amount(brain_mod._norm(text))[1]   # "about 5 centimetres" for "a tiny bit"
+                say_en, say_ko = (driving.say_move(d, float(n), exact, lang) for lang in ("en", "ko"))
             if self.move_by(action, target):
                 mouth.say(say_en if en else say_ko)
             return True
@@ -1544,7 +1894,14 @@ class Lumi:
             f"[{ears.last_stt.get('language')}, confidence {ears.last_stt.get('logprob')}]")
         t = time.time()
         self.closing_pending = None
-        if not ears.understood():                          # garbled or another language: ask, do not guess
+        if self.follow_stop(text):                         # before anything else, also when heard unclearly
+            return
+        last = self.brain.history[-1][1] if self.brain.history else ""
+        if not ears.understood() and ears.heard_clearly() and own_command(text, last):
+            self.lang = mouth.lang_of(text)                # "Can you sing song?" tagged Korean: the words decide
+            brain_mod.FORCED_LANG["lang"] = self.lang
+            log(f"  heard as {self.lang} (whisper said {ears.last_stt.get('language')})")
+        elif not ears.understood():                        # garbled or another language: ask, do not guess
             log("  not understood - asking again")
             mouth.say("Sorry, I didn't catch that. Could you say it again?" if self.lang == "en"
                       else "죄송해요, 잘 못 들었어요. 다시 말씀해 주시겠어요?")
@@ -1553,6 +1910,12 @@ class Lumi:
         if FOREIGN_SCRIPT.search(text):                    # Cyrillic, Chinese, Japanese: not acted on
             mouth.say("Sorry, I only understand English and Korean." if self.lang == "en" else "죄송해요, 영어와 한국어만 이해해요.")
             self.keep_listening()
+            return
+        if self.voice_setting(text, last):                 # "speak louder", "천천히 말해", then "조금 더": before drive "again"
+            return
+        if self.fixed_answer(text, last):                  # "what can you do?" then "yes", the songs, after a song "again"
+            return
+        if self.drive_words(text):                         # "a bit faster" (also on the move running now), "again"
             return
         if self.mission_running() and self.mission_talk(text):   # on a mission: halt for them, refuse other tasks
             return
@@ -1563,11 +1926,20 @@ class Lumi:
         if stop_order(text, self.markers):
             self.stop_all()                                # "stop", "stop, where are you going?": stop first, always
             return
+        seen = seeing.answer(text, self.lang, slow_line=mouth.say)   # "do you see a cup?", "what am I holding?"
+        if seen:
+            log(f"  seeing: {seen}")
+            self.brain.history.append((text, f"ACTION: none -\n{seen}"))   # "and you?" / "why?" next has the turn
+            mouth.say(seen)
+            self.keep_listening()
+            return
         if status_question(text):                         # what am I doing / where am I going
             en, ko = self.now_doing()
             log(f"  status: {en}")
             mouth.say(en if self.lang == "en" else ko)
             self.keep_listening()
+            return
+        if self.hand_command(text):                        # "take this from me", "give it to her", "put it there"
             return
         if self.mission_request(text):                     # several steps: before give / place while holding
             return
@@ -1581,18 +1953,21 @@ class Lumi:
             mouth.say(EMPTY_HAND_SAY[self.lang])
             self.keep_listening()
             return
-        if says_goodbye(text):
-            self.end_conversation(text)                    # "thank you for your time", "수고하세요": done
+        fate = talk_fate(text)
+        if fate == "end":
+            self.end_conversation(text)                    # "okay, bye", "thanks, that's all", "수고하세요": done
             return
-        if brain_mod.is_closing(text):
-            if FAREWELL_WORDS.search(text):                # "thanks", "bye", "see you": say goodbye, end the talk
-                self.end_conversation(text)
-            else:                                          # "okay", "got it": wait; silence after it ends the talk
+        if fate == "wait":                                 # "okay", "thank you", "네" alone: maybe done, maybe not
+            if mouth.recent_speech().rstrip().endswith("?"):   # "Yes?" / "say it again?" -> "okay": a reply, go on
+                log("  a short yes to my question - listening")
+            else:                                          # after an answer: taken as heard; silence then ends
+                if THANKS.search(text):
+                    mouth.say(random.choice(WELCOME[self.lang]), abort=self.speak_abort)
                 log("  closing word - waiting a moment")
                 self.closing_pending = time.time()
-                self.keep_listening()
+            self.keep_listening()
             return
-        if sing.asked(text):                               # "sing a song", "노래 불러 줘", "sing another song"
+        if sing.asked(text, last):                         # "sing a song", "노래 불러 줘", after a song "another one"
             self.sing_song(text)
             return
         if self.quick_command(text):
@@ -1602,13 +1977,17 @@ class Lumi:
             self.look_up(text, "search", self.brain.search_query(text), t)
             return
         about, repeating = self.brain.topic(text), self.brain.again(text)
-        gen = self.brain.respond_stream(text, self.markers, now=self.now_doing()[0])
+        gen = self.brain.respond_stream(text, self.markers, now=self.now_doing()[0] + seeing.facts_for(text))
         head_ = next(gen)
         log(f"  action {head_['action']} {head_['target']} ({time.time() - t:.1f} s)")
         if head_["action"] == "come":
             gen.close()
             mouth.say("Okay, I'm coming." if self.lang == "en" else "네, 갈게요.")
             self.come_to(self.current)
+            return
+        if head_["action"] == "follow":
+            gen.close()
+            self.follow_me()
             return
         if head_["action"] == "search" and not_online(about):
             gen.close()                                    # about Cutshion or this place: the notes say it or nobody does
@@ -1632,24 +2011,30 @@ class Lumi:
             self.current, self.voice_until = None, 0.0
             self.turn_head(0, 0)
             return
+        if head_["action"] in ("receive", "give", "place"):  # the model read a hand request the rules missed
+            gen.close()
+            from tasks import fetch
+            held = self.fetch_status() == "holding" or bool(safe(fetch.check_hand))
+            self.brain.history.append((text, f"ACTION: {head_['action']} -"))
+            if head_["action"] == "receive":
+                self.receive_from_hand(brain_mod._mentions(text, self.markers).get("object"), held)
+            elif not held:
+                mouth.say(EMPTY_HAND_SAY[self.lang])
+            else:
+                self.fetch_finish(head_["action"], on=brain_mod.place_on(text) if head_["action"] == "place" else None)
+            self.keep_listening()
+            return
         if head_["action"] not in ("none", "end"):
             self.act(head_["action"], head_["target"])
-        unlogged = [True]                                  # not "first": that name is the first sentence below
-
-        def timed():
-            for sentence in gen:
-                if unlogged[0]:
-                    log(f"  first sentence after {time.time() - t:.1f} s")
-                    unlogged[0] = False
-                yield sentence
         first = next(gen, None)
+        log(f"  first sentence after {time.time() - t:.1f} s")
         if head_["action"] in ("none", "sing") and not repeating and look_up_unsure(about, first, text):
             gen.close()                                    # the model does not know: look it up instead
             log(f"  not sure ({first[:60]!r}) - looking it up")
             self.look_up(text, "search", self.brain.search_terms(text), t)
             return
-        said = mouth.say_stream(itertools.chain([first] if first else [], timed()), abort=self.speak_abort)
-        log(f"lumi ({time.time() - t:.1f} s): {said}")
+        said = mouth.say_stream(itertools.chain([first] if first else [], gen), abort=self.speak_abort)
+        log(f"lumi ({time.time() - t:.1f} s, voice after {mouth.last_voice - t:.1f} s): {said}")
         if head_["action"] in ("end", "go_to"):
             self.current, self.voice_until = None, 0.0     # stay quiet with this person until a new visit
         elif self.current is None:
@@ -1796,6 +2181,47 @@ class Lumi:
             self.turn_head(HEAD_SIGN * track.angle)
         self.last_activity = time.time()
 
+    # ---------- follow me (tasks/follow.py) ----------
+    def follow_me(self):
+        """Lock onto the person who said "follow me" (the track talking, else the one where the voice came from)
+        and follow them in the background until a stop word, they are lost, or something is in the way."""
+        from tasks import follow
+        en = self.lang == "en"
+        if not self.modes.drive:
+            mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
+            return
+        if self.skill_busy():
+            self.fetch_say("Sorry, I'm on a task right now.", "죄송해요, 지금 다른 일을 하고 있어요.")
+            return
+        track = self.current if self.current is not None and self.vision and self.vision.present(self.current) else None
+        if track is None and self.vision:
+            track = self.find_caller(self.voice_angle, self.voice_trusted)
+        if track is None:
+            mouth.say("I can't see you. Could you step in front of me?" if en else "보이지 않아요. 제 앞으로 와 주시겠어요?")
+            self.keep_listening()
+            return
+        why = follow.ready()                               # the arm off, on the charger: said, not started
+        if why:
+            log(f"FOLLOW refused: {why[0]}")
+            self.fetch_say(*why)
+            return
+        self.current, track.greeted = track, True
+        log(f"FOLLOW person #{track.id} at {track.distance:.2f} m {track.angle:+.0f} deg")
+        mouth.say("Okay, I'll follow you. Say stop when you want me to stay." if en
+                  else "네, 따라갈게요. 멈추려면 멈춰라고 하세요.")
+        follow.start(lambda: self.vision.follow_view(track), say=self.fetch_say, people=self.vision.follow_views)
+        self.keep_listening()
+
+    def follow_stop(self, text):
+        """While following: a stop word ("stop", "wait", "that's enough", "거기 있어") stops everything. True if so."""
+        from tasks import follow
+        if not (follow.running() and follow.stop_word(text)):
+            return False
+        log(f"  follow: stop word {text!r}")
+        follow.stop()
+        self.stop_all()
+        return True
+
     def run_camera(self):
         self.last_activity, self.prompts = time.time(), 0
         self.alive = time.time()
@@ -1826,7 +2252,11 @@ class Lumi:
         if self.calib_until:
             self.calib_until = 0.0
             self.write_calib("finished")
-        greet_now = (self.modes.patrol if moving else self.modes.greeter) and time.time() > self.quiet_until
+        from tasks import follow
+        following = follow.running()                       # no greetings (the head would turn away), keep listening
+        greet_now = (self.modes.patrol if moving else self.modes.greeter) and time.time() > self.quiet_until \
+            and not following
+        self.note_talk()
         candidate = self.vision.to_greet() if greet_now else None
         focus = self.current or candidate
         self.vision.det.focus_angle = focus.angle if focus else None    # drawn red in the dashboard
@@ -1834,8 +2264,6 @@ class Lumi:
         if new:                                            # a new visitor (first or second person)
             if self.patrol:
                 self.patrol.pause()
-            if self.current is None:
-                self.brain.reset()
             self.greet(new)
             self.last_activity, self.prompts = time.time(), 0
             return
@@ -1854,6 +2282,11 @@ class Lumi:
             return
 
         if self.current is None:
+            if self.patrol and self.patrol.moving:         # a trip runs while talking or holding: still notice it is
+                self.patrol.tick()                         # stuck or there (a stale "holding" hid a stuck trip, 2026-10-21)
+                self.say_stuck()
+            if following:
+                self.voice_until = max(self.voice_until, time.time() + VOICE_SESSION_S)
             if self.fetch_status() in ("running", "holding"):   # keep listening for stop / give / place / thanks
                 self.voice_until = max(self.voice_until, time.time() + VOICE_SESSION_S)
                 self.mission_wait()
@@ -1868,10 +2301,7 @@ class Lumi:
                 return
             if self.patrol:
                 self.patrol.tick()
-                if self.patrol and self.patrol.stuck:
-                    target, self.patrol.stuck = self.patrol.stuck, None
-                    name = "my charging dock" if target == "home" else target
-                    mouth.say(f"Sorry, I can't find a way to {name}. Something may be blocking the path.")
+                self.say_stuck()
             time.sleep(0.05)
             return
 
@@ -1886,6 +2316,18 @@ class Lumi:
             log(f"silent for {PROMPT_S:.0f} s - prompt")
             mouth.say(PROMPT[self.lang], abort=self.interrupted)
             self.last_activity, self.prompts = time.time(), self.prompts + 1
+
+    def note_talk(self):
+        """Remember whom Lumi talks with and how the talk ended: with them in view (a goodbye: closed) or after they
+        left (open: back within RECENT_S, Lumi listens on without a word)."""
+        if self.current is not None:
+            if self.current.person is None:
+                self.vision.know(self.current)
+            self.talked_with = self.current.person
+            self.talked_with.talking = True
+        elif getattr(self, "talked_with", None) and time.time() >= self.voice_until:
+            self.talked_with.talking = time.time() - self.talked_with.last_seen > LOST_S
+            self.talked_with = None
 
     def watchdog(self):
         """If the main loop is stuck for STUCK_S, write every thread's stack to the log (to find the cause)."""
@@ -1907,8 +2349,6 @@ class Lumi:
             input("\nPress Enter to start a conversation (Ctrl+C to quit)...")
             self.brain.reset()
             self.current = None
-            if self.wave():
-                time.sleep(AUDIO_DELAY)
             mouth.say(GREETING)
             silent = 0
             while silent < 2:
@@ -1922,6 +2362,7 @@ class Lumi:
     def run(self):
         log("loading speech models...")
         threading.Thread(target=brain_mod.warm_up, daemon=True).start()
+        threading.Thread(target=seeing.warm_up, daemon=True).start()
         web.keep_weather_fresh()
         ears.ensure_stt_server()
         mouth.warm_up()
@@ -1936,8 +2377,14 @@ class Lumi:
 
 def stop_order(text, markers):
     """"stop", "freeze", "멈춰": stop everything at once. Not "stop talking" and not a question about the stop button."""
-    return bool(FETCH_STOP.search(text)) and (brain_mod.intent(text, markers) or ("",))[0] != "quiet" and \
+    return bool(FETCH_STOP.search(text)) and (brain_mod.intent(text, markers) or ("",))[0] not in ("quiet", "look") and \
         not brain_mod.STOP_TALK.search(text) and "?" not in text
+
+
+def own_command(text, last=""):
+    """One of the fixed commands answered by rule (a song, the songs, the voice, what Lumi can do): taken also when
+    whisper tagged the sentence with the other language."""
+    return bool(sing.asked(text, last) or sing.list_asked(text) or voice_words.read(text, last) or abilities.answer(text, "en", last))
 
 
 def status_question(text):
@@ -1946,9 +2393,24 @@ def status_question(text):
 
 
 def says_goodbye(text):
-    """"thank you for your time", "okay, bye", "수고하세요": the talk is over (not "thanks, but where is...?")."""
+    """"thank you for your time", "okay, bye", "수고하세요": the talk is over (not "thanks, but where is...?").
+    "thank you", "got it, thanks", "네 감사합니다" alone are not: often only "heard you" (talk_fate waits)."""
+    if brain_mod.is_closing(text) and not DONE_WORDS.search(text) and not FAREWELL_WORDS.search(THANKS.sub(" ", text)):
+        return False
     return bool(FAREWELL_ONLY.match(text) or FAREWELL_WORDS.search(text) and not ASKS_MORE.search(text)
-                and len(text.split()) <= 8)
+                and len(text.split()) <= 8 and not brain_mod.intent(text) and not brain_mod.hand_request(text, False)
+                and not COMMAND_START.search(brain_mod.CALLING.sub("", text)))   # "grab the cup, thanks": an order
+
+
+def talk_fate(text):
+    """What short words do to the talk: "end" (a real closing: "okay, bye", "that's it, thank you", "안녕히 계세요"),
+    "wait" ("okay", "thank you", "네", "감사합니다" alone: ends only after CLOSING_WAIT_S of silence) or "talk"
+    (anything else; "I see", "got it", "그렇구나", "알겠어요" are understanding, "I see?", "그래요?" a check: answered)."""
+    if says_goodbye(text):
+        return "end"
+    if brain_mod.is_closing(text) and (THANKS.search(text) or not brain_mod.UNDERSTOOD.search(text)):
+        return "wait"
+    return "talk"
 
 
 def read_mission(text, markers):
@@ -1956,6 +2418,9 @@ def read_mission(text, markers):
     A single move / turn / arm / go, or words that are only partly a plain command, stay with the other paths."""
     from assistant import steps
     got, unread, by = steps.read(text, markers, llm=False)
+    rule = brain_mod.intent(text, markers) or ("", "")
+    if unread and rule[0] == "look" and rule[1].endswith(f" {brain_mod.HEAD_YAW[1]:g}"):
+        return None                                # "turn around and look": the head looks behind (brain.BEHIND_WORDS)
     if got and all(s["do"] == "say" for s in got):
         return None                                # "say hello in Korean", "say again?": talk, not a task
     if unread and got and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
@@ -1964,14 +2429,28 @@ def read_mission(text, markers):
         return None                                # "go to p1 and wait": the old paths (rules, the LLM) answer it
     if not got:
         return None
-    if not unread and (not steps.is_mission(got) or (len(got) == 1 and got[0]["do"] in ("move", "turn", "arm"))):
-        return None
+    plain = not steps.is_mission(got) and (len(got) == 1 or (brain_mod.intent(text, markers) or ("",))[0] == "fetch")
+    if not unread and (plain or (len(got) == 1 and got[0]["do"] in ("move", "turn", "arm"))):   # "take the cup and put
+        return None                                                     # it on the chair": two steps, not a pick
     return got, unread, by
 
 
 def not_online(text):
     """Questions about Cutshion or this event / building: the notes say it or nobody does, never the internet."""
-    return bool(COMPANY_Q.search(text) or VENUE_Q.search(text))
+    return bool(COMPANY_Q.search(text) or VENUE_ONLY.search(text) or VENUE_Q.search(text) and not (OUTSIDE.search(text) or
+                                                                                            OUTSIDE_NAME.search(text)))
+
+
+PRIVATE_ASK = re.compile(r"\bhome address|\bwhere (does|do|did) (my|our|his|her|their|this|that) .{0,40}\blives?\b|"
+                         r"\b(phone|mobile|cell) number of (?!the |a )|\b(email|e-mail) (address )?of (my|our|his|her)\b|"
+                         r"(집|자택) ?주소|(옆집|이웃|동료|친구|선생님|사람).{0,8}(전화번호|연락처|주소|어디 살)", re.I)
+PRIVATE_SAY = {"en": "Sorry, I can't look up a person's private details.",
+               "ko": "죄송해요, 개인 정보는 찾아 드릴 수 없어요."}
+
+
+def private_ask(text):
+    """A request for someone's home address, phone number or where they live: declined before any lookup."""
+    return bool(PRIVATE_ASK.search(text or ""))
 
 
 def look_up_unsure(about, first, text=None):

@@ -1,0 +1,34 @@
+# Runtime data measured or recorded on this robot (stays on the Thor)
+data/camera_extrinsics*.json
+data/calib_samples*/
+data/doa_*
+data/volume.txt
+data/speech_speed.txt
+
+# The owner's licensed songs and everything made from them: never commit
+data/songs/mine/
+# Rendered by audio/sing_render.py from data/songs/*.json
+data/songs/*.wav
+
+# Company passwords and addresses
+docs/private/
+
+# Logs, models, builds, environments
+logs/
+Log/
+models/
+whisper.cpp/
+.venv
+.venv-songs
+.venv-cover
+.env
+
+# Rebuilt by assistant/knowledge.py build
+knowledge/index.npz
+
+__pycache__/
+*.pyc
+
+# test frames with people in them: local only, never in git
+tests/data/scene_carrying_jacket_*
+tests/data/scene_white_shirt_*

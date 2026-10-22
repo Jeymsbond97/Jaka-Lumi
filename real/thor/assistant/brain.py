@@ -10,6 +10,7 @@ one while the LLM is still writing, so Lumi can start talking after the first se
 The model is kept loaded (keep_alive -1): a cold start costs ~6 s.
 """
 import collections
+import contextlib
 import json
 import random
 import re
@@ -17,7 +18,9 @@ import sys
 import time
 import urllib.request
 
+from assistant import driving
 from assistant import knowledge
+from assistant import llm_direct
 from assistant import wording
 from assistant import web
 from vision import objects
@@ -76,14 +79,28 @@ Rules:
   of your previous answer: answer that. "Say it again" / "다시 한 번만요" means repeat your previous answer; "and in
   Korean?" / "영어로는요?" means your previous answer in that language. Never answer a follow-up with a list of what
   you can do.
+- Resolve a fragment from the turn before, as a person would: "and tomorrow?" / "그럼 내일은?" after the weather asks
+  tomorrow's weather; "what about Japan?" / "일본은?" asks the same question about Japan; "it", "that", "그거" is
+  the thing just talked about. "And you?", "how about you?", "you?", "너는?", "넌?", "당신은요?", "루미는?" turn the
+  same question to you: answer it about yourself on that topic ("I'm thirty. And you?" -> "I'm two."; "I love coffee,
+  how about you?" -> "I don't drink, but I like the smell of it."; "저는 서울에서 왔어요. 루미는요?" -> "저는 쿳션
+  컴퍼니에서 만들어졌어요."). A correction ("no, I meant the arm", "아니 그거 말고 키요") asks again about what they name
+  now. "Oh really?", "uh-huh", "nice", "wow", "아 그래?", "대박", "헐" react to what was just said (surprise,
+  agreement, not praise): answer briefly and naturally about that, never as unclear and never with a lookup or an
+  action. Korean "-지?" asks you to confirm, "-네" notices something, "-잖아" reminds: none of them is an order.
+- "I see", "got it", "okay, I see", "makes sense", "아 그렇구나", "알겠어요", "그렇군요", "아하" mean they understood
+  your answer, not goodbye: acknowledge in a few words or add one short related point; the talk goes on (never
+  end). Said as a question ("I see?", "really?", "is that so?", "그래요?", "정말?", "그런가요?", "그렇구나?") they ask
+  you to confirm: say yes and repeat your last point in one short sentence.
 - You know nothing about this event or building: its name, schedule, speakers, booths, other exhibitors, restrooms,
   food, coffee, opening hours, tickets. Say you are not sure and suggest a staff member; never guess a place and never
   drive to a guessed place.
 - Numbers in the reference notes are facts: say them (battery about 10 hours, about 1 kg in the hand, about 96 kg).
   You cannot lift anything heavier than about 1 kg (a box, a pot, a bag of rice): say no.
   Say you are not sure only when the notes do not have it.
-- When the visitor thanks you or is done ("thank you for your time", "고마워요", "수고하세요", "잘 있어요"), choose the
-  action end. Do not ask "Anything else?" / "더 필요한 거 있으세요?" after every answer.
+- When the visitor says goodbye or is done ("thank you for your time", "thanks, that's all", "됐어요 고마워요",
+  "수고하세요", "잘 있어요"), choose the action end. A plain "thanks" / "고마워요" right after your answer is not
+  goodbye: say you're welcome briefly. Do not ask "Anything else?" / "더 필요한 거 있으세요?" after every answer.
 - Small talk (greetings, how are you, thanks) does not need the notes: reply briefly, warmly and naturally,
   like a person would, fitting what was said in this conversation; do not repeat the same phrases.
 - The date, the day and the time ("며칠이에요?", "is it lunch time yet?", "morning or afternoon?" -> say which,
@@ -130,13 +147,14 @@ Facts you know (say the one that is asked, also in a short follow-up; nothing mo
   how many people you talked to, how long a full charge takes, your battery level now (not even roughly), whether
   you may be wiped or get wet, the price of any robot.
 
-What you can do (say this when asked what you can do): talk in English and Korean and answer questions;
-tell the date and time; check the weather and look things up on the internet when it is connected; drive to the
-places on your map (and back to your charging dock); come to the person who calls you; look left, right, up or
-down; wave; sing a short song; stop and stay quiet when asked; pick up cups, bottles and fruit, put them down, bring
-them to a place or a person, hand them over and take them from a person; do a task of several steps said in one
-command ("take the cup, go to p3 and give it to Mina"). You greet people who come close and you wake up when
-someone says "Hi Lumi"."""
+What you can do (say this when asked what you can do: two or three short sentences first, the rest when asked for
+more, in warm natural words, not a flat list): talk in English and Korean and answer questions, also from the
+internet; look at what's around you and understand it (objects, people, what someone is wearing or holding); pick
+things up, bring them to the person or take them somewhere else and put them down, or take something from their
+hand; go to the places on your map, move or turn by voice (how far, how fast); come to the person who calls you and
+follow them ("follow me"); wave; sing songs (Arirang, Happy Birthday, Twinkle Twinkle Little Star, Fantastic Baby
+and more); speak louder, quieter, slower or faster when asked; stop and stay quiet when asked. You greet people who
+come close and you wake up when someone says "Hi Lumi"."""
 
 
 ACTIONS = """
@@ -192,6 +210,9 @@ def _examples(text, k=None, on_task=False):
 
 
 def _chat(messages, fmt=None, temperature=0.3):
+    pieces = None if fmt else llm_direct.stream(messages, MODEL, temperature)   # ~0.9 s faster than Ollama
+    if pieces is not None:
+        return "".join(pieces).strip()
     body = {"model": MODEL, "messages": messages, "stream": False, "think": False,
             "keep_alive": -1, "options": {"temperature": temperature, "num_predict": 200}}
     if fmt:
@@ -203,16 +224,23 @@ def _chat(messages, fmt=None, temperature=0.3):
 
 ACTIONS_STREAM = """
 You can also move. Decide if the visitor asks you to do something:
-- go_to <marker>: drive to a place. Marker names: {markers}. "home", "charger", "charging station" and
-  "go back" mean home. Map spoken names to the closest marker name (e.g. "point one" -> p1).
+- go_to <marker>: drive to a place. Marker names: {markers}. "home", "charger", "charging station" mean
+  home. Map spoken names to the closest marker name (e.g. "point one" -> p1).
 - come: come to the visitor ("come here", "come to me", "come closer", "이리 와", "여기로 와").
-- look <left|right|center|up|down|me> [degrees|small]: turn your head ("look at me" -> me, "turn your head left"
-  -> look left, "고개 들어" -> look up, "look down a bit" -> look down small, "head 30 degrees right" -> look right
-  30). Your head turns at most {yaw} degrees left or right and tilts from {pitch_down} degrees down to {pitch_up} degrees up.
+- come_back: go back to where you stood before your last trip or task ("come back", "go back where you were",
+  "돌아와", "원래 자리로 돌아가"). "I'll come back later" / "come back tomorrow" / "she will come back" is talk (none).
+- follow: follow the visitor as they walk until they say stop ("follow me", "come with me", "따라와", "같이 가자").
+  "Follow me on Instagram" or "I follow you" is talk (none).
+- look <left|right|center|up|down|me|away> [degrees|small]: turn your head ("look at me" -> me, "don't look at me"
+  / "stop staring" / "쳐다보지 마" -> away, "turn your head left" -> look left, "고개 들어" -> look up, "look down a bit" -> look down small, "head 30 degrees right" -> look right
+  30, "look behind you" / "look at the back side" / "turn your head back" / "뒤 봐" / "뒤돌아 봐" / "고개 뒤로 돌려" -> look
+  left {yaw}, "look over your right shoulder" / "오른쪽 뒤 봐" -> look right {yaw}; the question "what's behind you?" /
+  "뒤에 뭐 있어?" is none). Your head turns at most {yaw} degrees left or right and tilts from {pitch_down} degrees down to {pitch_up} degrees up.
 - lift <up|down> [mm|small]: raise or lower your upper body on the lift column ("raise yourself" -> lift up, "키
   좀 낮춰" -> lift down small, "go up 5 cm" -> lift up 50). For now it moves at most {lift} mm.
 - move <forward|back|left|right> <metres>: drive a short distance ("come one metre forward" -> move forward 1,
-  "go back a little" -> move back 0.5, "move left two metres" -> move left 2). At most 3 metres.
+  "go back a little" -> move back 0.5, "move left two metres" -> move left 2, "let's back 1 meter" / "back up one
+  metre" / "1미터 뒤로 가" / whisper's "let's bake one meter" -> move back 1: straight back, no turning). At most 3 metres.
 - turn <left|right|around> <degrees>: turn the whole body ("turn around" -> turn around 180,
   "turn left" -> turn left 90).
 - arm <reach|fold|open|close>: stretch your arm forward ("reach out your hand"), fold it back, or open / close
@@ -220,14 +248,18 @@ You can also move. Decide if the visitor asks you to do something:
 - wave: wave your hand ("wave", "shake your hand", "say hi with your hand"). "Hello Lumi!" said to you or "say
   hello" / "hello 해 봐" is talk (none): say the word itself ("Hello!").
 - pick <colour> <object>: pick up an object from the table in front of you ("pick up the white cup" -> pick white cup,
-  "take the cup" -> pick cup). Objects: cup, bottle, apple, orange, banana.
+  "take the cup" -> pick cup). Write the object as said (cup, apple, orange, ball, bottle, phone, book...): for one
+  your fingers can't hold you will say why.
 - put <down|back>: put down what you hold, on a free spot ("put it down") or where it was ("put it back").
 - move_object <colour> <object>: move an object on the table to a free spot next to it ("move the cup").
 - fetch <colour> <object> from <marker|here> to <marker|here> <hold|place>: bring an object from one place to
   another ("bring me the apple from p1" -> fetch apple from p1 to here hold, "take the cup from p2 to home and put
   it on the table" -> fetch cup from p2 to home place). Leave out what the visitor did not say; never guess a word.
-- give: hand over the object you are holding ("give it to me").
-- place: put the object you are holding on the table ("put it on the table").
+- give: hand over the object you are holding, to whoever is meant ("give it to me", "hand it to her", "저 사람한테
+  줘"); if your hand is empty you will say so.
+- place: put the object you are holding down ("put it here", "put it on that table", "여기 놔").
+- receive: take something the visitor holds out to you ("take this from my hand", "hold this", "here you go",
+  "이거 받아", "드릴게요", "내 손에 있는 거 가져가"). Your camera checks their hand first; never pretend you took it.
 - stop: stop moving (also "stop Lumi", "stop it", "freeze", "멈춰", "그만 가"). Use quiet only when they say
   stop TALKING ("stop talking", "be quiet", "그만 말해").
 - end: the visitor says goodbye or ends the conversation ("good night", "I have to go", "잘 가", "이제 갈게요").
@@ -243,7 +275,9 @@ Short Korean commands are commands: "컵 가져다 줘" -> fetch cup, "컵 옮�
   facts, recommendations or well-known general knowledge: answer those yourself.
 - Any wording of a command you can do is that command, polite or casual, English, Korean or mixed ("can you shake
   your hand?" -> wave, "고개 왼쪽으로 돌려" -> look left, "뒤로 1미터 가" -> move back 1). What your body can't do
-  (jump, dance, fly, climb stairs, open doors, lift heavy things) is none: say plainly that you can't.
+  (jump, dance, fly, climb stairs, open doors, lift heavy things) is none: say plainly that you can't. A person, a
+  chair, a table, a box or anything heavy you can't pick or carry: none, say so. With the action none never promise to do it ("I can!", "Okay, I'll hand it to you"): choose the
+  action, or say you can't, or ask what they mean.
 - unclear: you did not understand what the visitor said or wants: ask them to repeat.
 - none: only talk.
 For weather and search only write the action line; the answer is made after the lookup.
@@ -258,22 +292,30 @@ Okay, I'm going to point two.
 ACTION: come -
 Okay, I'm coming to you."""
 
-ACTION_NAMES = {"go_to", "come", "look", "lift", "wave", "stop", "end", "quiet", "sing", "weather", "search", "move", "turn",
-                "arm", "pick", "put", "move_object", "fetch", "give", "place", "unclear", "none"}
-LOOK_TARGETS = {"left", "right", "center", "up", "down", "me"}
+ACTION_NAMES = {"go_to", "come", "come_back", "follow", "look", "lift", "wave", "stop", "end", "quiet", "sing", "weather", "search", "move", "turn",
+                "arm", "pick", "put", "move_object", "fetch", "give", "place", "receive", "unclear", "none"}
+LOOK_TARGETS = {"left", "right", "center", "up", "down", "me", "away"}
 SENTENCE_END = re.compile(r"(?<=[.!?。！？])\s+")
 
 
-def _stream(messages):
-    """Yield text pieces from Ollama as they are generated."""
+def _ollama_pieces(messages):
     body = {"model": MODEL, "messages": messages, "stream": True, "think": False,
             "keep_alive": -1, "options": {"temperature": 0.3, "num_predict": 200}}
     req = urllib.request.Request(OLLAMA, json.dumps(body).encode(), {"Content-Type": "application/json"})
-    pending = bytearray()                     # gemma4 streams some Hangul (쿳) as byte tokens "<0xEC><0xBF><0xB3>"
     with urllib.request.urlopen(req, timeout=120) as r:
         for line in r:
             d = json.loads(line)
-            piece = d.get("message", {}).get("content", "")
+            yield d.get("message", {}).get("content", "")
+            if d.get("done"):
+                return
+
+
+def _stream(messages):
+    """Yield text pieces as they are generated: from the model's runner directly (llm_direct), else Ollama."""
+    pieces = llm_direct.stream(messages, MODEL) or _ollama_pieces(messages)
+    pending = bytearray()                     # gemma4 streams some Hangul (쿳) as byte tokens "<0xEC><0xBF><0xB3>"
+    with contextlib.closing(pieces):
+        for piece in pieces:
             for part in re.split(r"(<0x[0-9A-Fa-f]{2}>)", piece):
                 m = re.fullmatch(r"<0x([0-9A-Fa-f]{2})>", part)
                 if m:
@@ -285,8 +327,6 @@ def _stream(messages):
                     pending.clear()
                 if part:
                     yield part.replace("커션", "쿳션").replace("컷션", "쿳션")
-            if d.get("done"):
-                return
 
 
 MOVE_MAX_M = 3.0                # m; a longer "move forward N m" is not a short move (lumi.MAX_MOVE_M)
@@ -294,7 +334,26 @@ NUMBER_WORDS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", 
                 "eight": "8", "nine": "9", "ten": "10"}
 OBJECTS = {"cup": "cup", "mug": "cup", "glass": "cup", "tumbler": "cup", "bottle": "bottle", "apple": "apple",
            "orange": "orange", "banana": "banana", "컵": "cup", "잔": "cup", "병": "bottle", "사과": "apple",
-           "오렌지": "orange", "바나나": "banana"}       # spoken word -> camera class (skills.py)
+           "오렌지": "orange", "바나나": "banana", "머그컵": "cup", "텀블러": "cup", "종이컵": "cup", "물병": "bottle",
+           "페트병": "bottle", "ball": "sports ball", "tennis ball": "sports ball", "baseball": "sports ball", "공": "sports ball",
+           "테니스공": "sports ball", "야구공": "sports ball", "wine glass": "wine glass", "와인잔": "wine glass",
+           "vase": "vase", "꽃병": "vase", "bowl": "bowl", "그릇": "bowl", "carrot": "carrot", "당근": "carrot",
+           "phone": "cell phone", "cell phone": "cell phone", "mobile phone": "cell phone", "smartphone": "cell phone",
+           "휴대폰": "cell phone", "핸드폰": "cell phone", "remote": "remote", "remote control": "remote", "리모컨": "remote",
+           "book": "book", "mouse": "mouse", "마우스": "mouse", "scissors": "scissors", "가위": "scissors",
+           "toothbrush": "toothbrush", "칫솔": "toothbrush", "fork": "fork", "포크": "fork", "knife": "knife", "칼": "knife",
+           "spoon": "spoon", "숟가락": "spoon", "sandwich": "sandwich", "샌드위치": "sandwich", "cake": "cake",
+           "케이크": "cake", "donut": "donut", "doughnut": "donut", "도넛": "donut", "hot dog": "hot dog", "핫도그": "hot dog",
+           "pizza": "pizza", "피자": "pizza", "broccoli": "broccoli", "브로콜리": "broccoli", "teddy bear": "teddy bear",
+           "teddy": "teddy bear", "곰인형": "teddy bear", "laptop": "laptop", "노트북": "laptop", "keyboard": "keyboard",
+           "키보드": "keyboard", "plant": "potted plant", "potted plant": "potted plant", "flower pot": "potted plant",
+           "화분": "potted plant", "clock": "clock", "handbag": "handbag", "purse": "handbag", "핸드백": "handbag",
+           "backpack": "backpack", "백팩": "backpack", "suitcase": "suitcase", "캐리어": "suitcase", "여행가방": "suitcase",
+           "hair dryer": "hair drier", "hair drier": "hair drier", "드라이기": "hair drier", "toaster": "toaster",
+           "토스터": "toaster"}
+# spoken word -> camera class; the classes are skills.GRASPS (tests/test_intents.py checks it): a pick of one the
+# fingers can't take gets its reason (skills.refusal). Not here on purpose: umbrella / 우산 (weather words), 책 (책상)
+_KO_WORD = {"공", "칼"}            # one syllable inside other words (공항, 칼국수): only as a word of its own
 COLOURS = {"white": "white", "red": "red", "blue": "blue", "green": "green", "yellow": "yellow", "black": "black",
            "orange": "orange", "흰": "white", "하얀": "white", "빨간": "red", "파란": "blue", "초록": "green",
            "노란": "yellow", "검은": "black", "까만": "black", "주황": "orange", "주황색": "orange", "빨간색": "red",
@@ -302,11 +361,24 @@ COLOURS = {"white": "white", "red": "red", "blue": "blue", "green": "green", "ye
            "흰색": "white", "grey": "grey", "gray": "grey", "purple": "purple", "pink": "pink", "회색": "grey",
            "보라": "purple", "보라색": "purple", "분홍": "pink", "분홍색": "pink", "핑크": "pink"}   # -> the names
                                                        # objects.colour_name gives (fetch.COLOURS, tests/test_fetch_place.py)
-_OBJ = "|".join(OBJECTS)
+_OBJ = "|".join(rf"(?<![가-힣]){w}(?![가-힣])|(?<![가-힣]){w}(?=[을를이가은는도만좀][^가-힣]|[을를이가은는도만좀]$)" if w in _KO_WORD
+                else re.escape(w) for w in sorted(OBJECTS, key=len, reverse=True))
 _COL = "|".join(COLOURS)
 STOP_TALK = re.compile(r"비상 ?정지|emergency stop|stop button|정지 ?버튼", re.I)   # about the stop button, not "stop!"
+BEHIND_WORDS = (r"\blook(?:ing)? (?:over |to(?:wards?)? |at |in )?(?:the |your )?"    # "look at the back side", "look
+                r"(?:behind|back ?side|back(?:wards?)?|rear|big side)\b"          # at behind side", whisper's "big side"
+                r"(?! (?:at|on|up|in|of|to|and forth)\b)"                          # not "look back at me", "look at the back of"
+                r"|\b(?:turn|move|rotate|swing) your head (?:all the way )?(?:to (?:the )?)?(?:back|behind|around|round)\b"
+                r"|\bturn (?:a)?round and look\b(?! at (?:me|us)\b)|\blook over your (?:left |right )?shoulder\b"
+                r"|\bcheck behind (?:you|yourself)\b"
+                r"|\b(?:behind|back ?side|back)\s*(?:을|를|쪽을?)?\s*(?:좀\s*)?(?:봐|보세요|봐요)"        # mixed: "back side 봐"
+                r"|(?:^|\s)뒤(?:를|을|쪽|쪽을|쪽으로|에)?\s*(?:좀\s*)?(?:돌아서?\s*)?(?:봐|보세요|봐요|볼래|look)"   # 뒤 봐, 뒤돌아 봐,
+                r"|(?:고개|머리)(?:를|좀|살짝|조금|\s)*뒤(?:쪽)?(?:으로|로)?\s*(?:좀\s*)?(?:돌려|봐)")         # 뒤에 봐 줘; not 뒤로 돌아
+# ^ the head turns to look behind (head_target); "what's behind you?" is a question for seeing.BEHIND
 HEAD_WORDS = (r"\blook (?:straight )?(?:up|down|left|right|ahead|forward|straight|at me|behind|this way|over here|to (?:the|your|my) (?:left|right))\b"
-              r"|(?:^|\s)뒤(?:를|쪽을?)?\s*(?:좀\s*)?(?:봐|돌아\s*봐)"
+              r"|" + BEHIND_WORDS +
+              r"|\blook at (?:my|this|that|our) (?:son|daughter|kid|child|baby|friend|wife|husband|boy|girl|mom|dad)\b"
+              r"|(?:우리|내|제) (?:애|아이|아들|딸|친구)\s*(?:좀\s*)?(?:봐|쳐다)"
               r"|\b(?:turn|move|rotate|tilt|swing) your head\b|\b(?:raise|lift|lower|drop) your head\b|\bface me\b|\bhead (?:up|down)\b"
               r"|(?:고개|머리)(?:를|좀|살짝|조금|약간|\s)*(?:왼쪽|오른쪽|위|아래|정면|앞|들어|숙여|올려|내려|돌려)"
               r"|(?:위|아래|밑|왼쪽|오른쪽|정면|앞|나|날|저|절|나를|저를)(?:를|을|으로|로|쪽|쪽을|에)?\s*(?:좀\s*)?(?:봐|보세요|봐요|봐 ?줘|봐 ?주세요|볼래|봐 ?봐)")
@@ -318,6 +390,7 @@ LIFT_WORDS = (r"\b(?:raise|lift|lower) (?:yourself|your body|your torso|your upp
 SMALL = re.compile(r"\ba (?:little )?bit\b|\bslightly\b|\ba little\b|\ba touch\b|조금|살짝|약간|좀 더")
 HEAD_YAW, HEAD_PITCH = head_hw.AXIS_LIMITS[2], head_hw.AXIS_LIMITS[3]   # commanded looks: the body's full range
 HEAD_SMALL_DEG = 15.0          # deg; "look left a bit": the head turns this much from where it is
+HEAD_AWAY_DEG = 60.0           # deg; "look away", "don't look at me": the head turns this much aside from where it is
 LIFT_SMALL_MM = 30.0           # mm; "raise yourself a bit"
 
 
@@ -327,14 +400,16 @@ def head_target(t):
         return None
     if re.search(r"\b(?:straight|ahead|forward|center|centre)\b|정면|가운데|(?:^|\s)앞(?:을|으로|쪽)?\s*(?:좀\s*)?(?:봐|보)", t):
         return "center"
-    if re.search(r"\bbehind\b|(?:^|\s)뒤(?:를|쪽을?|에)?\s*(?:좀\s*)?(?:봐|돌아\s*봐)", t):
-        return f"left {HEAD_YAW[1]:g}"                  # "look behind you": the head as far round as it goes
+    if re.search(BEHIND_WORDS, t):                     # the head as far round as it goes, by the side said
+        side = "right" if re.search(r"\bright\b|오른쪽", t) else "left"    # "over your right shoulder"; left when none
+        return f"{side} {HEAD_YAW[1]:g}"
     for d, words in (("left", r"\bleft\b|왼쪽"), ("right", r"\bright\b|오른쪽"),
                      ("up", r"\bup\b|\braise\b|\blift\b|위|들어|올려"), ("down", r"\bdown\b|\blower\b|\bdrop\b|아래|밑|숙여|내려")):
         if re.search(words, t):
             deg = re.search(r"(\d+)\s*(?:degrees?|도)?", t)       # a bare number on the head is degrees
             return f"{d} {deg.group(1)}" if deg else (f"{d} small" if SMALL.search(t) else d)
-    if re.search(r"\b(?:at me|face me)\b|(?:^|\s)(?:나|날|저|절|나를|저를)\s*(?:좀\s*)?봐", t):
+    if re.search(r"\b(?:at me|face me)\b|(?:^|\s)(?:나|날|저|절|나를|저를)\s*(?:좀\s*)?봐|\blook at (?:my|this|that|our) \w+|"
+                 r"(?:우리|내|제) (?:애|아이|아들|딸|친구)", t):   # "look at my son": towards whoever speaks
         return "me"                                     # after the directions: "look down at me" is down
     return None
 
@@ -354,6 +429,8 @@ def head_goal(target, yaw, pitch, look=None, yaw_max=HEAD_YAW[1], pitch_range=HE
     words (lumi.LOOK); +yaw = left, +pitch = up."""
     look = look or {"left": (40, None), "right": (-40, None), "center": (0, 0), "up": (None, 20), "down": (None, -5)}
     d, _, n = target.partition(" ")
+    if d == "away":                                     # aside from where it looks now (at the person)
+        return (yaw - HEAD_AWAY_DEG if yaw >= 0 else yaw + HEAD_AWAY_DEG), pitch, None
     if d not in look:
         return yaw, pitch, None
     sign = 1 if d in ("left", "up") else -1
@@ -382,37 +459,53 @@ def lift_goal(target, mm, top=105.0):
 INTENTS = [   # (action, pattern) checked in order on what the visitor said
     ("quiet", r"\b(be quiet|keep quiet|quiet please|stop talking|shut up|silence|be silent|stop greeting)\b|조용히|그만 말|"
               r"시끄러워|말하지 마|인사 ?(그만|하지 ?마)"),
+    ("look_away", r"\b(?:look away|look somewhere else|look elsewhere|look the other way|stop (?:looking|staring) at me|"
+                  r"(?:don'?t|do not|please don'?t) (?:look|stare) at me|quit (?:staring|looking))\b|(?:쳐다|바라)보지 ?마|"
+                  r"그만 ?(?:좀 ?)?(?:쳐다|바라)(?:봐|보세요)|"
+                  r"(?:날|나를?|저를?|절)\s*(?:좀\s*)?(?:보지|쳐다보지) ?마|다른 ?(?:데|곳|쪽)(?:을|를)? ?(?:좀 )?봐"),
     ("stop", r"\b(stop|halt|freeze|don'?t move)\b|멈춰|정지|그만 ?가|거기 ?서|스톱|움직이지 ?마|^\s*(서[\s,!.]*){2,}$"),
-    ("fetch", rf"\b(fetch|bring|deliver|carry)\b.*\b({_OBJ}|it|that|this)s?\b|\b(take|get|grab)\b.*\b({_OBJ})s?\b.*\b(from|to)\b"
+    ("follow", r"\b(?:follow|come with|come along with|walk with|tag along with)\s+(?:me|us)\b(?!\s+(?:on|at)\b)|"   # not "follow
+               r"\bcome along\b|따라\s?(?:와|오세요|오십시오|올래)|(?<!로 )(?:같이|함께)\s?(?:가자|가요|갑시다|걸어)"),   # me on instagram"
+    ("fetch",rf"\b(fetch|bring|deliver|carry)\b.*\b({_OBJ}|it|that|this)s?\b|\b(take|get|grab)\b.*\b({_OBJ})s?\b.*\b(from|to)\b"
               rf"|\b(go|drive) to\b.*\b(get|take|grab|pick up|fetch|bring)\b.*\b({_OBJ})s?\b"
               rf"|\b(pick up|pick|take|grab|get)\b.*\b({_OBJ})s?\b.*\b(go|drive) to\b|({_OBJ}).*(집어서|들고).*가서"
               r"|가져와|가져다|갖다|가지고 ?와|에서.*(옮겨|가져)" rf"|({_OBJ}).*(집고|들고|가지고).*(와|줘)"),
-    ("come", r"\bcome (here|to me|closer|over here|over)\b|\bcome\b.*\bme\b|이리 ?와|여기로 ?와|가까이 ?와|나한테 ?와"),
+    ("come", r"\bcome (?:back )?(here|to me|closer|over here|over)\b|\bcome\b.*\bme\b|이리 ?(?:돌아 ?)?와|여기로 ?(?:돌아 ?)?와|가까이 ?와|"
+             r"나한테 ?(?:돌아 ?)?와"),
     ("go_home", r"\bgo (back )?(home|to (the |your )?(dock(?!2)|charger|charging))|\bgo charge|충전하러|집(?:에|으로) ?가|충전기로"),
-    ("go_point", r"\b(?:go|drive|move|head)(?: back)? to (?:the )?(?:point |marker )?([a-z]+\d*)\b|(\d+)\s*번\s*(?:으로|포인트)"   # after _norm:
-                 r"|^\W*(?:(?:루미야?|lumi|hey lumi)\W*)?(?:좀\s*)?([a-z]+\d*)\s*(?:으로|로|에)\s*(?:좀\s*)?"   # "p3로 가 줘":
-                 r"(?:가|와|이동해|돌아가)"                                                               # all of it
+    ("go_point", r"\b(?:go|drive|move|head|come|return)(?: back)? to (?:the )?(?:point |marker )?([a-z]+\d*)\b|(\d+)\s*번\s*(?:으로|포인트)"   # after _norm:
+                 r"|^\W*(?:(?:루미야?|lumi|hey lumi)\W*)?(?:좀\s*)?(?:point\s+)?([a-z]+\d*)\s*(?:으로|로|에)\s*(?:좀\s*)?"   # "p3로 가 줘":
+                 r"(?:가|와|이동해|돌아가|돌아 ?와)"                                                             # all of it
                  r"(?:\s*줘요?|\s*주세요|요|자|줄래)?\s*[.!?]*$"),
     ("sing", r"\bsing\b|\ba song\b|노래"),
     ("look", HEAD_WORDS),                                     # head_target() reads the direction and amount
-    ("wave", r"\bwave\b|\bshake (?:your|a|my) hand\b|\bsay (?:hi|hello|bye) with your hand\b|손 ?(?:을 |좀 |도 )?흔들|손 ?인사"),
+    ("wave", r"\bwave\b|\bshake (?:your |a |my )?hands?\b|\bsay (?:hi|hello|bye) with your hand\b|손 ?(?:을 |좀 |도 )?흔들|손 ?인사"),
     ("turn", r"\bturn (a)?round\b|\bturn (left|right)\b|뒤로 ?돌|돌아 ?봐|왼쪽으로 ?돌|오른쪽으로 ?돌"),
     ("make_way", r"\b(can|could|would) you (please )?move( a bit| a little| please)?\s*[?.!]*$|\bmove (aside|out of the way|over)\b|"
                  r"\b(make way|get out of the way|give me some room)\b|비켜|자리 ?(좀 )?(비워|옮겨)|길 ?(좀 )?(비켜|터)"),
-    ("move", r"\b(?!go ahead\b)(?:move|go|come|drive|step)\s+(?:a little\s+|a bit\s+)?(forward|ahead|back(?:ward)?|left|right)\b"
+    ("go_point", r"\b(?:go|come|drive|head) back (p\d+)\b"),                          # "come back p9": a place, not 1 m back
+    ("come_back", r"\bcome back\b|\breturn\b|\b(?:go|head|drive) back (?:to )?(?:where|your|the)\b|"   # bare "go back" is
+                  r"돌아 ?(?:와|가|오|올|갈)"),                    # a short drive (as before); COME_BACK reads the whole sentence
+    ("move", r"\b(?!go (?:right )?ahead\b)(?:move|go|come|drive|step)\s+(?:a little\s+|a bit\s+)?(forward|ahead|back(?:wards?)?|left|right)\b"
              r"(?:\s+(\d+(?:\.\d+)?|half)\s*(?:m|meters?|metres?)?)?|"
-             r"\b(?:move|go|come)\s+(\d+(?:\.\d+)?)\s*(?:m|meters?|metres?)\s+(forward|ahead|back(?:ward)?|left|right)\b|"
+             r"\b(?:move|go|come)\s+(\d+(?:\.\d+)?)\s*(?:m|meters?|metres?)\s+(forward|ahead|back(?:wards?)?|left|right)\b|"
+             r"^\W*(?:(?:hey|hi|okay|ok|so|um+|uh+|alright|please|well|now|lumi)\W+)*(?:let'?s\s+|lets\s+)?"   # "let's back
+             r"(back(?: ?up)?|reverse|bake|big)\s+(\d+(?:\.\d+)?|half|one|two|three)\s*(?:m|meters?|metres?|metals?)"  # 1 meter"
+             r"\W*(?:(?:please|now|for me|thanks|if you can|real quick)\W*)*$|"   # (whisper: "bake", "big", "metal")
+             r"\b(back ?up|reverse)\s+(\d+(?:\.\d+)?)\s*m\b|"
+             r"(\d+(?:\.\d+)?)\s*m\s*(?:만\s*)?(뒤로|앞으로)\s*(?:좀\s*)?(?:가|와|이동|움직|후진)|(?:(\d+(?:\.\d+)?)\s*m\s*(?:만\s*)?)?(후진)|"
              r"(앞으로|뒤로|왼쪽으로|오른쪽으로)\s*(?:조금만?|좀|살짝)?\s*(\d+(?:\.\d+)?)?\s*(?:미터|m)?\s*(?:만\s*)?(?:가|와|이동|움직)"),
     ("put", r"\bput (it|that|this|the \w+) (back|down)\b|\bput (it|that|this|the \w+) (on|onto) the table\b"
             r"|제자리에 ?(놓|둬|놔)|다시 ?(놓|둬|놔)|내려 ?(놓|둬|놔)"),
     ("move_object", rf"\b(?:move|shift|slide) (?:the |that |this |a )?(?:({_COL}) )?({_OBJ})s?\b"
                     rf"|(?:({_COL})\s*)?({_OBJ})\s*(?:을|를)?\s*옮겨"),
-    ("pick", rf"\b(?:pick up|pick|take|grab|get|lift|hold) (?:up )?(?:me )?(?:the |that |this |a |an )?(?:({_COL}) )?({_OBJ})s?\b"
+    ("pick", rf"\b(?:pick up|pick|take|grab|get|lift|hold) (?:up )?(?:me )?(?:the |that |this |a |an |my |your )?(?:({_COL}) )?({_OBJ})s?\b"
              rf"|(?:({_COL})\s*)?({_OBJ})\s*(?:을|를)?\s*(?:좀\s*)?(?:잡아|집어|들어)"),
-    ("grip_open", r"\b(open (your )?(hand|gripper|fingers)|let (it )?go|drop it)\b|손을? ?(펴|벌려|열어)|놓아"),
-    ("grip_close", r"\b(close (your )?(hand|gripper|fingers)|grab (it|this)|grip (it|this))\b"
-                   r"|손을? ?(쥐|오므려|닫아)|잡아"),
-    ("arm", r"\b(reach out|stretch (out )?your (arm|hand)|put your (arm|hand) (out|forward)|hand forward)\b|팔을? ?(뻗|내밀)"
+    ("grip_open", r"\b(open (your )?(hand|gripper|fingers)|open it|let (it )?go|drop it)\b|손을? ?(펴|벌려|열어)|손 ?open|^\W*(?:이제\s*)?놓아\W*$"),
+    ("grip_close", r"\b(close (your )?(hand|gripper|fingers)|close it|make a fist|clench (your )?(fist|hand)|grab (it|this)|grip (it|this))\b"
+                   r"|손을? ?(쥐|오므려|닫아)|주먹 ?(을 )?쥐|잡아|손 ?close"),
+    ("arm", r"\b(reach out|stretch (out )?your (arm|hand)|put your (arm|hand) (out|forward)|hand forward|"
+            r"hold out your (arm|hand)|extend your (arm|hand))\b|팔을? ?(뻗|내밀)"
             r"|\bfold (?:up )?your arm\b|\b(?:put|take) your arm (?:down|away|back)\b|\btuck your arm\b|팔을? ?(?:좀 )?(?:접|내려|거둬)"),
     ("lift", LIFT_WORDS),
     ("weather", r"\bweather\b|\bforecast\b|\b(will it|is it going to) rain\b|(?<!your )(?<!cpu )(?<!gpu )\btemperature\b(?!.*\b(your|you|cpu|gpu|battery|motor|body)\b)|날씨|비 ?와|기온"
@@ -425,25 +518,41 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
 ]
 
 
+COME_BACK = re.compile(   # the whole sentence asks Lumi back to where it stood before its last trip
+    r"(?:(?:please|can you|could you|would you|will you|now|just|ok|okay|alright|so|and|lumi)\s+)*"
+    r"(?:come back|return|(?:go|head|drive) back(?= ))(?: to)?(?: (?:where you (?:were|was|started|came from|were standing)"
+    r"(?: before)?|(?:your|the) (?:start(?:ing)? (?:point|place|spot|position)|start|original (?:spot|place|position)|"
+    r"old (?:spot|place)|spot|place)))?(?: (?:now|please|lumi|again|for me))*|"
+    r"(?:(?:다시|이제|좀|얼른|어서)\s*)*(?:(?:원래|아까|처음)\s*(?:있던|있었던|서 ?있던)?\s*(?:자리|곳|데|위치|장소)\s*(?:으로|로|에)\s*|"
+    r"제자리로\s*)?(?:다시\s*)?(?:되)?돌아\s?(?:와|가|오세요|가세요|와요|가요|와라|가라|올래|갈래)"
+    r"(?:\s*(?:줘요?|주세요|줄래요?|봐))?")
+CALLING = re.compile(r"^\W*(?:(?:hey|hi|okay|ok|so|um+|uh+|alright|please|well|now|저기요?|혹시|음+|자|야|어+|그럼|이제)\W+)*"
+                     r"(?:(?:lumi|루미야?|루미)\W+)?(?:(?:저기요?|혹시|음+|자|그럼|이제|now)\W+)*", re.I)   # words that call Lumi or fill, before the request itself
+
+
 def intent(text, markers=()):
     """(action, target) for clear requests, or None. Backs up the LLM's ACTION line."""
     t = _norm(text)                                         # "point five" -> "point 5"
-    asks = re.search(r"^\s*(how|why|what if)\b|\b(how do you|how can you|can you carry|are you able)\b|"
+    asks = re.search(r"^\s*(how(?! about (?:you|we) (?!\w+ing\b)\w)|why(?! don'?t you\b)|what if)\b|\b(how do you|how can you|can you carry|are you able)\b|"
                      r"\b(can|could) you (pick( up)?|lift|hold|grab|take) (a|an|any)\b|"   # "can you pick up a bottle?"
                      r"^\s*(what|when|which|at what|do you|does|is it|are you)\b|몇|언제|얼마|"   # "at what level do you go back?"
                      rf"({_OBJ})(은|는)\s.*수 ?있|(루미가|로봇이)\s.*수 ?있|는 ?거 ?(돼|되나|가능)|"                                  # "물컵은 가져다줄 수 있어요?"
-                     r"어떻게|왜|혼자|스스로|\bby yourself\b|\bsomeone\b", t)
+                     r"어떻게|왜|혼자|스스로|\bby yourself\b|\bsomeone\b", CALLING.sub("", t))   # "Lumi, is it hard to ...?"
     for action, pat in INTENTS:
         m = re.search(pat, t, re.I)
         if not m:
             continue
         if action == "stop" and (STOP_TALK.search(t) or "?" in t or asks):
             return None                                     # "where's your emergency stop?", "how do I stop you?"
-        if action != "quiet" and re.search(r"\b(don'?t|do not|never)\b|(하|펴|가|잡|놓|열)지 ?마", t) and action != "stop":
+        if action == "look_away":
+            return None if asks or "?" in t else ("look", "away")   # "don't look at me", "쳐다보지 마"
+        if action != "quiet" and re.search(r"(?<!why )\b(don'?t|do not|never)\b|(하|펴|가|잡|놓|열)지 ?마", t) and action != "stop":
             return None                                     # "don't go to p1", "손 펴지 마": not an order
         if asks and action in ("go_home", "go_point", "move", "make_way", "turn", "pick", "put", "move_object", "fetch", "come",
-                               "arm", "grip_open", "grip_close", "wave", "look", "lift"):
+                               "arm", "grip_open", "grip_close", "wave", "look", "lift", "follow", "come_back"):
             return None                                     # "how do you pick up a cup?": a question, not an order
+        if action == "follow" and re.search(r"\bdid you\b|\bso far\b", t):
+            return None                                     # "did you follow me?": do you understand
         if action == "go_home":
             if re.search(r"(^|\s)(나|저|우리|저희)(는|도)?\s", t):
                 return None                                 # "나 이제 집에 가": the visitor goes home
@@ -460,7 +569,10 @@ def intent(text, markers=()):
             if re.search(r"\bhow do you (know|check|get|find)\b|어떻게 (알|확인)", t):
                 return None                                 # "how do you know the weather?": about Lumi
             place = re.search(r"\bin ([A-Za-z][A-Za-z ]+?)(\?|$|\.| today| tomorrow| right now| now| this)", text)
-            return ("weather", place.group(1).strip() if place else "")
+            if place:
+                return ("weather", place.group(1).strip())
+            ko = next((k for k in sorted(web.KO_PLACES, key=len, reverse=True) if k in text), None)   # "부산 날씨 어때?"
+            return ("weather", web.en_place(ko) if ko else "")
         if action == "search":
             return ("search", text)
         if action == "fetch":
@@ -477,18 +589,25 @@ def intent(text, markers=()):
             return ("look", target)
         if action == "lift":
             return ("lift", lift_target(t))
+        if action == "come_back":
+            if COME_BACK.fullmatch(CALLING.sub("", t).strip(" .!?,~")):
+                return ("come_back", "")                    # "come back", "돌아와", "go back where you were"
+            if driving.amount(t)[0] is None:
+                return None                                 # "I'll come back later", "come back tomorrow": talk
+            continue                                        # "come back 20 cm": a short drive
         if action == "make_way":
             return ("move", "back 1")                       # owner: a checked 1 m back-off (lumi.move_by)
         if action == "move":
             g = [x for x in m.groups() if x]
-            dirs = {"ahead": "forward", "backward": "back", "앞으로": "forward", "뒤로": "back", "왼쪽으로": "left",
-                    "오른쪽으로": "right"}
-            d = next((dirs.get(x, x) for x in g if not re.match(r"[\d.]+$|half$", x)), "forward")
-            n = next((0.5 if x == "half" else float(x) for x in g if re.match(r"[\d.]+$|half$", x)), 1.0)
-            if re.search(r"a little|a bit|조금", t):
-                n = min(n, 0.5)
-            if n > MOVE_MAX_M:
-                return None                                 # "move forward ten metres": the LLM says the limit
+            dirs = {"ahead": "forward", "backward": "back", "backwards": "back", "back up": "back", "backup": "back",
+                    "reverse": "back", "bake": "back", "big": "back", "후진": "back", "앞으로": "forward", "뒤로": "back",
+                    "왼쪽으로": "left", "오른쪽으로": "right"}
+            amounts = {"half": 0.5, "one": 1.0, "two": 2.0, "three": 3.0}
+            d = next((dirs.get(x, x) for x in g if not re.match(r"[\d.]+$", x) and x not in amounts), "forward")
+            n = driving.amount(t)[0]                        # "0.2 m" (wording), "a tiny bit", "two steps", "?"
+            n = driving.DEFAULT_M if n is None else n
+            if n == "?" or not driving.MOVE_MIN_M <= n <= MOVE_MAX_M:
+                return None                                 # asked about / refused with the limit (driving.read)
             return ("move", f"{d} {n:g}")
         if action == "arm":
             return ("arm", "fold" if re.search(r"fold|tuck|down|away|back|접|내려|거둬", t) else "reach")
@@ -500,6 +619,9 @@ def intent(text, markers=()):
             g = [x for x in m.groups() if x]                  # [colour,] object
             return (action, f"{COLOURS[g[0]]} {OBJECTS[g[1]]}" if len(g) == 2 else OBJECTS[g[0]])
         return (action, "")
+    got = None if asks or re.search(r"\b(don'?t|do not|never)\b|지 ?마", t) else driving.move(t)
+    if got and got[1] != "?" and driving.MOVE_MIN_M <= got[1] <= MOVE_MAX_M:
+        return ("move", f"{got[0]} {got[1]:g}")          # "back up a tiny bit", "a hair to the left", "20센티 뒤로"
     return None
 
 
@@ -540,13 +662,15 @@ def _as_place(name):
 
 
 def _mentions(text, markers):
-    """What the words name: {"object", "colour", "source", "dest", "finish"}, only the fields mentioned.
+    """What the words name: {"object", "colour", "prefer", "source", "dest", "finish"}, only the fields mentioned.
     "object" / "source" / "dest" is None when the word is there but unknown."""
     t, out = _norm(text), {}
     objs = [m for m in re.finditer(rf"(?:({_COL})\s*)?(?<![a-z])({_OBJ})s?(?![a-z])", t)
             if not re.search(_NOT_OBJ, t[:m.start()]) and not re.match(r"\s*(?:말고|아니고|아니라)", t[m.end():])]
     if objs:
         out["object"], out["colour"] = OBJECTS[objs[-1].group(2)], COLOURS.get(objs[-1].group(1))
+    if (prefer := pick_prefer(t)[0]):
+        out["prefer"] = prefer
     after_obj = objs[-1].end() if objs else 0
     for m in re.finditer(_place_re(markers), t):
         before, after, place = t[:m.start()], t[m.end():], _resolve(m, markers)
@@ -598,7 +722,7 @@ def parse_fetch(text, markers=()):
     for "bring me" / "가져와", else a problem; finish = place when the table is named, else hold."""
     m = _mentions(text, markers)
     task = {"object": m.get("object"), "colour": m.get("colour"), "source": m.get("source", "here"),
-            "dest": m.get("dest"), "finish": m.get("finish", "hold")}
+            "dest": m.get("dest"), "finish": m.get("finish", "hold"), **({"prefer": m["prefer"]} if "prefer" in m else {})}
     return task, fetch_problems(task)
 
 
@@ -630,7 +754,7 @@ def other_latin_language(text):
     return str(lang).lower() not in ("english", "en", "korean", "ko")
 
 
-FILLER = {"uh", "um", "umm", "hmm", "er", "the", "a", "an", "and", "so", "like", "well", "you", "know", "그", "저기", "어",
+FILLER = {"uh", "um", "umm", "hmm", "er", "the", "a", "an", "and", "so", "like", "well", "know", "그", "저기", "어",
           "음", "뭐냐", "있잖아", "그러니까", "아", "저", "그거", "이거", "저거"}
 UNCLEAR_RETRY = ("\n\n(These words may be short, broken or odd, but they mean something: answer what they mean, or say "
                  "you can't do it and why. Choose unclear only if they really mean nothing.)")
@@ -640,7 +764,7 @@ def has_meaning(text):
     """At least two words that are not filler, or one word with a question / exclamation mark: worth a second
     try when the model called them unclear. "uh the um" and "그 그" are not."""
     words = [w for w in re.findall(r"[\w']+", text.lower()) if w not in FILLER]
-    return len(words) >= 2 or (len(words) == 1 and bool(re.search(r"[?!]", text)))
+    return is_backchannel(text) or len(words) >= 2 or (len(words) == 1 and bool(re.search(r"[?!]", text)))
 
 
 def spoken(sentence, lang):
@@ -703,6 +827,42 @@ SUPPORTS = {**{c: c for c in objects.COCO if c != "person" and c not in OBJECTS.
 MISSPELT = {"dinning": "dining", "dinner table": "dining table", "dinining": "dining", "tabel": "table",
             "tabe": "table", "tabble": "table", "chiar": "chair", "chari": "chair", "char": "chair", "sofaa": "sofa"}
                                                        # typed / heard support words -> the word (place_on)
+PREFER = {"lower": "low", "low": "low", "lowest": "low", "shorter": "low", "smaller": "small", "small": "small",
+          "smallest": "small", "little": "small", "higher": "high", "high": "high", "highest": "high", "taller": "high",
+          "tall": "high", "bigger": "big", "big": "big", "biggest": "big", "larger": "big", "large": "big",
+          "near": "near", "nearer": "near", "nearest": "near", "closer": "near", "closest": "near", "farther": "far", "further": "far",
+          "far": "far", "furthest": "far", "farthest": "far", "낮은": "low", "작은": "small", "높은": "high", "큰": "big",
+          "가까운": "near", "먼": "far"}   # "the lower one", "작은 테이블" -> which of several (fetch ranks by it)
+_PREF = "|".join(sorted(PREFER, key=len, reverse=True))
+PICK_PREFER = {"smaller": "small", "smallest": "small", "small": "small", "little": "small", "bigger": "big",
+               "biggest": "big", "big": "big", "larger": "big", "largest": "big", "large": "big", "left": "left",
+               "leftmost": "left", "right": "right", "rightmost": "right", "nearer": "near", "nearest": "near",
+               "near": "near", "closer": "near", "closest": "near", "farther": "far", "farthest": "far",
+               "further": "far", "furthest": "far", "far": "far"}   # "the smaller cup" -> which of several to pick
+PICK_PREFER_KO = (("작은", "small"), ("큰", "big"), ("왼쪽", "left"), ("오른쪽", "right"), ("가까", "near"), ("먼", "far"),
+                  ("멀리", "far"))                                # "작은 컵", "왼쪽에 있는 컵", "가까이 있는 컵"
+_PICK_EN = "|".join(sorted(PICK_PREFER, key=len, reverse=True))
+_THING = rf"(?:(?:{_COL})\s+)?(?:(?:{_OBJ})s?|ones?)(?![a-z])"
+_SUP_WORDS = "|".join(k for k in SUPPORTS if k.isascii())
+
+
+def pick_prefer(text):
+    """Which of several objects to pick, said with it: (prefer, text without those words). prefer: small / big /
+    left / right (the robot's) / near / far, or None. "the smaller cup", "the far one", "the cup on the left",
+    "작은 컵", "왼쪽에 있는 빨간 컵", "제일 가까운 컵". `text` lower case (_norm: "one" may read "1")."""
+    t = re.sub(r"\bthe (\w+) 1\b(?!\s*(?:m|cm|meters?|metres?|degrees?)\b)", r"the \1 one", text)
+    m = re.search(rf"(?<![a-z])(?<!on the )(?<!onto the )({_PICK_EN})\s+(?={_THING})", t)   # not "on the smaller one"
+    if m:
+        return PICK_PREFER[m.group(1)], t[:m.start(1)] + t[m.end():]
+    m = re.search(rf"(?<![a-z])((?:{_OBJ})s?|ones?)\s+(?:on|to|at)\s+(?:the|your|my)\s+(left|right)(?:\s+side)?(?![a-z])"
+                  rf"(?!\s+(?:{_SUP_WORDS})\b)", t)
+    if m:
+        return m.group(2), t[:m.end(1)] + t[m.end():]
+    m = re.search(rf"(?:(?:제일|가장|더)\s*)?(작은|큰|왼쪽(?:에\s*있는|의)?|오른쪽(?:에\s*있는|의)?|가까운|가까이\s*있는|먼|"
+                  rf"멀리\s*있는)\s*(?=(?:(?:{_COL})\s*)?(?:{_OBJ}))", t)
+    if m:
+        return next(v for k, v in PICK_PREFER_KO if m.group(1).startswith(k)), t[:m.start()] + t[m.end():]
+    return None, text
 _SUP_EN = "|".join(sorted((k for k in SUPPORTS if k.isascii()), key=len, reverse=True))
 _SUP_KO = "|".join(sorted((k for k in SUPPORTS if not k.isascii()), key=len, reverse=True))
 
@@ -710,23 +870,29 @@ _SUP_KO = "|".join(sorted((k for k in SUPPORTS if not k.isascii()), key=len, rev
 def place_on(text):
     """What to put the held object on: {"name": camera class, "colour": colour or None} for "on the orange chair",
     "빨간 의자에", "on the white dinning table"; "X or Y" ("the table or chair", "테이블이나 의자") adds "alts": [Y's
-    class] (either counts). None when no such thing is named."""
+    class] (either counts); "the lower one", "the small grey table", "작은 테이블" adds "prefer": low / high / small /
+    big / near / far (which of several). None when no such thing is named."""
     t = _norm(text)
     for wrong, right in MISSPELT.items():
         t = re.sub(rf"\b{wrong}\b", right, t)
-    m = re.search(rf"(?:\b(?:on|onto)\s+(?:the\s+|a\s+|that\s+)?)(?:({_COL})\s+)?({_SUP_EN})s?\b", t)
-    alt = rf"\s+or\s+(?:on\s+)?(?:the\s+|a\s+)?(?:(?:{_COL})\s+)?({_SUP_EN})s?\b"
+    adj = rf"(?:(?:{_PREF})\s+)?"
+    m = re.search(rf"(?:\b(?:on|onto)\s+(?:the\s+|a\s+|that\s+)?){adj}(?:({_COL})\s+)?{adj}({_SUP_EN}|1)s?\b", t)
+    alt = rf"\s+or\s+(?:on\s+)?(?:the\s+|a\s+)?{adj}(?:(?:{_COL})\s+)?{adj}({_SUP_EN})s?\b"
+    if m and m.group(2) == "1" and not re.search(rf"\b(?:{_PREF})\s+(?:(?:{_COL})\s+)?1\b", t):
+        m = None                                      # "on the one": only "the lower one" names a support
     if not m:
         m = re.search(rf"(?:({_COL})\s*)?({_SUP_KO})", t)
         alt = rf"\s*(?:이나|나|또는|아니면)\s*(?:(?:{_COL})\s*)?({_SUP_KO})"
     if not m:
         return None
-    out, rest, alts = {"name": SUPPORTS[m.group(2)], "colour": COLOURS.get(m.group(1))}, t[m.end():], []
+    name = "dining table" if m.group(2) == "1" else SUPPORTS[m.group(2)]     # _norm wrote "one" as "1"
+    out, rest, alts = {"name": name, "colour": COLOURS.get(m.group(1))}, t[m.end():], []
     while (a := re.match(alt, rest)):
         alts.append(SUPPORTS[a.group(1)])
         rest = rest[a.end():]
     alts = [a for a in dict.fromkeys(alts) if a != out["name"]]
-    return {**out, "alts": alts} if alts else out
+    prefer = re.search(rf"(?<![a-z])({_PREF})(?![a-z])", t)
+    return {**out, **({"alts": alts} if alts else {}), **({"prefer": PREFER[prefer.group(1)]} if prefer else {})}
 
 
 def held_command(text):
@@ -739,6 +905,126 @@ def held_command(text):
     if HELD_PLACE.search(text):
         return "place"
     return None
+
+
+# ---------- the hand: take from the person, hand over, put down (any wording; lumi.answer acts on it) ----------
+_IT = r"(?:it|that|this|these|them|those)"
+_WHO = (r"(?:me|him|her|them|that (?:person|guy|man|woman|lady|kid|child)|the (?:person|guy|man|woman|lady|kid|child)|"
+        r"this (?:person|guy|man|woman|lady)|my (?:friend|colleague|boss|son|daughter|wife|husband|mom|dad|kid)|"
+        r"(?:him|her|them) over there|whoever is there)")
+_KO_WHO = r"(?:나|저|내 친구|제 친구|저 사람|그 사람|이 사람|이 ?분|저 ?분|그 ?분|친구|사람|저기 저 사람|저기 사람)"
+_THIS_KO = r"(?:이거|이것|이걸|그거|그걸|그것|저거|이|그)"
+_TAIL = r"(?:[\s,]+(?:please|for me|now|then|real quick|quick|thanks|thank you|if you can|okay|lumi))*\s*[.!?]*$"
+RECEIVE_EN = re.compile(
+    rf"(?<!i'll )(?<!i will )(?<!let me )(?<!i can )(?<!i'd )(?<!i )(?<!do you )(?<!did you )(?<!we )(?<!to )\b(?:take|grab|accept|receive|catch)\s+(?:{_IT}|what i'?m holding|what'?s in my hand)"
+    r"(?=\s*(?:$|[,.!?]|from\b|for\b|please\b|now\b|real\b|if\b|thanks?\b|out of\b|lumi\b|okay\b|quick))"
+    rf"|\b(?:take|grab|get|accept|receive)\s+(?:(?:the|this|that|a|an|my)\s+)?(?:\w+\s+)?\w+\s+(?:from (?:me|my hands?)|i'?m holding|in my hand)\b"
+    rf"|\b(?:take|grab)\s+my\s+(?:(?:{_COL})\s+)?(?:{_OBJ})s?\b"
+    rf"|(?:^|[\s,.!])hold\s+(?:{_IT}|this \w+|my \w+)\b(?!\s+(?:up|out|on|thought)\b)(?! for me while)"
+    rf"|\bhere(?: you go| it is|'?s (?:the|a|my|your) \w+(?: \w+)?)\b|^\W*here\W+(?:take|hold|catch)\b"
+    rf"|\bi(?:'ll| will|'m going to| want to| wanna|'d like to| would like to)\s+(?:give|hand)\s+you\b"
+    rf"|\bi(?:'m| am)\s+(?:giving|handing)\s+you\b|\bi (?:have|got|brought) (?:something|a \w+|this|it) for you\b", re.I)
+RECEIVE_KO = re.compile(
+    r"(?<!에서 )(?<!한테 )(?<!한테서 )(?<!에게서 )받아(?!들|서 ?(?:가|와)| ?적)|받으세요|받아요|받을래|"
+    r"(?:드릴게|드릴께|줄게|줄께|드리려고|주려고|드릴 ?거|줄 ?거)(?!.*(?:줘|주세요))|"
+    rf"(?:{_THIS_KO}(?:\s*(?:{_COL}))?(?:\s*(?:{_OBJ}))?(?:을|를)?|(?:내|제) 손에 (?:있는|든) (?:거|것|(?:\S+\s+)?\S+))\s*(?:좀\s*)?"
+    r"(?:가져가|들고 ?있어|잡아(?!당)|맡아)", re.I)
+GIVE_EN = re.compile(
+    rf"\b(?:give|hand|pass|bring)\s+(?:{_IT}|the \w+|that \w+|this \w+)(?:\s+(?:back|over))?(?:\s+(?:to|for)\s+{_WHO})?(?:\s+(?:here|over here|over there|there|back))*{_TAIL}"
+    rf"|\b(?:give|hand|pass)\s+(?:{_WHO})\s+(?:{_IT}|the \w+|that \w+|that|this \w+|what you(?:'re| are) holding)\b"
+    rf"|\bhand (?:{_IT} )?over\b|\bpass (?:{_IT} )?over\b|\bcan i (?:have|get|take) (?:{_IT}|the \w+)\b|\bi'?ll take (?:{_IT})\b|"
+    rf"\blet me (?:have|take) (?:{_IT})\b|^\W*(?:okay,? )?give (?:{_IT})\W*$|^\W*gimme(?: (?:{_IT}))?{_TAIL}", re.I)
+GIVE_KO = re.compile(
+    rf"^\W*(?:{_THIS_KO}|(?:\S+\s+)?(?:{_OBJ}))?(?:을|를)?\s*(?:좀\s*)?(?:이제\s*)?(?:이리|여기|빨리)?\s*(?:좀\s*)?"
+    rf"(?:{_KO_WHO}(?:한테|에게|께))?\s*(?:좀\s*)?(?:{_THIS_KO}(?:을|를)?\s*)?(?:좀\s*)?"
+    r"(?:줘|주세요|줘요|주라|건네 ?줘|건네 ?주세요|건네|드려|드려요|드리세요|주실래요|줄래요?|내놔|내놓아|내놓으세요)(?:\s*봐요?)?\s*[.!?~]*$"
+    rf"|^\W*{_KO_WHO}\s*(?:줘|줘요|주세요)\W*$", re.I)
+PLACE_EN = re.compile(
+    rf"\b(?:put|set|place|leave|drop|lay)\s+(?:{_IT}|the \w+|that \w+|this \w+)(?:\s+down)?"
+    r"(?:\s+(?:here|there|over there|somewhere|anywhere))?(?:\s+(?:on|onto|next to|beside|by|near|in front of)\s+.+)?"
+    rf"{_TAIL}|\b(?:put|set) (?:it |that |this )?down\b", re.I)
+PLACE_KO = re.compile(r"(?<!내)(?<!그냥 )(?<!가만히 )(?<!내버려 )(?:놔|놓아|놓으|둬|두세요|올려 ?놔|올려 ?놓|내려 ?놔|내려 ?놓|내려 ?줘|내려 ?주세요|내려 ?둬)"
+                      r"\s*(?:줘|주세요|요|줄래요?)?\s*[.!?~]*$")
+OPEN_HAND = re.compile(r"\bopen (?:your |the )?(?:hand|gripper|fingers)\b|\bopen it\b|\blet (?:it )?go\b|"
+                       r"손을? ?(?:좀 )?(?:펴|벌려|열어)|손 ?open|hand open", re.I)
+HAND_Q = re.compile(r"^\W*(?:what|how|why|when|where|which|who|do|does|did|is|are|was|were|have you|has)\b|"
+                    r"\b(?:things|stuff|objects)\b|물건들|"                     # "and take things from me?": in general
+                    r"\b(?:can|could) you (?:\w+ )?(?:things|people|objects|anything|something)\b|"
+                    r"(?<!줄 )(?<!주실 )(?<!받을 )수 ?있(?:어|나|니|을까|습니까)|\bif i\b", re.I)
+MULTI = re.compile(r"\b(?:and then|then|after that|go to|drive to|come back|bring it to (?!me\b))\b|그리고|가서|다음에|"
+                   r"(?:으로|로) ?(?:가|와)", re.I)
+REFUSE_OPEN = ("I won't open my hand while I'm holding something: it would fall. Say put it down or hand it over.",
+               "물건을 들고 있어서 손을 펴면 떨어져요. 내려놓으라고 하시거나 달라고 해 주세요.")
+
+
+def hand_request(text, holding, b=None, markers=(), whole=True):
+    """What the words ask of the hand, in any wording: ("receive", object or None) take it from the person's hand,
+    ("give", None) hand over what is held, ("place", place_on() or None) put it down, ("refuse", (en, ko)) open the
+    hand while holding; None for anything else (a pick from the table, a mission of several steps, a question).
+    holding: something is in the hand now. "give me the cup" with the hand empty is a pick and give (a mission).
+    whole: the words are a whole command (not one clause of a mission): several steps in it are the mission reader's."""
+    t = CALLING.sub("", _norm(text).strip())             # "루미야, 이리 줘", "혹시 저 줘요", "um, put it down"
+    if HAND_Q.search(t) or re.search(r"\b(?:don'?t|do not|never) (?:\w+ )?(?:give|hand|pass|put|place|take|hold|drop|set|"
+                                    r"leave|let)\b|지 ?마", t) or MULTI.search(t):
+        return None                                     # "can you give things to people?", "don't give it to him"
+    if any(_resolve(m, markers) not in (None, "here") for m in re.finditer(_place_re(markers), t)):
+        return None                                     # a marker named: a trip, the mission reader's
+    if whole:
+        from assistant import steps
+        got = [s["do"] for s in steps.rules(text, markers)[0]]
+        if len(set(got)) > 1 and got != ["pick", "give"]:   # not "give me the cup" (picked first when the hand is empty)
+            return None                                 # "take the cup, move back half a metre and hold it"
+    named = re.search(rf"(?<![a-z])(?:{_OBJ})s?(?![a-z])", t)
+    if holding and OPEN_HAND.search(t):
+        return ("refuse", REFUSE_OPEN)
+    if RECEIVE_EN.search(t) or RECEIVE_KO.search(t):
+        if holding and re.search(r"\bhold (?:it|that|on)\s*(?:$|[,.!?]|for\b|please\b|there\b)|^\W*(?:그거\s*)?들고 ?있어", t):
+            return None                                  # "just hold it": keep holding it
+        obj = re.search(rf"(?<![a-z])({_OBJ})s?(?![a-z])", t)
+        return ("receive", OBJECTS[obj.group(1)] if obj else None)
+    if re.search(r"\bput (?:it|that|this|the \w+) back\b|제자리|다시 ?(?:놓|둬|놔)", t):
+        return None                                      # "put it back": where it was (the put intent)
+    if GIVE_EN.search(t) or GIVE_KO.search(t):
+        if named and not holding:
+            return None                                  # "give me the cup": pick it first (a mission)
+        if re.search(r"\b(?:give|hand|pass|bring)\s+(?:it|that|this)\s+to\s+(?!me\b|him\b|her\b|them\b|my\b|that\b|the\b|"
+                     r"this\b|whoever\b)[a-z]+", t):
+            return None                                  # "give it to Mina": a named person, the mission reader's
+        return ("give", None)
+    if (PLACE_EN.search(t) or PLACE_KO.search(t)) and "팔" not in t and not re.fullmatch(r"\W*leave (?:it|that|this)\W*", t):
+        # not "팔 거둬" / "팔 내려" (the arm), not a bare "leave it" (never mind)
+        if named and not holding:
+            return None                                  # "put the cup on the table": the put intent / a mission
+        on = place_on(text)
+        if on is None and re.search(r"\b(?:here|there)\b|여기|거기|저기", t):
+            on = {"pointed": True}                       # "put it here / there": where the person points
+        return ("place", on)
+    return None
+
+
+CORRECTION = re.compile(r"^\W*(?:no+\b(?!\W*(?:thanks|thank|worries|problem|need|way)\b)|nope\b|not (?:that|this|the)\b|wrong\b|the other\b|아니|그거 말고|그거 아니|"
+                        r"다른 거)|\bthe other one\b|말고", re.I)
+
+
+def correction(text, history):
+    """Right after a pick / move / fetch the words say it was the wrong thing ("no, the other one", "아니 그거
+    말고"): ("pick", "red cup") when they name what they mean instead, else ("ask", (en, ko)). None otherwise."""
+    if not history or not CORRECTION.search(text):
+        return None
+    m = re.match(r"\s*\**ACTION\**\s*:\s*(pick|move_object|fetch)\b", history[-1][1])
+    if not m:
+        return None
+    t = _norm(text)
+    objs = list(re.finditer(rf"(?:({_COL})\s*)?(?<![a-z])({_OBJ})s?(?![a-z])", t))
+    objs = [o for o in objs if not re.search(_NOT_OBJ, t[:o.start()]) and not re.match(r"\s*(?:말고|아니)", t[o.end():])]
+    colour = re.search(rf"(?<![a-z])({_COL})(?![a-z])(?:\s*(?:one|1|거|것|색))?", t)
+    last = history[-1][1].split(None, 2)[2:] or [""]
+    if m.group(1) == "pick" and (objs or colour) and not re.search(r"\bother\b|다른", t):
+        obj = OBJECTS[objs[-1].group(2)] if objs else last[0].split()[-1] if last[0] else "cup"
+        col = COLOURS.get(objs[-1].group(1)) if objs and objs[-1].group(1) else (COLOURS[colour.group(1)] if colour else None)
+        return ("pick", f"{col} {obj}" if col else obj)
+    return ("ask", ("Which one do you mean? Tell me its colour, or say left or right.",
+                    "어떤 거요? 색깔이나 왼쪽, 오른쪽으로 말해 주세요."))
 
 
 def parse_correction(text, task, markers=(), field=None):
@@ -755,7 +1041,10 @@ def parse_correction(text, task, markers=(), field=None):
     return task, changed
 
 
-_YES = r"yes|yeah|yep|yup|ok|okay|sure|right|correct|that'?s right|go ahead|do it|please|네|예|응|어|맞아요?|맞습니다|좋아요?|그래요?"
+_YES = (r"yes|yeah|yep|yup|ok|okay|alright|all right|sure|of course|exactly|absolutely|perfect|sounds good|right|correct|"
+        r"that'?s (?:right|correct|it)|(?:you'?re|you are) (?:right|correct)|go ahead|go on|let'?s go|let'?s do (?:it|that)|"
+        r"go|do (?:it|that)|please|네|예|응|어|맞아요?|맞습니다|맞네요?|좋아요?|그래요?|가자|가요|해 ?줘요?|해 ?주세요|"
+        r"부탁해요?")   # longer phrases before their first word ("go ahead" before "go")
 _NO = r"no|nope|wrong|not right|아니요?|아뇨|아니에요|틀렸어요?"
 
 
@@ -787,6 +1076,16 @@ FAREWELL_TEXT = re.compile(r"\b(bye|goodbye|good night|see ya|take care|thanks?|
                            re.I)   # words that end a talk
 QUESTION_START = re.compile(r"^\s*(where|what|how|why|when|which|who|do you|does|is|are|can i|could i)\b|어디 ?(있|에 있)|"
                             r"(어디|뭐|왜|언제|몇)[^ ]*\s*\?*\s*$", re.I)    # a question about a place, not a command
+ABILITY_Q = re.compile(r"(?<!줄 )(?<!주실 )(?<!줘 )(?<!받을 )수 ?있(?:어|나|니|을까|습니까)\S*\s*\?*\s*$|\bdo you know how\b|"
+                       r"\bare you able\b", re.I)          # asks whether Lumi can, not to do it
+RECEIVE_ASK = re.compile(r"\b(?:take|hold|give|hand|here|catch|grab|accept|receive|keep|yours)\b|받|드릴|드려|줄게|줄께|가져가|맡아|잡아",
+                         re.I)                               # words that hand something over to Lumi
+COME_ASK = re.compile(r"\bcome\b|\b(?:over )?here\b|\bcloser\b|\bthis way\b|이리|와|가까이|오세요", re.I)
+FOLLOW_ASK = re.compile(r"\bfollow\b|\bwith (?:me|us)\b|\balong\b|따라|같이|함께", re.I)   # words of a follow request ...
+SOCIAL = re.compile(r"\b(?:instagram|insta|twitter|tiktok|youtube|facebook|linkedin|social media|account|channel|blog)\b|"
+                    r"인스타|유튜브|트위터|틱톡|페이스북|팔로우", re.I)                      # ... not online
+MOTIONS = {"go_to", "come", "follow","move", "turn", "look", "lift", "wave", "arm", "pick", "put", "move_object", "fetch", "give",
+           "place", "receive"}
 REFERS_BACK = re.compile(r"\b(it|they|them|those|these|another|one more|one about)\b|그거|그걸|그건|그게|그것|하나 ?더|또 ?하나",
                          re.I)   # about the last answer
 HELP_OFFER = re.compile(r"\b(how|what) (can|may) i (help|assist|do for) you\b|\bis there anything (else )?i can\b|"
@@ -800,7 +1099,7 @@ IN_LANGUAGE = re.compile(r"^\s*(and |then |now |okay,? |and say it |say (it|that
                          r"^\s*(그거|그걸|그럼|다시|이번엔|이제)?\s*(한국어|영어|korean|english)\s?로(?!.*(대화|할 ?수|할 ?줄|돼요\?|되나))"
                          r"(요|는요|는|도)?\s*(다시\s*)?((말|말씀|얘기)?\s*해\s*(줘|주세요|줄래요?|줄 ?수 ?있어요?|봐요?)?)?"
                          r"\s*[!?.~]*\s*$", re.I)
-WAVE_ASK = re.compile(r"\bwav(e|ing)\b|\bwith your hand\b|\bshake (your|my) hand\b|흔들|손 ?인사|인사.*손으로|손으로.*인사", re.I)
+WAVE_ASK = re.compile(r"\bwav(e|ing)\b|\bwith your hand\b|\bshake (?:your |my )?hands?\b|흔들|손 ?인사|인사.*손으로|손으로.*인사", re.I)
 SING_ASK = re.compile(r"\bsing|\bsong|\bmusic\b|노래|한 ?곡|불러", re.I)
 LOOK_MORE = re.compile(r"^\W*(?:and|now|then|and now)?\s*(up|down|left|right)\W*$|"
                        r"^\W*(?:이제|그럼|그리고)?\s*(위|아래|왼쪽|오른쪽)(?:도|로|으로|요|도요)?\W*$", re.I)  # right after a look
@@ -809,10 +1108,12 @@ LOOKUP_MORE = re.compile(r"\b(he|she|him|his|her|they|them|their|there|it|that)\
 SPEAK_IN = re.compile(r"(english|영어|korean|한국어)\s?로\s*(?:다시\s*|좀\s*|한 ?번\s*)*(?:말|얘기|소개|대답|답|설명|자기소개|"
                       r"해\s*(?:줘|주|봐))(?!.*(?:해도|도 ?돼|할 ?수|할 ?줄))|"
                       r"\b(?:speak|talk|answer|reply|introduce yourself)\b.*\bin (english|korean)\b", re.I)
+SHORT_Q = re.compile(r"\?|^\W*(?:where|who|what|when|how|which|why)\b|몇|어디|누가|누구|뭐|언제|왜|얼마|어떻게", re.I)
+ABOUT_YOU = re.compile(r"\b(?:you|your|yourself|lumi)\b|너|네가|니가|넌|루미|당신", re.I)   # a follow-up about Lumi itself
 FOLLOW_UP = re.compile(r"\b(more|why|how come|details?|explain|elaborate|and then|what else|tell me more)\b|자세히|더 알려|왜|그리고", re.I)
 _CLOSE_WORD = (r"(ok(ay)?|okay then|thanks?( you)?( very much)?( a lot)?|thank you( so much)?|got it|alright|all right|"
                r"fine|good|great|cool|nice|perfect|stop|enough|that'?s (it|all|enough|fine)|so|sure|i see|understood|"
-               r"no thanks|nothing|never ?mind|lumi|루미|고마워요?|감사합니다|감사해요|알겠어요?|알았어요?|오케이|됐어요?|그만|좋아요?|"
+               r"no thanks|nothing|never ?mind|lumi|루미|고마워요?|감사합니다|감사해요|땡큐|알겠어요?|알았어요?|오케이|됐어요?|그만|좋아요?|"
                r"i got (it|you)|got you|i understand|makes sense|that makes sense|okay,? i understand|"
                r"네|예|그래요?|알겠습니다|알겠어|이해했어요|이해했습니다|그렇군요|아하)")
 CLOSING = re.compile(rf"^(\s*{_CLOSE_WORD}[\s,.!]*)+$", re.I)   # one or several: "okay, thanks", "got it, thank you"
@@ -824,6 +1125,24 @@ WAKE_WORD_RE = re.compile(r"\b(lumi|loomi|rumi)\b|루미", re.I)
 def is_closing(text):
     """'okay', 'thanks', 'got it', 'stop'...: the visitor is done with this answer."""
     return bool(CLOSING.match(text or ""))
+
+
+_BC_EN = (r"oh|ah|aha|wow|whoa|huh|hmm|mm-?hmm|mhm|really|seriously|for real|no way|cool|nice|awesome|interesting|"
+          r"amazing|great|i see|uh[- ]?huh|yeah|yep|right|true|me too|same here|is that so|is that right|is that true|"
+          r"are you sure|(?:that )?makes sense|i got it|got it|understood|i understand|good to know|fair enough|ok(?:ay)?|"
+          r"that'?s (?:cool|nice|great|interesting|amazing|funny|good to know)")
+_BC_KO = (r"아하|아|오|어|우와|와|헐|대박|진짜요|진짜|정말요|정말|그렇구나|그렇군요|그랬구나|그랬군요|그렇네요|그렇네|그런가요|"
+          r"그런가|그래요|그래|신기하네요|신기해요|신기하다|그렇죠|맞아요|맞아|알겠어요|알겠습니다|알겠어|알았어요|알았어|"
+          r"이해했어요|이해했습니다|이해돼요|오케이|네|예|응")
+BACKCHANNEL = re.compile(rf"^(?:[\s,.!?~]*(?:{_BC_EN}|{_BC_KO})(?![\w']))+[\s,.!?~]*$", re.I)
+UNDERSTOOD = re.compile(r"\b(?:i see|got (?:it|you)|understood|i understand|makes sense|good to know|fair enough)\b|"
+                        r"알겠|알았|이해했|이해돼|그렇구나|그렇군|그랬구나|그렇네|아하", re.I)   # "I see", "알겠어요": understood
+
+
+def is_backchannel(text):
+    """'oh really?', 'I see', 'got it', '아 그래?', '그렇구나', '헐': the listener reacts or checks ('I see?', '그런가요?');
+    it asks nothing new and orders nothing."""
+    return bool(BACKCHANNEL.match(text or "")) or is_closing(text)
 
 
 def warm_up():
@@ -861,10 +1180,45 @@ def language(text):
     return "Korean" if re.search(r"[\uac00-\ud7a3]", text) else "English"
 
 
+LOOKUP_BEFORE_CHARS = 1500     # chars of the last lookup's results given again with a follow-up ("how old is she?")
+FOLLOW_UP_WORDS = 5            # "why did Samsung stock fall today?" is a new question, "tell me more about it" is not
+AND_ALSO = re.compile(r"^\s*(and|what about|how about|also|그럼|그리고)\b", re.I)   # "and the yen?": a follow-up
+WEATHER_ASKED = " (the weather)"   # lumi.look_up adds it to a weather question; the history keeps it
+WEATHER_PLACE = re.compile(r"^\W*(?i:(?:and|so|then|ok(?:ay)?)\W+)*(?i:(?:what|how)\s+about\s+)?(?i:in\s+)?"
+                           r"(?!(?:Why|What|When|Where|Who|Whose|How|Which|Is|Are|Was|Will|Can|Could|Do|Does|Did|Should|Lumi)\b)(?P<place>[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)*)[\s?.!]*$")   # "what about Busan?" after the weather
+KO_WEATHER_PLACE = re.compile(r"^\W*(?:(?:그럼|그러면|그리고|아니)\W*)?(?P<place>[가-힣]+?)(?:시|도)?(?:\s*날씨)?"
+                              r"(?:은|는|도|에는|에서는|이요|요)*[\s?.!~]*$")   # "그럼 부산은?": a place of web.KO_PLACES only
+REPAIR = re.compile(r"^\W*(?:(?:no|nope|sorry|oh)\W+)*i\s+mean[t]?\b|^\W*(?:아니|아뇨|아니요)[\s,]|말고\b|"
+                        r"말(?:이야|이에요|이요)\W*$", re.I)   # "no, I meant North Korea", "아니 서울 말이야"
+LEAD = re.compile(r"^\s*(?:(?:and|what about|how about|also|no|nope|sorry|oh|그럼|그리고|아니|아뇨|아니요)\b[\s,]*)*"
+                  r"(?:i\s+mean[t]?\s+)?", re.I)   # the words before what a follow-up asks
+DAY_WORD = re.compile(r"\b(?:today|tonight|tomorrow|yesterday|weekend|week|morning|afternoon|evening|monday|tuesday|"
+                      r"wednesday|thursday|friday|saturday|sunday)\b", re.I)
+NAMES = re.compile(r"\b[A-Z][a-z]+(?:-[a-z]+)?(?: [A-Z][a-z]+(?:-[a-z]+)?)+")   # "Jensen Huang", "Son Heung-min"
+MORE_ONLY = re.compile(r"\b(tell me more|tell me|more|details?|explain|elaborate|what else|please|about (it|that|this))\b|"
+                       r"더 알려 ?(줘|주세요)?|자세히|알려 ?(줘|주세요)|좀", re.I)   # words of a follow-up that search nothing
+LOOKUP_ANSWER = """Search results found just now on the internet (they may hold ads and unrelated parts):
+{facts}
+{before}
+Visitor: {question}
+
+Answer in {lang} as spoken words to a person: the answer itself in the first sentence, short (1 or 2 sentences;
+when they ask for more, 2 or 3 sentences with facts not said yet). No lists, links or markdown. Take names, numbers
+and dates from the results above (the newest when they differ). Only when the results do not hold it and it is
+settled general knowledge that never changes (a landmark's height, who founded a company) answer from what you know;
+anything that changes (who holds an office, prices, results, news, schedules) only from the results, else say in one
+sentence that you couldn't find it; never guess. Round only long numbers such as prices and populations ("about 1,330
+won", "about 9.4 million"); say heights, ages, dates and scores as found (an age next to a birth date is worked out
+already). Do not mention the search, the results or websites. Never give a person's home address, phone number or
+other private details, nor help to hurt someone or break the law: say briefly that you can't help."""
+
+
 class Brain:
     def __init__(self):
         self.history = []                 # [(question, answer)]
         self.last_lookup = None           # the last question answered from the internet
+        self.last_facts = ""              # ... and what was found for it (a follow-up is answered from it too)
+        self.lookup_topic = ""            # what the last lookup that was not a follow-up searched for
 
     def answer(self, question):
         hits = [h for h in knowledge.search(question, k=4) if h[0] >= MIN_SCORE]
@@ -917,14 +1271,18 @@ class Brain:
         hits = [h for h in hits if h[0] >= MIN_SCORE]
         notes = "\n\n".join(f"[{src}]\n{t}" for _, src, t in hits) or "(no matching notes)"
         lang = reply_language(text)
-        system = SYSTEM + f"\nNow it is {now_line()}." + (f"\nWhat you are doing now: {now}" if now else "") + \
-            "\n" + ACTIONS_STREAM.format(markers=", ".join(markers) or "(none)", yaw=f"{HEAD_YAW[1]:g}",
+        # the long fixed part comes first and stays the same from turn to turn, so the runner keeps it cached (else ~3 s
+        # more per turn); the time goes into the last message. What Lumi does now stays here: in the last message it
+        # read "leave it" while holding a cup as "put it down"
+        system = SYSTEM + "\n" + ACTIONS_STREAM.format(markers=", ".join(markers) or "(none)", yaw=f"{HEAD_YAW[1]:g}",
                                           pitch_down=f"{-HEAD_PITCH[0]:g}", pitch_up=f"{HEAD_PITCH[1]:g}",
-                                          lift=f"{head_hw.LIFT_MAX_MM:g}")
+                                          lift=f"{head_hw.LIFT_MAX_MM:g}") + (f"\nWhat you are doing now: {now}" if now else "")
         messages = [{"role": "system", "content": system}]
         for q, a in self.history[-HISTORY_TURNS:]:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
-        messages.append({"role": "user", "content": f"Reference notes:\n{notes}\n\n{_examples(about, on_task=bool(now) and 'not doing any task' not in now)}Visitor: {text}\n\n"
+        messages.append({"role": "user", "content": f"Reference notes:\n{notes}\n\n{_examples(about, on_task=bool(now) and 'not doing any task' not in now)}"
+                                                    f"Now it is {now_line()}." +
+                                                    f"\n\nVisitor: {text}\n\n"
                                                     f"(Reply in {lang}.)"})
         buf, full, header, said = "", "", None, []
         stream, retried = _stream(messages), False
@@ -938,7 +1296,7 @@ class Brain:
                     first, buf = buf.split("\n", 1)
                     header = self._after(self._action(first, text, markers), text)
                     if header is None:                     # the model skipped the ACTION line
-                        header, buf = {"action": "none", "target": ""}, first + " " + buf
+                        header, buf = self._after({"action": "none", "target": ""}, text), first + " " + buf
                     if header["action"] == "unclear" and not retried and has_meaning(text) and \
                             not other_latin_language(text):  # 26b called short or broken but clear words unclear
                         stream.close()
@@ -997,8 +1355,17 @@ class Brain:
             return {"action": "look", "target": {"위": "up", "아래": "down", "왼쪽": "left", "오른쪽": "right"}.get(d, d.lower()),
                     "say": "네." if language(text) == "Korean" else "Okay."}
         looked_up = before == "search" or (self.last_lookup is not None and last_q == self.last_lookup)
-        if looked_up and action in ("none", "unclear") and (LOOKUP_MORE.search(text) or FOLLOW_UP.search(text)) \
-                and not COMPANY_TALK.search(text):
+        if not looked_up or action not in ("none", "unclear") or is_backchannel(text):   # "oh really?" asks nothing
+            return header
+        place = WEATHER_PLACE.match(text) if last_q.endswith(WEATHER_ASKED) else None
+        if place and not DAY_WORD.search(place.group("place")):
+            return {"action": "weather", "target": place.group("place")}   # "and Tokyo?"; "and tomorrow?" is searched
+        place = KO_WEATHER_PLACE.match(text) if last_q.endswith(WEATHER_ASKED) else None
+        if place and place.group("place") in web.KO_PLACES:
+            return {"action": "weather", "target": web.en_place(place.group("place"))}   # "그럼 부산은?"; "내일은?" is searched
+        if (LOOKUP_MORE.search(text) or FOLLOW_UP.search(text) or AND_ALSO.match(text) or REPAIR.search(text) or
+                SHORT_Q.search(text) and len(text.split()) <= 6) \
+                and not COMPANY_TALK.search(text) and not ABOUT_YOU.search(text):   # "Where?", "몇 살이야?" after a lookup
             return {"action": "search", "target": f"{last_q} {text}"}
         return header
 
@@ -1048,22 +1415,23 @@ class Brain:
         messages = [{"role": "system", "content": SYSTEM + f"\nNow it is {now_line()}."}]
         for q, a in self.history[-HISTORY_TURNS:]:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
-        messages.append({"role": "user", "content": f"Facts found just now on the internet:\n{facts}\n\nVisitor: {question}\n\n"
-                                                    f"Answer the visitor directly in {language(question)}: short and exact, "
-                                                    f"1 or 2 spoken sentences (more only if they asked for more), no lists, "
-                                                    f"no links. Use the facts, and your own general knowledge where the facts "
-                                                    f"are incomplete. Do not talk about the facts or the search themselves."})
+        follow_up = self.last_lookup is not None and self.history and self.history[-1][0] == self.last_lookup
+        before = f"\nFound for the question before:\n{self.last_facts[:LOOKUP_BEFORE_CHARS]}\n" if follow_up else ""
+        lang = language(question)
+        messages.append({"role": "user", "content": LOOKUP_ANSWER.format(facts=facts, before=before, question=question,
+                                                                         lang=lang)})
+        self.last_facts = facts
         buf, full = "", ""
         for piece in _stream(messages):
             full += piece
             buf += piece
             parts = SENTENCE_END.split(buf)
             for sentence in parts[:-1]:
-                if sentence.strip():
-                    yield sentence.strip()
+                if spoken(sentence.strip(), lang):             # no "ACTION: none" copied from the history
+                    yield spoken(sentence.strip(), lang)
             buf = parts[-1]
-        if buf.strip():
-            yield buf.strip()
+        if spoken(buf.strip(), lang):
+            yield spoken(buf.strip(), lang)
         self.history.append((question, full.strip()))
         self.last_lookup = question                        # a "tell me more" next is looked up again
 
@@ -1112,9 +1480,26 @@ class Brain:
             return text
 
     def search_query(self, text):
-        """What to look up: a follow-up ("tell me more") is about the previous question."""
-        if FOLLOW_UP.search(text) and self.history:
-            return f"{self.last_lookup or self.history[-1][0]} {text}"
+        """What to look up. A follow-up right after a lookup ("tell me more", "how old is she?", "and the yen?",
+        "몇 살이야?"; _after writes it after the question before) is searched with that lookup's topic, the names its
+        answer gave ("Jensen Huang") and only the words that ask something new; a third follow-up still goes with
+        the first question."""
+        follow = bool(self.last_lookup) and text.startswith(self.last_lookup)
+        if follow:
+            text = text[len(self.last_lookup):]
+        after_lookup = bool(self.last_lookup and self.history and self.history[-1][0] == self.last_lookup)
+        words = len(text.split())
+        if follow or self.history and (FOLLOW_UP.search(text) and words <= FOLLOW_UP_WORDS or after_lookup and (
+                words <= 3 if HANGUL.search(text) else          # "몇 살이야?": Korean leaves the subject out
+                words <= FOLLOW_UP_WORDS and (LOOKUP_MORE.search(text) or AND_ALSO.match(text)))):
+            topic = self.lookup_topic or self.last_lookup or self.history[-1][0]
+            if (self.last_lookup or "").endswith(WEATHER_ASKED):          # "and tomorrow?" after the weather
+                topic = "weather " + self.last_lookup[:-len(WEATHER_ASKED)]
+            said = SENTENCE_END.split(self.history[-1][1].strip())[0] if after_lookup else ""
+            names = [n for n in dict.fromkeys(NAMES.findall(said)) if n.lower() not in topic.lower()]
+            rest = LEAD.sub("", re.sub(r"\s+", " ", MORE_ONLY.sub(" ", text)).strip(" ?.!,")).strip()
+            return " ".join([topic] + names + [rest]).strip()
+        self.lookup_topic = text
         return text
 
     def is_lookup_follow_up(self, text):
@@ -1124,7 +1509,8 @@ class Brain:
 
     @staticmethod
     def _action(line, text, markers):
-        m = re.match(r"\s*\**ACTION\**\s*:\s*(\w+)\s*(.*)", line, re.I)
+        m = re.match(r"\s*\**ACTION\**\s*:\s*(\w+)\s*(.*)", line, re.I) or \
+            re.match(r"\s*(search|weather)\s+(\S.*)", line)   # "search Chung Ju-yung death date": no ACTION: written
         if not m:
             return None
         action, target = m.group(1).lower(), m.group(2).strip().strip("-.,\"'").strip()
@@ -1132,6 +1518,8 @@ class Brain:
             target = " ".join(target.split()[:2]).lower()
             if action == "move" and float((re.findall(r"\d+(?:\.\d+)?", target) or ["0"])[0]) > MOVE_MAX_M:
                 action = "none"                             # "앞으로 10미터 가": it says the limit, it does not drive
+        elif action in ("pick", "move_object"):
+            target = " ".join(target.lower().split()[:3])  # "white cup", "tennis ball"
         elif action not in ("weather", "search", "fetch"):     # a fetch is read by parse_fetch() later
             target = target.split()[0] if target.split() else ""
         if action not in ACTION_NAMES:
@@ -1144,19 +1532,37 @@ class Brain:
                 say = ("I don't know that place. I can go to: " + ", ".join(markers) + ".",
                        "그 장소는 제가 몰라요. 제가 갈 수 있는 곳은 " + ", ".join(markers) + "이에요.")
             action = "go_to" if target else "none"
-        if action in ("go_to", "come", "move", "turn") and QUESTION_START.search(text):
-            action, target = "none", ""                    # "where is your charger?": a question, not an order
+        bare = CALLING.sub("", text)
+        if action in MOTIONS and (QUESTION_START.search(bare) and not (action in ("give", "receive") and
+                                                                      re.match(r"(?:can|could|may) i\b", bare, re.I))
+                                  or ABILITY_Q.search(text)):
+            action, target = "none", ""                    # "where is your charger?", "손 펼 수 있어요?": a question
         if action in ("look", "lift"):                     # "left", "left 30", "up small"; anything else is dropped
             d, _, n = target.partition(" ")
             if d not in (LOOK_TARGETS if action == "look" else ("up", "down")):
                 action = "none"
             elif n and not re.fullmatch(r"small|\d+(?:\.\d+)?", n) or d in ("me", "center"):
                 target = d
+        if action in ("pick", "move_object") and not re.search(rf"(?<![a-z])(?:{_OBJ})s?(?![a-z])", target.lower()):
+            action, target = "none", ""                    # "pick box": not a thing it knows (lumi would pick a cup)
+        elif action in ("pick", "move_object"):
+            cls = OBJECTS[re.search(rf"(?<![a-z])({_OBJ})s?(?![a-z])", target.lower()).group(1)]
+            if not re.search(rf"(?<![a-z])(?:{'|'.join(re.escape(w) for w, c in OBJECTS.items() if c == cls)})", _norm(text)):
+                action, target = "none", ""                # its own word must be said: "olma" is not an apple
         if action == "arm" and target not in ("reach", "fold", "open", "close"):
             action = "none"
+        if action == "receive" and not RECEIVE_ASK.search(text):
+            action = "none"                                # "I have an apple": news, not a hand-over
+        if action in ("move", "come_back") and re.search(r"\bcome back\b|\breturn\b|돌아 ?(?:와|가|오|올|갈)",
+                                                         _norm(text)) and driving.amount(_norm(text))[0] is None:
+            action = "none"                                # "I'll come back later"; a real "come back" is intent() below
+        if action == "come" and not COME_ASK.search(text):
+            action = "none"                                # "my friend is over there"
+        if action == "follow" and (not FOLLOW_ASK.search(text) or SOCIAL.search(text)):
+            action = "none"                                # "follow me on instagram", "I like walking"
         if action == "wave" and not WAVE_ASK.search(text):
             action = "none"                                # "Hello Lumi!", "hello 해 봐": a greeting, not a wave
-        if action not in ("go_to", "look", "lift", "weather", "search", "move", "turn", "arm", "fetch"):
+        if action not in ("go_to", "look", "lift", "weather", "search", "move", "turn", "arm", "fetch", "pick", "move_object"):
             target = ""
         if action == "search" and not target:
             target = text
