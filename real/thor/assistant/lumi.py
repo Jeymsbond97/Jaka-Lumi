@@ -1760,12 +1760,17 @@ class Lumi:
         self.turn_head(HEAD_SIGN * track.angle)          # speech only: a greeting never moves the arm
         mouth.say(GREETING)                              # cached at start: plays at once
 
+    def warm_llm(self):
+        """brain.warm in the background (markers and the task state are read there, listening starts at once)."""
+        threading.Thread(target=lambda: safe(lambda: self.brain.warm(self.markers, self.now_doing()[0])), daemon=True).start()
+
     def talk_turn(self):
         """Listen once; answer if something was said. Returns True if the visitor spoke."""
         if self.pending_text:                              # asked while Lumi was talking
             text, self.pending_text = self.pending_text, None
             self.answer(text)
             return True
+        self.warm_llm()                                    # the LLM's prompt start cached while they speak
         text, u = ears.listen(wait_s=4.0, on_start=lambda: log("  hearing speech"), abort=self.interrupted, full=True)
         if text and self.own_echo(text) and (u is None or u.source == "clip" or len(text.split()) <= 2):
             # Lumi heard itself: the clip mic, or the room's echo of the last word on the head array (muted while Lumi
@@ -2504,6 +2509,7 @@ class Lumi:
                                   "talking with one person in view"))
         if self.vision:
             self.vision.start()
+        self.warm_llm()
         log("ready")
         self.run_camera() if self.vision else self.run_desk()
 

@@ -26,13 +26,14 @@ KEEP_EVERY_S = 60.0                                # s; Ollama is told this ofte
 
 _ports = {}                                        # model -> the runner's port, found once
 _kept = {}                                         # model -> when Ollama was last told to keep it
+_filled = {}                                       # model -> (prompt, the runner's task id) of the last prefill
 
 
-def render(messages):
-    """Ollama's gemma4 prompt (the runner adds <bos>)."""
+def render(messages, reply=True):
+    """Ollama's gemma4 prompt (the runner adds <bos>); reply=False: the turns only, the start of a longer prompt."""
     turns = "".join(f"<|turn>{'model' if m['role'] == 'assistant' else m['role']}\n{m['content']}<turn|>\n"
                     for m in messages)
-    return f"{turns}<|turn>model\n{NO_THINKING}"
+    return f"{turns}<|turn>model\n{NO_THINKING}" if reply else turns
 
 
 def _find_port(model):
@@ -86,6 +87,37 @@ def stream(messages, model, temperature=0.3, num_predict=200):
         except (OSError, ValueError, KeyError, AttributeError):
             _ports.pop(model, None)
     return None
+
+
+def prefill(messages, model):
+    """In the background, have the runner process these messages (the start of the next prompt) now, so the next
+    request only processes its own last message. The runner has one slot: any other prompt in between (a lookup, a
+    farewell, a mission read-back, a picture) leaves only ~1000 tokens of ours cached and the next answer ~3.5 s
+    slower. Nothing is sent when the runner has done nothing since the same prefill (its /slots task id)."""
+    if not model.startswith("gemma4"):
+        return
+    prompt = render(messages, reply=False)
+
+    def run():
+        try:
+            if model not in _ports:
+                _ports[model] = _find_port(model)
+            base = f"http://127.0.0.1:{_ports[model]}"
+            if _filled.get(model, (None,))[0] == prompt and _filled[model][1] == _task(base):
+                return
+            body = json.dumps({"prompt": prompt, "n_predict": 0, "cache_prompt": True}).encode()
+            urllib.request.urlopen(urllib.request.Request(f"{base}/completion", body,
+                                                          {"Content-Type": "application/json"}), timeout=60).read()
+            _filled[model] = (prompt, _task(base))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            _ports.pop(model, None)
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _task(base):
+    """The id of the last task the runner's slot ran."""
+    with urllib.request.urlopen(f"{base}/slots", timeout=2) as r:
+        return json.loads(r.read())[0]["id_task"]
 
 
 def _pieces(r):

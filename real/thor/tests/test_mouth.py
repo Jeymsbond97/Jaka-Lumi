@@ -22,4 +22,7 @@ assert llm_direct.render([{"role": "system", "content": "S"}, {"role": "user", "
                           {"role": "assistant", "content": "A"}, {"role": "user", "content": "Q2"}]) == \
     ("<|turn>system\nS<turn|>\n<|turn>user\nQ<turn|>\n<|turn>model\nA<turn|>\n<|turn>user\nQ2<turn|>\n"
      "<|turn>model\n<|channel>thought\n<channel|>")
-print(f"ok: {len(CUTS)} cuts, the prompt")
+# a prefill (system + turns) is the start of the next prompt, so the runner's cache holds it
+start = [{"role": "system", "content": "S"}, {"role": "user", "content": "Q"}, {"role": "assistant", "content": "A"}]
+assert llm_direct.render(start + [{"role": "user", "content": "Q2"}]).startswith(llm_direct.render(start, reply=False))
+print(f"ok: {len(CUTS)} cuts, the prompt, the prefill")

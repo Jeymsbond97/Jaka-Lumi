@@ -1,4 +1,4 @@
-"""Speaking: text -> speech (Supertonic-3, English and Korean, on the robot) -> USB speaker.
+"""Speaking: text -> speech (Supertonic-3, English and Korean, on the robot's GPU: audio/tts_gpu.py) -> USB speaker.
 
     python audio/mouth.py "Hello, I am Lumi."
     python audio/mouth.py "안녕하세요, 저는 루미예요."
@@ -27,8 +27,9 @@ VOICE = "F1"                                  # F1-F5 female, M1-M5 male
 STEPS = 4                                     # quality/speed: 4 fast ... 8 best
 SPEED = 0.92                                  # < 1 = slower; 1.05 sounded rushed
 SPEED_MIN, SPEED_MAX = 0.72, 1.2              # what "speak slower / faster" may set (Supertonic takes 0.7 to 2.0)
-SPLIT_WORDS = 8                               # a first sentence this long is said in two parts, cut after its first
-                                              # comma: the first part is synthesised in ~0.7 s instead of ~1.8 s
+SPLIT_WORDS = 8                               # TTS on the CPU only: a first sentence this long is said in two parts,
+                                              # cut after its first comma (first part ~0.7 s instead of ~1.8 s); on
+                                              # the GPU a whole sentence takes 0.07-0.2 s and is said in one piece
 VOLUME = 55                                   # % of the USB speaker mixer (100 % disturbed people in the office)
 CACHED = ["Hi, I'm Lumi, the assistant robot. How can I help you?", "안녕하세요, 저는 루미예요. 무엇을 도와드릴까요?",
           "Yes?", "네?", "Okay, I'm coming.", "네, 갈게요.", "I'm right here.",
@@ -41,6 +42,7 @@ CACHED = ["Hi, I'm Lumi, the assistant robot. How can I help you?", "안녕하�
 
 _tts = None
 _style = None
+_gpu = False                                  # synthesis on the GPU (audio/tts_gpu.py engines loaded)
 _cache = {}
 _volume_set = False
 _recent = []                                  # (time, sentence) Lumi said lately: to tell its own echo from a visitor
@@ -95,13 +97,19 @@ def _set_volume():
 
 
 def _load():
-    global _tts, _style
+    global _tts, _style, _gpu
     _set_volume()
     if _tts is None:
         from supertonic import TTS
+        from audio import tts_gpu
         _tts = TTS(model="supertonic-3", model_dir=ROOT / "models/supertonic3", auto_download=False,
                    intra_op_num_threads=8)
         _style = _tts.get_voice_style(VOICE)
+        try:
+            tts_gpu.use(_tts.model)
+            _gpu = True
+        except Exception as e:                # no engine file, no GPU, no TensorRT: the CPU, 5-10x slower
+            print(f"mouth: TTS on the CPU ({e})", flush=True)
     return _tts
 
 
@@ -115,9 +123,10 @@ def sentences(text):
 
 
 def first_parts(sentence):
-    """A long first sentence cut after its first comma (3 words in or later), so the voice starts sooner."""
+    """TTS on the CPU: a long first sentence cut after its first comma (3 words in or later), so the voice starts
+    sooner."""
     m = re.search(r"[,;]\s", sentence)
-    if len(sentence.split()) < SPLIT_WORDS or not m or len(sentence[:m.start()].split()) < 3:
+    if _gpu or len(sentence.split()) < SPLIT_WORDS or not m or len(sentence[:m.start()].split()) < 3:
         return [sentence]
     return [sentence[:m.start() + 1], sentence[m.end():]]
 

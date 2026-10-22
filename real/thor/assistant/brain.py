@@ -1249,6 +1249,14 @@ already). Do not mention the search, the results or websites. Never give a perso
 other private details, nor help to hurt someone or break the law: say briefly that you can't help."""
 
 
+def route_system(markers=(), now=None):
+    """The system prompt of respond_stream: the same from turn to turn but for what Lumi is doing now, at its end."""
+    return SYSTEM + "\n" + ACTIONS_STREAM.format(markers=", ".join(markers) or "(none)", yaw=f"{HEAD_YAW[1]:g}",
+                                                pitch_down=f"{-HEAD_PITCH[0]:g}", pitch_up=f"{HEAD_PITCH[1]:g}",
+                                                lift=f"{head_hw.LIFT_MAX_MM:g}") + \
+        (f"\nWhat you are doing now: {now}" if now else "")
+
+
 class Brain:
     def __init__(self):
         self.history = []                 # [(question, answer)]
@@ -1310,9 +1318,7 @@ class Brain:
         # the long fixed part comes first and stays the same from turn to turn, so the runner keeps it cached (else ~3 s
         # more per turn); the time goes into the last message. What Lumi does now stays here: in the last message it
         # read "leave it" while holding a cup as "put it down"
-        system = SYSTEM + "\n" + ACTIONS_STREAM.format(markers=", ".join(markers) or "(none)", yaw=f"{HEAD_YAW[1]:g}",
-                                          pitch_down=f"{-HEAD_PITCH[0]:g}", pitch_up=f"{HEAD_PITCH[1]:g}",
-                                          lift=f"{head_hw.LIFT_MAX_MM:g}") + (f"\nWhat you are doing now: {now}" if now else "")
+        system = route_system(markers, now)
         messages = [{"role": "system", "content": system}]
         for q, a in self.history[-HISTORY_TURNS:]:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
@@ -1617,6 +1623,15 @@ class Brain:
         if say and action == "none" and not QUESTION_START.search(text):
             out["say"] = say[1] if language(text) == "Korean" else say[0]   # its words said it would go: replaced
         return out
+
+    def warm(self, markers=(), now=None):
+        """Before the next question (lumi.py calls it when it starts to listen and when it starts): the runner processes
+        the next prompt's start now (the last system prompt, or the first one, + the turns kept), so the question only
+        costs its own last message, also after a lookup, a farewell, a mission read-back or a picture used the
+        runner's one slot (else ~3.5 s more)."""
+        system = getattr(self, "last_system", None) or route_system(markers, now)
+        turns = [{"role": r, "content": c} for q, a in self.history[-HISTORY_TURNS:] for r, c in (("user", q), ("assistant", a))]
+        llm_direct.prefill([{"role": "system", "content": system}] + turns, MODEL)
 
     def reset(self):
         self.history = []

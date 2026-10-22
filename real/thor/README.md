@@ -206,6 +206,7 @@ Logs are in `logs/`: `lumi.log` (assistant), `lumi_console.log` (its stderr), `a
 | `models/face_detection_yunet_2023mar.onnx`, `models/face_recognition_sface_2021dec.onnx` | face detector and embedding for `vision/reid.py` (without them only clothes are used) | github.com/opencv/opencv_zoo |
 | `models/ggml-large-v3-turbo-q5_0.bin` | whisper model | Hugging Face `ggerganov/whisper.cpp` |
 | `models/supertonic3/` | TTS model | Hugging Face `Supertone/supertonic-3` |
+| `models/supertonic3_vector_estimator.engine`, `models/supertonic3_vocoder.engine` | the TTS's two slow parts on the GPU (`audio/tts_gpu.py`; without them the CPU, 5–10x slower). Bound to this TensorRT and GPU: rebuild after a JetPack or TensorRT change | `.venv/bin/python audio/tts_gpu.py build` (~3 min), then `check` |
 | `whisper.cpp/` | v1.9.5, built with CUDA | `cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=110 -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 12 --target whisper-server whisper-cli` |
 | `~/models/bge-m3-Q8_0.gguf` | embedding model for the knowledge base | Hugging Face |
 | `knowledge/index.npz` | knowledge vectors | `assistant/knowledge.py build` |

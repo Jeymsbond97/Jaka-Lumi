@@ -142,5 +142,7 @@ and `--start` for the detector. Line numbers may move; search the name.
 | `assistant/voice_words.py` | `VOLUME_MIN`, `VOLUME_MAX` | 30 %, 90 % | Limits for the voice commands (the dashboard may set any value; "louder" never lowers it) |
 | `assistant/voice_words.py` | `SPEED_STEP` | 0.1 | One "speak slower" / "faster" step of the Supertonic speed (`data/speech_speed.txt`) |
 | `audio/mouth.py` | `SPEED`, `SPEED_MIN`, `SPEED_MAX` | 0.92, 0.72, 1.2 | Speaking speed without a stored value, and the limits (Supertonic takes 0.7–2.0) |
-| `audio/mouth.py` | `SPLIT_WORDS` | 8 words | A first sentence this long is said in two parts, cut after its first comma (3 words in or later): the voice starts ~1 s sooner |
+| `audio/mouth.py` | `SPLIT_WORDS` | 8 words | TTS on the CPU only (the GPU engines not loaded): a first sentence this long is said in two parts, cut after its first comma (3 words in or later): the voice starts ~1 s sooner. On the GPU a sentence is said whole |
+| `audio/mouth.py` | `STEPS` | 4 | Supertonic synthesis steps (quality / speed). On the GPU a step takes a few ms, on the CPU 0.1–0.27 s |
+| `audio/tts_gpu.py` | `MAX_LEN` | 640 | Longest text / latent (~44 s of speech) the TensorRT engines take; longer goes to the CPU. A change needs `tts_gpu.py build` |
 | `assistant/llm_direct.py` | `KEEP_EVERY_S` | 60 s | How often Ollama is told to keep the model loaded (it doesn't see the direct requests) |
