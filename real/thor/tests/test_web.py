@@ -104,7 +104,40 @@ outs = iter([["search NY weather\n", "It is 15 degrees. Clear."]])
 assert list(brain.Brain().respond_from("Weather?", "x")) == ["It is 15 degrees.", "Clear."]
 outs = iter([["Search results say 330 m."]])
 assert list(brain.Brain().respond_from("Eiffel?", "x")) == ["Search results say 330 m."]
-brain._stream = real_stream
+# respond_stream: "search ..." under "ACTION: none" or without "ACTION:" is the lookup, never said; its words are not
+# the query
+outs = iter([["ACTION: none -\n", "search Lotte World", " ticket price"]])
+brain._stream = lambda m: iter(next(outs))
+real_search, brain.knowledge.search = brain.knowledge.search, lambda *a, **k: []      # no embedding server asked
+assert next(brain.Brain().respond_stream("How much is a ticket for Lotte World?", ["p1"])) == \
+    {"action": "search", "target": "How much is a ticket for Lotte World?"}
+outs = iter([["search I'll look", " that up.\n"]])
+assert next(brain.Brain().respond_stream("Who is the CEO of Nvidia now?", ["p1"]))["target"] == "Who is the CEO of Nvidia now?"
+outs = iter([["ACTION: none -\n", "Hi!"]])
+assert list(brain.Brain().respond_stream("Hello Lumi", ["p1"])) == [{"action": "none", "target": ""}, "Hi!"]
+outs = iter([["ACTION: none -\n", "I'm Lumi, nice to meet you."]])
+assert list(brain.Brain().respond_stream("Who are you?", ["p1"]))[1:] == ["I'm Lumi, nice to meet you."]
+brain._stream, brain.knowledge.search = real_stream, real_search
+
+# the names of a Korean answer go with a follow-up; "there" after a talk answer goes with its place
+b = brain.Brain()
+b.search_query("오픈AI CEO가 누구야?")
+b.history, b.last_lookup = [("오픈AI CEO가 누구야?", "오픈AI의 CEO는 샘 올트먼이에요.")], "오픈AI CEO가 누구야?"
+assert b.search_query("몇 살이야?") == "오픈AI CEO가 누구야? 샘 올트먼 몇 살이야"
+b = brain.Brain()
+b.history = [("What is the capital of Canada?", "ACTION: none -\nThe capital of Canada is Ottawa.")]
+assert b.search_query("How many people live there?") == "What is the capital of Canada? Ottawa How many people live there"
+b = brain.Brain()
+b.search_query("What time does Lotte World open?")
+b.history, b.last_lookup = [("What time does Lotte World open?", "At 10.")], "What time does Lotte World open?"
+assert b.search_query("How much is a ticket?") == "What time does Lotte World open? How much is a ticket"
+assert b.search_query("Who won the 2025 World Series?") == "Who won the 2025 World Series?"
+# a weather question without a place: the place of the weather before in this talk; "here" is here
+b = brain.Brain()
+assert b.weather_place("Jeju", "제주 날씨 알려줘") == "Jeju" and b.weather_place("", "내일 비 와?") == "Jeju"
+assert b.weather_place("", "what about the weather here?") == "" and b.weather_place("", "and tomorrow?") == ""
+b.weather_place("Busan"); b.reset()
+assert b.weather_place("", "내일 비 와?") == ""
 
 # ages worked out from birth dates in the results; money questions get rates, others do not
 assert web.with_ages("Han Kang (born 27 November 1970)", datetime.date(2026, 10, 20)) == \
@@ -154,6 +187,9 @@ def fake_say_stream(pieces, lang=None, abort=None):
 
 
 class FakeBrain:
+    weather_place = brain.Brain.weather_place
+    weather_at = ""
+
     def respond_from(self, asked, facts):
         events.append(("llm", asked, time.time()))
         yield "It is 330 metres tall, with the antennas on top."

@@ -82,9 +82,8 @@ def rules_route(text, lang, marks):
         return "mission", steps.describe(read[0]), None, ""
     if lumi.empty_hand_request(text):                            # nothing is held in these checks
         return "empty_hand", lumi.EMPTY_HAND_SAY[lang], None, ""
-    fate = lumi.talk_fate(text)
-    if fate != "talk":
-        return ("action:end" if fate == "end" else "chat"), "", None, ""
+    if lumi.talk_fate(text) == "end":                            # "close" words go to the LLM (llm_route)
+        return "action:end", "", None, ""
     if sing.asked(text):                                         # lumi.sing_song: a real song plays
         return "action:sing", "", None, ""
     rule = brain.intent(text, marks)
@@ -109,6 +108,8 @@ def llm_route(action, target, words, text, about, lang, repeating=False):
         return action, ""                                   # lumi.answer() closes the stream and looks it up
     if action == "unclear":
         return action, " ".join(words)
+    if action == "none" and lumi.talk_fate(text) == "close":   # "thanks" taken as heard: silence ends the talk
+        return "chat", " ".join(words)
     if action in ("none", "sing") and not repeating and lumi.look_up_unsure(about, words[0] if words else "", text):
         return "search(unsure)", " ".join(words)
     return ("none" if action == "none" else f"action:{action} {target}".strip()), " ".join(words)

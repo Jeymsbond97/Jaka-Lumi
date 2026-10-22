@@ -660,6 +660,16 @@ DIALOGUES_PRAG_KO = [
       T("weekend에도 일해요?", must=[NS], rl="ko", check="its schedule is not known; says so politely"),
       T("루미 MBTI 뭐예요?", must=[KO], rl="ko", check="playful honest reply: a robot has no MBTI; may give an opinion"),
       T("ㅋㅋ I think 루미는 ENFP", must=[KO + "|" + EN], check="plays along lightly")),
+    # ---------- 2026-10-22: the same question about a part, a song echo ----------
+    D("business visitor", "ellipsis", "ko",
+      T("배터리 얼마나 가요?", must=[HOURS]),
+      T("충전은요?", must=[NS], no=[r"\d+ ?(분|minutes?)"], check="fragment: how long charging takes, which Lumi does not know")),
+    D("cleaner", "ellipsis", "ko",
+      T("젖은 걸레로 닦아도 돼요?", must=[NS], check="not known; a staff member can tell"),
+      T("카메라는요?", must=[NS], check="the same question about the cameras: not known, no general camera facts")),
+    D("elementary student", "humour", "ko",
+      T("너 뭐 좋아해?", must=[KO]),
+      T("오 노래요?", "none", must=[KO], check="an echo, not a request: no song starts")),
 ]
 
 if __name__ == "__main__":

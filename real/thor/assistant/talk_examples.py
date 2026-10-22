@@ -917,6 +917,11 @@ _BANK = {
             ("Wow, you're SO fast.", "Ha, I know, 0.6 metres a second. Safety first."),
             ("It's a bit loud here.", "It is busy. I'll do my best to hear you."),
             ("Can I take you home with me?", "I'd love to, but I'm 96 kilos and the team would miss me."),
+            ("Ha, you got the reference?", "I did: Philip K. Dick's androids and their electric sheep. I don't sleep, so no dreams."),
+            ("Did you get the joke?", "I think so, and it made me smile."),
+            ("Oh, a song?", "Yes, singing is one of my favourite things. Just ask if you'd like one."),
+            ("Can I wipe you down? What about your cameras?", "The cameras too, I'm not sure. A staff member can tell you how to clean them."),
+            ("How long does the battery last? And charging?", "How long charging takes, I don't know, sorry."),
         ],
         "ko": [
             ("와 진짜 빠르다~", "하하, 사람보다 느리죠. 안전이 먼저라서요."),
@@ -927,6 +932,9 @@ _BANK = {
             ("말 놓아도 돼?", "편하게 말씀하세요. 저는 계속 존댓말로 할게요."),
             ("오늘 좀 덥습니다.", "네, 오늘은 좀 덥네요."),
             ("여기 좀 시끄럽네요.", "네, 사람이 많네요. 잘 들으려고 노력할게요."),
+            ("오 노래?", "네, 노래 부르는 걸 좋아해요. 듣고 싶으시면 불러 달라고 해 주세요."),
+            ("닦아도 돼요? 카메라는요?", "카메라도 닦아도 되는지는 잘 몰라요. 직원분께 여쭤봐 주세요."),
+            ("무슨 말인지 알아들었어?", "네, 알아들었어요. 재미있는 말이네요."),
         ],
     },
     # end of bank

@@ -158,6 +158,17 @@ ARM_TASKS = {"pick", "put", "move_object", "fetch", "give", "place", "receive", 
 def needs_arm(action, target=""):
     """The action moves the arm (the gripper alone, open / close, does not ask for it)."""
     return action in ARM_TASKS or action == "arm" and target not in ("open", "close")
+
+
+def reach_turn(angle, patrol):
+    """Base turn (deg, + left) before "reach out to me" to a person at the waist-frame `angle` (None: nobody seen or
+    heard): 0 within REACH_FRONT_DEG of the front, the angle with Patrol on, else None (they are asked to stand in
+    front: Greeter never turns the base or the waist)."""
+    if angle is None:
+        return None
+    if abs(angle) <= REACH_FRONT_DEG:
+        return 0.0
+    return float(angle) if patrol else None
 LIFT_VEL = 20                       # speed ratio % for a lift move asked by voice (head.VEL is 40)
 LIMIT_SAY = {"yaw": (f"I can turn my head up to {head.AXIS_LIMITS[2][1]:g} degrees each way.",
                      f"고개는 좌우로 {head.AXIS_LIMITS[2][1]:g}도까지 돌릴 수 있어요."),
@@ -199,7 +210,7 @@ ASK_PREFIX = re.compile(r"\b(do|did) you (know|happen to know)\b|\b(can|could) y
 ASKS_MORE = re.compile(r"\?|\b(but|can|could|what|how|where|why|when|who|one more)\b|근데|그런데|뭐|어떻게|어디|언제|누구|하나만 더|"
                        r"물어볼게|물어봐도", re.I)
 THANKS_REST = re.compile(r"\b(?:a bunch|a lot|so much|very much|lovely|great|nice|cool|good to know|again|that was \w+|"
-                         r"for (?:the|that|this|telling) \w+)\b|감사요|잘 들었어요|잘 알겠어요|[~!.,\s요]", re.I)
+                         r"for (?:the|that|this|telling|your) \w+)\b|감사요|잘 들었어요|잘 알겠어요|[~!.,\s요]", re.I)
                          # left of "Lovely, thanks!", "고마워요~" after the thanks: nothing, so only thanks (talk_fate waits)
 FOREIGN_SCRIPT = re.compile(r"[\u0400-\u04ff\u4e00-\u9fff\u3040-\u30ff]")   # Cyrillic, Chinese, Japanese
 UNSURE_LOOKUP = False      # look up what the model says it is not sure of: on for gemma4:e4b, which said "not sure"
@@ -216,14 +227,19 @@ NOT_KNOWN = {"en": ["I'm sorry, I don't have that information. A staff member ca
 def not_known(lang):
     return random.choice(NOT_KNOWN[lang])
 TALK_ASK_S = 15.0                   # s of silence while halted for someone -> "Can I go on with my task?", again -> go on
-FAREWELL_ONLY = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright|lumi|루미야?)[\s,.!]+)?(?:go on|you can go|good|very good|"
-                           r"good job|great job|nice job|well done|take care|"
-                           r"가 ?보세요|가세요|가도 ?돼요?|잘했어요?|잘했네요?|좋아|좋네요?|수고했어요?|고생했어요?|"
-                           r"됐어요?,? 고마워요?)[\s.!~]*$", re.I)   # said alone: the talk is over
+RELEASE = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright|lumi|루미야?)[\s,.!]+)?(?:you can go(?: now)?|take care|가 ?보세요|가세요|가도 ?돼요?)"
+                     r"[\s.!~]*$", re.I)   # said alone: the visitor lets Lumi go
 THANKS = re.compile(r"\bthank(?:s| you)\b|\bthanx\b|\bcheers\b|고마워|고맙|감사|땡큐", re.I)
 DONE_WORDS = re.compile(r"\bthat'?s (?:it|all|enough|everything)\b|\bno,? thanks?\b|\bnothing(?: else)?\b|\benough\b|됐어|됐습니다|"
-                        r"그만", re.I)            # with thanks: "that's it, thank you", "됐어요 고마워요" end the talk
-WELCOME = {"en": ["You're welcome.", "My pleasure.", "Anytime."], "ko": ["천만에요.", "별말씀을요.", "네, 언제든지요."]}
+                        r"그만", re.I)            # "that's it", "됐어요": maybe done; the LLM decides with the talk before
+CLEAR_BYE = re.compile(r"\b(?:bye|bay bay|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|see ya|good night|"
+                       r"take care|i (?:have|need) to go|gotta (?:go|run)|i'?m leaving|i'?m off|have a (?:good|nice|great) (?:one|day)|"
+                       r"nice (?:talking|meeting|chatting)(?: (?:to|with))? you|(?:was|been) nice to meet you)\b|"
+                       r"(?<=\S)[\s.,!]+안녕[\s.!~]*$|안녕히|잘 ?가|잘 ?있어|잘 ?있게|수고하세요|들어가세요|바이바이|빠이|"
+                       r"(?<![가-힣])바이(?![가-힣])|(?<![가-힣])간다[\s.!~]*$|가 ?볼게요|갈게요|(?:나|저|이제) (?:이제 )?가야 ?(?:돼|해|겠|할)|"
+                       r"다음에 (?:또 )?(?:봐|봬|만나|올게)|또 (?:봐|봬|올게)|나중에 봐|좋은 하루|"
+                       r"(^|\s)(나|저|우리|저희) (이제 )?(집에 )?(가|간다|가요|갑니다)[\s.!]*$", re.I)
+                       # a goodbye in any talk: "okay, bye", "I have to go", "수고하세요" (thanks, okay, 됐어: the LLM reads them)
 RECEIVE_OK = re.compile(r"\b(ok(ay)?|done|here you go|there you go|go ahead|thank|thanks|yes)\b|됐어|됐습니다|놨어|여기요|"
                         r"네|고마워|감사", re.I)     # the person has let go of what they handed over
 FETCH_THANKS = re.compile(r"\bthank|\bthanks\b|고마워|감사", re.I)
@@ -258,11 +274,6 @@ STATUS_Q = re.compile(
     r"(?:컵|병|사과|바나나|오렌지)(?:을|를)? ?들고 ?있(?:어|니|나요|어요)?\?|손이 ?비어|뭐 ?가져가는|그거 ?(?:누구 ?거|나 ?주는)", re.I)
 NOT_STATUS_NOW = re.compile(r"\b(tonight|after work|weekend|tomorrow|later today|for fun|in your free time)\b|주말|쉬는 날|"
                             r"저 사람|우리|내일|퇴근|나중에", re.I)    # not about what Lumi is doing now
-FAREWELL_WORDS = re.compile(r"\b(thanks?|thank you|cheers|bye|bay bay|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|see ya|that'?s all|good night)\b|(?<=\S)[\s.,!]+안녕[\s.!~]*$|고마워|감사|안녕히|잘 ?가|"
-                            r"다음에|수고하세요|잘 ?있어|잘 ?있게|바이바이|빠이|(?<![가-힣])바이(?![가-힣])|땡큐|(?<![가-힣])간다[\s.!~]*$|i (have|need) to go|gotta go|i'?m leaving|"
-                            r"nice (talking|meeting|chatting)( (to|with))? you|(was|been) nice to meet you|good night|take care|들어가세요|"
-                            r"가 ?볼게요|갈게요|이만|나중에 봐요|또 봐요|좋은 하루|(^|\s)(나|저|우리|저희) (이제 )?(집에 )?(가|간다|가요|갑니다)[\s.!]*$",
-                            re.I)
 HELLO_ONLY = re.compile(r"^\s*(hi|hey|hello|hiya)( there)?[\s,.!]*$|^\s*(안녕|안녕하세요)[\s.!]*$", re.I)
 CAMERA_HALF_FOV = 42.0             # deg; half the camera's view (+ the head's YAW_LIMIT for the head camera)
 WAKE_MAX_S = 6.0                   # s; longer utterances are not checked for the wake word
@@ -277,7 +288,10 @@ DOA_MIN_CONF = 0.12                # below this the sound direction is not trust
 COME_STOP = 1.1                    # m; driving to a person stops when the camera sees them this close
 COME_TIMEOUT = 60.0                # s
 MAX_MOVE_M = 3.0                   # m; "move forward N metres" is limited to this
-ARM_REACH_PROGRAM = "arm_reach.jks"   # Cobo π program for "reach out your hand" (to be recorded on the robot)
+REACH_FRONT_DEG = 20.0             # deg; "reach out to me": a person further to the side than this is turned to first
+                                   # (Patrol) or asked to stand in front (Greeter). Estimate: the reach after give
+                                   # moves at most fetch.RECEIVE_REACH_MM sideways
+STAND_IN_FRONT_SAY = ("Please stand in front of me.", "제 앞에 서 주세요.")
 STUCK_DRIVE_S = 20.0               # s "running" without moving -> the drive is cancelled and Lumi says so
 MODES_FILE = "/dev/shm/lumi_modes.json"   # written by api/server.py: {"greeter", "patrol", "wave", "drive"}
 CMD_FILE = "/dev/shm/lumi_cmd.json"       # written by api/server.py: {"id", "cmd": go | go_point | cancel | calibrate
@@ -1624,28 +1638,66 @@ class Lumi:
         self.keep_listening()
 
     def arm_pose(self, target):
-        """'reach': the Cobo π program ARM_REACH_PROGRAM (record it once), only from look; 'fold': to look along the
-        pose graph (arm_route, checked first, moved in the background); 'open' / 'close': the gripper. True when
+        """'reach': the hand out to the person (reach_out); 'fold': to look along the pose graph (arm_route, checked
+        first, moved in the background); 'open' / 'close': the gripper, never opened on something held. True when
         started, False when not learned, None when refused (the reason is said)."""
+        from tasks import fetch
+        held = target in ("reach", "open") and (self.fetch_status() == "holding" or bool(safe(fetch.check_hand)))
+        if target == "open" and held:                      # the model's "let go" while holding: it would fall
+            log("  open refused: holding something")
+            self.fetch_say(*brain_mod.REFUSE_OPEN)
+            return None
         if target in ("open", "close"):
             st = safe(gripper.open_ if target == "open" else gripper.close)
             log(f"  gripper {target}: {st}")
             return st is not None
+        if target == "reach":
+            return self.reach_out(held)
         try:
-            if target == "fold":
-                holding = self.fetch_status() == "holding"
-                seq = arm_route.plan(arm_route.HOME, holding=holding)
-                threading.Thread(target=safe, args=(arm_route.move, seq, None, holding), daemon=True).start()
-            else:
-                arm_route.start_program(ARM_REACH_PROGRAM)
+            holding = self.fetch_status() == "holding"
+            seq = arm_route.plan(arm_route.HOME, holding=holding)
+            threading.Thread(target=safe, args=(arm_route.move, seq, None, holding), daemon=True).start()
             return True
         except arm_route.RouteError as e:
             log(f"  arm {target} refused: {e.args[0]}")
             self.fetch_say(*e.args)
             return None
         except Exception as e:
-            log(f"  arm {target}: {e}" + (f" (record {ARM_REACH_PROGRAM} in Cobo pi)" if target == "reach" else ""))
+            log(f"  arm {target}: {e}")
             return False
+
+    def reach_out(self, held):
+        """"Reach out to me", "give me your hand", "손 내밀어": something in the hand = hand it over. Else toward the
+        person (the tracked one, else the one the voice came from, else the voice's direction): the head turns to
+        them; further to the side than REACH_FRONT_DEG the base turns first with Patrol on, Greeter asks them to stand
+        in front (reach_turn); then fetch.reach (give pose along the graph, a short checked move toward their hand).
+        True when started, None when refused or handed over (said)."""
+        from tasks import fetch
+        if held:
+            self.fetch_finish("give")
+            return None
+        if self.skill_thread is not None and self.skill_thread.is_alive():
+            self.fetch_say("I'm still busy with my arm.", "아직 팔로 하는 일이 있어요.")
+            return None
+        track = None
+        if self.vision:
+            track = self.current if self.current and self.vision.present(self.current) else \
+                self.vision.near_angle(self.voice_angle) if self.voice_trusted else self.vision.only_person()
+        angle = track.angle if track else self.voice_angle if self.voice_trusted else None
+        turn = reach_turn(angle, self.modes.patrol)
+        log(f"  reach: person at {'?' if angle is None else f'{angle:+.0f}'} deg, base turn {turn}")
+        if turn is None:
+            self.fetch_say(*STAND_IN_FRONT_SAY)
+            return None
+        self.turn_head(0 if turn else HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)))
+        self.stay()
+        try:
+            fetch.reach(turn, say=self.fetch_say)
+        except fetch.FetchError as e:
+            log(f"  reach refused: {e}")
+            self.fetch_say(e.args[0], e.args[1] if len(e.args) > 1 else "죄송해요, 지금은 할 수 없어요.")
+            return None
+        return True
 
     # ---------- dashboard commands, trips ----------
     def poll_commands(self):
@@ -1954,6 +2006,8 @@ class Lumi:
     def look_up(self, text, action, target, t0=None):
         """Weather or web facts -> short spoken answer (interruptible)."""
         en = self.lang == "en"
+        if action == "weather":                            # "내일 비 와?" after Jeju's weather: Jeju
+            target = self.brain.weather_place(target, text)
         if action == "search" and private_ask(text):        # never looked up, whoever it is about
             log("  search refused: a person's private details")
             mouth.say(PRIVATE_SAY["en" if en else "ko"])
@@ -2234,18 +2288,10 @@ class Lumi:
             return
         fate = talk_fate(text)
         if fate == "end":
-            self.end_conversation(text)                    # "okay, bye", "thanks, that's all", "수고하세요": done
+            self.end_conversation(text)                    # "okay, bye", "I have to go", "수고하세요": done
             return
-        if fate == "wait":                                 # "okay", "thank you", "네" alone: maybe done, maybe not
-            if mouth.recent_speech().rstrip().endswith("?"):   # "Yes?" / "say it again?" -> "okay": a reply, go on
-                log("  a short yes to my question - listening")
-            else:                                          # after an answer: taken as heard; silence then ends
-                if THANKS.search(text):
-                    mouth.say(random.choice(WELCOME[self.lang]), abort=self.speak_abort)
-                log("  closing word - waiting a moment")
-                self.closing_pending = time.time()
-            self.keep_listening()
-            return
+        # fate "close" ("okay", "thanks", "됐어요"): the LLM below reads it with the talk before (its action end ends
+        # the talk); when the talk goes on, silence ends it (closing_pending, set after the reply)
         if sing.asked(text, last):                         # "sing a song", "노래 불러 줘", after a song "another one"
             self.sing_song(text)
             return
@@ -2272,7 +2318,7 @@ class Lumi:
             gen.close()
             self.follow_me()
             return
-        if head_["action"] == "search" and not_online(about):
+        if head_["action"] == "search" and lookup_refused(self.brain, head_["target"], about, text):
             gen.close()                                    # about Cutshion or this place: the notes say it or nobody does
             log("  search refused: a company or venue question")
             mouth.say(not_known(self.lang))
@@ -2322,6 +2368,9 @@ class Lumi:
             self.current, self.voice_until = None, 0.0     # stay quiet with this person until a new visit
         elif self.current is None:
             self.voice_until = time.time() + VOICE_SESSION_S
+        if fate == "close" and head_["action"] == "none":   # "thanks" taken as heard: silence now ends the talk
+            log("  closing word - waiting a moment")
+            self.closing_pending = time.time()
 
     # ---------- wake word ----------
     def check_wake(self):
@@ -2681,25 +2730,26 @@ def status_question(text):
 
 
 def says_goodbye(text):
-    """"thank you for your time", "okay, bye", "수고하세요": the talk is over (not "thanks, but where is...?").
-    "thank you", "got it, thanks", "네 감사합니다" alone are not: often only "heard you" (talk_fate waits)."""
-    if brain_mod.is_closing(text) and not DONE_WORDS.search(text) and not FAREWELL_WORDS.search(THANKS.sub(" ", text)) or \
-            brain_mod.to_someone_else(text) or THANKS.search(text) and not THANKS_REST.sub("", THANKS.sub("", text)):
-        return False                                       # "Okay kids, say thank you to the robot.", "Thanks a bunch."
-    return bool(FAREWELL_ONLY.match(text) or FAREWELL_WORDS.search(text) and not ASKS_MORE.search(text)
-                and len(text.split()) <= 8 and not brain_mod.intent(text) and not brain_mod.hand_request(text, False)
-                and not COMMAND_START.search(brain_mod.CALLING.sub("", text)))   # "grab the cup, thanks": an order
+    """A goodbye whatever was said before: "okay, bye", "I have to go", "수고하세요", "you can go" alone (not "bye, but
+    where is...?", not an order with it, not said to a child nearby)."""
+    if brain_mod.to_someone_else(text):
+        return False                                       # "Okay kids, say bye to the robot."
+    return bool(RELEASE.match(text) or CLEAR_BYE.search(text) and not ASKS_MORE.search(text)
+                and len(text.split()) <= 10 and not brain_mod.intent(text) and not brain_mod.hand_request(text, False)
+                and not COMMAND_START.search(brain_mod.CALLING.sub("", text)))   # "grab the cup, bye": an order
 
 
 def talk_fate(text):
-    """What short words do to the talk: "end" (a real closing: "okay, bye", "that's it, thank you", "안녕히 계세요"),
-    "wait" ("okay", "thank you", "네", "감사합니다" alone: ends only after CLOSING_WAIT_S of silence) or "talk"
-    (anything else; "I see", "got it", "그렇구나", "알겠어요" are understanding, "I see?", "그래요?" a check: answered)."""
+    """What short words do to the talk: "end" (a goodbye in any context: "okay, bye", "안녕히 계세요"), "close" (words
+    that close a talk in one context and mean "understood, go on" in another: "okay", "thanks", "that's it", "됐어요",
+    "오케이 땡큐": the LLM decides with the turns before; when it does not end, silence of CLOSING_WAIT_S ends the talk)
+    or "talk" (anything else; "I see", "그렇구나", "알겠어요" alone are understanding, "I see?", "그래요?" a check)."""
     if says_goodbye(text):
         return "end"
     if brain_mod.is_closing(text) and (THANKS.search(text) or not brain_mod.UNDERSTOOD.search(text)) or \
-            THANKS.search(text) and not THANKS_REST.sub("", THANKS.sub("", text)):
-        return "wait"                                      # "Thanks a bunch.", "Good to know. Thanks.", "고마워요~"
+            THANKS.search(text) and not THANKS_REST.sub("", THANKS.sub("", text)) or \
+            DONE_WORDS.search(text) and not ASKS_MORE.search(text) and len(text.split()) <= 8 and not brain_mod.intent(text):
+        return "close"                                     # "Thanks a bunch.", "Okay, I think that's everything."
     return "talk"
 
 
@@ -2737,6 +2787,12 @@ def not_online(text):
     """Questions about Cutshion or this event / building: the notes say it or nobody does, never the internet."""
     return bool(COMPANY_Q.search(text) or VENUE_ONLY.search(text) or VENUE_Q.search(text) and not (OUTSIDE.search(text) or
                                                                                             OUTSIDE_NAME.search(text)))
+
+
+def lookup_refused(brain, target, about, text=""):
+    """not_online for the model's lookup: right after a lookup the words go with the question looked up ("How much
+    is a ticket?" after Lotte World), Cutshion never goes online."""
+    return bool(COMPANY_Q.search(about)) or not_online(brain.lookup_about(target, about, text))
 
 
 PRIVATE_ASK = re.compile(r"\bhome address|\bwhere (does|do|did) (my|our|his|her|their|this|that) .{0,40}\blives?\b|"

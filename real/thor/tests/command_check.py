@@ -86,8 +86,6 @@ def rules(text, state, marks, b):
         return "talk" if read[1] else "refuse" if steps.check(read[0], holding, marks) else "mission"
     if lumi.talk_fate(text) == "end":
         return "end"
-    if lumi.talk_fate(text) == "wait":
-        return "talk"
     if sing.asked(text):
         return "sing"
     rule = brain.intent(text, marks)

@@ -557,6 +557,17 @@ DIALOGUES_PRAG_EN = [
       T("How heavy are you?", must=[WEIGHT]),
       T("아니 팔이요.", must=[ARM_KG], check="correction in Korean: the arm, 9.9 kg"),
       T("And the base?", must=[BASE_KG])),
+    # ---------- 2026-10-22: a film line, the same question about a part, nothing invented about itself ----------
+    D("sci-fi fan", "humour", "en",
+      T("May the Force be with you.", must=[r"\w"]),
+      T("Ha, you got the reference?", "none | search", must=[r"\w"], no=[r"\bI have (them|it)\b"],
+        check="Star Wars: plays along, never about notes it has")),
+    D("cleaner", "wipe", "en",
+      T("Can I spray you with water?", must=[NS]),
+      T("What about your arm?", must=[NS], check="the same question about the arm: not known")),
+    D("robotics professor", "teach", "en",
+      T("Can you learn from demonstrations?", must=[r"yes|demonstration|can"]),
+      T("What algorithm, exactly?", must=[NS], check="the learning algorithm is not in the notes: not sure, nothing invented")),
 ]
 
 if __name__ == "__main__":

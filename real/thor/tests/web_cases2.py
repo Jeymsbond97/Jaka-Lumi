@@ -268,4 +268,17 @@ DIALOGUES = [
      ("en", "And how old is Elon Musk?", r"5[45]|fifty")],
     [("en", "How old is Faker?", r"(29|30)|thirty|twenty"),
      ("en", "What team does he play for?", r"T1")],
+    # 2026-10-22: who holds an office, coin prices, "there" after a talk answer, the weather's place kept, a venue word
+    [("en", "Who is the CEO of Nvidia?", r"Huang"),
+     ("en", "How old is he?", r"6[23]|sixty")],
+    [("ko", "엔비디아 CEO가 누구야?", r"젠슨|황"),
+     ("ko", "몇 살이야?", r"6[23]|예순")],
+    [("ko", "리플 지금 얼마야?", r"원|달러|\d")],
+    [("en", "How much is Ethereum right now?", r"dollar|won|\d")],
+    [("en", "What is the capital of Australia?", r"Canberra"),
+     ("en", "How many people live there?", r"\d|thousand")],
+    [("en", "What's the weather in Busan?", r"degree"),
+     ("en", "Will it rain tomorrow?", r"Busan|rain|percent|chance|dry")],
+    [("en", "What time does the Louvre open?", r"9|nine"),
+     ("en", "How much is a ticket?", r"\d|euro")],
 ]

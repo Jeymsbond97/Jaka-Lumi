@@ -149,14 +149,17 @@ for text in ("what can you do", "what is your name", "뭐 해줄 수 있어?", "
 from assistant.lumi import talk_fate as _fate
 
 for t in ("see you next time", "bye", "okay, bye", "good night", "I have to go", "nice talking to you", "take care",
-          "thank you for your time", "thanks, that's all", "that's it, thank you", "Okay, thank you. Bye.",
-          "다음에 봬요", "들어가세요", "수고하세요", "안녕히 계세요", "이만 갈게요", "됐어요 고마워요", "네 감사합니다 안녕히 계세요",
-          "go on", "good job", "well done", "가 보세요", "잘했어요", "수고했어요", "okay thanks bye bye", "고마워요, 다음에 봐요"):
+          "Okay, thank you. Bye.", "다음에 봬요", "들어가세요", "수고하세요", "안녕히 계세요", "이만 갈게요", "네 감사합니다 안녕히 계세요",
+          "가 보세요", "you can go now", "okay thanks bye bye", "고마워요, 다음에 봐요", "I gotta run, thanks!"):
     assert _fate(t) == "end", (t, _fate(t))
+# goodbye in one talk, "understood, go on" in another: the LLM decides with the turns before (owner, 2026-10-22)
 for t in ("okay", "Okay.", "thanks", "thank you", "Thank you.", "thanks a lot", "got it, thanks", "alright", "good",
           "okay, good", "고마워요", "감사합니다", "네 감사합니다", "알았어, 고마워", "오케이", "그래요", "네", "네.", "좋아", "땡큐",
-          "오케이 땡큐", "okay 감사합니다", "Thanks, Lumi."):
-    assert _fate(t) == "wait", (t, _fate(t))
+          "오케이 땡큐", "okay 감사합니다", "Thanks, Lumi.", "thank you for your time", "thanks, that's all",
+          "that's it, thank you", "됐어요 고마워요", "오케이 됐어", "Okay, I think that's everything."):
+    assert _fate(t) == "close", (t, _fate(t))
+for t in ("good job", "well done", "잘했어요", "수고했어요", "Maybe later, thanks."):   # the LLM reads them too
+    assert _fate(t) != "end", (t, _fate(t))
 for t in ("I see", "I see.", "got it", "I got you", "okay I see", "okay, I understand", "makes sense", "That makes sense.",
           "understood", "아 그렇구나", "그렇구나", "그렇군요", "알겠어요", "네 알겠습니다", "아하", "아, 그랬구나", "Uh huh.",
           "oh 그렇구나", "아 I see", "Okay, 알겠어요", "아 네",

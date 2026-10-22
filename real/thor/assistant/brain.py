@@ -118,7 +118,7 @@ Rules:
   You cannot lift anything heavier than about 1 kg (a box, a pot, a bag of rice): say no.
   Say you are not sure only when the notes do not have it.
 - When the visitor says goodbye or is done ("thank you for your time", "thanks, that's all", "됐어요 고마워요",
-  "수고하세요", "잘 있어요"), choose the action end. A plain "thanks" / "고마워요" right after your answer is not
+  "수고하세요", "잘 있어요", or "nah, I'm good" / "없어요" to your "anything else?"), choose the action end. A plain "thanks" / "고마워요" right after your answer is not
   goodbye: say you're welcome briefly. Do not ask "Anything else?" / "더 필요한 거 있으세요?" after every answer.
 - Small talk (greetings, how are you, thanks) does not need the notes: reply briefly, warmly and naturally,
   like a person would, fitting what was said in this conversation; do not repeat the same phrases.
@@ -150,7 +150,8 @@ Facts you know (say the one that is asked, also in a short follow-up; nothing mo
   cup (a cup may lean at most 15 degrees); climbs a step of at most 1.5 cm and a slope of at most 8 degrees, needs
   a passage at least 70 cm wide, no stairs.
 - Battery: 24-volt lithium-ion, 45 Ah; lasts about 10 hours on a charge ("how long on a charge?": 10 hours; how
-  far you go is given in hours, no distance is known; how long charging takes is not known).
+  far you go is given in hours, no distance is known; how long charging takes is not known, also asked as "and
+  charging?").
 - You are made for shops, hotels, schools, labs and exhibitions. You cannot dance, walk, jump or fly: say so.
 - Detector: YOLOv8 on your graphics processor, 4 to 13 ms per picture. Speech: Whisper, model large-v3-turbo; answers:
   Gemma 4 26b (Google), served by Ollama; voice: Supertonic TTS; first words about 2 s after a question.
@@ -386,6 +387,7 @@ COLOURS = {"white": "white", "red": "red", "blue": "blue", "green": "green", "ye
 _OBJ = "|".join(rf"(?<![가-힣]){w}(?![가-힣])|(?<![가-힣]){w}(?=[을를이가은는도만좀][^가-힣]|[을를이가은는도만좀]$)" if w in _KO_WORD
                 else re.escape(w) for w in sorted(OBJECTS, key=len, reverse=True))
 _COL = "|".join(COLOURS)
+_COIN = "|".join(web.COINS.values())                       # coins whose price web.search fetches
 STOP_TALK = re.compile(r"비상 ?정지|emergency stop|stop button|정지 ?버튼|\b(?:can'?t|cannot|couldn'?t|won'?t) stop\b|"
                        r"\bbus stop\b|\bstop (?:by|sign)\b|non-?stop", re.I)   # about stopping, not "stop!"   # about the stop button, not "stop!"
 BEHIND_WORDS = (r"\blook(?:ing)? (?:over |to(?:wards?)? |at |in )?(?:the |your )?"    # "look at the back side", "look
@@ -553,8 +555,18 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
                 r"|눈 ?(이 )?(와|올 ?까|오나|온대|오니)|(오늘|내일|밖|바깥)(은|에|이)? ?(덥|춥|더워|추워)"
                 r"|\b(coat|jacket) when i (leave|go out)\b|\bneed (a )?(jacket|coat)\b|\btyphoon\b|\b(foggy|humid|humidity)\b|\bis it windy\b"
                 r"|겉옷|외투|태풍|안개|습도|바람 ?(이 )?(많이 )?(불|세)"),
-    ("search", r"\b(news|latest|headlines|who won|score of|price of|exchange rate|stock)\b|뉴스|환율|(?<![가-힣])주가"),
+    ("search", r"\b(news|latest|headlines|who won|score of|price of|exchange rate|stock)\b|뉴스|환율|(?<![가-힣])주가|"
+               rf"(?:{_COIN})\S*\s*(?:(?:지금|현재|오늘)\s*)?(?:얼마|가격|시세)|\bhow much is (?:a |one )?(?:{_COIN})\b|"
+               rf"(?:{_COIN})\b.{{0,12}}\b(?:price|worth|trading)\b|"       # "리플 지금 얼마야?", "how much is bitcoin?"
+               r"^(?!.*(?:cutshion|쿳션|컷션|커션|회사|너희|루미|\byour\b|\bcompany\b)).*?(?:"   # Cutshion's CEO: the notes
+               r"\bwho(?:'s| is| was)? (?:the )?(?:current |new )?(?:ceo|president|prime minister|chairman|chair|founder|owner|"
+               r"head coach|coach|mayor|governor|leader|king|queen) of |"
+               r"(?<![가-힣])(?!우리|저희|이 |그 )[가-힣A-Za-z0-9]+\s*(?:CEO|ceo|대표|회장|사장|대통령|총리|감독|창업자)"
+               r"(?:가|는|이|은)?\s*누구)|"                                   # "who is the CEO of OpenAI?", "오픈AI CEO가 누구야?"
+               r"\bpopulation\b|\bhow many people live\b|인구"),              # "how many people live there?"
 ]
+SING_ECHO = re.compile(r"^\W*(?:(?:오+|아+|와|어|우와|oh+|ah+|ooh|wow|really)\W+)?(?:a\s+)?(?:노래|음악|songs?|singing|music)"
+                       r"(?:요|이요|도)?\s*\?+\W*$", re.I)   # "오 노래?" after "I like singing": an echo, not a request
 
 
 LATER = re.compile(r"^\s*(?:after|once|if|as soon as|before|unless|until)\b(?! (?:that|this|you (?:can|could|don'?t mind|would|"
@@ -655,6 +667,8 @@ def intent(text, markers=()):
             return ("weather", web.en_place(ko) if ko else "")
         if action == "search":
             return ("search", text)
+        if action == "sing" and SING_ECHO.match(text):
+            return None                                     # "오 노래?": asks back, the talk answers
         if action == "fetch":
             return ("fetch", text)                        # parse_fetch() reads the details
         if action == "spin":                              # all the way round: two checked half turns (lumi.move_by)
@@ -1325,11 +1339,6 @@ UNSURE = re.compile(r"\b(not sure|don't know|do not know|don't have (any )?(info
                     r"do not have (any )?(information|details|data)|no information|can't (tell|say|find)|cannot (tell|say|find)|"
                     r"ask a staff|i'm afraid i|my knowledge|would you like me to (search|look))\b|"
                     r"모르|알 수 없|알지 못|정보(가|는|를)? ?(없|가지고 있지 않)|가지고 있지 않|확실하지|알려 드릴 수 없", re.I)
-FAREWELL_TEXT = re.compile(r"\b(bye|goodbye|good night|see ya|take care|thanks?|thank you|i have to go|i'?m leaving|"
-                           r"(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|i'?ll go|gotta go|have a (nice|good)|"
-                           r"good day|cya|later|be in touch|enough for now|that'?s (all|enough|it))\b|"
-                           r"안녕|잘 ?가|잘 ?있어|잘 ?있게|다음에|갈게|가 ?볼게|간다|고마|고맙|감사|수고|이만|들어가|빠이|(?<![가-힣])바이(?![가-힣])|땡큐",
-                           re.I)   # words that end a talk
 QUESTION_START = re.compile(r"^\s*(where|what|how|why|when|which|who|do you|does|is|are|can i|could i)\b|어디 ?(있|에 있)|"
                             r"(어디|뭐|왜|언제|몇)[^ ]*\s*\?*\s*$", re.I)    # a question about a place, not a command
 ABILITY_Q = re.compile(r"(?<!줄 )(?<!주실 )(?<!줘 )(?<!받을 )수 ?있(?:어|나|니|을까|습니까)\S*\s*\?*\s*$|\bdo you know how\b|"
@@ -1445,6 +1454,9 @@ def language(text):
 FRAGMENT_WORDS = 4            # "Which one?", "얼마?", "Where is it used?": a fragment read with the last answer
 # a fragment that names what it asks ("몇 살이라고요?") gets no hint
 OWN_TOPIC = re.compile(r"살|나이|이름|\bold\b|\bname\b|\bage\b|\btall\b|\bheavy\b|\bweigh", re.I)
+SAME_ABOUT = re.compile(r"^\W*(?:and|so|what about|how about|and what about)\s+(your\s+[a-z]+(?:\s+[a-z]+)?)\W*$", re.I)
+KO_SAME_ABOUT = re.compile(r"^\W*(?:그럼\s*|그리고\s*)?(?:네\s*|너\s*|루미\s*)?(?!(?:너|루미|당신|저|나|그거|이거|그건|여기|거기)(?:은|는))([가-힣]{1,6}?)(?:은|는)요?\s*\?+\s*$")
+                               # the question before asked again about a part of Lumi ("팔은요?")
 FRAGMENT_CHARS = 160           # chars of the last answer's first sentence shown with a fragment
 LOOKUP_BEFORE_CHARS = 1500     # chars of the last lookup's results given again with a follow-up ("how old is she?")
 FOLLOW_UP_WORDS = 5            # "why did Samsung stock fall today?" is a new question, "tell me more about it" is not
@@ -1458,9 +1470,17 @@ REPAIR = re.compile(r"^\W*(?:(?:no|nope|sorry|oh)\W+)*i\s+mean[t]?\b|^\W*(?:아�
                         r"말(?:이야|이에요|이요)\W*$", re.I)   # "no, I meant North Korea", "아니 서울 말이야"
 LEAD = re.compile(r"^\s*(?:(?:and|what about|how about|also|no|nope|sorry|oh|그럼|그리고|아니|아뇨|아니요)\b[\s,]*)*"
                   r"(?:i\s+mean[t]?\s+)?", re.I)   # the words before what a follow-up asks
+HERE_WORD = re.compile(r"\bhere\b|여기|이곳|이 ?동네", re.I)   # "the weather here": not the place asked before
+THIS_PLACE = re.compile(r"\bhere\b|\bthis (?:event|show|fair|expo|building|place)\b|\b(?:conference|booths?|exhibitors?|"
+                        r"keynote|restrooms?|toilets?|bathrooms?)\b|여기|이곳|행사|부스|이 건물|화장실", re.I)   # a follow-up about this event, not the place before
 DAY_WORD = re.compile(r"\b(?:today|tonight|tomorrow|yesterday|weekend|week|morning|afternoon|evening|monday|tuesday|"
                       r"wednesday|thursday|friday|saturday|sunday)\b", re.I)
 NAMES = re.compile(r"\b[A-Z][a-z]+(?:-[a-z]+)?(?: [A-Z][a-z]+(?:-[a-z]+)?)+")   # "Jensen Huang", "Son Heung-min"
+NAMED_BEFORE = re.compile(r"\b(?:he|she|him|his|her|they|them|their|there|it)\b|거기|그 ?사람|그분|그곳|걔", re.I)
+                                                   # a person, place or thing of the answer before
+CAP_WORD = re.compile(r"(?<=\S )(?!I\b|Lumi\b|Cutshion\b)[A-Z][a-z]{2,}")         # "... is Ottawa": not the first word
+KO_NAME = re.compile(r"(?:은|는)\s+([가-힣A-Za-z]+(?: [가-힣A-Za-z]+)?)\s*(?:이에요|예요|입니다|이죠|이고|이며|이야)")
+                                                   # "오픈AI의 CEO는 샘 올트먼이에요": "샘 올트먼"
 MORE_ONLY = re.compile(r"\b(tell me more|tell me|more|details?|explain|elaborate|what else|please|about (it|that|this))\b|"
                        r"더 알려 ?(줘|주세요)?|자세히|알려 ?(줘|주세요)|좀", re.I)   # words of a follow-up that search nothing
 REACTION = re.compile(r"^\W*(?:(?:wow|oh|really|huh|whoa)\W+)*(?:i (?:didn'?t|did not) know (?:that|it)|that'?s (?:a lot|so many)|"
@@ -1470,6 +1490,10 @@ NOW_Q = re.compile(r"\bwhat time is it\b|\bwhat'?s the time\b|\bwhat(?:'s| is) (
                    re.I)      # asked of the clock, not of the lookup before
 LOOKUP_ACTION = re.compile(r"^\s*(?:\**ACTION\**\s*:\s*)?(?:search|weather)(?: (?!results)|\s*$)")   # an action line
                              # written instead of the answer (the routing prompt is its system prompt): never said
+NONE_LINE = re.compile(r"\s*(?:\**ACTION\**\s*:\s*)?none\b", re.I)   # "ACTION: none -" (or "none" alone)
+LOOKUP_PEEK = 8                # chars of the line after "ACTION: none" read before it is spoken: "search ..." is the action
+SPOKEN_TARGET = re.compile(r"^\W*(?:i\b|i'll|i will|let me|sure|okay|ok\b|one moment|just a moment|잠시|잠깐|찾아|확인)", re.I)
+                               # "search I'll look that up": words for the visitor, not the query
 LOOKUP_ANSWER = """Search results found just now on the internet (they may hold ads and unrelated parts):
 {facts}
 {before}
@@ -1503,6 +1527,23 @@ class Brain:
         self.last_lookup = None           # the last question answered from the internet
         self.last_facts = ""              # ... and what was found for it (a follow-up is answered from it too)
         self.lookup_topic = ""            # what the last lookup that was not a follow-up searched for
+        self.weather_at = ""              # the place of the last weather question in this talk ("" = here)
+
+    def weather_place(self, target, text=""):
+        """Where a weather lookup is for: a place not named ("내일 비 와?" after Jeju's weather) is the place of the
+        last weather question in this talk; "here" / "여기" is here."""
+        if target or HERE_WORD.search(text):
+            self.weather_at = target
+        return self.weather_at
+
+    def lookup_about(self, target, about, text=""):
+        """What lumi.not_online reads for a lookup: right after a lookup (or _after's follow-up of it, "What time does
+        Lotte World open? How much is a ticket?") the question looked up, so the ticket is Lotte World's, not this
+        event's; words that name this place ("here", "the toilets") are read alone."""
+        if not (self.last_lookup and self.history and self.history[-1][0] == self.last_lookup or
+                self.last_lookup and target.startswith(self.last_lookup)):
+            return about
+        return text if THIS_PLACE.search(text or about) else self.last_lookup
 
     def answer(self, question):
         hits = [h for h in knowledge.search(question, k=4) if h[0] >= MIN_SCORE]
@@ -1576,7 +1617,12 @@ class Brain:
                 if header is None:
                     if "\n" not in buf:
                         continue
-                    first, buf = buf.split("\n", 1)
+                    first, rest = buf.split("\n", 1)
+                    if NONE_LINE.match(first) and len(rest.lstrip()) < LOOKUP_PEEK and "\n" not in rest.lstrip():
+                        continue                           # the next line may be "search ..." (26b, now and then)
+                    buf = rest
+                    if NONE_LINE.match(first) and LOOKUP_ACTION.match(rest.lstrip()):
+                        first = re.search(r"search|weather", rest).group(0)   # read as the action, never said
                     header = self._after(self._action(first, text, markers), text)
                     if header is None:                     # the model skipped the ACTION line
                         header, buf = self._after({"action": "none", "target": ""}, text), first + " " + buf
@@ -1609,10 +1655,11 @@ class Brain:
                 yield {"action": "none", "target": ""}
                 header = {}
             buf += " Sorry, could you say that again?"
-        if header is None:                                 # very short reply on a single line
-            header = self._after(self._action(buf, text, markers), text)
+        if header is None:                                 # very short reply on a single line (or two)
+            first, _, rest = buf.partition("\n")
+            header = self._after(self._action(first, text, markers), text)
             yield header or {"action": "none", "target": ""}
-            buf = "" if header else buf
+            buf = rest if header else buf
         if buf.strip() and not (said and HELP_OFFER.search(buf)):
             said.append(spoken(buf.strip(), lang))
             yield said[-1]
@@ -1628,6 +1675,10 @@ class Brain:
         """For a bare fragment ("얼마?", "Which one?", "Where is it used?"): what it follows, so the model reads it
         as about the last answer's subject, not about itself or a price."""
         last = self._last_said() if self.history else ""
+        part = SAME_ABOUT.match(text) or KO_SAME_ABOUT.match(text)
+        if last and part:                                  # "What about your cameras?" / "카메라는요?" after "can I wipe you?"
+            return (f"(The visitor's question \"{self.history[-1][0]}\" asked again, now about {part.group(1)}: answer "
+                    f"that question for it, not other facts about it.)\n")
         if not last or len(text.split()) > FRAGMENT_WORDS or not SHORT_Q.search(text) or is_backchannel(text) \
                 or ABOUT_YOU.search(text) or OWN_TOPIC.search(text):
             return ""
@@ -1642,7 +1693,7 @@ class Brain:
         last_q, last_a = self.history[-1]
         m = re.match(r"\s*\**ACTION\**\s*:\s*(\w+)", last_a)
         before, action = (m.group(1).lower() if m else ""), header["action"]
-        if action == "sing" and before != "sing" and not SING_ASK.search(text):
+        if action == "sing" and before != "sing" and (not SING_ASK.search(text) or SING_ECHO.match(text)):
             return {"action": "none", "target": ""}        # "Prove it." after "do you have a sense of humour?"
         if DO_IT.match(text) and action in ("none", "unclear"):
             asked = "wave" if WAVE_ASK.search(last_q) else "sing" if SING_ASK.search(last_q) else None
@@ -1806,16 +1857,29 @@ class Brain:
         words = len(text.split())
         if follow or self.history and (FOLLOW_UP.search(text) and words <= FOLLOW_UP_WORDS or after_lookup and (
                 words <= 3 if HANGUL.search(text) else          # "몇 살이야?": Korean leaves the subject out
-                words <= FOLLOW_UP_WORDS and (LOOKUP_MORE.search(text) or AND_ALSO.match(text)))):
+                words <= FOLLOW_UP_WORDS and (LOOKUP_MORE.search(text) or AND_ALSO.match(text) or
+                                              SHORT_Q.search(text) and not re.search(r"\d", text) and
+                                              not CAP_WORD.search(text)))):   # "How much is a ticket?": no name
             topic = self.lookup_topic or self.last_lookup or self.history[-1][0]
             if (self.last_lookup or "").endswith(WEATHER_ASKED):          # "and tomorrow?" after the weather
                 topic = "weather " + self.last_lookup[:-len(WEATHER_ASKED)]
             said = SENTENCE_END.split(self.history[-1][1].strip())[0] if after_lookup else ""
-            names = [n for n in dict.fromkeys(NAMES.findall(said)) if n.lower() not in topic.lower()]
             rest = LEAD.sub("", re.sub(r"\s+", " ", MORE_ONLY.sub(" ", text)).strip(" ?.!,")).strip()
-            return " ".join([topic] + names + [rest]).strip()
+            return " ".join([topic] + self._names(said, topic) + [rest]).strip()
+        if self.history and words <= FOLLOW_UP_WORDS and NAMED_BEFORE.search(text):   # "how many people live there?"
+            q = self.history[-1][0]                                                 # after a talk answer ("Ottawa")
+            said = SENTENCE_END.split(self._last_said())[0]
+            text = " ".join([q] + self._names(said, q, single=True) + [text.strip(" ?.!,")])
         self.lookup_topic = text
         return text
+
+    @staticmethod
+    def _names(said, topic, single=False):
+        """Names in an answer's first sentence that the topic does not have: "Sam Altman", Korean "샘 올트먼" (said
+        before -이에요 / -입니다), with single also one capitalised word ("Ottawa")."""
+        names = NAMES.findall(said) or (CAP_WORD.findall(said) if single else [])
+        names += [m.group(1) for m in KO_NAME.finditer(said)]
+        return [n for n in dict.fromkeys(names) if n.lower() not in topic.lower()]
 
     def is_lookup_follow_up(self, text):
         """'Tell me more' right after an answer from the internet: look it up again with that topic."""
@@ -1885,6 +1949,8 @@ class Brain:
             action = "none"                                # "Hello Lumi!", "hello 해 봐": a greeting, not a wave
         if action not in ("go_to", "look", "lift", "weather", "search", "move", "turn", "arm", "fetch", "pick", "move_object"):
             target = ""
+        if action in ("search", "weather") and SPOKEN_TARGET.match(target):
+            target = ""                                    # "search I'll look that up": the visitor's words are searched
         if action == "search" and not target:
             target = text
         if re.search(r"\b(bye|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|good night|i have to go|i'?m leaving)\b|안녕히|잘 ?가|잘 ?있어|"
@@ -1899,8 +1965,9 @@ class Brain:
             action, target = rule
         if action == "stop" and "?" in text:
             action = "none"                                # "how do I stop you?": a question about stopping
-        if action == "end" and ("?" in re.split(r"(?<=[.!?~])\s+", text.strip())[-1] or not FAREWELL_TEXT.search(text)):
-            action = "none"                                # "Alright then." / "Neat.": lumi waits for silence instead
+        if action == "end" and "?" in re.split(r"(?<=[.!?~])\s+", text.strip())[-1]:
+            action = "none"                                # "thanks, and where is p3?": a question is no goodbye; the
+                                                           # model reads "okay" / "됐어요" with the talk before (owner)
         out = {"action": action, "target": target or ""}
         if say and action == "none" and not QUESTION_START.search(text):
             out["say"] = say[1] if language(text) == "Korean" else say[0]   # its words said it would go: replaced
@@ -1918,6 +1985,7 @@ class Brain:
     def reset(self):
         self.history = []
         self.last_lookup = None
+        self.weather_at = ""
 
 
 if __name__ == "__main__":

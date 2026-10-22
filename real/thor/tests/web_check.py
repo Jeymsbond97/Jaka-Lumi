@@ -95,7 +95,7 @@ def turn(b, lang, text):
         gen = b.respond_stream(text, MARKS, now=NOW)
         head = next(gen)
         a = head["action"]
-        if a == "search" and lumi.not_online(about):
+        if a == "search" and lumi.lookup_refused(b, head["target"], about, text):
             gen.close()
             out.update(route="refused", answer=lumi.not_known("ko" if lang == "ko" else "en"), total_s=time.time() - t0)
             return out
@@ -118,6 +118,8 @@ def turn(b, lang, text):
         return out
     out["target"] = target
     tf = time.time()
+    if action == "weather":                                      # as lumi.look_up: the place of the weather before
+        target = out["target"] = b.weather_place(target, text)
     facts = web.weather(target) if action == "weather" else web.search(target)
     out["fetch_s"], out["facts"] = time.time() - tf, facts or "NO INTERNET"
     words = []

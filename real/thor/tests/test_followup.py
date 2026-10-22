@@ -40,16 +40,20 @@ def route(b, text, frames):
     place = lumi.consent_place(text, b, MARKS)
     if place:
         return f"act:go_to {place}", ""
+    if lumi.talk_fate(text) == "close":
+        return "closing", ""                                         # the LLM reads it with the talk before
     r = rules_route(text, lang, MARKS)
     if r:
         name = {"chat": "closing", "action:end": "end"}.get(r[0], r[0].replace("action:", "act:"))
         if name in ("weather", "search"):
             rule = brain.intent(text, MARKS)
-            return name, (rule[1] if name == "weather" else b.search_query(rule[1]))
+            return name, (b.weather_place(rule[1], text) if name == "weather" else b.search_query(rule[1]))
         return name, r[1]
     if b.is_lookup_follow_up(text):
         return "search", b.search_query(text)
     h = b._after({"action": "none", "target": ""}, text)
+    if h["action"] == "search" and lumi.lookup_refused(b, h["target"], b.topic(text), text):
+        return "refused", ""                                         # lumi.answer: Cutshion / this place, not online
     if h["action"] == "search":
         return "search", b.search_query(h["target"])
     if h["action"] != "none":
@@ -76,6 +80,7 @@ def replay(b, ctx, frames):
             b.last_lookup = said
         elif kind == "weather":
             asked = said + getattr(brain, "WEATHER_ASKED", " (the weather)")                  # lumi.look_up / brain.respond_from
+            b.weather_place((brain.intent(said, MARKS) or ("", ""))[1], said)
             b.history.append((asked, reply))
             b.last_lookup = asked
         else:
