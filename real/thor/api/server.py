@@ -763,7 +763,7 @@ def arm_tuck():
 
 class PoseBody(BaseModel):
     name: str = Field(examples=["look"], description="a pose of the pose graph (manipulation/arm_route.py)")
-    speed: str = Field(arm_route.SPEED, description="slow / normal")
+    speed: str = Field(arm_route.SPEED, description="slow / normal / route (empty hand; holding: always slow)")
 
 
 class LineBody(BaseModel):

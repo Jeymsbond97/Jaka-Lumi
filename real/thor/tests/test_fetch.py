@@ -138,6 +138,8 @@ fetch.AXIS_SPEED, fetch.COAST_S = 100.0, 0.0
 arm = {"j": [5.0] * 6}                                                     # the fake arm's joints: away from every pose
 fetch.motion.go = lambda name, *a, **k: (calls.append(("pose", name)), arm.update(j=list(fetch.motion.poses()[name])))
 fetch.motion.stop = lambda: calls.append(("arm stop",))
+real_move = fetch.arm_route.move
+fetch.arm_route.move = lambda seq, *a, **k: [fetch.motion.go(n) for n, _ in seq]    # by name (poses share joints here)
 fetch.motion.poses = lambda: {"tuck": [0] * 6, "ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
 fetch.motion.tcp = lambda: [0.0] * 3 + tilt["rpy"]                    # the flange as the fake kine_forward says
 skills._joints = lambda: arm["j"]
@@ -233,16 +235,18 @@ except fetch.FetchError:
 st = run(fetch.place)
 assert st["status"] == "done" and not st["holding"] and ("place",) in calls and poses()[-1] == "look", (st, calls)
 
-# ---------- arm speed: every move along the pose graph at arm_route.SPEED, empty hand or holding ----------
+# ---------- arm speed along the pose graph: arm_route.SPEED with an empty hand, HOLD_SPEED holding ----------
 speeds = []
 real_go = fetch.motion.go
 fetch.motion.go = lambda name, speed="slow", *a, **k: (speeds.append((name, speed)), calls.append(("pose", name)))
+fetch.arm_route.move, fake_move = real_move, fetch.arm_route.move
+fetch.motion.move_path = lambda moves, *a, **k: speeds.extend(("carry", s) for _, s, _ in moves)
 arm.update(j=[0.5] * 6)
 fetch._pose("carry")
 tilt["rpy"] = up_rpy
 fetch._pose("carry", holding=True)
-assert speeds == [("carry", fetch.arm_route.SPEED)] * 2 and fetch.arm_route.SPEED == "slow", speeds
-fetch.motion.go = real_go
+assert speeds == [("carry", "route"), ("carry", "slow")], speeds
+fetch.motion.go, fetch.arm_route.move = real_go, fake_move
 
 # ---------- a drive that turns on the spot without getting anywhere is cancelled ----------
 reset()

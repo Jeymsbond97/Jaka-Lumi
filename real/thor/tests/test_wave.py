@@ -16,7 +16,8 @@ from vision import head_cam
 fetch.STATE_FILE = Path(tempfile.mkdtemp()) / "lumi_task.json"     # never the real /dev/shm file
 lumi.BUSY_FILE = str(fetch.STATE_FILE.parent / "lumi_busy.json")       # nor the real busy file
 LOOK = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-POSES = {"look": LOOK, "wave_start": [-50.0, 0.0, 0.0, 0.0, 0.0, 0.0], "wave": [-50.0, 0.0, 60.0, 0.0, 30.0, 0.0]}
+POSES = {"look": LOOK, "wave_out": [-50.0, 0.0, 0.0, 0.0, 0.0, 0.0], "wave_start": [-50.0, 0.0, 60.0, 0.0, 0.0, 0.0],
+         "wave": [-50.0, 0.0, 60.0, 0.0, 21.7, 0.0]}
 HEAD = np.array([-100.0, -200.0, 700.0])                               # mm, the head's turning centre in the toy arm
 motion.poses = lambda: dict(POSES)
 head_cam.head_centre = lambda: HEAD
@@ -46,6 +47,8 @@ class FakeArm:
             return {"cartPosition": [10 * j[0], 10 * j[1], 10 * j[2], 0.0, 0.0, 0.0], "errorCode": "0"}
         if name == "get_data":
             return {"joint_actual_position": list(self.j), "inpos": True}
+        if name == "get_motion_state":
+            return {"queue": 0, "active_queue": 0, "errorCode": "0"}
         if name == "joint_move":
             self.sent.append(list(a["jointPosition"]))
             self.j = list(a["jointPosition"])
@@ -67,27 +70,46 @@ def refused(reason):
     raise AssertionError(f"waved, expected {reason}")
 
 
-# ---------- from look: up along the graph, wave, and the arm stays up; every move clear of the head ----------
+# ---------- from look: up through wave_out, 2 swings, the arm stays at wave_start; every move clear of the head ------
 a = use(FakeArm(LOOK))
 started = []
 wave.wave(on_start=lambda: started.append(len(a.sent)))
 assert started == [0]                                               # said before the first move
-top = POSES["wave"]
-up, down = top[:4] + [top[4] + wave.WAVE_DEG] + top[5:], top[:4] + [top[4] - wave.WAVE_DEG] + top[5:]
-assert a.sent == [POSES["wave_start"], top] + [up, down] * wave.WAVE_SWINGS + [top], a.sent
+top, swing = POSES["wave_start"], POSES["wave"]
+assert wave.SWINGS == 2
+assert a.sent == [POSES["wave_out"], top] + [swing, top] * wave.SWINGS, a.sent
 for j0, j1 in zip([LOOK] + a.sent, a.sent):
     assert arm_route.profile(j0, j1, HEAD)[0] >= arm_route.HEAD_CLEAR_MM, (j0, j1)
 assert arm_route.profile(LOOK, top, HEAD)[0] < arm_route.HEAD_CLEAR_MM     # straight up from look would pass the head
+assert {"look", "wave_start"} not in [set(e) for e in arm_route.EDGES]       # so there is no such edge
 a.sent.clear()
 wave.wave()                                                         # asked again while up: only the swings
-assert a.sent == [top] + [up, down] * wave.WAVE_SWINGS + [top], a.sent
+assert a.sent == [swing, top] * wave.SWINGS, a.sent
+a.sent.clear()
+a.j = list(swing)                                                   # stopped at wave: back to wave_start, then swings
+wave.wave()
+assert a.sent == [top] + [swing, top] * wave.SWINGS, a.sent
+names = []                                                          # the way up as arm_route.goto sends it, then the
+arm.cmd = lambda name, **k: (names.append((name, k.get("speed"), k.get("tol"))), a(name, **k))[1]   # swings, each queued
+a.j = list(LOOK)
+wave.wave()
+sent = [(n, v, t) for n, v, t in names if n in ("joint_move", "get_data")]
+route, swing_s = motion.JOINT_SPEED[arm_route.SPEED], motion.JOINT_SPEED[wave.SWING_SPEED]
+assert sent[:3] == [("joint_move", route, arm_route.TOL), ("joint_move", route, None), ("get_data", None, None)], sent
+assert sent[3:4 + 2 * wave.SWINGS] == [("joint_move", swing_s, None)] * 2 * wave.SWINGS + [("get_data", None, None)], sent
+assert wave.SWING_SPEED == "normal"
+arm.cmd = a
+a.j = list(top)
+a.sent.clear()
+assert arm_route.goto("look") == ["wave_out", "look"]               # the way down
+assert a.sent == [POSES["wave_out"], LOOK], a.sent
 
 # ---------- a taught pose whose way passes the head: refused before anything moves ----------
-POSES["wave_start"] = [-15.0, 0.0, 40.0, 0.0, 0.0, 0.0]
+POSES["wave_out"] = [-15.0, 0.0, 40.0, 0.0, 0.0, 0.0]
 a = use(FakeArm(LOOK))
 refused(wave.NEAR_HEAD)
 assert a.sent == []
-POSES["wave_start"] = [-50.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+POSES["wave_out"] = [-50.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 # ---------- holding something: refused (task state, or AI_1 when the camera can't tell) ----------
 a = use(FakeArm(LOOK))
@@ -106,7 +128,7 @@ assert a.sent == []
 POSES["carry"] = [30.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 a = use(FakeArm(POSES["carry"]))
 wave.wave()
-assert a.sent[:3] == [LOOK, POSES["wave_start"], top], a.sent
+assert a.sent[:4] == [LOOK, POSES["wave_out"], top, swing], a.sent
 del POSES["carry"]
 
 # ---------- an unknown start (after free drive: the wrist the other way round), base, power ----------
@@ -123,7 +145,10 @@ refused(wave.BUSY)
 fetch.STATE_FILE.unlink()
 del POSES["wave"]
 refused(wave.NOT_TAUGHT)
-POSES["wave"] = top
+POSES["wave"] = swing
+del POSES["wave_out"]
+refused(wave.NOT_TAUGHT)
+POSES["wave_out"] = [-50.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 assert a.sent == []
 
 # ---------- the assistant: a greeting sends no arm command; a wave asked while holding is refused aloud ----------

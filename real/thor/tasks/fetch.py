@@ -328,7 +328,7 @@ def _at_pose(name):
 
 
 def _pose(name, holding=False, leaf=False):
-    """Joint moves to pose `name` along the pose graph (manipulation/arm_route.py, slow), all checked before the first
+    """Joint moves to pose `name` along the pose graph (manipulation/arm_route.py), all checked before the first
     one starts. `leaf`: the arm is on this task's own way out from look (arm_route.hops). Nothing when it is there."""
     _go_on()
     if _at_pose(name):
@@ -338,9 +338,7 @@ def _pose(name, holding=False, leaf=False):
     except arm_route.RouteError as e:
         raise FetchError(*e.args) from e
     log(f"arm to {name}: {' -> '.join(n for n, _ in seq)}")
-    for n, _ in seq:
-        _go_on()
-        motion.go(n, arm_route.SPEED)
+    arm_route.move(seq, holding=holding)
     _go_on()
 
 

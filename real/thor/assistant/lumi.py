@@ -1529,8 +1529,9 @@ class Lumi:
             return st is not None
         try:
             if target == "fold":
-                seq = arm_route.plan("tuck", holding=self.fetch_status() == "holding")
-                threading.Thread(target=safe, args=(arm_route.move, seq), daemon=True).start()
+                holding = self.fetch_status() == "holding"
+                seq = arm_route.plan("tuck", holding=holding)
+                threading.Thread(target=safe, args=(arm_route.move, seq, None, holding), daemon=True).start()
             else:
                 arm_route.start_program(ARM_REACH_PROGRAM)
             return True

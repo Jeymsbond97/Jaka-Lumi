@@ -1,7 +1,7 @@
 """The arm moves between named poses only along a graph of taught poses, every joint move checked before anything
 moves.
 
-    give - carry - look - wave_start - wave
+    give - carry - look - wave_out - wave_start - wave
                     |  \\
                   ready  tuck
 
@@ -16,6 +16,11 @@ motion.MAX_TRAVEL, the gripper (flange -> grasp point -> finger tips) at least H
 centre (vision/head_cam.py), never more than skills.PATH_SAG_MM below both ends, and with something in the hand the
 cup's lean at most skills.MAX_TILT_DEG. Refusals are RouteError with the reason in English and Korean.
 
+With an empty hand the moves of a route are sent together (motion.move_path) and the arm blends through the via-points
+(TOL); it stops only at the end. The blend cuts each corner inside the halves of its two moves next to the via-point,
+so that cut (half of the one move to half of the next) is checked like a move too. Holding something, the arm goes one
+move at a time at HOLD_SPEED.
+
 Cobo π programs start only from `look` (start_program); hand_shaking.jks never (it hit the head, 2026-10-21).
 
     python manipulation/arm_route.py check [pose]    # the route from here to pose (default look), checked; moves nothing
@@ -23,6 +28,7 @@ Cobo π programs start only from `look` (start_program); hand_shaking.jks never 
 """
 import collections
 import sys
+import time
 
 import numpy as np
 
@@ -31,9 +37,12 @@ from robot import arm, gripper, motion
 from vision import calib, head_cam
 
 HOME = "look"                        # every arm action starts here
-EDGES = (("give", "carry"), ("carry", "look"), ("look", "wave_start"), ("wave_start", "wave"),
-         ("look", "ready"), ("look", "tuck"))   # the only joint moves between named poses (both ways)
-SPEED = "slow"                       # motion.JOINT_SPEED of every move along the graph
+EDGES = (("give", "carry"), ("carry", "look"), ("look", "wave_out"), ("wave_out", "wave_start"),
+         ("wave_start", "wave"), ("look", "ready"), ("look", "tuck"))   # the only joint moves between named poses (both ways)
+SPEED = "route"                      # motion.JOINT_SPEED of the moves along the graph, empty hand
+HOLD_SPEED = "slow"                  # ... with something in the hand (one move at a time, each to a full stop)
+TOL = 10.0                           # the controller's transition radius at each via-point, empty hand (joint_move
+                                     # `tol`; the vendor gives no unit for joint moves). Estimate; 0 stops at each one
 AT_POSE_DEG = 3.0                    # deg; the arm is at a pose when every joint is this close (where, programs)
 EXACT_DEG = 1.0                      # deg; further than this from the nearest pose a route first goes to it
 JOIN_DEG = 20.0                      # deg; an arm at no pose joins the graph only this close to one (every joint)
@@ -175,9 +184,10 @@ def move_problem(j0, j1, centre, holding=False):
     return None
 
 
-def check_moves(now, targets, holding=False):
+def check_moves(now, targets, holding=False, blend=False):
     """Joint targets of the moves now -> targets[0] -> ..., as move_joints will turn them (J1 / J4 / J6 nearest),
-    each checked. RouteError when one must not run."""
+    each checked; `blend`: also the corner cut at each via-point (half way along the move before to half way along the
+    move after). RouteError when one must not run."""
     centre = head_cam.head_centre()
     if centre is None:
         log("arm route: the head's place is not measured (vision/head_cam.py fit)")
@@ -201,6 +211,12 @@ def check_moves(now, targets, holding=False):
             raise RouteError(*done[key][0])
         seq.append(t)
         prev = t
+    for a, v, b in zip([list(now)] + seq, seq, seq[1:]) if blend else ():
+        a, v, b = np.array(a, float), np.array(v, float), np.array(b, float)
+        problem = move_problem((a + v) / 2, (v + b) / 2, centre, holding)
+        if problem:
+            log(f"arm route: the corner at {_r(v)} refused: {problem[1]}")
+            raise RouteError(*problem[0])
     return seq
 
 
@@ -209,22 +225,36 @@ def plan(target, holding=False, leaf=False, now=None):
     now = skills._joints() if now is None else now
     names = hops(now, target, leaf)
     p = motion.poses()
-    return list(zip(names, check_moves(now, [p[n] for n in names], holding)))
+    return list(zip(names, check_moves(now, [p[n] for n in names], holding, blend=not holding)))
 
 
-def move(seq, speed=SPEED):
-    """Run a plan() along its poses. motion.MotionError when stopped or failed on the way (the arm stays there)."""
-    for name, _ in seq:
-        log(f"arm to {name}")
-        motion.go(name, speed)
+def moves(joints, speed=SPEED):
+    """motion.move_path moves of an empty-hand route through `joints`: blended at every via-point."""
+    return [(j, speed, TOL) for j in joints]
 
 
-def goto(target, holding=False, leaf=False, speed=SPEED):
+def move(seq, speed=None, holding=False):
+    """Run a plan() (made with the same `holding`) along its poses. motion.MotionError when stopped or failed on the
+    way (the arm stays there)."""
+    if not seq:
+        return
+    t0 = time.time()
+    if holding:
+        for name, _ in seq:
+            log(f"arm to {name}")
+            motion.go(name, HOLD_SPEED)
+    else:
+        log(f"arm to {' -> '.join(n for n, _ in seq)}")
+        motion.move_path(moves([j for _, j in seq], speed or SPEED))
+    log(f"arm at {seq[-1][0]} after {time.time() - t0:.1f} s")
+
+
+def goto(target, holding=False, leaf=False, speed=None):
     """Plan, check and go to pose `target` along the graph. Returns the poses passed."""
     seq = plan(target, holding, leaf)
     if seq:
         log(f"arm route to {target}: {' -> '.join(n for n, _ in seq)}, checked")
-    move(seq, speed)
+    move(seq, speed, holding)
     return [n for n, _ in seq]
 
 

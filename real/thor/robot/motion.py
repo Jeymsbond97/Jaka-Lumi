@@ -26,16 +26,19 @@ POSES_FILE = ROOT / "data" / "arm_poses.json"
 TUCK = [179.3, -88.6, -13.9, -15.8, -14.5, -121.3]   # deg, arm folded beside the column (fits doorways)
 LIMITS = [360, 125, 130, 360, 120, 360]              # deg, ± factory range per joint (docs/01_HARDWARE.md)
 LIMIT_MARGIN = 5.0                                   # deg kept away from every limit
-JOINT_SPEED = {"slow": 10.0, "normal": 25.0}         # deg/s
+JOINT_SPEED = {"slow": 10.0, "normal": 25.0, "route": 40.0}   # deg/s; route: empty-hand pose-graph moves (estimate)
+JOINT_ACCEL = {"slow": 30.0, "normal": 75.0, "route": 200.0}   # deg/s2 (vendor: keep under 720); route: estimate
 LINEAR_SPEED = {"slow": 20.0, "normal": 50.0}        # mm/s
-ACCEL_FACTOR = 3.0                                   # accel = speed x this (per s)
+ACCEL_FACTOR = 3.0                                   # linear moves: accel = speed x this (per s)
 MAX_FLIP = 90.0                                      # deg; an IK answer turning J1 / J4 / J6 more than this is refused
 MAX_TRAVEL = 200.0                                   # deg; a joint move turning any joint further is refused
 FULL_TURN = (0, 3, 5)                                # J1, J4, J6: ±360 joints; a target and target ± 360 are the same pose
 AT_JOINT_DEG = 0.3                                   # arrived when every joint is this close ...
 AT_TCP_MM = 1.0                                      # ... or the TCP this close (linear moves)
 POLL_S = 0.1
-EXTRA_S = 10.0                                       # s allowed on top of 3x the planned move time
+EXTRA_S = 10.0                                       # s allowed on top of the longest a move may take
+SLOW_DEG_S = 5.0                                     # deg/s; long joint moves ran this slow whatever the speed asked
+                                                     # (measured: 157 deg of J6 in 37 s, 60 deg of J1 in 8.5 s)
 STILL_S = 2.0                                        # s without joint motion (and not there) -> the move ended short
 STILL_DEG = 0.05                                     # joint change that counts as motion
 BLIND_S = 1.0                                        # s without a valid state reply while moving -> stop the arm
@@ -103,13 +106,22 @@ def _ready():
         raise MotionError("a Cobo π program is running")
 
 
-def _wait(arrived, planned_s):
-    """Wait while the arm moves. Big joint moves run slower than speed / travel suggests (measured: 157 deg
-    of J6 at 10 deg/s took well over 21 s), so the limit is generous; a move that stops short is caught by
-    STILL_S instead."""
+def _queue_empty():
+    """The controller has no motion command left to run (get_motion_state; an odd reply counts as not empty)."""
+    try:
+        r = arm.cmd("get_motion_state")
+    except (ConnectionError, OSError):
+        return False
+    return r.get("queue") == 0 and r.get("active_queue", 0) == 0
+
+
+def _wait(arrived, limit_s, queued=False):
+    """Wait while the arm moves, at most limit_s. Big moves run far slower than the speed asked (SLOW_DEG_S), so the
+    limit is generous; a move that stops short is caught by STILL_S instead. `queued`: several moves were sent, so
+    arrived also needs the controller's queue empty (a route can pass its last pose before, a wave does)."""
     t0 = last_move = last_seen = time.time()
     last = None
-    while time.time() - t0 < 3 * planned_s + EXTRA_S:
+    while time.time() - t0 < limit_s:
         if _stopped.is_set():
             raise MotionError("stopped")
         try:
@@ -125,12 +137,14 @@ def _wait(arrived, planned_s):
         last_seen = time.time()
         if d.get("protective_stop") or d.get("emergency_stop"):
             raise MotionError("the controller stopped the arm (protective / emergency stop)")
-        if d.get("inpos") and arrived(d):
+        if d.get("inpos") and arrived(d) and (not queued or _queue_empty()):
             return d
         j = d["joint_actual_position"]
         if last is None or max(abs(a - b) for a, b in zip(j, last)) > STILL_DEG:
             last, last_move = j, time.time()
         elif time.time() - last_move > STILL_S and time.time() - t0 > STILL_S + 1:
+            if queued:
+                stop()                          # the moves still queued must not run on later
             raise MotionError("the arm stopped before the target")
         time.sleep(POLL_S)
     stop()
@@ -150,23 +164,46 @@ def nearest(target, start):
 
 def move_joints(target, speed="slow", wait=True):
     """Joint move to absolute angles (deg). Returns the joints reached (or the target if wait=False)."""
-    check(target)
+    return move_path([(target, speed, 0.0)], wait)
+
+
+def move_path(moves, wait=True):
+    """Joint moves [(joints, speed, tol)] sent one after another without waiting between them: the controller queues
+    them and starts each when the one before ends (docs/04 §10). `tol` is the controller's transition radius into the
+    next move (it blends through that via-point instead of stopping); the last move always ends exactly. All moves
+    are checked before the first is sent. Waits for the last one; stop() ends the queue. Returns the joints reached
+    (or the last target if wait=False)."""
+    for t, _, _ in moves:
+        check(t)
     _ready()
-    deg_s = JOINT_SPEED[speed]
-    start = joints()
-    target = nearest(target, start)
-    for i, (a, b) in enumerate(zip(target, start)):
-        if abs(a - b) > MAX_TRAVEL:
-            raise MotionError(f"J{i + 1} would turn {a - b:+.0f} deg - refused")
-    travel = max(abs(a - b) for a, b in zip(target, start))
+    prev, planned, travel, seq = joints(), 0.0, 0.0, []
+    for t, speed, tol in moves:
+        t = nearest(t, prev)
+        for i, (a, b) in enumerate(zip(t, prev)):
+            if abs(a - b) > MAX_TRAVEL:
+                raise MotionError(f"J{i + 1} would turn {a - b:+.0f} deg - refused")
+        deg = max(abs(a - b) for a, b in zip(t, prev))
+        planned += deg / JOINT_SPEED[speed]
+        travel += deg
+        seq.append((t, speed, tol))
+        prev = t
     _stopped.clear()
-    r = arm.cmd("joint_move", relFlag=0, jointPosition=list(target), speed=deg_s, accel=deg_s * ACCEL_FACTOR)
-    if r.get("errorCode") != "0":
-        raise MotionError(f"joint_move refused: {r.get('errorMsg') or r}")
+    for k, (t, speed, tol) in enumerate(seq):
+        extra = {"tol": tol} if tol > 0 and k < len(seq) - 1 else {}     # no tol key at all on an exact move
+        r = arm.cmd("joint_move", relFlag=0, jointPosition=list(t), speed=JOINT_SPEED[speed],
+                    accel=JOINT_ACCEL[speed], **extra)
+        if _stopped.is_set():               # STOP pressed while sending: stop again, after this move is queued
+            stop()
+            raise MotionError("stopped")
+        if r.get("errorCode") != "0":
+            if k:
+                stop()                      # the moves already queued must not run on alone
+            raise MotionError(f"joint_move refused: {r.get('errorMsg') or r}")
+    target = seq[-1][0]
     if not wait:
         return list(target)
     d = _wait(lambda d: max(abs(a - b) for a, b in zip(d["joint_actual_position"], target)) < AT_JOINT_DEG,
-              travel / deg_s)
+              max(3 * planned, travel / SLOW_DEG_S) + EXTRA_S, queued=len(seq) > 1)
     return d["joint_actual_position"]
 
 
@@ -206,7 +243,7 @@ def move_linear(target=None, delta=None, speed="slow", wait=True, path_checked=F
     if not wait:
         return list(target)
     d = _wait(lambda d: sum((a - b) ** 2 for a, b in zip(d["actual_position"][:3], target[:3])) ** 0.5 < AT_TCP_MM,
-              dist / mm_s)
+              3 * dist / mm_s + EXTRA_S)
     return d["actual_position"]
 
 

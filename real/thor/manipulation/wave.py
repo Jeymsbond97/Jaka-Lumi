@@ -1,27 +1,29 @@
 """Wave the hand when someone asked for it. A greeting never moves the arm.
 
-The arm goes up along the pose graph (manipulation/arm_route.py: from `look` to `wave_start`, the hand away from the
-head, then `wave`, raised), swings one wrist joint there and STAYS at `wave`: the next arm task takes it back down
-the same way (wave -> wave_start -> look). Before anything moves, every joint move is checked (arm_route.check_moves:
-limits, travel, the gripper clear of the head, no dip). Refused, with the reason in English and Korean: the arm off or
-busy, the base driving, a task running, something in the hand, the arm at no known pose (after free drive), a pose not
-taught, a move too near the head.
+The arm goes up along the pose graph (manipulation/arm_route.py: from `look` to `wave_out`, the hand away from the
+head, then `wave_start`, the hand above the head), swings between the taught poses `wave_start` and `wave` (J3 −14.7°
+deg) SWINGS times and STAYS at `wave_start`: the next arm task takes it back down the same way (wave_start -> wave_out
+-> look). The way up goes like arm_route.goto (queued, blended through wave_out), then the swings, queued. Before
+anything moves, every joint move is checked (arm_route.check_moves: limits, travel, the gripper clear of the head, no
+dip). Refused, with the reason in English and Korean: the arm off or busy, the base driving, a task
+running, something in the hand, the arm at no known pose (after free drive), a pose not taught, a move too near the
+head.
 
     python manipulation/wave.py check      # plan and check from where the arm is now; moves nothing
     python manipulation/wave.py run        # wave (slow; the owner at the STOP)
 
-Teach the route first, arm moved by hand in Cobo π: python robot/motion.py teach wave_start / teach wave
+Teach the poses first, arm moved by hand in Cobo π: python robot/motion.py teach wave_out / wave_start / wave
 """
 import sys
+import time
 
 from manipulation import arm_route, skills
 from robot import agv, arm, gripper, motion
 
-TOP = "wave"                         # the raised pose (arm_route.EDGES: look - wave_start - wave)
-WAVE_JOINT = 4                       # joint index swung at the raised pose (4 = J5); check on the first slow run
-WAVE_DEG = 15.0                      # deg each way from the raised pose
-WAVE_SWINGS = 2                      # times there and back
-WAVE_SPEED = arm_route.SPEED         # motion.JOINT_SPEED; the route and the swings
+START = "wave_start"                 # hand above the head; the wave starts and ends here
+SWING = "wave"                       # START with J3 −14.7°
+SWINGS = 2                           # times START -> SWING -> START
+SWING_SPEED = "normal"               # motion.JOINT_SPEED of the swings; the way up is arm_route.move (as goto)
 
 # Why Lumi does not wave, (English, Korean)
 OFF = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")
@@ -58,7 +60,8 @@ def _holding():
 
 
 def plan():
-    """Joint targets of the whole wave from here, each move checked. Raises WaveError to refuse."""
+    """(the way up: arm_route.plan to START, the swings' joint targets) from here, each move checked. Raises
+    WaveError to refuse."""
     from tasks import fetch
     st = arm.cmd("get_robot_state")
     if not (st.get("power") and st.get("enable")):
@@ -71,38 +74,40 @@ def plan():
         raise WaveError(*HOLDING)
     now = motion.joints()
     try:
-        route = arm_route.plan(TOP, now=now)          # up along the graph ([] when it is up already)
-        start = route[-1][1] if route else now
-        top = motion.nearest(motion.poses()[TOP], start)
-        i = WAVE_JOINT
-        swings = [top[:i] + [top[i] + s * WAVE_DEG] + top[i + 1:] for _ in range(WAVE_SWINGS) for s in (1, -1)]
-        seq = [j for _, j in route] + arm_route.check_moves(start, ([] if route else [top]) + swings + [top])
+        route = arm_route.plan(START, now=now)        # up along the graph ([] when it is there already)
+        p = motion.poses()
+        if SWING not in p:
+            raise arm_route.RouteError(*arm_route.NOT_TAUGHT)
+        swings = arm_route.check_moves(route[-1][1] if route else now, [p[SWING], p[START]] * SWINGS)
     except arm_route.RouteError as e:
         raise WaveError(*{arm_route.UNKNOWN: UNKNOWN_POSE, arm_route.NOT_TAUGHT: NOT_TAUGHT,
                           arm_route.BLOCKED: NOT_TAUGHT, arm_route.NEAR_HEAD: NEAR_HEAD}.get(e.args, UNSURE)) from e
-    return seq
+    return route, swings
 
 
 def wave(on_start=None):
-    """Plan, check and wave; the arm stays at TOP. `on_start()` is called once the plan is checked.
+    """Plan, check and wave; the arm stays at START. `on_start()` is called once the plan is checked.
     Raises WaveError (refused) or motion.MotionError (stopped / failed while moving: the arm stays where it stopped)."""
     try:
-        seq = plan()
+        route, swings = plan()
     except (motion.MotionError, skills.SkillError, ConnectionError, OSError, KeyError, ValueError) as e:
         log(f"wave refused: {e}")
         raise WaveError(*UNSURE) from e
-    log(f"wave: {len(seq)} joint moves, checked")
+    log(f"wave: {len(route) + len(swings)} joint moves, checked")
     if on_start:
         on_start()
-    for t in seq:
-        motion.move_joints(t, WAVE_SPEED)
+    arm_route.move(route)                             # up exactly as arm_route.goto: queued, blended at wave_out
+    t0 = time.time()
+    motion.move_path([(t, SWING_SPEED, 0.0) for t in swings])   # the swings queued: no pause between them
+    log(f"wave: {SWINGS} swings after {time.time() - t0:.1f} s")
 
 
 if __name__ == "__main__":
     what = sys.argv[1] if len(sys.argv) > 1 else "check"
     try:
         if what == "check":
-            print([[round(v, 1) for v in t] for t in plan()])
+            route, swings = plan()
+            print([n for n, _ in route], [[round(v, 1) for v in t] for t in swings])
         elif what == "run":
             wave()
             print("done")
