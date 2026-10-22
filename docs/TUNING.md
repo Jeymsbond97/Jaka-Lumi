@@ -146,3 +146,15 @@ and `--start` for the detector. Line numbers may move; search the name.
 | `audio/mouth.py` | `STEPS` | 4 | Supertonic synthesis steps (quality / speed). On the GPU a step takes a few ms, on the CPU 0.1–0.27 s |
 | `audio/tts_gpu.py` | `MAX_LEN` | 640 | Longest text / latent (~44 s of speech) the TensorRT engines take; longer goes to the CPU. A change needs `tts_gpu.py build` |
 | `assistant/llm_direct.py` | `KEEP_EVERY_S` | 60 s | How often Ollama is told to keep the model loaded (it doesn't see the direct requests) |
+
+## Web answers
+
+| File:line | Name | Now | What it does |
+|---|---|---|---|
+| `assistant/web.py` | `SEARCH_WAIT_S` | 2.0 s | The search page and Wikipedia get this long together (both ~0.7 s); a slower one is left out |
+| `assistant/web.py` | `NEWS_WAIT_S` | 1.2 s | Google News headlines get this long from the start (0.4–1.6 s), `SEARCH_WAIT_S` when the news is what is asked |
+| `assistant/web.py` | `PAGE_CHARS`, `BLOCK_CHARS`, `WIKI_CHARS` | 1200, 500, 500 chars | Text of the search page, of one part of it, of the Wikipedia summary given to the LLM; Korean is ~1 token a char and the runner reads ~1300 tokens/s |
+| `assistant/web.py` | `NEWS_ITEMS` | 3 | Headlines given, only for questions about what changes (`NEWSY`) |
+| `assistant/web.py` | `SEARCH_TTL`, `WEATHER_TTL` | 600 s | A search / weather answer is reused this long |
+| `assistant/web.py` | `WEATHER_DAYS` | 7 | Days of forecast given with the weather ("tomorrow", "모레", "this weekend") |
+| `assistant/web.py` | `TOWN` | 50000 people | A smaller geocoded place is not taken for a "how far" distance (often a namesake: "the moon" → Moon-sur-Elle) |

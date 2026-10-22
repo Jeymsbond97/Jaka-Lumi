@@ -1871,13 +1871,21 @@ class Lumi:
             mouth.say(PRIVATE_SAY["en" if en else "ko"])
             return
         found = {}                                         # fetched while "Let me check." is said (~1 s)
-        if action == "search" and web.openai_ready():      # OpenAI's web search answers, the free search if it can't
+        use_openai = action == "search" and web.openai_ready()
+        if use_openai:                                     # OpenAI's web search answers, the free search if it can't
             fetch = threading.Thread(target=lambda: found.update(said=web.openai_answer(text, self.brain.history)),
                                      daemon=True)
         else:
             fetch = threading.Thread(target=lambda: found.update(
                 facts=web.weather(target) if action == "weather" else web.search(target)), daemon=True)
         fetch.start()
+        if not use_openai:
+            # the free search: the answer is fetched and made while "Let me check." plays (~1 s sooner)
+            said = mouth.say_stream(self._looked_up(text, action, target, fetch, found), abort=self.speak_abort)
+            log(f"lumi ({time.time() - (t0 or time.time()):.1f} s): {said}")
+            if self.current is None:
+                self.voice_until = time.time() + VOICE_SESSION_S
+            return
         mouth.say("Let me check." if en else "확인해 볼게요.")
         fetch.join()
         if found.get("said"):
@@ -1903,6 +1911,21 @@ class Lumi:
             log(f"lumi ({time.time() - (t0 or time.time()):.1f} s): {said}")
         if self.current is None:
             self.voice_until = time.time() + VOICE_SESSION_S
+
+    def _looked_up(self, text, action, target, fetch, found):
+        """'Let me check.', then the answer from the facts the fetch thread finds, sentence by sentence."""
+        en = self.lang == "en"
+        yield "Let me check." if en else "확인해 볼게요."
+        fetch.join()
+        facts = found.get("facts")
+        log(f"  {action} {target!r}: {(facts or 'NO INTERNET')[:120]}")
+        if facts is None:
+            yield ("Sorry, I'm not connected to the internet right now, so I can't look that up."
+                   if en else "죄송해요, 지금은 인터넷에 연결되어 있지 않아서 찾아볼 수 없어요.")
+            return
+        asked = f"{text} (the weather)" if action == "weather" else text    # misheard words ("원하는 날씨가 어때요?")
+        for i, sentence in enumerate(self.brain.respond_from(asked, facts)):   # made the LLM say it found nothing
+            yield from mouth.first_parts(sentence) if i == 0 else [sentence]   # the voice starts sooner
 
     def keep_listening(self):
         if self.current is None:
@@ -2620,7 +2643,9 @@ def not_online(text):
 
 PRIVATE_ASK = re.compile(r"\bhome address|\bwhere (does|do|did) (my|our|his|her|their|this|that) .{0,40}\blives?\b|"
                          r"\b(phone|mobile|cell) number of (?!the |a )|\b(email|e-mail) (address )?of (my|our|his|her)\b|"
-                         r"(집|자택) ?주소|(옆집|이웃|동료|친구|선생님|사람).{0,8}(전화번호|연락처|주소|어디 살)", re.I)
+                         r"\b(coworker|colleague|neighbou?r|friend|boss|classmate)'?s?\b.{0,30}\b(salary|income|address|"
+                         r"phone number)|(집|자택) ?주소|(옆집|이웃|동료|친구|선생님|사람|옆자리).{0,12}(전화번호|연락처|주소|어디 살|"
+                         r"연봉|월급)", re.I)
 PRIVATE_SAY = {"en": "Sorry, I can't look up a person's private details.",
                "ko": "죄송해요, 개인 정보는 찾아 드릴 수 없어요."}
 

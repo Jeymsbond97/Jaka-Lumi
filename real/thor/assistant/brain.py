@@ -1386,14 +1386,17 @@ MORE_ONLY = re.compile(r"\b(tell me more|tell me|more|details?|explain|elaborate
 LOOKUP_ANSWER = """Search results found just now on the internet (they may hold ads and unrelated parts):
 {facts}
 {before}
+Now it is {now}.
 Visitor: {question}
 
-Answer in {lang} as spoken words to a person: the answer itself in the first sentence, short (1 or 2 sentences;
+No ACTION line: answer in {lang} as spoken words to a person: the answer itself in the first sentence, short (1 or 2 sentences;
 when they ask for more, 2 or 3 sentences with facts not said yet). No lists, links or markdown. Take names, numbers
 and dates from the results above (the newest when they differ). Only when the results do not hold it and it is
 settled general knowledge that never changes (a landmark's height, who founded a company) answer from what you know;
 anything that changes (who holds an office, prices, results, news, schedules) only from the results, else say in one
-sentence that you couldn't find it; never guess. Round only long numbers such as prices and populations ("about 1,330
+sentence that you couldn't find it; never guess. "Who is the pope / the president / the CEO?" asks who holds it
+now: say the name. A short follow-up ("how old is he?", "몇 살이야?", "and tomorrow?") asks about the person, thing or
+place of the question before, never about you. For the weather take the day asked from its own line. Round only long numbers such as prices and populations ("about 1,330
 won", "about 9.4 million"); say heights, ages, dates and scores as found (an age next to a birth date is worked out
 already). Do not mention the search, the results or websites. Never give a person's home address, phone number or
 other private details, nor help to hurt someone or break the law: say briefly that you can't help."""
@@ -1469,6 +1472,7 @@ class Brain:
         # more per turn); the time goes into the last message. What Lumi does now stays here: in the last message it
         # read "leave it" while holding a cup as "put it down"
         system = route_system(markers, now)
+        self.last_system = system                 # respond_from answers a lookup with it: still cached, and after it
         messages = [{"role": "system", "content": system}]
         for q, a in self.history[-HISTORY_TURNS:]:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
@@ -1604,14 +1608,16 @@ class Brain:
 
     def respond_from(self, question, facts):
         """Spoken answer built from looked-up facts (weather, web results); yields sentences."""
-        messages = [{"role": "system", "content": SYSTEM + f"\nNow it is {now_line()}."}]
+        # the system prompt of the last respond_stream: the runner has it cached (~5000 tokens), and the next turn's
+        # respond_stream finds it cached again (with SYSTEM alone here its action part was read again, ~1.4 s)
+        messages = [{"role": "system", "content": getattr(self, "last_system", None) or route_system()}]
         for q, a in self.history[-HISTORY_TURNS:]:
             messages += [{"role": "user", "content": q}, {"role": "assistant", "content": a}]
         follow_up = self.last_lookup is not None and self.history and self.history[-1][0] == self.last_lookup
         before = f"\nFound for the question before:\n{self.last_facts[:LOOKUP_BEFORE_CHARS]}\n" if follow_up else ""
         lang = language(question)
         messages.append({"role": "user", "content": LOOKUP_ANSWER.format(facts=facts, before=before, question=question,
-                                                                         lang=lang)})
+                                                                         lang=lang, now=now_line())})
         self.last_facts = facts
         buf, full = "", ""
         for piece in _stream(messages):

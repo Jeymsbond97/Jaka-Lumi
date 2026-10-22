@@ -10,6 +10,7 @@ The robot network has no internet; the Thor reaches it through its own Wi-Fi. A 
 import html
 import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -24,7 +25,10 @@ PROXY_FILE = ROOT / "data" / "proxy.txt"          # e.g. http://192.168.10.200:8
 DEFAULT_PLACE = "Seoul"
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux aarch64) LumiRobot/1.0"}
 _online = {"time": 0.0, "ok": False}
-PLACES = {"seoul": {"name": "Seoul", "latitude": 37.57, "longitude": 126.98}}   # known places: no geocoding request
+PLACES = {"seoul": {"name": "Seoul", "latitude": 37.57, "longitude": 126.98},     # known places: no geocoding request
+          "incheon airport": {"name": "Incheon Airport", "latitude": 37.46, "longitude": 126.44},   # the geocoder has
+          "gimpo airport": {"name": "Gimpo Airport", "latitude": 37.56, "longitude": 126.79}}       # towns, no airports
+FIXED = list(PLACES.values())
 # Korean names -> the English name the geocoder knows (it finds 부산 as a village "Pusan", 제주 not at all, "Jeju" in Ethiopia)
 KO_PLACES = {
     "서울": "Seoul", "부산": "Busan", "인천": "Incheon", "대구": "Daegu", "대전": "Daejeon", "광주": "Gwangju",
@@ -36,6 +40,7 @@ KO_PLACES = {
     "베이징": "Beijing", "상하이": "Shanghai", "홍콩": "Hong Kong", "타이베이": "Taipei", "방콕": "Bangkok",
     "싱가포르": "Singapore", "하노이": "Hanoi", "다낭": "Da Nang", "뉴욕": "New York", "런던": "London",
     "파리": "Paris", "타슈켄트": "Tashkent", "사마르칸트": "Samarkand",
+    "인천공항": "Incheon Airport", "인천국제공항": "Incheon Airport", "김포공항": "Gimpo Airport",
     "jeju": "Jeju City", "seongnam": "Seongnam-si", "yongin": "Yongin-si",   # the plain English name is found elsewhere
 }
 
@@ -79,37 +84,90 @@ def now_text():
 
 
 WEATHER_CODES = {0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast", 45: "fog", 48: "fog",
-                 51: "light drizzle", 53: "drizzle", 55: "heavy drizzle", 61: "light rain", 63: "rain",
-                 65: "heavy rain", 71: "light snow", 73: "snow", 75: "heavy snow", 80: "rain showers",
-                 81: "rain showers", 82: "violent rain showers", 95: "thunderstorm", 96: "thunderstorm with hail"}
+                 51: "light drizzle", 53: "drizzle", 55: "heavy drizzle", 56: "freezing drizzle", 57: "freezing drizzle",
+                 61: "light rain", 63: "rain", 65: "heavy rain", 66: "freezing rain", 67: "freezing rain",
+                 71: "light snow", 73: "snow", 75: "heavy snow", 77: "snow grains", 80: "rain showers",
+                 81: "rain showers", 82: "violent rain showers", 85: "snow showers", 86: "snow showers",
+                 95: "thunderstorm", 96: "thunderstorm with hail", 99: "thunderstorm with hail"}
+WEATHER_DAYS = 7                         # days of forecast given ("tomorrow", "모레", "this weekend")
 
 
 def weather(place=DEFAULT_PLACE):
-    """Current weather and today's range as a short English text, or None without internet."""
+    """Weather now and the days ahead as a short English text, or None without internet."""
     place = en_place(place or DEFAULT_PLACE) or DEFAULT_PLACE
     key = place.lower()
     if key in _weather and time.time() - _weather[key][0] < WEATHER_TTL:
         return _weather[key][1]
     try:
-        loc = PLACES.get(key)
+        loc = _place(place)
         if not loc:
-            g = json.loads(_get("https://geocoding-api.open-meteo.com/v1/search?count=1&name=" + urllib.parse.quote(place)))
-            if not g.get("results"):
-                return f"I could not find a place called {place}."
-            loc = PLACES[key] = g["results"][0]
+            return f"I could not find a place called {place}."
         w = json.loads(_get(
             f"https://api.open-meteo.com/v1/forecast?latitude={loc['latitude']}&longitude={loc['longitude']}"
-            "&current=temperature_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,"
-            "precipitation_probability_max&timezone=auto&forecast_days=1"))
+            "&current=temperature_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,"
+            f"temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days={WEATHER_DAYS}"))
         c, d = w["current"], w["daily"]
-        text = (f"Weather in {loc['name']}: {WEATHER_CODES.get(c['weather_code'], 'unknown')}, "
-                f"{c['temperature_2m']:.0f} degrees now, today {d['temperature_2m_min'][0]:.0f} to "
-                f"{d['temperature_2m_max'][0]:.0f} degrees, chance of rain {d['precipitation_probability_max'][0]} percent, "
-                f"wind {c['wind_speed_10m']:.0f} km/h.")
+        days = []
+        for i, day in enumerate(d["time"]):
+            name = datetime.date.fromisoformat(day).strftime("%A %d %B")
+            name = f"Today ({name})" if i == 0 else f"Tomorrow ({name})" if i == 1 else name
+            days.append(f"{name}: {WEATHER_CODES.get(d['weather_code'][i], 'unknown')}, {d['temperature_2m_min'][i]:.0f} "
+                        f"to {d['temperature_2m_max'][i]:.0f} degrees, chance of rain "
+                        f"{d['precipitation_probability_max'][i]} percent.")
+        text = (f"Weather in {loc['name']} now: {WEATHER_CODES.get(c['weather_code'], 'unknown')}, "
+                f"{c['temperature_2m']:.0f} degrees, wind {c['wind_speed_10m']:.0f} km/h.\n" + "\n".join(days))
         _weather[key] = (time.time(), text)
         return text
     except Exception:
         return None
+
+
+def _place(place):
+    """{name, latitude, longitude} of a place (English or a Korean name of KO_PLACES), or None; geocoded once."""
+    place = en_place(place)
+    key = place.lower()
+    if key not in PLACES:
+        if re.search(r"[가-힣]", place):            # the geocoder finds Korean names wrong (강릉: a village in the North)
+            return None
+        g = json.loads(_get("https://geocoding-api.open-meteo.com/v1/search?count=1&name=" + urllib.parse.quote(place), 3))
+        if not g.get("results"):
+            return None
+        PLACES[key] = g["results"][0]
+    return PLACES[key]
+
+
+TOWN = 50000                 # people; a smaller place of the geocoder's is not taken for a distance (often a namesake)
+HOW_FAR = re.compile(r"\bhow far\b|\bdistance\b|거리", re.I)
+BETWEEN = (re.compile(r"\b(?:from|between)\s+(?:the\s+)?(.+?)\s+(?:to|and)\s+(?:the\s+)?(.+?)(?:\s+by \w+)?[?.!\s]*$", re.I),
+           re.compile(r"\bhow far (?:away )?is (?:the\s+)?(.+?) from (?:the\s+)?(.+?)(?:\s+by \w+)?[?.!\s]*$", re.I),
+           re.compile(r"([가-힣A-Za-z]+(?: [A-Za-z]+)*)에서 ([가-힣A-Za-z]+(?: [A-Za-z]+)*)까지"),
+           re.compile(r"\bdistance (?:of )?(?:the\s+)?(.+?) (?:to|and) (?:the\s+)?(.+?)[?.!\s]*$", re.I),   # the LLM's
+           re.compile(r"^(?:distance |how far )?([A-Za-z가-힣]+) ([A-Za-z가-힣]+) (?:거리|distance)", re.I),   # queries
+           re.compile(r"\bhow far (?:away )?is (?:the\s+)?(.+?)[?.!\s]*$", re.I), re.compile(r"([가-힣]+)까지"))
+                             # the two places of "how far": the last two forms are from here (Seoul)
+
+
+def _distance(query):
+    """The straight-line distance between the two places a "how far" question names (one: from Seoul), or ''."""
+    if not HOW_FAR.search(query):
+        return ""
+    for form in BETWEEN:
+        m = form.search(query)
+        if m:
+            names = m.groups() if len(m.groups()) == 2 else (DEFAULT_PLACE, m.group(1))
+            break
+    else:
+        return ""
+    a, b = (_place(DEFAULT_PLACE if re.fullmatch(r"here|this place|you|여기", n.strip(), re.I) else n.strip())
+            for n in names)
+    if not a or not b or any(p.get("population", 0) < TOWN and p not in FIXED for p in (a, b)):   # "the moon": a
+                                                                                       # village in France
+        return ""
+    la1, lo1, la2, lo2 = map(math.radians, (a["latitude"], a["longitude"], b["latitude"], b["longitude"]))
+    km = 2 * 6371 * math.asin(math.sqrt(math.sin((la2 - la1) / 2) ** 2 +
+                                        math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2))
+    return (f"Straight-line distance from {a['name']} to {b['name']}: about {km:,.0f} km ({km / 1.609:,.0f} miles); "
+            f"by road or rail it is longer.")
 
 
 def keep_weather_fresh(place=DEFAULT_PLACE):
@@ -132,32 +190,55 @@ BROWSER = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KH
                          "Safari/537.36", "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"}
 WIKI_UA = {"User-Agent": "LumiRobot/1.0 (https://cutshion.com; cutshion@cutshion.com)"}   # Wikimedia answers 429
                              # (too many requests) to a browser or bare robot name; a name with a contact it serves
-SEARCH_WAIT_S = 3.0          # s all sources get together; a slower one is left out (Naver ~0.5 s, Wikipedia ~1.5 s)
-PAGE_CHARS = 1800            # chars of the search page given to the LLM (it reads ~1000 tokens a second)
-BLOCK_CHARS = 700            # ... at most this much from one part of the page (an answer box, the news, one site)
-WIKI_CHARS = 600             # chars of the Wikipedia summary
+SEARCH_WAIT_S = 2.0          # s the search page and Wikipedia get together; a slower one is left out (both ~0.7 s)
+NEWS_WAIT_S = 1.2            # s from the start the headlines get (Google News 0.4-1.6 s): the answer waits on them;
+                             # SEARCH_WAIT_S when the news is what is asked (NEWS_ASKED)
+NEWS_ASKED = re.compile(r"\bnews\b|headlines?|happening|going on|뉴스|소식", re.I)
+PAGE_CHARS = 1200            # chars of the search page given to the LLM (it reads ~1300 tokens a second; Korean
+                             # is ~1 token a char): the answer box and the first sites hold the answer
+BLOCK_CHARS = 500            # ... at most this much from one part of the page (an answer box, the news, one site)
+WIKI_CHARS = 500             # chars of the Wikipedia summary
+NEWS_ITEMS = 3               # headlines given, only for questions about what changes (NEWSY)
 SEARCH_TTL = 600             # s a search result is reused (visitors ask the same things; follow-ups search again)
 SKIP_BLOCKS = re.compile(r'ad_section|data-meta-ssuid="(influencer|clip|image|qra|shortents|ex_csa|shopping)"|'
-                         r"가격비교|플러스 스토어|브라우저를 업데이트하세요")   # Naver page parts that never answer a question
+                         r"가격비교|플러스 스토어|브라우저를 업데이트하세요|함께 가볼만한 장소")   # Naver page parts that never answer a question
 JUNK = re.compile(r"새 창 열림|새 창으로 열기|Keep에 (저장|바로가기)|Keep 바로가기|문서 저장하기|AI 출처 정보.*?자세히 보기|"
                   r"이 (광고|정보)가 표시된 이유|정보확인 레이어 닫기|레이어 닫기|이전으로 이동|다음으로 이동|이전 다음|"
                   r"동영상 바로재생( 버튼)?|펼치기|접기|공유하기|차트를 불러오는 중입니다\.|"
-                  r"환율을 (계산할|변환하는) 국가를 선택( [가-힣]+)+|환율우대 \d+%|환율우대없음")
+                  r"환율을 (계산할|변환하는) 국가를 선택( [가-힣]+)+|환율우대 \d+%|환율우대없음|"
+                  r"이 키워드를 선택한 인원 [\d,]+|길찾기|거리뷰|펼쳐보기|더보기|알림받기|네이버 고객센터|관련도순 최신순|"
+                  r"최신 콘텐츠 채널\(계정\).*?자동으로 구성됩니다\.|(정보확인 내용 열고 닫기|본인참여 관리) .*")   # disclaimers at a box's end
+NEWSY = re.compile(r"news|latest|recent|lately|today|tonight|yesterday|\bnow\b|current|this (week|month|year|season)|"
+                   r"\blast\b|\bnext\b|\bnew(est)?\b|upcoming|\bwon\b|\bwin|champion|score|result|standing|leading|"
+                   r"president|prime minister|minister|\bceo\b|coach|mayor|\bpope\b|chairman|governor|secretary|"
+                   r"\bwho('s| is| are) the\b|price|stock|cost|\brates?\b|election|event|"
+                   r"release|happening|going on|뉴스|소식|최근|최신|요즘|오늘|어제|지금|현재|올해|이번|작년|지난|다음|우승|"
+                   r"결과|순위|경기|대통령|총리|장관|대표|감독|시장|교황|회장|총장|총재|가격|주가|시세|얼마|선거|발표|출시|요금|"
+                   r"어느 팀|소속", re.I)
+                   # questions about what changes: they get the news headlines (who holds an office, who won lately)
 ASKED_AS = ((r"\bhow (tall|high)\b", "height"), (r"\bhow long\b", "length"), (r"\bhow old\b", "age"),
             (r"\bhow far\b", "distance"), (r"\bhow deep\b", "depth"), (r"\bhow (big|large)\b", "size"),
             (r"\bhow many people\b", "population"), (r"\bhow much\b", "price"), (r"\bwhat time\b", "hours"),
             (r"\bwho won\b", "winner"), (r"\bwhere is\b", "location"))   # English question -> what a search engine wants
+KO_ASK = ((r"\bhow old\b|\bage\b|\bbirthday\b|\bwhen was \w+( \w+)? born\b", "나이"),
+          (r"\bhow tall\b|\bheight\b", "키"), (r"\bstocks?( price)?\b|\bshares?( price)?\b", "주가"),
+          (r"\bindex\b|(?=\b(nasdaq|dow jones|kospi|kosdaq|s&p 500)\b)", "지수"),
+          (r"\bstandings?\b|\bfirst place\b|\bin first\b|\branking\b", "순위"),
+          (r"\bscore\b|\bresult\b|\blast (game|match)\b|\bhow did\b", "경기 결과"),
+          (r"\bopening hours\b|\bwhat time does\b|\bwhen does\b", "영업시간"))
+                             # English question -> the Korean word for Naver's answer box (ko_box_query)
 ASK_WORDS = re.compile(r"\b(what'?s|what|who'?s|who|whom|which|where|when|why|how|is|are|was|were|the|a|an|do|does|did|"
                        r"can|could|you|tell me|please|lumi|right now|i|me|my|and|he|she|his|her|it|its|they|their)\b|"
                        r"[?,.!]", re.I)
 CURRENCIES = {"USD": ("US dollar", r"dollars?|usd|달러"), "EUR": ("euro", r"euros?|eur\b|유로"),
-              "JPY": ("Japanese yen", r"\byen\b|jpy|엔화"), "CNY": ("Chinese yuan", r"yuan|renminbi|cny|위안"),
+              "JPY": ("Japanese yen", r"\byen\b|jpy|엔화|(?<=[\d만] )엔|(?<=[\d만])엔"), "CNY": ("Chinese yuan", r"yuan|renminbi|cny|위안"),
               "GBP": ("British pound", r"pounds? sterling|british pounds?|gbp|파운드"),
               "VND": ("Vietnamese dong", r"vietnamese dong|vnd|동화"), "THB": ("Thai baht", r"baht|thb|바트"),
               "KRW": ("Korean won", r"\bwons?\b|krw|원화")}
 COINS = {"bitcoin": r"bitcoin|btc|비트코인", "ethereum": r"ethereum|\beth\b|이더리움", "ripple": r"\bxrp\b|ripple|리플",
          "solana": r"solana|솔라나", "dogecoin": r"doge|도지"}
-RATE_WORDS = re.compile(r"exchange|\brates?\b|convert|환율|환전|in (korean )?wons?\b|원으로|얼마", re.I)
+RATE_WORDS = re.compile(r"exchange|\brates?\b|convert|환율|환전|in (korean )?wons?\b|\bto (krw|wons?|usd|dollars?)\b|"
+                        r"\bkrw\b|원으로|얼마", re.I)
 _searched = {}                               # query -> (time, text)
 _pool = ThreadPoolExecutor(6)
 
@@ -179,25 +260,42 @@ def keywords(query):
     return re.sub(r"\s+", " ", ASK_WORDS.sub(" ", q)).strip() or query
 
 
-def _naver(query):
+def _naver(query, boxes_only=False):
     """The Naver results page as text: answer boxes (exchange rates, stocks, people, sports), web pages, news, blogs;
     ads, shopping and image strips left out. '' when nothing is found. Naver answers scripts like a browser and
-    has live answer boxes; it reads English questions too."""
+    has live answer boxes; it reads English questions too. boxes_only: the answer boxes alone (the web results
+    and news have a data-meta-area)."""
     page = _get("https://search.naver.com/search.naver?query=" + urllib.parse.quote(query), 4, BROWSER)
     parts = []
     for block in re.split(r'(?=<div class="_scrollLog")', page)[1:]:
-        if SKIP_BLOCKS.search(block[:3000]):
+        if SKIP_BLOCKS.search(block[:3000]) or boxes_only and 'data-meta-area="' in block[:1500]:
             continue
         text = re.sub(r"\s+", " ", JUNK.sub(" ", _text(block))).strip()
-        if len(text) > 20:
+        if len(text) > 20 and not text.startswith("함께 가볼만한"):      # places nearby
             parts.append(text[:BLOCK_CHARS])
-    return "\n".join(parts)[:PAGE_CHARS]
+    return "\n".join(parts)[:BLOCK_CHARS if boxes_only else PAGE_CHARS]
+
+
+def ko_box_query(query):
+    """An English question about a person, a share, an index, a team or a place as its names and the Korean word
+    that brings Naver's answer box ("How old is Taylor Swift?" -> "Taylor Swift 나이": birth date and age; the
+    English words give only web pages), or None."""
+    if re.search(r"[가-힣]", query):
+        return None
+    for asked, word in KO_ASK:
+        if re.search(asked, query, re.I):
+            names = re.sub(asked, " ", query, flags=re.I)
+            names = re.sub(r"'s\b|\b(today|now|currently|doing|in|at|of|for|right|this|last|latest|current|much|"
+                           r"open|close|first|price|their|team)\b", " ", names, flags=re.I)
+            names = re.sub(r"\s+", " ", ASK_WORDS.sub(" ", names)).strip()
+            return f"{names} {word}" if names else None
+    return None
 
 
 def _duckduckgo(query):
     """Titles and snippets from DuckDuckGo, or ''; only when Naver fails (DuckDuckGo often asks scripts to solve a
     picture puzzle)."""
-    page = _get("https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(query), 4, BROWSER)
+    page = _get("https://html.duckduckgo.com/html/?q=" + urllib.parse.quote(query), 2.5, BROWSER)
     hits = re.findall(r'class="result__a"[^>]*>(.*?)</a>.*?class="result__snippet"[^>]*>(.*?)</a>', page, re.S)
     return "\n".join(f"{_text(t)}: {_text(s)}" for t, s in hits[:6])[:PAGE_CHARS]
 
@@ -242,6 +340,10 @@ def _money(query):
             won = rates["KRW"] / rates[c]
             lines.append(f"1 {CURRENCIES[c][0]} = {won:,.2f} Korean won" + (f" (100 yen = {won * 100:,.0f} won)" if
                          c == "JPY" else "") + (f" = {1 / rates[c]:,.4f} US dollars" if c != "USD" else ""))
+            m = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*(만)?\s*(?:" + CURRENCIES[c][1] + ")", query, re.I)
+            if m:                                                # "100 dollars", "1만 엔": the sum worked out
+                amount = float(m.group(1).replace(",", "")) * (10000 if m.group(2) else 1)
+                lines.append(f"{amount:,.0f} {CURRENCIES[c][0]} = {won * amount:,.0f} Korean won")
         lines.append(f"(exchange rates of {r['time_last_update_utc'][:16]})")
     coins = [c for c, words in COINS.items() if re.search(words, query, re.I)]
     if coins:
@@ -293,7 +395,7 @@ def with_ages(text, today=None):
     return BIRTH_YEAR.sub(either, text)
 
 
-def search(query, n=4):
+def search(query, n=NEWS_ITEMS):
     """Text to answer a question from, fetched at the same time: exchange rates and coin prices when asked, the
     Naver results page (DuckDuckGo when Naver fails), a Wikipedia summary and Google News headlines. "No results." when nothing is found,
     None without internet. (Bing returns unrelated pages to scripts.)"""
@@ -306,9 +408,19 @@ def search(query, n=4):
         return _searched[key][1]
     jobs = {"Rates and prices": _pool.submit(_money, query)} if RATE_WORDS.search(query) or \
         any(re.search(w, query, re.I) for w in COINS.values()) else {}
+    if HOW_FAR.search(query):
+        jobs["Distance"] = _pool.submit(_distance, query)
+    box = ko_box_query(query)
+    if box:                                                      # "Taylor Swift 나이": Naver's people box
+        jobs["Answer box"] = _pool.submit(_naver, box, True)
     jobs |= {"Search results": _pool.submit(_naver, keywords(query)), "Wikipedia": _pool.submit(_wikipedia, q, lang)}
-    jobs["News headlines"] = _pool.submit(_news, q, lang, n)     # names who holds an office or won lately
-    wait(jobs.values(), timeout=SEARCH_WAIT_S)
+    if NEWSY.search(query):                                      # "how old is Musk?" got "80-year-old Musk's father"
+        jobs["News headlines"] = _pool.submit(_news, q, lang, n)
+    t0 = time.time()
+    wait([j for name, j in jobs.items() if name != "News headlines"], timeout=SEARCH_WAIT_S)
+    if "News headlines" in jobs:
+        wait([jobs["News headlines"]], timeout=max(0.0, (SEARCH_WAIT_S if NEWS_ASKED.search(query) else NEWS_WAIT_S)
+                                                     - (time.time() - t0)))
     found = {}
     for name, job in jobs.items():
         try:
