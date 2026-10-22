@@ -4,6 +4,7 @@ microphones, sent through ears.transcribe() exactly as Lumi does, then through L
     .venv/bin/python tests/asr_check.py                  # all cases, both rooms
     .venv/bin/python tests/asr_check.py --room far       # one room: near (clip mic) | far (head array, echo, people)
     .venv/bin/python tests/asr_check.py --prompt "..."   # another whisper prompt than ears.PROMPT
+    .venv/bin/python tests/asr_check.py --cases 2        # the second set (tests/asr_cases2.py)
     .venv/bin/python tests/asr_check.py --heard          # also the real clips in logs/heard/ (text only, no judgement)
     .venv/bin/python tests/asr_check.py --set LANG_RETRY=False --tag before   # an ears constant; -> logs/asr_check_before.md
 
@@ -29,6 +30,7 @@ import numpy as np
 from assistant import brain, lumi
 from audio import ears
 from tests.asr_cases import CASES
+from tests.asr_cases2 import CASES as CASES2
 from tests.command_check import rules
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -162,19 +164,24 @@ def main(args):
             setattr(ears, k, type(getattr(ears, k))(eval(v)))
     only = args[args.index("--only") + 1] if "--only" in args else None
     tag = args[args.index("--tag") + 1] if "--tag" in args else ""
+    if "--port" in args:                                         # a whisper-server already running there
+        global STT_PORT
+        STT_PORT = int(args[args.index("--port") + 1])
     start_server()
     rng = np.random.default_rng(5)
     rows, t0 = [], time.time()
-    cases = [c for c in CASES if not only or re.search(only, c["text"])]
+    pool = CASES2 if "--cases" in args and args[args.index("--cases") + 1] == "2" else CASES
+    cases = [c for c in pool if not only or re.search(only, c["text"])]
     for i, c in enumerate(cases):
         voice, speed = VOICES[i % len(VOICES)], [0.85, 0.95, 1.05, 1.15][(i // len(VOICES)) % 4]
         x = synth(c["say"], voice, speed)
         for rname in rooms:
-            others = [synth(CASES[(i * 7 + k * 13) % len(CASES)]["say"], VOICES[(i + k + 3) % 10], 1.0) * 0.5
+            others = [synth(pool[(i * 7 + k * 13) % len(pool)]["say"], VOICES[(i + k + 3) % 10], 1.0) * 0.5
                       for k in range(3)] if ROOMS[rname]["babble"] else ()
             audio = room(x, ROOMS[rname], rng, others)
+            t1 = time.time()
             heard = ears.transcribe(audio, ears.PROMPT)
-            stt = dict(ears.last_stt)
+            stt = dict(ears.last_stt, secs=round(time.time() - t1, 2))
             verdict, why = judge(c, heard, stt)
             rows.append({**c, "room": rname, "voice": voice, "speed": speed, "heard": heard, "stt": stt,
                          "verdict": verdict, "why": why})
@@ -205,7 +212,9 @@ def report(rows, secs, path):
             by[k][r["verdict"]] += 1
     kinds = ["right", "slip", "lang", "unclear", "lost"]
     lines = [f"# Speech-to-text check ({time.strftime('%Y-%m-%d %H:%M')}, prompt {ears.PROMPT!r}, {secs:.0f} s)", "",
-             f"{len(judged)} spoken cases. " + ", ".join(kinds) + ".", "",
+             f"{len(judged)} spoken cases. " + ", ".join(kinds) + ". Speech-to-text time per case: median "
+             f"{sorted(r['stt'].get('secs', 0) for r in judged)[len(judged) // 2] if judged else 0} s, 90 % "
+             f"{sorted(r['stt'].get('secs', 0) for r in judged)[int(len(judged) * 0.9)] if judged else 0} s.", "",
              "| group | cases | " + " | ".join(kinds) + " |", "|---|---|" + "---|" * len(kinds)]
     for k in sorted(by, key=lambda k: (k == "ALL", k)):
         c = by[k]

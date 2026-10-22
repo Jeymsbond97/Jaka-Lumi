@@ -83,14 +83,23 @@ def louder(audio, target=0.7):
 
 LANGS = {"english": "en", "korean": "ko"}
 MIN_LOGPROB = -1.0               # below this average token log-probability whisper was guessing
-OTHER = {"english": "ko", "korean": "en"}
 NAME_ONLY = re.compile(r"\W*(lumi|루미야?)\W*", re.I)
-LANG_RETRY = True                # English and Korean nearly as likely: transcribe in the other one too, keep the surer
-LANG_OTHER_MIN = 0.1             # ... when the other's language probability is above this share of the detected one's
-LANG_RETRY_MARGIN = 0.0          # ... the other's average log-probability must be higher by this much to be taken
+KO_BONUS = 0.3                   # another language named: asked in Korean and in English, a Hangul answer's average
+                                 # log-probability counts this much more (tests/asr_check.py: +3 of 898 cases)
+ODD_KO_BONUS = 0.3               # English text with a word no dictionary has: Korean asked too, taken when written in
+                                 # Hangul and its log-probability + this beats the English one (tests/asr_check.py)
+WORDS_FILE = pathlib.Path("/usr/share/dict/words")
+OUR_WORDS = {"lumi", "cutshion", "okay", "ok", "hmm", "um", "uh"}
+SLIPS = [   # whisper's spellings of our names (tests/asr_check.py, logs/lumi.log 2026-10-21) -> the name
+    (r"\b(?:[kc]ut(?:s|t)?ch[aei]n|katchen|kutch and)(?= company|\b)", "Cutshion"),
+    (r"\b(?:coaching|cushion|kitchen) (?=company)", "Cutshion "),
+    (r"\bcushion(?=[은는이가을를의에])|커션|컷션", "쿳션"),
+]
+_words = set()
 last_stt = {}                    # language / confidence of the last transcription (see understood())
 
 
+BEAM_SIZE = 0                    # whisper beam search width (0: the server's greedy decoding)
 HEARD_DIR = ROOT / "logs" / "heard"   # the last HEARD_KEEP utterances as wav, to check what Lumi really heard
 HEARD_KEEP = 50
 
@@ -98,7 +107,8 @@ HEARD_KEEP = 50
 def _infer(wav, prompt, language=None):
     """One whisper-server call: (text, language, language probability, average token log-probability)."""
     boundary = uuid.uuid4().hex
-    fields = {"response_format": "verbose_json", "prompt": prompt, **({"language": language} if language else {})}
+    fields = {"response_format": "verbose_json", "prompt": prompt, **({"language": language} if language else {}),
+              **({"beam_size": BEAM_SIZE} if BEAM_SIZE else {})}
     body = "".join(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{k}\"\r\n\r\n{v}\r\n"
                    for k, v in fields.items()).encode()
     body += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\n"
@@ -110,8 +120,24 @@ def _infer(wav, prompt, language=None):
     segs = out.get("segments") or []
     logprob = sum(s.get("avg_logprob", 0.0) for s in segs) / len(segs) if segs else 0.0
     lang = out.get("language") or out.get("detected_language")
-    probs = out.get("language_probabilities") or {}
-    return out.get("text", "").strip(), lang, out.get("detected_language_probability"), logprob, probs
+    return out.get("text", "").strip(), lang, out.get("detected_language_probability"), logprob
+
+
+def names(text):
+    """Our names as whisper wrote them (SLIPS) -> the names; "Lumi야" -> 루미야."""
+    text = re.sub(r"\blumi(?=[야아])", "루미", text, flags=re.I)
+    for slip, said in SLIPS:
+        text = re.sub(slip, said, text, flags=re.I)
+    return text
+
+
+def not_english(text):
+    """A word in English text that no dictionary has (our names, p-numbers and contractions aside)."""
+    if not _words and WORDS_FILE.exists():
+        _words.update(w.strip().lower() for w in WORDS_FILE.open() if w.strip().isalpha())
+    words = [re.sub(r"'.*", "", w) for w in re.findall(r"[a-z']+", text.lower())]
+    return bool(_words) and any(w and w not in _words and w not in OUR_WORDS and not re.fullmatch(r"p\d*", w)
+                                for w in words)
 
 
 def transcribe(audio, prompt=PROMPT):
@@ -135,21 +161,29 @@ def transcribe(audio, prompt=PROMPT):
             old.unlink()
     except OSError:
         pass
-    text, lang, prob, logprob, probs = _infer(wav, prompt)
+    text, lang, prob, logprob = _infer(wav, prompt)
+    text = names(text)
+    asked = {}
+
+    def ask(code):                               # transcribed with the language fixed, once per language
+        if code not in asked:
+            t2, _, _, lp2 = _infer(wav, LANG_PROMPT.get(code, prompt), code)
+            asked[code] = (names(t2), {"en": "english", "ko": "korean"}[code], None, lp2)
+        return asked[code]
     only_name = NAME_ONLY.fullmatch(text) and len(audio) > 1.5 * RATE
     if lang not in LANGS or only_name:
         tries = [(text, lang, prob, logprob)] if lang in LANGS and not only_name else []
-        for code, name in (("ko", "korean"), ("en", "english")):
-            t2, _, _, lp2, _ = _infer(wav, LANG_PROMPT.get(code, prompt), code)
-            tries.append((t2, name, None, lp2))
+        tries += [ask("ko"), ask("en")]
         more = [r for r in tries if not NAME_ONLY.fullmatch(r[0])]   # "Lumi, 이리 와" came back "Lumi." in English
-        text, lang, prob, logprob = max(more if only_name and more else tries, key=lambda r: r[3])
-    elif LANG_RETRY and probs.get(OTHER[lang], 0.0) > LANG_OTHER_MIN * probs.get(LANGS[lang], 1.0):
-        other = OTHER[lang]                      # English and Korean close: ask again in the other one
-        t2, _, _, lp2, _ = _infer(wav, LANG_PROMPT.get(other, prompt), other)
-        if lp2 > logprob + LANG_RETRY_MARGIN:
-            text, lang, prob, logprob = t2, {"en": "english", "ko": "korean"}[other], None, lp2
-    text = re.sub(r"\blumi(?=[야아])", "루미", text, flags=re.I)        # "Lumi야" is 루미야
+        # forced to English, Korean speech comes back translated and sure of itself: Hangul gets KO_BONUS
+        text, lang, prob, logprob = max(more if only_name and more else tries,
+                                        key=lambda r: r[3] + (KO_BONUS if re.search(r"[가-힣]", r[0]) else 0.0))
+    if lang == "english" and not_english(text):  # "Natarawa", "Lumi. Iriwa.": Korean written in Latin letters
+        t2 = ask("ko")
+        if re.search(r"[가-힣]", t2[0]) and t2[3] + ODD_KO_BONUS > logprob:
+            text, lang, prob, logprob = t2
+    if lang == "english" and re.search(r"[가-힣]", text):
+        lang = "korean"                          # "Red cup. 집어줘." tagged English: the Korean is real
     last_stt.clear()
     last_stt.update(text=text, language=lang, lang_prob=prob, logprob=round(logprob, 2))
     # whisper writes things like "[BLANK_AUDIO]" or "(music)" for non-speech
