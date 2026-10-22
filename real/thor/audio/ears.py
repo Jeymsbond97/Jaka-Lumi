@@ -24,6 +24,8 @@ STT_URL = "http://127.0.0.1:8096"
 WHISPER_SERVER = ROOT / "whisper.cpp/build/bin/whisper-server"
 WHISPER_MODEL = ROOT / "models/ggml-large-v3-turbo-q5_0.bin"
 PROMPT = "Hi Lumi. Hey Lumi. 루미야."   # helps whisper spell the robot's name
+LANG_PROMPT = {"en": "Hi Lumi. Hey Lumi.", "ko": "안녕하세요, 루미야."}   # when asked again in one language: the
+                                 # mixed prompt made whisper write Korean in Latin letters ("Natarawa" for 나 따라와)
 last = {}                        # levels of the last listen() call, for the log: noise, threshold, peak
 
 
@@ -81,6 +83,11 @@ def louder(audio, target=0.7):
 
 LANGS = {"english": "en", "korean": "ko"}
 MIN_LOGPROB = -1.0               # below this average token log-probability whisper was guessing
+OTHER = {"english": "ko", "korean": "en"}
+NAME_ONLY = re.compile(r"\W*(lumi|루미야?)\W*", re.I)
+LANG_RETRY = True                # English and Korean nearly as likely: transcribe in the other one too, keep the surer
+LANG_OTHER_MIN = 0.1             # ... when the other's language probability is above this share of the detected one's
+LANG_RETRY_MARGIN = 0.0          # ... the other's average log-probability must be higher by this much to be taken
 last_stt = {}                    # language / confidence of the last transcription (see understood())
 
 
@@ -103,7 +110,8 @@ def _infer(wav, prompt, language=None):
     segs = out.get("segments") or []
     logprob = sum(s.get("avg_logprob", 0.0) for s in segs) / len(segs) if segs else 0.0
     lang = out.get("language") or out.get("detected_language")
-    return out.get("text", "").strip(), lang, out.get("detected_language_probability"), logprob
+    probs = out.get("language_probabilities") or {}
+    return out.get("text", "").strip(), lang, out.get("detected_language_probability"), logprob, probs
 
 
 def transcribe(audio, prompt=PROMPT):
@@ -127,14 +135,21 @@ def transcribe(audio, prompt=PROMPT):
             old.unlink()
     except OSError:
         pass
-    text, lang, prob, logprob = _infer(wav, prompt)
-    only_name = re.fullmatch(r"\W*(lumi|루미야?)\W*", text, re.I) and len(audio) > 1.5 * RATE
+    text, lang, prob, logprob, probs = _infer(wav, prompt)
+    only_name = NAME_ONLY.fullmatch(text) and len(audio) > 1.5 * RATE
     if lang not in LANGS or only_name:
         tries = [(text, lang, prob, logprob)] if lang in LANGS and not only_name else []
         for code, name in (("ko", "korean"), ("en", "english")):
-            t2, _, _, lp2 = _infer(wav, prompt, code)
+            t2, _, _, lp2, _ = _infer(wav, LANG_PROMPT.get(code, prompt), code)
             tries.append((t2, name, None, lp2))
-        text, lang, prob, logprob = max(tries, key=lambda r: r[3])
+        more = [r for r in tries if not NAME_ONLY.fullmatch(r[0])]   # "Lumi, 이리 와" came back "Lumi." in English
+        text, lang, prob, logprob = max(more if only_name and more else tries, key=lambda r: r[3])
+    elif LANG_RETRY and probs.get(OTHER[lang], 0.0) > LANG_OTHER_MIN * probs.get(LANGS[lang], 1.0):
+        other = OTHER[lang]                      # English and Korean close: ask again in the other one
+        t2, _, _, lp2, _ = _infer(wav, LANG_PROMPT.get(other, prompt), other)
+        if lp2 > logprob + LANG_RETRY_MARGIN:
+            text, lang, prob, logprob = t2, {"en": "english", "ko": "korean"}[other], None, lp2
+    text = re.sub(r"\blumi(?=[야아])", "루미", text, flags=re.I)        # "Lumi야" is 루미야
     last_stt.clear()
     last_stt.update(text=text, language=lang, lang_prob=prob, logprob=round(logprob, 2))
     # whisper writes things like "[BLANK_AUDIO]" or "(music)" for non-speech

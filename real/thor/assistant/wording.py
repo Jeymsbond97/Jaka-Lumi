@@ -226,9 +226,18 @@ def map_names(t, names):
     return re.sub(r"(\b(?:to|from|at|toward|towards) (?:the )?)([a-z][a-z0-9_]*(?: [a-z0-9]+)?)", slip, t)
 
 
+ASR_SLIPS = [   # how whisper writes Korean commands (tests/asr_check.py, 2026-10-21) -> as said
+    (r"([a-z0-9])\.?\s+(으로|로)\s*(?=가|와|이동|돌아)", r"\1\2 "),   # "P3. 로가줘", "final point. 로 가": one word
+    (r"(?<=로)\s*가죠(?![가-힣])", " 가 줘"),                        # "p3로 가 줘" written "p3로 가죠"
+]
+
+
 def norm(text, names=()):
-    """Lower case, numbers first ("point five meters" is a distance), then marker names (names: the map's)."""
+    """Lower case, whisper's slips (ASR_SLIPS), numbers first ("point five meters" is a distance), then marker names
+    (names: the map's)."""
     t = " " + (text or "").lower().replace("’", "'") + " "
+    for slip, said in ASR_SLIPS:
+        t = re.sub(slip, said, t)
     return re.sub(r"\s+", " ", map_names(markers(numbers(t)), names)).strip()
 
 

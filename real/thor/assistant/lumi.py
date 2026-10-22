@@ -113,7 +113,7 @@ CLOSE_BOX = 0.85                   # a person is really closer than TOO_CLOSE on
 HEAD_SIGN = 1.0                    # +image angle -> +head yaw (checked: + = robot's left)
 LOOK = {"left": (40, None), "right": (-40, None), "center": (0, 0), "up": (None, 20), "down": (None, -5)}
 # ^ yaw/pitch in degrees for "look" commands: +yaw = left, +pitch = up (checked on the dashboard 2026-10-12)
-WAKE = re.compile(r"\b(hi|hey|hello|okay|ok|hai|high)?[\s,.!]*(lumi|loomi|lumie|lumy|lummy|looney|lu-mi|rumi|roomie)\b"
+WAKE = re.compile(r"\b(hi|hey|hello|okay|ok|hai|high)?[\s,.!]*(lumi|lumia|loomi|lumie|lumy|lummy|looney|lu-mi|rumi|roomie)\b"
                   r"|루미|누미", re.I)
 WAKE_REPLY = {"en": "Yes? How can I help?", "ko": "네? 무엇을 도와드릴까요?"}
 NAME_ONLY = re.compile(r"^\s*(hi |hey |hello )?(lumi|loomi|rumi|루미)[\s,.!?]*$", re.I)
@@ -1788,9 +1788,12 @@ class Lumi:
             return True
         self.warm_llm()                                    # the LLM's prompt start cached while they speak
         text, u = ears.listen(wait_s=4.0, on_start=lambda: log("  hearing speech"), abort=self.interrupted, full=True)
-        if text and self.own_echo(text) and (u is None or u.source == "clip" or len(text.split()) <= 2):
-            # Lumi heard itself: the clip mic, or the room's echo of the last word on the head array (muted while Lumi
-            # talks); a longer head-array sentence is the visitor ("okay go to P9" after a list with p9, 2026-10-21)
+        if text and self.own_echo(text) and (u is None or (u.during_speech if u.source == "clip"
+                                                            else len(text.split()) <= 2)):
+            # Lumi heard itself: the clip mic while Lumi talked, or the room's echo of the last word on the head array
+            # (muted while Lumi talks); a longer head-array sentence is the visitor ("okay go to P9" after a list with
+            # p9, 2026-10-21). A clip-mic utterance begun after Lumi stopped is the visitor: "Lumi.", "Can you see
+            # me?" seconds after a greeting were dropped 20 times on 2026-10-21
             log(f"  ignored own voice: {text!r}")
             text = None
         if text and NOISE_WORDS.fullmatch(text.strip()):     # a cough, a beep, "um": not worth "say it again"
