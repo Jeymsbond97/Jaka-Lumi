@@ -75,7 +75,7 @@ _HON_KO = [("가셔서", "가서"), ("가시고", "가고"), ("가셨다가", "�
 # ---------- one clause -> one step ----------
 def _place(word, markers):
     """A place word in a go clause -> marker name, "here", or None (not on the map)."""
-    word = re.sub(r"(?<=\S) (?:point|marker)$|\s*(?:앞|옆|근처|쪽)$", "", word.strip())   # "the final point", "p5 앞"
+    word = re.sub(r"(?<=\S) (?:point|marker)$|\s*(?:앞|옆|근처|쪽|포인트|지점)$", "", word.strip())   # "the final point", "p5 앞"
     w = re.sub(r"^(?:either |the |your |my |point |marker |포인트 ?)", "", word)
     exact = next((mk for mk in markers if mk.lower() == w or mk.lower() == w.replace(" ", "")), None)
     if exact:
@@ -122,7 +122,7 @@ def _go(c, markers):
     if m:
         to = _places(m.group(1), markers)
         return to and {"do": "go", "to": to if len(to) > 1 else to[0]}
-    m = re.fullmatch(r"(?:go|drive|head) (?:the )?([a-z][a-z0-9_]*)", c)                 # whisper drops the "to"
+    m = re.fullmatch(r"(?:go|drive|head) (?:the )?([a-z][a-z0-9_]*)(?: point| marker)?", c)   # whisper drops the "to"
     if m and m.group(1) not in ("home", "here") and (to := _places(m.group(1), markers)):
         return {"do": "go", "to": to[0]}
     if re.fullmatch(r"go (?:home )?(?:to )?charge(?: yourself)?|충전하러 (?:집으로 )?가", c):
@@ -838,6 +838,9 @@ def rules(text, markers=()):
         if got is None and no and (to := _places(no.group(1), markers)):
             if not any(s_["do"] == "go" and s_["to"] in to for s_ in steps):
                 continue                                 # "take the cup to the stage, not booth two"
+        elif got is None and (first := re.fullmatch(r"(?:first(?:ly)?|먼저) (?:go )?(?:to )?(?:the )?(.+?)", c.strip())) and \
+                (to := _places(first.group(1), markers)):
+            got = [{"do": "go", "to": to if len(to) > 1 else to[0]}]    # "first exit, then p9"
         elif got is None and steps and steps[-1]["do"] == "go":
             to = _places(re.sub(r"^(?:(?:and )?then )?(?:to )?(?:the )?", "", c.strip()), markers)
             got = to and [{"do": "go", "to": to if len(to) > 1 else to[0]}]

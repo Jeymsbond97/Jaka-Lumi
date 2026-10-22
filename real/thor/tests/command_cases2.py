@@ -312,4 +312,9 @@ for t, want in [("Let's go P5 (point).", "action:go_to p5"), ("Let's go P9.", "a
                 ("let's go eat", "talk")]:
     CASES.append({"intent": "new:go", "text": t, "lang": "en", "state": "idle", "before": None, "expect": want,
                   "markers": ["home", "dock2", "exit", "final"] + [f"p{i}" for i in range(1, 11)]})   # the owner's map
+for t in ["let's go exit point and go p9 point", "go to exit then p9", "first exit then p9", "exit 갔다가 p9로 가",
+          "exit 포인트 갔다가 p9 포인트로 가", "먼저 final 가고 그다음 p2로 가", "let's go final point and go p9 point"]:
+    CASES.append({"intent": "new:mission", "text": t, "lang": "ko" if any("가" <= ch <= "힣" for ch in t) else "en",
+                  "state": "idle", "before": None, "expect": "mission",
+                  "markers": ["home", "dock2", "exit", "final"] + [f"p{i}" for i in range(1, 11)]})   # the owner's map
 R.shuffle(CASES)                                     # the report lists them by intent; the order only spreads the LLM's load

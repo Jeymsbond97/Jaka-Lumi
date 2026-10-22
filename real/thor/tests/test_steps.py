@@ -77,6 +77,16 @@ CASES = {
     "go to p10, then go left one meter and give it to the person": "go p10 | move left 1 | give",
     # 2026-10-21, said by voice: "let's", "P10 point", "10p point", "p ten"
     "Let's go P10 point and wait 30 seconds then come back here again.": "go p10 | wait 30 | go here",
+    # 2026-10-22 live (dashboard): two places in a row, "point" / "포인트" after any marker name
+    "let's go exit point and go p9 point": "go exit | go p9",
+    "let's go final point and go p9 point": "go final | go p9",
+    "go to exit then p9": "go exit | go p9",
+    "first exit then p9": "go exit | go p9",
+    "first go to the final point, then p2": "go final | go p2",
+    "exit 갔다가 p9로 가": "go exit | go p9",
+    "exit 포인트 갔다가 p9 포인트로 가": "go exit | go p9",
+    "먼저 exit 가고 그다음 p9로 가": "go exit | go p9",
+    "dock2 포인트로 갔다가 home으로 가": "go dock2 | go home",
     "let's go to 10p point then wait 30 seconds and come back here again": "go p10 | wait 30 | go here",
     "go to p ten, wait 30 seconds and come back here": "go p10 | wait 30 | go here",
     "go to point 10 and let's back 1 meter": "go p10 | move back 1",

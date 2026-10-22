@@ -922,7 +922,7 @@ _BANK = {
             ("Did you get the joke?", "I think so, and it made me smile."),
             ("Oh, a song?", "Yes, singing is one of my favourite things. Just ask if you'd like one."),
             ("Can I wipe you down? What about your cameras?", "The cameras too, I'm not sure. A staff member can tell you how to clean them."),
-            ("How long does the battery last? And charging?", "How long charging takes, I don't know, sorry."),
+            ("How long does the battery last? And charging?", "About 10 hours on a charge; how long charging takes, I don't know."),
         ],
         "ko": [
             ("와 진짜 빠르다~", "하하, 사람보다 느리죠. 안전이 먼저라서요."),

@@ -1002,6 +1002,9 @@ def task_parse(body: ParseBody):
                 "sender": steps.sender(body.text), "read_by": by, **_steps_said(got, markers)}   # from my hand", "open your hand", "go to stage"
     if brain.place_on(body.text) and not brain._mentions(body.text, markers).get("object"):   # "put it on the table"
         return {"action": None, "task": None, "sentence": "–", "problems": ["My hand is empty, I'm not holding anything."]}
+    if body.text.strip() and not brain._mentions(body.text, markers).get("object"):   # no object named: never a fetch
+        return {"action": None, "task": None, "sentence": "–", "read_by": by or "rules",  # (nor an LLM guess at one)
+                "problems": [f"I didn't understand: {', '.join(unread or [body.text.strip()])}"]}
     fields, read_by = brain.fetch_from_text(body.text, markers) if body.text.strip() else ({}, "rules")
     task = {"object": fields.get("object"), "colour": fields.get("colour"),
             "source": fields.get("source") or body.source or "here", "dest": fields.get("dest") or body.dest,
