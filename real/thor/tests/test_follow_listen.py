@@ -109,4 +109,16 @@ for by_clip in (True, False):
 run["on"] = False
 L = fresh("What time is it?", -70.0)
 assert L.talk_turn() and heard == ["What time is it?"] and L.current is L.vision.stranger, (heard, L.current)
+# "look at me" / "이쪽 봐": the head turns to this turn's voice (a person there, or the voice out of view), never the centre
+for deg, want in ((40.0, 50.0), (-70.0, -60.0)):
+    L = fresh("이쪽 봐 줘", deg)
+    L.answer = lambda text: lumi.Lumi.act(L, "look", "me")
+    L.base_off, L.mission_running = (lambda *a, **k: False), (lambda: False)
+    assert L.talk_turn() and ("head", (want, 10)) in done, (deg, done)
+lumi.doa.load_calib = lambda: {"fitted": False}           # no sound direction, nobody seen: the head stays
+L = fresh("look at me", 10.0)
+L.answer = lambda text: lumi.Lumi.act(L, "look", "me")
+L.base_off, L.mission_running = (lambda *a, **k: False), (lambda: False)
+assert L.talk_turn() and ("head", (None, 10)) in done, done
+lumi.doa.load_calib = lambda: {"fitted": True}
 print("follow listen ok")

@@ -101,7 +101,8 @@ def llm(text, state, marks, b):
     head = next(gen)
     first = next(gen, "") or ""
     gen.close()
-    if head["action"] == "none" and brain.promised(first) in ("sing", "wave"):   # lumi.answer() does what the reply
+    if head["action"] == "none" and brain.promised(first) in ("sing", "wave") and \
+            not (brain.not_an_order(text, asked=False) and brain.promised(first) == "wave"):   # lumi.answer() does what the reply
         head = {"action": brain.promised(first), "target": ""}                    # promises (a move: it asks)
     target = (brain._mentions(text, marks).get("object") or "") if head["action"] == "receive" else head["target"]
     return act(head["action"], target, first, state), f"{head['action']} {target}".strip(), first
