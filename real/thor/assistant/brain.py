@@ -2191,6 +2191,8 @@ class Brain:
             return {"action": "none", "target": ""}        # "Don't sing.", "어제 노래방 갔어요.", "what songs can you sing?"
         if not header or not self.history:
             return header
+        if header["action"] == "quiet" and ABOUT_ANSWER.match(text):
+            return {"action": "none", "target": ""}        # "에이, 거짓말하지 마" doubts the answer, not "be quiet"
         redo = self._redo(text)
         if redo and header["action"] == "none":            # "do it again" after a wave answered "Okay!" with none
             action, _, target = redo.split("\n")[0].rstrip(" -").partition(" ")
