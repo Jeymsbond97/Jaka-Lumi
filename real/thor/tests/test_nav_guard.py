@@ -11,6 +11,7 @@ from tasks import fetch
 nav_guard.POLL_S = 0.01
 nav_guard.CLEAR_S = 0.1
 nav_guard.START_S = 0.3
+nav_guard.ENABLED = True                                  # the guard itself is checked here (off on the robot)
 nav_guard.PATH_EVERY_S = 0.05
 nav_guard.BLOCK_S = 1.0
 nav_guard.log = lambda msg: logs.append(msg)
