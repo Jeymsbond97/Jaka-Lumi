@@ -1732,7 +1732,10 @@ def _fail(e, say):
         return
     en = e.args[0] if e.args else str(e)
     ko = e.args[1] if isinstance(e, (FetchError, skills.SkillError)) and len(e.args) > 1 else "문제가 생겨서 멈췄어요."
-    if not isinstance(e, (FetchError, skills.SkillError)):
+    if isinstance(e, motion.MotionError) and "not powered" in str(e):
+        log(f"error: {e}")
+        en, ko = arm_route.OFF
+    elif not isinstance(e, (FetchError, skills.SkillError)):
         log(f"error: {type(e).__name__}: {e}")
         en = "Something went wrong, I stopped."
         try:
