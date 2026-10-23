@@ -168,6 +168,8 @@ _release = threading.Event()                 # set by release_now() ("thank you"
 _proceed = threading.Event()                 # set by proceed() ("go on" while a mission waits): the wait ends
 _order = {"steps": None}                     # steps given by instruct() to a wait for an instruction
 _rest = []                                   # the running mission's steps still to come (instruct() checks them too)
+_leg = {"rest": None, "tries": 0}             # the steps from the drive running now on (kept by _fail when the drive is
+                                             # blocked: assistant/detour.py); tries: detours already tried for it
 _pause = threading.Event()                   # set by pause() (someone talks to Lumi on the way): drives halt, the run
                                              # waits at the next step; resume() goes on where it was
 _thread = None
@@ -190,6 +192,13 @@ class FetchError(RuntimeError):
 
 class Stopped(Exception):
     pass
+
+
+class Blocked(FetchError):
+    """A drive that got nowhere (nothing free on the way): kept for "try again" / "go around it" (assistant/detour.py)."""
+
+
+STUCK_SAY = ("I can't find a way there.", "그곳으로 가는 길을 못 찾겠어요.")
 
 
 # ---------- state ----------
@@ -472,7 +481,7 @@ def _drive_wait(watch_holding, again, goal):
             elif time.time() - anchor[2] > STUCK_S:
                 agv.cancel()
                 log(f"the base has not got anywhere for {STUCK_S:.0f} s at ({pose['x']:.2f}, {pose['y']:.2f}): cancelled")
-                raise FetchError("I can't find a way there.", "그곳으로 가는 길을 못 찾겠어요.")
+                raise Blocked(*STUCK_SAY)
         if watch_holding and time.time() - last_hold >= HOLD_CHECK_S:
             last_hold = time.time()
             try:
@@ -488,6 +497,9 @@ def _drive_wait(watch_holding, again, goal):
         if st != "running" and (seen_running or there or time.time() - t0 > DRIVE_START_S):
             if isinstance(full.get("guard"), (list, tuple)):
                 raise FetchError(*full["guard"])     # robot/nav_guard.py ended it: the arm would hit something
+            if st == "failed":                   # the base found no path (move_base gave up)
+                log("the base found no way there (failed)")
+                raise Blocked(*STUCK_SAY)
             if st != "succeeded":
                 raise FetchError(f"I couldn't get there (base: {st}).")
             return
@@ -1693,9 +1705,12 @@ def _run(task, say):
             raise FetchError("My hand does not open.", "손이 안 열려요.")
         _pose(_look())
         _step("driving to the source")
+        _leg["rest"] = [_go(task.get("source", "here")), {"do": "pick", "object": task["object"],
+                        "colour": task.get("colour"), "prefer": task.get("prefer")}] + _then(task["dest"], task["finish"])
         _drive_to(task.get("source", "here"), say)
         _pick_here(task, say)
         _step("driving to the destination")
+        _leg["rest"] = _then(task["dest"], task["finish"])
         _drive_to(task["dest"], say, watch_holding=True)
         _say(say, "I'm here.", "도착했어요.")
         if task["finish"] == "place":
@@ -1758,9 +1773,27 @@ def _fail(e, say):
             motion.stop()
         except Exception:
             pass
+    if isinstance(e, Blocked) and _leg["rest"]:
+        from assistant import detour
+        if _leg["tries"] and en == STUCK_SAY[0]:
+            en, ko = detour.STILL
+        start = _task["start_pose"] and list(_task["start_pose"])        # "here" is where the task was given
+        rest = [dict(s, to=start) if s.get("to") == "here" else s for s in _leg["rest"]]
+        detour.remember(rest[0].get("to"), rest, _task["trip_from"] and list(_task["trip_from"]), _leg["tries"])
     _set(status="failed")
     log(f"failed: {en}")
     _say(say, en, ko)
+
+
+def _go(place):
+    """A drive of a task ("here", {"marker"} or {"x", "y", "theta"}) as a mission's go step."""
+    return {"do": "go", "to": "here" if place == "here" else place["marker"] if "marker" in place else
+            [place["x"], place["y"], place["theta"]]}
+
+
+def _then(dest, finish, on=None):
+    """The drive to `dest` and what follows there, as mission steps: what is left of a task at its last drive."""
+    return [_go(dest)] + ([{"do": "place", "on": on}] if finish == "place" else [{"do": "give"}] if finish == "give" else [])
 
 
 def _clear():
@@ -1769,6 +1802,14 @@ def _clear():
     _pause.clear()
     _set(paused=False)
     skills._cancel.clear()
+
+
+def _new_run():
+    """A new task or mission: a blocked drive before it is no longer what "try again" means."""
+    from assistant import detour
+    detour.forget()
+    _leg.update(rest=None, tries=0)
+    _clear()
 
 
 def _launch(fn, *a):
@@ -1846,7 +1887,7 @@ def start(task, say=None):
     if problems:
         raise FetchError(" ".join(problems))
     _task["start_pose"] = _task["trip_from"] = agv.pose()
-    _clear()
+    _new_run()
     _set(status="running", step="", task=task, log=[])
     log(f"task: {describe(task)}")
     _launch(_run, task, say)
@@ -1868,7 +1909,7 @@ def _finish(fn, say):
             raise FetchError("My hand is empty, I'm not holding anything.", "손에 아무것도 없어요.")
         if not _state["holding"]:
             _set(holding=True)                    # the state was lost; give still works, place needs skills._held
-    _clear()
+    _new_run()
     _set(status="running")
 
     def run():
@@ -1915,6 +1956,7 @@ def carry_to(dest, then=None, say=None, on=None):
 def _carry_to(dest, say, then=None, on=None):
     _line_holding(LOOK_POSE)
     _step("driving to the destination")
+    _leg["rest"] = _then(dest, then, on)
     _drive_to(dest, say, watch_holding=True)
     _say(say, "I'm here.", "도착했어요.")
     if then == "place":
@@ -1946,12 +1988,59 @@ def run_steps(steps, say=None, sender=None):
     _task["start_pose"] = agv.pose()
     if {s["do"] for s in steps} - {"move", "turn"}:
         _task["trip_from"] = _task["start_pose"]     # a mission; "move back 20 cm" alone is no trip
-    _clear()
+    _new_run()
     _proceed.clear()
     _order["steps"] = None
     _set(status="running", step="", task={"steps": steps, "sender": sender}, log=[], waiting=None)
     log(f"mission: {steps_mod.describe(steps)}")
     _launch(_run_steps, steps, say)
+
+
+def detour(steps, how, say=None, tries=0):
+    """Go on after a blocked drive (assistant/detour.py): "backup" first drives straight back detour.BACKUP_M (checked
+    like any move), "around" first drives to a free point beside the way (detour.via); then `steps` (the blocked
+    drive and what came after it, or the way back) run as a mission. `tries`: detours already tried for that drive.
+    FetchError when busy."""
+    from assistant import detour as dt
+    _adopt()
+    with _lock:
+        if _busy():
+            raise FetchError("I'm busy with another task.", "지금 다른 일을 하고 있어요.")
+    pts = [s["to"] for s in steps if s["do"] == "go" and isinstance(s["to"], list) and not isinstance(s["to"][0], str)]
+    if pts:                                      # a map point (where a task was given, a trip's start): "here" again,
+        _task["start_pose"] = tuple(pts[0])      # which is what a mission says and shows
+        steps = [dict(s, to="here") if s.get("to") == pts[0] else s for s in steps]
+    dt.forget()
+    _leg.update(rest=list(steps), tries=tries)
+    _clear()
+    _proceed.clear()
+    _order["steps"] = None
+    _set(status="running", step="", task={"steps": list(steps), "sender": None}, log=[], waiting=None)
+    log(f"detour ({how}): {steps}")
+    _launch(_run_detour, list(steps), how, say)
+
+
+def _run_detour(steps, how, say):
+    from assistant import detour as dt
+    try:
+        holding = _state["holding"]
+        if how == "backup":
+            _move("back", dt.BACKUP_M, holding)
+        elif how == "around":
+            _drive_pose(holding)
+            to = steps[0].get("to") if steps and steps[0]["do"] == "go" else None
+            to = _task["start_pose"] if to == "here" else to
+            goal = agv.marker_xy(to) if isinstance(to, str) else tuple(to[:2]) if to else None
+            p = dt.via(agv.pose(), goal, agv.clearance)
+            if p is None:
+                raise Blocked(*dt.NO_WAY_ROUND)
+            log(f"way round by ({p[0]:.2f}, {p[1]:.2f})")
+            _step("driving round")
+            _drive_to({"x": p[0], "y": p[1], "theta": p[2]}, None, watch_holding=holding)
+    except Exception as e:
+        _fail(Blocked(*e.args) if type(e) is FetchError else e, say)   # still blocked: "go back" / "try again" stay
+        return
+    _run_steps(steps, say)
 
 
 def _run_steps(steps, say):
@@ -1997,7 +2086,10 @@ def _do_step(s, say):
     if d == "go":
         _drive_pose(holding)
         _step(f"driving to {s['to']}")
-        _drive_to("here" if s["to"] == "here" else {"marker": s["to"]}, say, watch_holding=holding)
+        _leg["rest"] = [s] + list(_rest)
+        to = s["to"]                                 # a marker, "here", or a map point [x, y, theta] (a detour's)
+        _drive_to(to if to == "here" else {"marker": to} if isinstance(to, str) else dict(zip(("x", "y", "theta"), to)),
+                  say, watch_holding=holding)
         _say(say, "I'm here.", "도착했어요.")
     elif d == "move":
         _move(s["dir"], s["m"], holding)
