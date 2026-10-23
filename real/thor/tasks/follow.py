@@ -70,6 +70,8 @@ NO_ARM = ("My arm is not answering, so I can't drive safely.", "팔이 응답하
 _stop = threading.Event()
 _send = threading.Lock()    # a command and the stop never cross: after stop() no drive command goes out
 _thread = None
+_followed = [None]          # (waist-frame angle deg, time) of the last sighting of the person followed now
+SEEN_MAX_S = 1.5            # s; an older sighting does not tell where they are (lumi decides who speaks from it)
 
 
 STOP_WORDS = re.compile(r"\b(stop|halt|freeze|enough|wait|hold on|stay(?! with)|don'?t (move|follow)|no more|"
@@ -84,6 +86,13 @@ def stop_word(text):
 
 def running():
     return _thread is not None and _thread.is_alive()
+
+
+def followed_angle():
+    """Waist-frame angle (deg, + left) of the person being followed, seen within SEEN_MAX_S; None if not following
+    or not seen."""
+    got = _followed[0]
+    return got[0] if running() and got and time.time() - got[1] <= SEEN_MAX_S else None
 
 
 def _joy(v, w):
@@ -279,6 +288,7 @@ def _run(see, say, people):
                 odd_t = now
                 fetch.log(f"follow: a sighting at {mine[0]:.2f} m {mine[1]:+.0f} deg is not them (someone else)")
             if _fresh(got):
+                _followed[0] = (got[1], now - got[2])
                 p = _to_map(pose, *got[:2])
                 person.seen(p, now - got[2])
                 near = [float(np.linalg.norm(_to_map(pose, *o[1:3]) - p)) for o in people() if _fresh(o[1:])] \
@@ -368,6 +378,7 @@ def start(see, say=None, people=None):
         stop()
         _thread.join(JOIN_S)
     _stop.clear()
+    _followed[0] = None
     fetch.log("follow: start")
     _thread = threading.Thread(target=_run, args=(see, say, people), daemon=True, name="follow")
     _thread.start()
