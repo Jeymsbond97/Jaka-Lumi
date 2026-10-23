@@ -1985,6 +1985,7 @@ class Lumi:
                     f"loudest {ears.last.get('peak')}{', ' + ears.last_stt['dropped'] if ears.last_stt.get('dropped') else ''})")
             return False
         from tasks import follow
+        self.last_u = u                                    # follow_me: was "follow me" said into the clip mic?
         if self.follow_filter(text, u):                    # following: only the followed person is listened to
             return True
         if not follow.running():                           # following: the head stays on the followed person
@@ -2017,6 +2018,8 @@ class Lumi:
         """While following: does the voice come from the person followed (the sound direction against their angle
         now, within FOLLOW_VOICE_DEG)? False when it can't tell (not calibrated, unsure, not seen)."""
         from tasks import follow
+        if getattr(u, "source", None) == "clip":           # no direction: theirs if "follow me" came through it too
+            return getattr(self, "follow_by_clip", False)
         want = follow.followed_angle()
         if want is None or u is None or getattr(u, "mics", None) is None:
             return False
@@ -2653,6 +2656,7 @@ class Lumi:
             self.fetch_say(*why)
             return
         self.current, track.greeted = track, True
+        self.follow_by_clip = getattr(getattr(self, "last_u", None), "source", None) == "clip"
         log(f"FOLLOW person #{track.id} at {track.distance:.2f} m {track.angle:+.0f} deg")
         mouth.say("Okay, I'll follow you. Say stop when you want me to stay." if en
                   else "네, 따라갈게요. 멈추려면 멈춰라고 하세요.")
