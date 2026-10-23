@@ -185,7 +185,7 @@ DONE_TALK = re.compile(r"\b(bye+|goodbye|see you|never ?mind|nothing|that'?s (al
 TALK_RECENT_S = 20.0                # s; someone spoke with Lumi this recently: what they say next is to Lumi too
 ENOUGH = re.compile(r"\b(enough|no more)\b|그만해|됐어 ?그만", re.I)   # with stop_order: ends a mission at once
 ASK_NOT_ORDER = re.compile(r"\b(can|could|would|will) you\b|\bplease\b|줄래|줄 ?수|해 ?줘|주세요|(?<!뭐 )줘", re.I)   # a request
-LOOK_KEEP_S = 60.0                  # s after a "look left" the head is not turned back ahead when the person leaves the view
+LOOK_KEEP_S = 60.0                  # s after a "look left" (and after the last word or command since) the head stays there
 COMPANY_Q = re.compile(r"\b(cutshion|barista robot|drawing robot|your (maker|makers|company|ceo|price)|(this|the|that|what|which) company|"
                        r"ceo of (it|this|the company)|founder of (it|this)|mega ?coffee|"
                        r"sonovictus|omron|borgwarner|bogate|cnt tech|seed round|target market|business model|(your|cutshion'?s?) awards?|how much (do|does) (you|it|this|lumi) cost)\b|"
@@ -742,6 +742,11 @@ class Lumi:
         self._markers = names
 
     # ---------- actions ----------
+    def look_held(self):
+        """After a "look left / behind" the head stays there until LOOK_KEEP_S pass with nothing said or asked."""
+        return time.time() - max(getattr(self, "looked_at", 0.0), getattr(self, "last_activity", 0.0)) < LOOK_KEEP_S \
+            if getattr(self, "looked_at", 0.0) else False
+
     def turn_head(self, yaw=None, pitch=None):
         def run():
             try:
@@ -2171,7 +2176,8 @@ class Lumi:
             mouth.say(bye, abort=self.speak_abort)
         self.current, self.voice_until, self.closing_pending = None, 0.0, None
         self.brain.reset()
-        self.turn_head(0, 0)
+        if not self.look_held():                     # "look behind": the head stays there a while (LOOK_KEEP_S)
+            self.turn_head(0, 0)
         if self.traveling():
             log("  conversation over - driving on")
             self.patrol.wait_until = time.time() + 0.5
@@ -2735,7 +2741,7 @@ class Lumi:
             else:
                 # often still there, out of the frame (beside the arm): keep listening without the wake word
                 # for a while, like a conversation started by voice. After "look left" the head stays there
-                if time.time() - getattr(self, "looked_at", 0.0) > LOOK_KEEP_S:
+                if not self.look_held():
                     self.turn_head(0, 0)
                 self.voice_until = time.time() + VOICE_SESSION_S
             self.last_activity, self.prompts = time.time(), 0
@@ -2754,6 +2760,10 @@ class Lumi:
                 if self.talk_turn():
                     self.voice_until = max(self.voice_until, time.time() + VOICE_SESSION_S)
                 return
+            if getattr(self, "looked_at", 0.0) and not self.look_held():
+                log(f"  nothing said for {LOOK_KEEP_S:.0f} s after a look: head ahead")
+                self.looked_at = 0.0
+                self.turn_head(0, 0)
             if self.voice_until:
                 talked = bool(self.brain.history) and self.vision is not None and self.vision.anyone_near()
                 log(f"voice conversation over (silence){'' if talked else ', nobody here or nothing said: no goodbye'}")
