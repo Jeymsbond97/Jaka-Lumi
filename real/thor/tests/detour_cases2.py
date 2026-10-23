@@ -73,6 +73,23 @@ CASES = {
     "사람들 이제 다 지나갔어": ANY, "이제 됐어, 움직여": "retry", "we pushed the trolley aside, so off you trot": "retry",
     "maybe sneak by along the window": ANY, "그 사이로 빠져나가 봐": "around", "어디 다른 데로 해서 가 봐": "around",
     "navigate past the cart": "around", "slip through the gap next to the cart": "around",
+    # ---- not an order now (round 3): taken back later, a condition or a time, a wish, the past, someone else ----
+    "try again, never mind": None, "go around it... actually, forget it": None, "다시 가 봐, 아니야 됐어": None,
+    "다른 길로 가... 아니 그냥 기다려": None, "go back— no no, just wait": None, "돌아와, 아 취소": None,
+    "try again, no, hold on": None, "back up and try again— wait, stop": None,
+    "if it's still blocked later, go around": None, "when they move, try again": None, "이따 길 비면 다시 가": None,
+    "막혀 있으면 돌아와": None, "tomorrow try another way": None, "내일 다른 길로 가 봐": None,
+    "suppose I moved it, would you go?": None, "I'd go around if I were you": None, "내가 치우면 갈 수 있어?": None,
+    "I told you yesterday to go around": None, "last time it went around the other side": None,
+    "어제 다른 길로 갔었잖아": None, "the other robot always goes around": None, "쟤는 다시 해 봐도 못 가": None,
+    "다른 길로 가면 혼난다": None, "돌아가면 안 돼": None, "다시 해 봐, 사진 흔들렸어": None,
+    "take the picture again": None, "let's go around, guys": ANY, "우리 다른 길로 가자": None, "내가 치워 줄게, 기다려": None,
+    "it can't get past the bench": None, "he will try again": None,
+    # ---- corrected in the sentence: the last order counts ----
+    "go around— no, go back to the start": "back", "try again, no, go around it": "around",
+    "다시 가 봐, 아니 다른 길로 가": "around", "돌아와, 아니야 다시 해 봐": "retry", "never mind that, just try again": "retry",
+    "I'd like you to try again": "retry", "it would be great if you could find another way": "around",
+
     # ---- not a detour ----
     "go to p8": None, "p8로 가": None, "go home": None, "홈으로 가": None, "충전하러 가": None, "go to the stage": None,
     "come here": None, "이리 와": None, "come to me": None, "follow me": None, "stop": None, "멈춰": None,
