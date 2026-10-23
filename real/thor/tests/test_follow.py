@@ -247,7 +247,7 @@ assert wait_end(1.0) and said and "charger" in said[0] and all(c[1:] == (0.0, 0.
 fetch._charging = lambda: False
 print("charger: refused")
 
-# the arm switched off but in look: follows with the arm still; not in look: refused with the reason, never driven
+# the arm switched off: follows with the arm still, in look or not; powered off (joints 0): refused, never driven
 def arm_off():
     raise motion.MotionError("arm is not powered / enabled")
 
@@ -262,16 +262,21 @@ assert follow.running() and any(c[1] > 0 for c in w.cmds)
 follow.stop()
 assert wait_end(0.5)
 fetch._at_pose = lambda name: False
-assert follow.ready() == follow.ARM_OFF
+real_joints, fetch.skills._joints = fetch.skills._joints, lambda: [5.0] * 6
+assert follow.ready() is None
+fetch.skills._joints = lambda: [0.0] * 6
+assert follow.ready() == fetch.ARM_UNSEEN
+said.clear()
 w = World()
 follow.start(w.see, say)
-assert wait_end(1.0) and said == [follow.ARM_OFF[0]] and all(c[1:] == (0.0, 0.0) for c in w.cmds), said
+assert wait_end(1.0) and said == [fetch.ARM_UNSEEN[0]] and all(c[1:] == (0.0, 0.0) for c in w.cmds), said
+fetch.skills._joints = real_joints
 motion._ready = lambda: (_ for _ in ()).throw(motion.MotionError("a Cobo π program is running"))
 assert follow.ready() == follow.ARM_BUSY
 fetch._at_pose = lambda name: (_ for _ in ()).throw(ConnectionError("no answer"))
 assert follow.ready() == follow.NO_ARM
 fetch._at_pose, motion._ready = (lambda name: True), forbid
-print("arm off: follows in look, refuses otherwise")
+print("arm off: follows, powered off refuses")
 
 # any other failure in prepare: said, the base at 0, the head free again, the thread ends
 said.clear()
@@ -554,9 +559,9 @@ L.modes.drive, L.skill_busy = True, lambda: True
 L.follow_me()
 assert not started and "on a task" in spoken[-1]
 L.skill_busy, real_ready = (lambda: False), follow.ready
-follow.ready = lambda: follow.ARM_OFF                                               # checked before "Okay"
+follow.ready = lambda: fetch.ARM_UNSEEN                                              # checked before "Okay"
 L.follow_me()
-assert not started and spoken[-1] == follow.ARM_OFF[0] and not any("follow you" in x for x in spoken[-1:])
+assert not started and spoken[-1] == fetch.ARM_UNSEEN[0] and not any("follow you" in x for x in spoken[-1:])
 follow.ready = real_ready
 follow.start = real_start
 print("lumi hooks: ok")

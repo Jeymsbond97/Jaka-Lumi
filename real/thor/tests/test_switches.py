@@ -127,9 +127,9 @@ L.lang = "ko"
 lumi.Lumi.receive_from_hand(L, "cup")
 assert said == [lumi.ARM_OFF_SAY[1]]
 L.lang = "en"
-assert lumi.wave_mod.OFF == follow.ARM_OFF == lumi.ARM_OFF_SAY
+assert lumi.wave_mod.OFF == fetch.arm_route.OFF == lumi.ARM_OFF_SAY
 
-# follow: an enabled arm never refuses; a disabled one only when it must move to look
+# follow: an enabled arm never refuses; a disabled one follows where it is; powered off (joints 0) asks
 follow.fetch._charging = lambda: False
 at_look = [True]
 follow.fetch._at_pose = lambda name: at_look[0]
@@ -140,7 +140,11 @@ assert follow.ready() is None
 at_look[0] = False
 assert follow.ready() is None                            # enabled: it may go to look
 arm_state.update(enable=0)
-assert follow.ready() == follow.ARM_OFF                  # off and not at look: ask
+real_joints, follow.fetch.skills._joints = follow.fetch.skills._joints, lambda: [5.0] * 6
+assert follow.ready() is None                            # off and not at look: follows, the arm stays
+follow.fetch.skills._joints = lambda: [0.0] * 6
+assert follow.ready() == follow.fetch.ARM_UNSEEN         # powered off: where the arm is is not known
+follow.fetch.skills._joints = real_joints
 at_look[0] = True
 assert follow.ready() is None                            # off but already at look: follows
 
