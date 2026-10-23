@@ -17,6 +17,7 @@ import pathlib
 import random
 import re
 import sys
+import zlib
 
 import numpy as np
 
@@ -28,7 +29,6 @@ AGREE_K = 2             # ... and the K closest wordings all of that kind
 MIN_CHARS = 4           # shorter words ("go", "가") are the rules' or the LLM's
 MAX_WORDS = 16          # a longer sentence is a story or several requests: the LLM reads it
 FILLS = 3               # place / object fills made of each template (the same every run)
-R = random.Random(11)
 
 # ---------- guards: words the bank never reads ----------
 NEGATION = re.compile(r"\b(?:don'?t|do not|never|no need|not now|no more|stop \w+ing|quit \w+ing|without|forget it|"
@@ -42,6 +42,12 @@ ABILITY = re.compile(r"\b(?:are you able|able to|know how to|how (?:do|can|could
                      r"capable of|do you (?:know|have)|can robots?|could robots?)\b|"
                      r"\bcan you (?:\w+ )?(?:things|anything|objects|stuff|people|by yourself)\b|\b(?:can|could) you \w+(?: up)? (?:a|an|any)\b.*\?|"
                      r"\bshow me (?:you can|how)\b|기능|\bfunction\b|\bfeature\b|보여 ?(?:줄|주실|주세요|줘)|할 ?줄|줄 ?알|(?<!줄 )(?<!주실 )(?<!주 )(?<!줄)(?<!주실)수 ?있(?:어|어요|니|나요|습니까|을까)\s*\??$|가능해|가능한가|가능하", re.I)
+WONDER = re.compile(r"\bi wonder\b|\bwonder(?:ing)? (?:if|whether|how)\b|\bi bet\b|\b(?:i )?guess (?:it|the robot)\b|"
+                    r"\b(?:can|could|does|did|will|would|is|was) (?:it|this|that|the robot|this robot|that robot|he|she|this thing)\b|"
+                    r"\b(?:it|the robot|this robot|this thing) (?:can|could|does|will|is able)\b|\bcan it\b|"
+                    r"(?:있|하|되|가|와|오|돌|봐|올라|내려|흔들|집|따라)나(?:요)?\s*[?？.~]*\s*$|나 ?봐(?:요)?\s*[?？.~]*\s*$|"
+                    r"(?:^|\s)(?:얘|쟤|걔|이 로봇|저 로봇|로봇이|로봇은|로봇도|이게|이거는)\s|궁금", re.I)
+                    # "can it wave? I wonder", "does it follow people?", "이거 손 흔들 수 있나?", "얘 따라오나 봐"
 QUESTION = re.compile(r"^\W*(?:(?:hey|so|um+|uh+|lumi|okay|ok)\W+)*(?:what|where|why|how|when|who|whose|which|is|are|was|"
                       r"were|do(?=\s+(?:you|i|we|they|robots?)\b)|does|did|have|has|had|should|shall i|may i|can i|could i)\b(?! about\b)|"
                       r"어디|뭐|무엇|왜|언제|누구|어떻게|몇|어느|무슨|어떤|얼마|봤(?:어|니|나|냐|어요|습니까)|본 ?적|"
@@ -52,12 +58,12 @@ OTHER_SENSE = re.compile(r"instagram|insta\b|\bsns\b|\baccount\b|\bsubscribe\b|�
 REPEAT = re.compile(r"^\W*(?:(?:\w+\W+){0,2})?(?:again|one more time|once more|do it again|same again|more)\W*$|"
                     r"^\W*(?:[가-힣]+\s+)?(?:한 ?번(?:만)? 더|다시|또)\s*(?:해|해 ?줘|해 ?봐|해 ?주세요|하자)?\W*$", re.I)
                     # "again", "한 번만 더 해 줘": what again is the history's (driving.read, the LLM)
-SEVERAL = re.compile(r"\b(?:and|then|after that|also|plus|while|no|not|wait|stay|sleep|sorry|i mean|actually|rather)\b|;|"
-                     r"(?!갖고|지고|고고)(?<!에)[가-힣](?:서|고)(?:\s|$)|하고|면서|다가|갔다|다녀|아니|기다|대기|(?:가|와) ?있어|계세요|"
+SEVERAL = re.compile(r"\b(?<!hundred )and\b(?! a half\b)|\b(?:then|after that|also|plus|while|no|not|wait|stay|sleep|sorry|i mean|actually|rather)\b|;|"
+                     r"(?!갖고|지고|고고|에서)[가-힣](?:서|고)(?:\s|$)|하고|면서|다가|갔다|다녀|아니|기다|대기|(?:가|와) ?있어|계세요|"
                      r"계십시오", re.I)
                      # several requests or a stay ("go to p3 and wait", "가서 기다려", "p3에 가 있어"): steps.read's
 HAND_WORDS = re.compile(r"\byou(?:'re| are) holding\b|\b(?:in|from) my hand\b|\bhere'?s\b|\bhanding\b|\bi'?ll give\b|"
-                        r"\bhold this\b|\bfrom me\b|\bmy hand\b|내 손|제 손|손에 (?:줘|놔|주세요)|\bi'?m holding\b|\bi am holding\b|들고 있는|손에 있는|받아|드릴게|줄게|가져가세요", re.I)   # the hand reader's (brain.hand_request)
+                        r"\bhold this\b|\bfrom me\b|\bmy hand\b|\bhand ?에|\bhand it (?:over|to me)\b|\bhand over\b|내 손|제 손|손에 ?(?:줘|놔|주세요|쥐어)|\bi'?m holding\b|\bi am holding\b|들고 있는|손에 있는|받아|드릴게|줄게|가져가세요", re.I)   # the hand reader's (brain.hand_request)
 NAME_CALL = re.compile(r"^\W*(?:(?:ah|oh|hey|hi|okay|ok|so|um|uh|look|and)\W+)?([A-Z][a-z]+)\s*,")      # "Jake, follow me": said to Jake
 NOT_A_NAME = {"lumi", "loomi", "rumi", "okay", "ok", "please", "hey", "hi", "hello", "so", "well", "now", "alright",
               "yes", "yeah", "no", "sorry", "um", "uh", "oh", "wait", "look", "then", "first", "also", "and", "but",
@@ -67,7 +73,7 @@ SELF_TALK = re.compile(r"^\W*i'?m \w+ing\b|\b(?:myself|yesterday|last (?:time|we
                        r"i want to go|my \w+ (?:will|is|went)|he |she |they )|"
                        r"(?:^|\s)(?:나는|저는|내가|제가|우리는|저희는)\s|갈게|할게|할께|갈께|했어|했어요|갔어|왔어", re.I)
 
-PAST_EN = re.compile(r"\b(?:i|we)(?:'ve| have| had)?\s+(?:just\s+|already\s+|also\s+|then\s+|never\s+)?(?:\w+ed|went|came|"
+PAST_EN = re.compile(r"\b(?:i|we)(?:'ve| have| had)?\s+(?:just\s+|already\s+|also\s+|then\s+|never\s+)?(?:(?!need\b|feed\b|speed\b)\w+ed|went|came|"
                      r"drove|ran|took|got|left|saw|did|had|made|put|brought|gave|told|said|was|were|spun|stood|sat|found|held|"
                      r"been|gone|done|seen|taken|given)\b|\bi've\b|\bwe've\b", re.I)   # "I walked to the stage", "we went to p3"
 TAG = re.compile(r",\s*(?:right|correct|huh|true)\s*[?!.]*\s*$|\b(?:isn'?t|aren'?t|wasn'?t|weren'?t|don'?t|doesn'?t|didn'?t|"
@@ -148,6 +154,7 @@ COME = [
     "이리 와조", "일루 와", "일로 와", "이루 와",
 ]
 FOLLOW = [
+    "stick with me, let's go", '나 follow 해', 'you follow, i walk', '천천히 따라와', '이 늙은이 좀 따라와',
     '나 쫓아와', '쫓아와', '쫓아와 줘', 'you follow', 'you follow me', "you're coming with me", 'come along with me now', 'go where i go', 'walk where i walk', 'stay right behind me', '따라오라고', '빨리 따라와',
     'walk beside me', 'walk next to me', 'stay by my side', 'come along', 'keep close to me', 'follow behind me', 'follow me over there', 'follow me this way', 'be my shadow', 'go with me', 'accompany me', 'escort me', '옆에서 같이 걸어', '저랑 같이 걸어요', '같이 가 줄래?', '나 따라와 봐', '저를 따라와 주시겠어요?', '따라 오세요', '따라오십시오', '저 좀 따라와 주세요', '나만 따라와', '함께 가요', 'follow 해 주세요',
     "follow me", "follow me please", "please follow me", "come with me", "come along with me", "walk with me",
@@ -176,6 +183,7 @@ COME_BACK = [
     "돌아 와", "도라와",
 ]
 MOVE = [
+    'move to the front 1 meter', 'scoot to the front 1 meter', 'go to the front 1 meter', 'slide to the front 1 meter', 'could you move to the left 1 meter', 'go backwards 1 meter',
     'move 1 meter ahead', 'drive 1 meter ahead slowly', 'go to the left 1 meter', 'drive 1 meter backwards', 'reverse 1 meter', 'roll to your left 1 meter', 'come back 1 meter', 'backwards 1 meter', 'go 1 meter to your right', 'just 1 meter forwards', 'move ahead 1 meter', 'move forward 1 meter', 'go to your right 1 meter', 'back yourself up 1 meter', 'go right by 1 meter', 'move backward 1 meter', 'roll ahead 1 meter', '앞으로 1 meter 가', '뒤로 1 meter 이동해', '왼쪽으로 1 meter 가 줘', '오른쪽으로 1 meter 이동해 주세요',
     "move forward", "move forward a bit", "go forward a little", "go ahead a bit", "drive forward", "roll forward",
     "step forward", "take a step forward", "inch forward", "scoot forward", "move ahead", "go straight a little",
@@ -200,6 +208,7 @@ MOVE = [
     "앞으로 가조", "뒤로 가조", "압으로 가",
 ]
 TURN = [
+    'you turn full circle', 'do a full spin', 'turn yourself to the left', 'turn yourself to the right', '왼쪽으로 좀 돌아 주실래요', '오른쪽으로 좀 돌아 봐', '뒤돌아 주십시오', 'turn 90 degrees to the left',
     'hang a left', 'hang a right', '오른쪽으로 꺾어', '왼쪽으로 꺾어', '좌회전 해', '우회전 해', '좌회전', '우회전', 'u턴 해 줘', 'turn right by 90 degrees', 'could you turn 90 degrees to your right', 'spin 90 degrees left', 'rotate 90 degrees to the right', '제자리에서 왼쪽으로 돌아', 'tern right', '턴 레프트', '턴 라이트', 'right로 돌아',
     'turn yourself to the left', 'turn your body to your left', 'turn your body right', 'rotate your body left', 'please turn yourself to the right', 'turn to face the other way', 'face the other way', 'spin 360 degrees', 'spin all the way around', 'do a full turn', 'turn 90 degrees right', 'rotate 45 degrees left', '좌측으로 회전해', '우측으로 회전해', '좌측으로 20도 회전해 줘', '우측으로 30도 돌아', '반대쪽으로 돌아', '반대로 돌아 서', '몸 돌려', '180도 돌아', '뒤로 돌아서', '왼쪽으로 몸 돌려 줘', '오른쪽으로 방향 바꿔', '방향 바꿔 왼쪽으로',
     "turn left", "turn right", "turn around", "turn to the left", "turn to the right", "turn your body left",
@@ -213,6 +222,7 @@ TURN = [
     "turn 왼쪽", "오른쪽으로 turn", "left로 돌아", "right로 돌아 줘", "왼쪽으로 turn 해", "유턴해", "유턴 해 줘",
 ]
 LOOK = [
+    'eyes to the left', 'look over to the right', 'look at the left', "look here, i'm the one talking", '위를 좀 쳐다봐', '아래 좀 봐', '밑에 좀 봐', '뒤 좀 봐', 'look 아래', 'look 위로 해 줘', 'down 쪽 봐 줘', '오른쪽 look', '앞을 똑바로 봐', '여기 봐, 여기', 'you look me please', 'chin up', 'look left real fast',
     'look rightwards', 'look leftwards', 'look upward', 'look downward', 'look at the ground', 'look at your feet', 'look me in the eye', 'watch me', '나 쳐다봐', '저 보세요', '땅 봐', '왼편 봐', '오른편 봐', 'face forward', 'eyes front', 'head back to center', 'reset your head', 'center your head', 'straighten your head', 'put your head back to the middle', '고개 원위치', '고개 가운데로', '고개 원래대로 해 줘', 'front 봐', '앞에 봐', 'look away', 'avert your eyes', 'turn your eyes away', '딴 데 봐', '다른 데 봐', '시선 좀 돌려 줘', 'turn to me', 'turn your head toward me', '고개 나한테 돌려', 'chin up', 'tilt your head up a bit', 'look higher', 'look a bit to the left', '레프트 봐', '라이트 봐', 'swivel your head left', 'turn the head left 60', 'look over to the right', 'look at mee', 'luk right', 'look upp',
     'glance right', 'glance left', 'eyes up', 'eyes down', 'eyes left', 'eyes right', 'look at the ceiling', 'look at the floor', 'look to your right please', 'look 30 degrees to the left', 'look 20 degrees right', 'turn your head 45 degrees left', 'look up at me', 'look down at the floor', 'look this way please', 'look at my face', '천장 봐', '바닥 봐', '하늘 봐', '땅 봐', '고개 down 해 줘', '고개 up', 'head up 해', '여기 look', '여기 좀 봐', '앞을 보십시오', '정면을 봐요', '왼쪽 좀 봐 줄래?', '오른쪽 쳐다봐', '날 쳐다봐', '저 좀 쳐다봐 주세요', '고개 숙여 주세요', '고개를 왼쪽으로 30도 돌려', '위쪽 봐', '아래쪽 봐', '카메라 봐', '이쪽 좀 봐 주세요',
     "look at me", "look at me please", "eyes on me", "look over here", "look this way", "face me", "look my way",
@@ -230,6 +240,7 @@ LOOK = [
     "look at 나", "나 look", "left 봐", "right 봐", "up 봐", "여기 look", "look 여기", "eyes on 나",
 ]
 LIFT = [
+    'make yourself small', 'shrink a little', 'make you more tall', 'you make body high please', 'body 좀 올려 줘', 'rise up', '조금만 더 커져 봐', '위로 쭉 올라가 봐', '아래로 내려가 봐', '몸을 좀 낮추십시오',
     'shrink', 'squat down a bit', 'elevate yourself', 'drop your height', 'lower your height', 'raise your height', 'stretch up tall', 'go all the way down', 'keep going down', 'move up for a sec', 'move down', 'drop down an inch', 'raise up by 1 meter', 'go up 1 meter', 'come down 1 meter', '몸 좀 들어 올려 줄래?', '몸 위로', '높이 좀 낮춰 주실래요?', '조금 낮아져 줄래?', '높이 올려', '더 올려', '아래로 내려가 봐', '1 meter 높여 줘', '1 meter 내려가',
     'go up a bit', 'go up', 'go down', 'up a little', 'down a little', 'sink down', 'rise up', 'get up higher', 'a bit higher please', 'a bit lower please', 'lower down a little', 'raise up', 'move up', 'move down a bit', 'lift up a little', 'make yourself a bit higher', 'come up a bit', '커져 봐', '좀 더 커져 봐', '키 커져 봐', '작아져 봐', '올라가', '조금만 올라가 줄래요?', '내려가', '조금 내려가 줘', '높이 올려 줘요', '높게 올라가', '낮게 내려가', '위로 올라가 줘', '아래로 내려가 줘', '키 좀 키워 줘', '키 좀 줄여 줘', '몸 좀 높여 주세요', 'go up 해 봐', 'up 해 줘', 'down 해 줘',
     "raise yourself", "raise yourself up", "lift yourself up", "get taller", "make yourself taller", "stand up tall",
@@ -243,6 +254,7 @@ LIFT = [
     "키 up", "몸 down", "taller 해 줘", "몸 업", "리프트 업",
 ]
 WAVE = [
+    'say hello to everyone with a wave', 'say hi to them with a wave', 'wave your hand please', '손 한번 흔들어 봐', 'wave at everyone',
     'mind giving us a wave', 'give a wave', 'give them a wave', 'wave for the camera', 'wave once more', 'wave again', 'one more wave', 'do your hand wave', 'do your wave', 'show me your wave', '팔 흔들어 봐', '팔 흔들어 줘', '한 번만 더 흔들어 줘', '다시 손 흔들어', '손 한 번 흔들어 봐', '손 흔들어 인사해', '인사 손 흔들어 줘', '바이바이 손 흔들어', '손 흔들어 주실래요?', '손 좀 흔들어 줄래?', 'wave 한 번 해 줘', '손 흔들기 해 줘',
     "wave", "wave at me", "wave to me", "wave your hand", "wave hello", "wave hi", "wave at us", "give us a wave",
     "give me a wave", "wave to the people", "wave to everyone", "wave to the guests", "say hi with your arm",
@@ -257,6 +269,7 @@ WAVE = [
     "hi 해 봐 손으로", "손 흔드러", "손 흔들어조",
 ]
 ARM_REACH = [
+    'lemme see your hand', 'let me see your hand', 'hand out', 'reach out your hand', 'hand 좀 내밀어 줘', '팔 reach 해 줘', 'offer your hand to my grandma', 'you give me hand please', 'arm out! arm out!', '팔 쭉 뻗어 봐',
     'reach your hand to me', 'hold out you hand', 'hold it out', '나한테 손 줘', '손 이리 줘 봐', 'hand 줘 봐', '손 줘 봐', 'reach out, thanks', 'reach your arm out', 'reech out to me',
     'arm out', 'arm out please', 'put your hand out', 'reach forward', 'extend your hand', 'stretch out', 'stretch your hand forward', '손 앞으로 내밀어', '손 좀 앞으로 내밀어 주세요', '팔 extend 해 줘', '팔 앞으로', '팔 앞으로 뻗어', '팔 펴 줘', '팔 쭉 펴 주세요', '팔 내밀어 줄래?', '손 뻗어', 'reach out 해 줘',
     "reach out", "reach out your arm", "stretch your arm", "stretch out your arm", "extend your arm", "hold out your arm",
@@ -268,6 +281,7 @@ ARM_REACH = [
     "arm 뻗어", "팔 reach", "팔 쭉", "팔 뻐더",
 ]
 ARM_FOLD = [
+    'arm back in', 'you close arm please, put back', 'arm 접어 줘', '팔 거두십시오', '팔 접어 봐',
     'pull your arm back in', 'pull your hand back in', 'take your hand back', 'arm back home', 'bring the arm home', '손 다시 넣어', '이제 접어', '접어', '팔 다시 넣어', 'fold you arm', '넣어',
     'fold arm', 'fold it', 'you can fold your arm now', 'arm in', 'arm away', 'retract your arm', 'bring your arm in', 'tuck it in', '팔 제자리로', '팔 원위치', '팔 다시 접어', '팔 넣어 줘', 'fold arm 해 줘', '팔 fold', '팔 거둬 줘', '팔 내려 줄래?',
     "fold your arm", "fold your arm up", "put your arm down", "put your arm away", "take your arm back", "tuck your arm in",
@@ -289,6 +303,7 @@ ARM_CLOSE = [
     "주먹 쥐어 주세요", "그리퍼 닫아 주십시오", "손 close", "gripper close 해", "주먹 쥐어 봐",
 ]
 PICK = [
+    '<obj> grab 해 봐', '그 <obj> 좀 grab 해 봐', '<obj> 하나 잡아 봐', '<obj> take 해', 'pick up the <obj> please',
     'take hold of the <obj>', 'get hold of the <obj>', 'snatch the <obj>', 'snatch a <obj>', 'try picking up the <obj>', '<obj> pick 해 줘', '<obj> 픽 해 줘', '<obj> 픽업해 줘', '<obj> take 해 줘', '<obj> 좀 take 해', '<obj> 집으세요', '<obj> 한번 집어 봐요', '<obj> 쥐어 봐', '<obj> 들어 봐', 'grab 해 <obj>', '<obj> pick up 해', 'pick upp the <obj>',
     'would you mind grabbing the <obj>', 'mind grabbing the <obj>', 'grab me the <obj> off the table', 'pick the <obj> up off the table', 'take hold of that <obj>', 'can you grab that <obj>', 'lift up the <obj>', '<obj> pick up', '<obj> 좀 pick up', '<obj> 집어 줄래?', '<obj> 좀 집어 줄래요?', '<obj> 잡아 볼래?', '<obj> 들어 볼래?', '<obj> 하나 집어', '<obj> 좀 집으세요', '<obj>을 집어 주십시오', '<obj> 잡으세요',
     "pick up the <obj>", "take the <obj>", "grab the <obj>", "get the <obj>", "pick the <obj> up", "lift the <obj>",
@@ -322,8 +337,9 @@ FETCH = [
     "<obj> 가저와",
 ]
 NO = [
+    'can it wave? i wonder', 'i wonder if it can follow people', 'does it pick up cups?', 'can the robot turn around?', 'this robot can go anywhere', 'it can lift itself, right', '이거 손 흔들 수 있나?', '얘 따라오나 봐', '로봇이 컵 집을 수 있나?', '이 로봇 회전하나요?', '쟤 움직이나 봐', '로봇이 어디로 가나?', '궁금하다, 팔 뻗을 수 있나', 'does this thing move?',
     '가자', '가자 이제', '이제 가자', '자 가자', "let's go now", "okay let's go", "come on, let's go", 'back to where you picked it up', 'put it back where you found it',
-    'i walked to the stage', 'we went to p3 yesterday', 'i turned left at the corner', 'i moved the cup', 'i picked up a bottle', 'i waved at you', 'i looked up', 'i followed him', 'i came back', "i've been to the lobby", 'the next stop is p3, right?', "this is the end, isn't it?", "we're at the stage, right?", 'you can go there, right?', 'p3에 갔었지?', '어제 무대에 갔어', '나 왼쪽으로 돌았어', '컵 집었어', '손 흔들었어요', '여기가 끝이지?', '다음은 p3 맞죠?', '무대 저쪽이잖아', 'next stop 은 p3 맞지?', 'the end is near', 'this is the end', 'next stop please', 'i went 1 meter forward', 'we drove 1 meter back',
+    # past events and tag questions are the PAST_EN / past_ko / TAG guards' (exact, before any match)
     '인스타 팔로우 해 줘', 'follow us on instagram', 'follow our account', '따라 해 봐', '내 말 따라 해', 'repeat after me', 'copy me', 'do what i do', 'can you lend me a hand?', 'give me a hand with this', '한 번만 더 해 줘', 'do it again', 'again please', 'one more time', '다시 해 줘', '또 해 봐', '한 번 더', 'over here for a sec', 'wait over there', 'the other way', '왼쪽으로', '오른쪽으로', '앞으로', '뒤로',
     'can your arm move?', 'how long is your arm?', 'how far can you reach?', '악수하자', '악수할래?', 'can you turn your head?', 'is your head turning?', 'how high can you go?', 'how low can you go?', "what's on the ceiling?", 'is the floor clean?', 'where are you looking?', 'what are you looking at?', '어디 보고 있어?', '왜 나를 봐?', '왜 따라와?', '키가 몇이야?', '팔 길이가 얼마야?', '고개 아파?', '손 차가워?', '손 따뜻해?',
     # cut-off starts
@@ -422,14 +438,15 @@ def _fill(t, slot, en, ko):
     if slot not in t:
         return [t]
     pool = ko if re.search(r"[가-힣]", t.replace(slot, "")) else en
+    r = random.Random(zlib.crc32(t.encode()))    # the same fills for a wording whatever is added around it
     if slot == "<place>":                        # a named marker is embedded as CANON_PLACE (core): always one fill
-        return [t.replace(slot, f) for f in [CANON_PLACE] + R.sample([f for f in pool if f != CANON_PLACE], FILLS - 1)]
-    return [t.replace(slot, f) for f in R.sample(pool, FILLS)]
+        return [t.replace(slot, f) for f in [CANON_PLACE] + r.sample([f for f in pool if f != CANON_PLACE], FILLS - 1)]
+    canon = "컵" if pool is ko else "cup"       # an object is embedded as this one (core): always one fill
+    return [t.replace(slot, f) for f in [canon] + r.sample([f for f in pool if f != canon], FILLS - 1)]
 
 
 def examples():
     """[(text, kind)]: the bank with its <place> / <obj> slots filled (FILLS each, a fixed seed)."""
-    R.seed(11)
     out = []
     for kind, texts in KINDS.items():
         for t in texts:
@@ -462,9 +479,17 @@ def _load():
 
 
 POLITE = re.compile(r"\bif you don'?t mind\b|\b(?:it'?d|it would|that would|that'?d) be (?:great|nice|good|lovely|awesome|"
-                    r"cool|helpful) if you(?: could)?\b|^\W*go ahead and\b|\bfor a (?:sec|second|moment|bit)\b", re.I)
+                    r"cool|helpful) if you(?: could)?\b|^\W*go ahead and\b|\bfor a (?:sec|second|moment|bit)\b|\bif you please\b", re.I)
+SLANG = [(re.compile(rf"(?<![\w가-힣]){a}(?![\w가-힣])", re.I), b) for a, b in (
+    ("wav", "wave"), ("reech", "reach"), ("ur", "your"), ("u", "you"), ("lemme", "let me"), ("luk", "look"),
+    ("pickup", "pick up"), ("plz|pls", "please"), ("mister robot|hey robot|yo robot|bro|buddy|lol|beep boop", ""),
+    ("^\\W*robot", ""), (",?\\s*robot(?=\\s*[,.!?]|\\s*$)", ""),
+    ("보이소|보시오|보시게|보십시오", "봐"), ("주이소|주시게", "주세요"), ("따라온나|따라오시게|따라오이소", "따라와"),
+    ("왼짝", "왼쪽"), ("오른짝", "오른쪽"), ("오른쪽바", "오른쪽 봐"), ("왼쪽바", "왼쪽 봐"),
+    ("얘(?= ?,? ?(?:로봇|루미))", ""), ("로봇아|로봇 양반|로봇씨", ""), ("어이|ㅋ+", ""))]
+    # slang, whisper's spellings, dialect endings and calls: read as the plain word (the bank and the slots)
 LEAD = re.compile(r"^\W*(?:(?:excuse me|okay so|ok so|so|uh+|um+|yo|hi|hey|hello|alright|all right|okay|ok|well|listen|"
-                  r"ah+|oh+|wow|hmm+|buddy|lumi|robot|hey robot|루미야|루미씨|루미|저기요|저기|자|야|음|어|좋아|이제|그럼|근데|그런데|아|like)\b[\s,.!~]*)+", re.I)
+                  r"ah+|oh+|wow|hmm+|buddy|lumi|robot|hey robot|루미 ?군|루미 ?선생|루미 ?씨|루미야|루미씨|루미|저기요|저기|자|야|음|어|좋아|이제|그럼|근데|그런데|아|like)\b[\s,.!~]*)+", re.I)
 AMOUNT = [(re.compile(r"\b\d+(?:\.\d+)?\s*(?:degrees?|도)(?![a-z])|\b\d+(?:\.\d+)?도", re.I), "90 degrees"),
           (re.compile(r"\b\d+(?:\.\d+)?\s*(?:m|meters?|metres?|cm|centimet(?:er|re)s?|mm|millimet(?:er|re)s?|"
                       r"미터|센티(?:미터)?|센치|밀리)(?![a-z])", re.I), "1 meter")]   # embedded as one amount
@@ -473,6 +498,9 @@ AMOUNT = [(re.compile(r"\b\d+(?:\.\d+)?\s*(?:degrees?|도)(?![a-z])|\b\d+(?:\.\d
 def plain(text):
     """The words without polite frames ("if you don't mind", "it'd be great if you could") and calls before."""
     t = POLITE.sub(" ", text or "")
+    for rx, word in SLANG:
+        t = rx.sub(word, t)
+    t = re.sub(r"\s+([,.!?])", r"\1", re.sub(r"^[\s,.!?~]+", "", t))
     t = LEAD.sub("", t).strip()
     return re.sub(r"\s{2,}", " ", t) or (text or "").strip()
 
@@ -485,7 +513,7 @@ def guarded(text):
         return "length"
     for name, rx in (("negation", NEGATION), ("later", LATER), ("ability", ABILITY), ("question", QUESTION),
                      ("self", SELF_TALK), ("several", SEVERAL), ("hand", HAND_WORDS), ("other sense", OTHER_SENSE),
-                     ("repeat", REPEAT), ("past", PAST_EN), ("tag", TAG)):
+                     ("repeat", REPEAT), ("past", PAST_EN), ("tag", TAG), ("wonder", WONDER)):
         if rx.search(t):
             return name
     if brain.LATER.search(t):
@@ -511,7 +539,8 @@ def nearest(text, k=5):
     return [(float(sims[i]), str(kinds[i]), texts[i]) for i in top], sims, kinds
 
 
-TAIL = re.compile(r"(?:[\s,.!?~]+(?:please|thanks|thank you|for me|now|right now|real quick|if you can|lumi|okay|"
+TAIL = re.compile(r"(?:[\s,.!?~]+(?:please|thanks|thank you|for me|now|right now|real quick|real fast|if you can|lumi|okay|"
+                  r"yo|my friend|you|thank|"
                   r"고마워|고마워요|감사합니다|감사해요|부탁해|부탁해요|부탁합니다|루미야|제발))+[\s,.!?~]*$", re.I)
 CANON_PLACE = "p3"      # a named marker is embedded as this one: the bank's wordings know it, any map's names work
 
@@ -527,6 +556,9 @@ def core(text, markers=()):
         swapped = re.sub(rf"(?<![a-z0-9])(?:the )?{re.escape(named[0].lower())}(?![a-z0-9])", CANON_PLACE, low)
         if swapped != low:
             t = swapped
+    obj = re.compile(rf"(?:(?:{brain._COL})\s*)?(?<![a-z])(?:{brain._OBJ})s?(?![a-z])", re.I)
+    t = obj.sub(lambda m: "컵" if re.search(r"[가-힣]", m.group(0)) else "cup", t)   # any object as "cup": the verb decides
+    t = re.sub(r"컵를", "컵을", re.sub(r"컵가(?![가-힣])", "컵이", re.sub(r"컵는", "컵은", t)))
     for rx, canon in AMOUNT:
         t = rx.sub(canon, t)
     t = SAID.sub(lambda m: " 90 degrees" if re.search(r"(?:degrees?|도|°)$", m.group(0)) else " 1 meter", t)
@@ -554,7 +586,7 @@ def kind_of(text, markers=()):
 
 
 # ---------- slots: what the words themselves say ----------
-DIR = {"forward": r"\b(?:forward|forwards|forword|ahead|straight)\b|앞으로|앞쪽|^\s*앞|forward로",
+DIR = {"forward": r"\b(?:forward|forwards|forword|ahead|straight)\b|\bto the front\b|앞으로|앞쪽|^\s*앞|forward로",
        "back": r"\b(?:back|backward|backwards|reverse|bak)\b|뒤로|후진|뒤쪽|물러",
        "left": r"\bleft|\blef\b|왼쪽|왼편|좌측", "right": r"\bright\b|\brite\b|오른쪽|오른편|우측"}
 
@@ -563,7 +595,8 @@ CARRY = (r"\b(?:bring(?! yourself)|fetch|deliver|carry)\b|\bget me\b|\b(?:to|for
          r"\bget(?:ting)?\b.*\bfrom\b|\bgo get\b|가져|갖다|가지고 ?와|가져다|챙겨 ?(?:와|다)|갖고 ?와")    # words that bring a thing to someone
 COME_VERB = (r"\bcome\b|\bcum\b|\bkum\b|\bget over\b|\bapproach|\bcloser\b|\bhither\b|\bnear me\b|"
              r"\bget closer\b|\broll over\b|\bdrive over\b|\bmy side\b|\bnext to me\b|\bto me\b|와|오세요|오십시오|오시|올래")
-LIFT_BODY = (r"\b(?:yourself|your (?:body|torso|upper body)|taller|shorter|smaller|tall|lift|rise|grow|"
+LIFT_SAID_MAX_M = 0.3   # m; a longer lift amount said is no lift request ("grow to three meters tall")
+LIFT_BODY = (r"\b(?:yourself|your (?:body|torso|upper body)|body|make you|taller|shorter|smaller|small|tall|high|lift|rise|grow|"
              r"shrink|come down|go up|go down|move up|move down|raise up|lower down|come up|sink down|elevate|squat|height|"
              r"stretch up|drop down|going down|going up)\b|위로|아래로|낮아|높아|"
              r"키|몸|리프트|상체|높게|낮게|높이|커져|작아져|올라|내려가|업\b|다운")
@@ -585,7 +618,7 @@ EN_NUM.update({w: 10 * i for i, w in enumerate("twenty thirty forty fifty sixty 
 KO_DIGIT = dict(zip("일이삼사오육칠팔구", range(1, 10)))
 UNIT = [(r"m|meters?|metres?|미터", 1.0), (r"cm|centimet(?:er|re)s?|센티(?:미터)?|센치", 0.01),
         (r"mm|millimet(?:er|re)s?|밀리(?:미터)?", 0.001)]   # feet / inches: asked (driving.read refuses them)
-_EN_WORDS = "|".join(sorted(EN_NUM, key=len, reverse=True)) + "|hundred|and|a"
+_EN_WORDS = "|".join(sorted(EN_NUM, key=len, reverse=True)) + "|hundred|and|a|point"
 SAID = re.compile(rf"((?:\d+(?:\.\d+)?|(?:(?:{_EN_WORDS})[\s-]*)+|[일이삼사오육칠팔구십백]+))\s*"
                   rf"(?:{'|'.join(u for u, _ in UNIT)}|degrees?|도|°)(?=만|[^a-z가-힣]|$)", re.I)
 
@@ -604,6 +637,13 @@ def _number(words):
                 total += (digit or 1) * (10 if c == "십" else 100)
                 digit = 0
         return float(total + digit)
+    if re.search(r"\bpoint\b", w):                   # "point five", "one point five"
+        whole, _, frac = w.partition("point")
+        a = _number(whole) if whole.strip() else 0.0
+        b = [_number(x) for x in frac.split()]
+        if a is None or not b or None in b or any(x > 9 for x in b):
+            return None
+        return a + float("0." + "".join(f"{x:g}" for x in b))
     total, cur = 0, 0
     for x in re.split(r"[\s-]+", w):
         if x in EN_NUM:
@@ -645,6 +685,32 @@ FOLLOW_WORD = (r"\bfollow|\bfallow|\bfollo\b|\bwith (?:me|us)\b|\balong\b|\bbehi
                r"\bwalk together\b")
 
 
+LETTER = {"a": "a", "ay": "a", "에이": "a", "b": "b", "be": "b", "bee": "b", "비": "b", "c": "c", "see": "c", "sea": "c",
+          "씨": "c", "d": "d", "dee": "d", "디": "d", "e": "e", "이": "e", "f": "f", "에프": "f"}
+
+
+def _other_suffix(text, marker):
+    """The words name the marker's base with a different letter or number after it ("exit a" for Exit_B, "booth 13"
+    for Booth_12, "부스 13" for 부스12): a place that is not on the map, never the near marker."""
+    m = re.fullmatch(r"(.+?)[\s_-]*([a-z]|\d+)", marker.lower())
+    if not m:
+        return False
+    base, suffix = m.groups()
+    for x in re.finditer(rf"{re.escape(base)}[\s_-]*(?:number\s+|no\.?\s*|넘버\s*)?([a-z0-9가-힣]+)", text.lower()):
+        tok = x.group(1)
+        if re.match(r"\d", tok):
+            said = re.match(r"\d+", tok).group(0)
+        elif tok in LETTER and len(suffix) == 1 and not suffix.isdigit():
+            said = LETTER[tok]
+        elif _number(tok) is not None and suffix.isdigit():
+            said = f"{_number(tok):g}"
+        else:
+            continue
+        if said != suffix:
+            return True
+    return False
+
+
 def _to_person(text):
     """Someone other than the speaker named as who gets it or where they are: "안나한테 갖다줘", "사라는 부스 투에 있어",
     "John is at p4, bring him a cup" (a mission: the rules / LLM)."""
@@ -672,7 +738,10 @@ def _slot(kind, text, markers, holding):
                                                                      + CARRY + r"|\btake (?:it|this|that|them)\b", t):
             return None                                # "get the bottle from booth two": a fetch, the rules' / LLM's
         named = [m for m in markers if brain.named_place(text, m, markers)]
-        return ("go_to", named[0]) if len(named) == 1 else None
+        if len(named) != 1 or _other_suffix(text, named[0]) or re.search(r"\bp ?\d+", text.lower()) and \
+                not re.search(rf"(?<![a-z0-9]){re.escape(named[0].lower())}(?![0-9])", text.lower().replace(" ", "")):
+            return None                                # "exit a" with only Exit_B, "booth 13" with Booth_12: asked
+        return ("go_to", named[0])
     if kind == "come" and (re.search(CARRY + r"|따라", t) or not re.search(COME_VERB, t)):
         return None                                    # "나한테 가져와", "이리 줘": not a trip to the person
     if kind == "come" and re.search(r"\bwith (?:me|us)\b|함께|같이", t):
@@ -743,17 +812,23 @@ def _slot(kind, text, markers, holding):
     if kind == "lift":
         if not re.search(LIFT_BODY, t):
             return None                                # "go upstairs": no word about Lumi's own height
-        down = re.search(r"\b(?:down|lower|shorter|smaller|sink)\b|낮|줄여|작게|작아|내려|아래|다운", t)
-        up = re.search(r"\b(?:up|higher|taller|raise|rise|grow|elevate|stretch)\b|높(?:여|게|아|혀)|키워|올려|커|올라|업", t)
+        down = re.search(r"\b(?:down|lower|shorter|smaller|small|sink|shrink|squat)\b|낮|줄여|작게|작아|내려|아래|다운", t)
+        up = re.search(r"\b(?:up|higher|taller|tall|high|bigger|raise|rise|grow|elevate|stretch)\b|높(?:여|게|아|혀)|키워|올려|"
+                       r"커|올라|업", t)
         if bool(down) == bool(up):
             return None                                # no direction, or both: asked
         metres = said_amount(text)[0]
         if metres is not None:
+            if metres > LIFT_SAID_MAX_M:
+                return None                            # "grow to three meters tall": not a lift amount, the LLM answers
             return ("lift", f"{'down' if down else 'up'} {metres * 1000:g}")
         target = brain.lift_target(t).split(" ", 1)
         return ("lift", " ".join(["down" if down else "up"] + target[1:]))
     if kind.startswith("arm_"):
         pose = kind[4:]
+        if pose == "reach" and re.search(r"줘|주세요|주십시오|\bgive\b|\bhand\b|\bover\b|\bpass\b", t) and \
+                (holding() if callable(holding) else holding):
+            return None                                # "손 줘" with a cup held: hand it over, the hand reader's
         if pose in ("open", "close"):
             held = holding() if callable(holding) else holding
             if held:
@@ -776,7 +851,7 @@ def _slot(kind, text, markers, holding):
                 return None                            # "from the cafeteria" (not on the map), "go home, bring it": asked
             return ("fetch", text)
         if got.get("source") or got.get("dest") or any(brain.named_place(text, m, markers) for m in markers) or \
-                re.search(r"\b(?:to|at|ask|pass\w*|want|need)\b|있는|옮겨|에게|한테|께", t):
+                re.search(r"\b(?:to|at|ask|tell|say|pass\w*|want|need|is on|are on)\b|있는|옮겨|에게|한테|께", t):
             return None                                # "take the cup to p4", "I want the mug, the one at the entrance"
         return ("pick", f"{got['colour']} {got['object']}" if got.get("colour") else got["object"])
     if kind == "put":
@@ -790,11 +865,12 @@ def _slot(kind, text, markers, holding):
 
 def read(text, markers=(), holding=False):
     """(action, target) as brain.intent gives it, when the bank is sure; else None (the LLM reads it)."""
-    text = plain(text)
+    said, text = text, plain(text)
     if guarded(text):
         return None
     kind = kind_of(text, markers)
-    return _slot(kind, text, markers, holding) if kind else None
+    got = _slot(kind, text, markers, holding) if kind else None
+    return ("fetch", said) if got and got[0] == "fetch" else got
 
 
 if __name__ == "__main__":
