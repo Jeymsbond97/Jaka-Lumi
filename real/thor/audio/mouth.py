@@ -7,8 +7,11 @@ Long answers are split into sentences: the next sentence is synthesised while th
 so Lumi starts talking after the first sentence is ready (about 1 s). say_stream() takes sentences while
 they are still being written by the LLM, so speech starts before the whole answer exists.
 Fixed phrases (greetings) are synthesised once and kept (CACHED), so they play at once.
-While Lumi talks the microphone is muted (mic.speaking), so it never hears itself.
+While Lumi talks the microphone is muted (mic.speaking), so it never hears itself. The clip mic keeps listening (for
+"stop"): what the speaker played is kept for ECHO_KEEP_S, and own_voice() tells Lumi's voice in a clip-mic utterance
+from a visitor's by comparing the two sounds at the same time (echo()).
 """
+import collections
 import pathlib
 import queue
 import re
@@ -46,6 +49,17 @@ _gpu = False                                  # synthesis on the GPU (audio/tts_
 _cache = {}
 _volume_set = False
 _recent = []                                  # (time, sentence) Lumi said lately: to tell its own echo from a visitor
+ECHO_KEEP_S = 30.0                            # s of played sound kept to recognise Lumi's own voice in the clip mic
+ECHO_LAG_S = (-0.3, 1.0)                      # s the clip mic may hear the speaker later than _play started it (ALSA
+                                              # and the wireless link's buffers; < 0: the two clocks' read-out times)
+ECHO_MIN = 0.6                                # spectrogram correlation from which a clip-mic sound is Lumi's own voice
+                                              # (tests/echo_check.py, made: own voice 0.67 and more, a visitor talking
+                                              # over Lumi 0.39 at most; the owner's real clips against Lumi's lines at
+                                              # any time: 1.8 % reach 0.6, 4.7 % 0.55); an estimate until checked live
+ECHO_TOP_DB = 15                              # frames compared: those within this of the sound's loudest
+ECHO_MIN_FRAMES = 12                          # ... at least this many (10 ms each), else no judgement
+_played = collections.deque()                 # [t_start, t_end, float32 16 kHz audio] of what the speaker played
+last_echo = None                              # echo() of the last own_voice() call (lumi.py logs it)
 last_voice = 0.0                              # time.time() when the last say_stream() began to play (lumi.py logs it)
 
 
@@ -136,11 +150,21 @@ _play_lock = threading.Lock()                # one sentence at a time (a skill's
 
 def _play(wav, rate, abort=None):
     """Play; returns False if aborted."""
-    pcm = (np.clip(wav, -1, 1) * 32767).astype(np.int16).tobytes()
+    wav = np.clip(np.asarray(wav, np.float32).reshape(-1), -1, 1)
+    pcm = (wav * 32767).astype(np.int16).tobytes()
     with _play_lock:
         mic.speaking(True)
+        now = time.time()
+        entry = [now, now + len(wav) / rate, np.interp(np.arange(0, len(wav), rate / mic.RATE), np.arange(len(wav)),
+                                                       wav).astype(np.float32)]
+        _played.append(entry)
+        while _played and _played[0][1] < now - ECHO_KEEP_S:
+            _played.popleft()
         try:
-            return _play_pcm(pcm, rate, abort)
+            done = _play_pcm(pcm, rate, abort)
+            if not done:
+                entry[1] = time.time()            # cut short: nothing played after this
+            return done
         finally:
             mic.speaking(False)
 
@@ -161,6 +185,58 @@ def _play_pcm(pcm, rate, abort):
             return False
         time.sleep(0.05)
     return True
+
+
+def _bands(x):
+    """Log energy in 16 bands (200-4000 Hz) every 10 ms: frames x 16."""
+    n = (len(x) - 400) // 160 + 1
+    if n < 1:
+        return np.zeros((0, 16), np.float32)
+    frames = x[np.arange(400)[None, :] + 160 * np.arange(n)[:, None]] * np.hanning(400)
+    spec = np.abs(np.fft.rfft(frames, 512)) ** 2                 # 31.25 Hz per bin
+    edges = np.geomspace(200, 4000, 17) / 31.25
+    e = np.stack([spec[:, int(a):max(int(a) + 1, int(b))].sum(1) for a, b in zip(edges[:-1], edges[1:])], 1)
+    return np.log(e + 1e-4 * e.max() + 1e-12)
+
+
+def echo(audio, t_end):
+    """How much a microphone sound (int16 mono 16 kHz, recorded until t_end, time.time()) is Lumi's own voice: the
+    best correlation of its spectrogram with that of what the speaker played then (lags ECHO_LAG_S), over the mic's
+    loud frames (ECHO_TOP_DB of its loudest); None when nothing was played then or the sound is too short. A visitor
+    talking over Lumi, or saying Lumi's words after it, scores low."""
+    rate, (lo, hi) = mic.RATE, ECHO_LAG_S
+    t0 = t_end - len(audio) / rate - hi                 # the reference: what played from t0 on
+    ref = np.zeros(len(audio) + int((hi - lo) * rate), np.float32)
+    for start, end, wav in list(_played):
+        a = int((start - t0) * rate)                    # the sentence's first sample in ref
+        b = min(len(ref), a + min(len(wav), int((end - start) * rate)))
+        if b > max(a, 0):
+            ref[max(a, 0):b] = wav[max(0, -a):b - a]
+    if not ref.any():
+        return None
+    m, r = _bands(np.asarray(audio, np.float32) / 32768.0), _bands(ref)
+    level = m.mean(1)
+    loud = level > level.max() - ECHO_TOP_DB / 10 * np.log(10)
+    if loud.sum() < ECHO_MIN_FRAMES:
+        return None
+    m = m[loud] - m[loud].mean(0)
+    best = 0.0
+    for k in range(0, len(r) - len(loud) + 1, 2):       # 20 ms steps over the lag window
+        seg = r[k:k + len(loud)][loud]
+        seg = seg - seg.mean(0)
+        den = np.sqrt((seg ** 2).sum() * (m ** 2).sum())
+        if den > 0:
+            best = max(best, float((seg * m).sum() / den))
+    return best
+
+
+def own_voice(u):
+    """A clip-mic utterance (mic.Utterance) that is Lumi's own voice from its speaker (echo() >= ECHO_MIN)."""
+    global last_echo
+    if getattr(u, "source", "") != "clip" or getattr(u, "mono", None) is None:
+        return False
+    last_echo = echo(u.mono, u.t_end)
+    return last_echo is not None and last_echo >= ECHO_MIN
 
 
 def _synth(text, lang):
