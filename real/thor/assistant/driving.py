@@ -61,7 +61,7 @@ _FILLER = (r"please|pls|lumi|hey|hi|okay|ok|so|um+|uh+|well|now|then|just|can|co
            r"루미야|루미|좀|조금|조금만|더|약간|살짝|이제|그냥|너무|가|가줘|가 ?줘|가요|가세요|줘|주세요|줄래|줄래요|"
            r"줄래\?|주실래요|주시겠어요|해|해줘|해요|해 ?줘|움직여|요|좀더|조금더|자|볼래|봐|볼까|좀만|해봐")
 FILL = re.compile(rf"(?:^|\s)(?:{_FILLER})(?=\s|$)")
-AGAIN = re.compile(r"^(?:(?:just|a|an|bit|little|tiny|some|even|one|once|the|same|do|it|that|go|please|lumi|ok|"
+AGAIN = re.compile(r"^(?:(?:just|a|an|bit|little|tiny|some|even|one|1|once|the|same|do|it|that|go|please|lumi|ok|"
                    r"okay|yeah|yes|and|then|now)\s+)*(?:more|again|once more|one more time|same again|"
                    r"the same again|more please|again please|1 more time)(?:\s+(?:please|lumi|then))?$|"
                    r"^(?:루미야\s+)?(?:조금만?|좀|살짝|약간|한 ?번|1 ?번|아까처럼|똑같이)?\s*더"
@@ -131,7 +131,8 @@ def speed(t):
 
 def read(t, last=None, talking=False):
     """What a sentence asks of the base, or None (not about driving):
-    ("move", "back 0.2", exact) | ("turn", "left 90") | ("speed", +1 | -1) | ("refuse", "back 5") | ("ask", "back" | "").
+    ("move", "back 0.2", exact) | ("turn", "left 90") | ("speed", +1 | -1) | ("refuse", "back 5") | ("ask", "back" | "")
+    | ("look" / "lift", "left small"): "one more" after a look or a lift.
     `last` is the move / speed just before (last_command(history)): "more" / "again" repeat it. With none and
     `talking` (the turn before was conversation) "more" is left to the conversation, else it is asked about."""
     t = clean(t)
@@ -165,9 +166,13 @@ def _checked(d, n, exact):
 
 
 def last_command(history):
-    """The move, turn or speed change of the turn just before, from brain history ("ACTION: move back 0.2"), else None."""
+    """The move, turn, speed change, look or lift of the turn just before, from brain history ("ACTION: move back
+    0.2", "ACTION: look left" -> ("look", "left small")), else None."""
     if not history:
         return None
+    m = re.match(r"ACTION: (look|lift) (left|right|up|down)\b", history[-1][1] or "")
+    if m:                                                    # "look left" then "one more": a little further that way
+        return (m.group(1), f"{m.group(2)} small")
     m = re.match(r"ACTION: (move|speed|turn) (\S+)(?: (\S+))?", history[-1][1] or "")
     if not m:
         return None
