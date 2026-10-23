@@ -20,6 +20,9 @@ _known = {"t": 0.0, "names": []}
 # connection still answered after 90 s.
 _conn = {"sock": None, "buf": ""}
 _conn_lock = threading.Lock()
+# robot/nav_guard.py's state of the navigation move this process sent: gen counts go / go_point / cancel (a guard
+# whose gen is old stops); held: the guard cancelled it until the way is clear; reason: (en, ko) why it ended it.
+_guard = {"gen": 0, "held": False, "reason": None}
 
 
 def _ask(command, tag, timeout):
@@ -65,7 +68,27 @@ def request(command, timeout=3.0):
 
 
 def status():
-    return request("/api/robot_status").get("results", {})
+    """robot_status. A move nav_guard holds reads "running", one it ended "failed" with "guard": (en, ko)."""
+    st = request("/api/robot_status").get("results", {})
+    if st.get("move_status") in ("canceled", "idle"):
+        if _guard["held"]:
+            return {**st, "move_status": "running", "guard": "held"}
+        if _guard["reason"]:
+            return {**st, "move_status": "failed", "guard": _guard["reason"]}
+    return st
+
+
+def _move(command):
+    """Send a navigation move (cancelling one that runs) and guard the arm along it (robot/nav_guard.py)."""
+    if status().get("move_status") == "running":
+        cancel()
+    r = request(command)
+    ok = r.get("status") == "OK"
+    _guard.update(gen=_guard["gen"] + 1, held=False, reason=None)
+    if ok:
+        from robot import nav_guard           # imported here: it needs the arm (tasks.fetch), which imports this
+        nav_guard.watch(command, _guard["gen"])
+    return ok, r.get("error_message") or r.get("status")
 
 
 def dock_marker():
@@ -97,18 +120,12 @@ def known_markers(fresh=False):
 def go(marker):
     """Start driving to a marker. Returns (ok, message)."""
     marker = (dock_marker() or DOCK_FALLBACK) if marker == "home" else marker
-    if status().get("move_status") == "running":
-        request("/api/move/cancel")
-    r = request(f"/api/move?marker={marker}")
-    return r.get("status") == "OK", r.get("error_message") or r.get("status")
+    return _move(f"/api/move?marker={marker}")
 
 
 def go_point(x, y, theta):
     """Start driving to a map point (m, rad). Returns (ok, message)."""
-    if status().get("move_status") == "running":
-        request("/api/move/cancel")
-    r = request(f"/api/move?location={x:.3f},{y:.3f},{theta:.3f}")
-    return r.get("status") == "OK", r.get("error_message") or r.get("status")
+    return _move(f"/api/move?location={x:.3f},{y:.3f},{theta:.3f}")
 
 
 def pose():
@@ -136,6 +153,7 @@ def clearance(x, y):
 
 
 def cancel():
+    _guard.update(gen=_guard["gen"] + 1, held=False, reason=None)
     return request("/api/move/cancel").get("status")
 
 
