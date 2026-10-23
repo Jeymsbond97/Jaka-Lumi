@@ -57,6 +57,7 @@ NEAR_HEAD = ("That would bring my hand too close to my head, so I won't move my 
 SPILL = ("I can't move my arm there without spilling it.", "쏟지 않고는 팔을 거기로 움직일 수 없어요.")
 UNSURE = ("I can't check my arm right now, so I won't move it.", "지금 팔 상태를 확인할 수 없어서 움직이지 않을게요.")
 NOT_AT_LOOK = ("My arm has to be in its look pose first.", "먼저 팔이 기본 자세에 있어야 해요.")
+OFF = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")   # not powered / enabled in Cobo π (joints read 0)
 RETIRED = ("I don't use that arm program any more.", "그 팔 프로그램은 이제 쓰지 않아요.")
 
 
@@ -122,6 +123,9 @@ def hops(now, target, leaf=False):
     if d[start] > JOIN_DEG:
         if leaf:
             return [target]
+        if not any(now):                                    # a switched-off arm reads all joints 0
+            log("arm route: the arm reads all 0: switched off")
+            raise RouteError(*OFF)
         log(f"arm route: arm at {_r(now)}, {d[start]:.0f} deg from {start}, the nearest pose (joins within "
             f"{JOIN_DEG:.0f})")
         raise RouteError(*UNKNOWN)
