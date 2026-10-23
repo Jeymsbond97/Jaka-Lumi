@@ -2557,7 +2557,9 @@ class Lumi:
             self.act(head_["action"], head_["target"])
         first = next(gen, None)
         log(f"  first sentence after {time.time() - t:.1f} s")
-        promise = brain_mod.promised(first) if head_["action"] == "none" else None
+        promise = brain_mod.promised(first) if head_["action"] == "none" and \
+            not (brain_mod.not_an_order(text, asked=False) and brain_mod.promised(first) == "wave") else None   # not
+            # "만약 boss 오면 … wave 해" -> "오시면 흔들게요": no wave now
         if promise == "sing" or promise == "wave" and not self.arm_off():   # the reply says it: Lumi does it
             log(f"  the reply promises {promise}: done")
             if promise == "sing":
@@ -3001,12 +3003,16 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     from assistant import chain
     if stop_order(text, markers):
         return "stop", None
-    stuck = detour.recent()                    # right after a blocked drive: "try again", "go around it", "go back"
-    how = stuck and detour.read(text, markers, stuck["goal"])
+    hold = brain_mod.not_an_order(text) or not brain_mod.direct_order(text)   # only a direct order to Lumi acts
+    stuck = detour.recent()                    # right after a blocked drive: "try again", "go around it", "go back";
+    how = stuck and detour.read(text, markers, stuck["goal"])   # only a direct order (detour.read), else the LLM
     if how:
         return "detour", how
-    hold = brain_mod.not_an_order(text)        # "when the show starts, go to the stage", "Jake, wave", "can you wave?"
-    plan = chain_ok and not brain_mod.not_an_order(text, asked=False) and chain.plan(text, markers, NOT_A_STEP)
+    plan = chain_ok and not brain_mod.not_an_order(text, asked=False) and brain_mod.direct_order(text) and \
+        chain.plan(text, markers, NOT_A_STEP)   # not "when the show starts, go to the stage", "Jake, wave"
+    if plan and any(k == "steps" and any(st.get("do") == "pick" for st in w) or k == "quick" and w[0] in ("pick", "move_object")
+                    for k, _, w in plan) and (holding() if callable(holding) else holding):
+        plan = None                            # "그 cup 들고 wave 해" with a cup in the hand: no second pick; the LLM
     if plan:
         return "chain", plan
     got = seen(text) if seen else None
@@ -3015,7 +3021,9 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     if status_question(text):
         return "status", None
     if hold:
+        rule = brain_mod.intent(text, markers)   # weather / search are no motion: "Weather outside?"
         return (("end", None) if talk_fate(text) == "end" else ("sing", None) if sing.asked(text, last) else
+                ("quick", rule) if rule and rule[0] in ("weather", "search") else
                 (None, None))                  # no motion from a keyword: the LLM reads it from the talk
     cor = brain_mod.correction(text, b.history)
     if cor:

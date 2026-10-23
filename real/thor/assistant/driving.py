@@ -33,7 +33,7 @@ VERB = re.compile(r"\b(?:move|go|come|drive|step|scoot|scooch|shift|inch|roll|ba
                   r"가|와|이동|움직|물러|빠져|후진|전진|비켜")
 NEAR_THING = re.compile(r"(?:테이블|책상|탁자|의자|소파|문|벽|창문)\s*(?:앞|옆|뒤)|"
                         r"(?<![가-힣])(?!(?:루미야?|조금만?|살짝|다시|그냥|이제|저기요?|여기|거기|약간|천천히|빨리|얼른|어서|그럼|근데|"
-                        r"그리고|좀|더|한|두|세|반|쭉|바로|똑바로|계속|한번|한 번|일단|먼저|자|아주|많이|쪼끔|쬐끔|요만큼|뼘|걸음|발짝|발자국|미터|센티|센치|밀리)만?(?:\s|$))(?:[가-힣]{1,8}|(?<![a-z0-9_.])(?!(?:m|cm|mm|lumi|loomi|rumi|hey|ok|okay|please)\b)[a-z][a-z0-9_]*)\s*"
+                        r"그리고|좀|더|한|두|세|반|쭉|바로|똑바로|계속|한번|한 번|일단|먼저|자|아주|많이|쪼끔|쬐끔|요만큼|뼘|걸음|발짝|발자국|미터|센티|센치|밀리)만?(?:\s|$))(?:[가-힣][가-힣_]{0,9}|(?<![a-z0-9_.])(?!(?:m|cm|mm|lumi|loomi|rumi|hey|ok|okay|please)\b)[a-z][a-z0-9_]*)\s*"
                         r"(?:앞|옆|뒤)(?:으?로|쪽|에)")   # "테이블 앞으로", "무대 앞으로 가": to that thing or place, not forward
 OTHER = re.compile(r"\b(?:look|head|turn|spin|rotate|face|arm|hand|lift|raise|lower|it|this|that|them|those|these|here|there|"
                    r"home|me|us)\b|\bthe (?!left\b|right\b)|\bgo (?:right )?ahead\b|\bback to (?![\d.])|\b[a-z]+\d+\b|\b[a-z]+(?:_[a-z0-9]+)+\b|고개|머리|팔|손|돌아|돌려|봐|보(?:세요|십시오|시오|실래요|자|라|아|여)|볼래|쳐다|들어|올려|내려|"
@@ -50,8 +50,8 @@ SPANS = re.compile(rf"(?:(?<![\w.]){_COUNT}\s*)?뼘")
 TINY = re.compile(r"\b(?:tiny|teeny|wee|hair|hairs?breadth|smidge|smidgen|tad|touch|nudge|slightly|little tiny)\b|"
                   r"\bfew (?:centimet(?:er|re)s|cm)\b|\binch (?:forward|back|left|right|ahead)|"
                   r"살짝|아주 조금|쪼끔|쬐끔|약간|요만큼|조금만 살짝")
-LITTLE = re.compile(r"\b(?:a little|a bit|little bit|bit)\b|조금|좀|쪼금")
-VAGUE = re.compile(r"\b(?:more|less|longer|further|farther|bit more|bit less) than\b|\bto (?:m|meters?|metres?)\b|"
+LITTLE = re.compile(r"\b(?:a little|a bit|little bit|bit)\b|조금|쪼금")   # "좀" is "please" as often as "a bit"
+VAGUE = re.compile(r"\b(?:more|less|longer|further|farther|bit more|bit less) than\b|(?:^|\s)몇\s*(?:미터|센티|m\b|걸음)|\bsome (?:meters?|metres?)\b|\bto (?:m|meters?|metres?)\b|"
                    r"\b(?:some|like|uh|um)\s*$|(?<![가-힣])[이삼사오육칠팔구]?[십백][일이삼사오육칠팔구]?\s*(?:만\s*)?"
                    r"(?:가|와|이동|움직|후진|전진)")   # an amount half said: asked, never a guess
 NUM_WORD = re.compile(r"\b(?:eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
@@ -84,7 +84,10 @@ def clean(t):
 
 
 def direction(t):
-    return next((d for d, rx in DIRS if re.search(rx, t)), None)
+    """The way said; "not left. right." is right (a direction said with "not" is not meant)."""
+    t = re.sub(r"\bnot (?:to the |to your )?(?:left|right|forward|back(?:wards?)?)\b|(?:왼쪽|오른쪽|앞|뒤)(?:으로|쪽)? ?말고", " ", t)
+    found = [(m.start(), d) for d, rx in DIRS for m in [re.search(rx, t)] if m]
+    return min(found)[1] if found else None
 
 
 def amount(t):
