@@ -12,10 +12,13 @@ import json
 import re
 import pathlib
 import subprocess
+import threading
 import time
 import urllib.request
 import uuid
 import wave
+
+import numpy as np
 
 from audio import mic
 
@@ -99,10 +102,17 @@ ODD_KO_BONUS = 0.3               # English text with a word no dictionary has: K
 WORDS_FILE = pathlib.Path("/usr/share/dict/words")
 OUR_WORDS = {"lumi", "cutshion", "okay", "ok", "hmm", "um", "uh"}
 SLIPS = [   # whisper's slips seen in tests/asr_check.py and logs/lumi.log (our names first) -> as said
-    (r"\b(?:[kc]ut(?:s|t)?ch[aei]n|katchen|kutch and)(?= company|\b)", "Cutshion"),
-    (r"\b(?:coaching|cushion|kitchen) (?=company)", "Cutshion "),
+    (r"\b(?:[kc]ut(?:s|t)?ch[aei]n|katchen|kutch and|kutsche(?: and(?= company))?)(?= company|\b)", "Cutshion"),
+    (r"\b(?:coaching|cushion|kitchen|kuching|kuchung|kuchun) (?=company)", "Cutshion "),
     (r"\bcushion(?=[은는이가을를의에])|커션|컷션", "쿳션"),
     (r"난시(?=가?\s*어때)", "날씨"),                   # "오늘 난시가 어때요?" (lumi.log 2026-10-20)
+    # "How old are you?" in the owner's voice, tagged Korean or Turkish: "호월달요.", "호화 다리.", "Powa tari.",
+    # "호valde arıyor.", "Hovalt arıyor." (8 times in lumi.log 2026-10-21 / 22, never heard right)
+    (r"^\W*lumi,? stopped\W*$", "Lumi, stop."),       # the owner's English, live 2026-10-21 / 22 (lumi.log)
+    (r"\bwhat(?:'s| is) (?:it|that|the hand of)\W+(?=my (?:left |right )?hand\b)",
+     lambda m: m.group(0)[0] + "hat is in "),   # "What is it
+                                                     # my hand?", "What is it? My hand." for "what is in my hand"
+    (r"^\W*(?:호|ho|po)\s?(?:월|화|wa|val[dt]?e?)\s?(?:달|다리|대|tari|arıyor|도)[^.?!]{0,8}[.?!]?\s*$", "How old are you?"),
 ]
 _words = set()
 last_stt = {}                    # language / confidence of the last transcription (see understood())
@@ -119,15 +129,27 @@ MIN_SPEECH_S = 0.1               # s of speech frames an utterance needs, else i
 SPEECH_PER_SYLLABLE = 0.05       # s of speech frames a text needs per syllable: whisper's "감사합니다." for music came
                                  # with 0.13-0.29 s (0.03-0.06 s per syllable); spoken cases (tests/asr_check.py, 898)
                                  # have 0.08 s and more, 1 % below 0.11 s
+REPEAT = re.compile(r"(\b\w+(?:\W+\w+)+?)(?:\W+\1\b){2,}", re.I)   # a phrase of 2+ words three times over:
+                                 # whisper's loop on a sound it can't read ("Look right. Look right. Look right." for
+                                 # "dock2로 가서 충전해" far away, "이 마가의 피지않아." x3 in lumi.log 2026-10-21)
+STOCK = re.compile(r"\W*(?:감사합니다|고맙습니다|네|예|thank you|thanks|okay|hey|hi|bye|yes|mm+)\W*", re.I)
+                                 # whisper's stock words when made to write a language for a sound it took for another
+                                 # one (logs/heard 18:39: "はい" -> "감사합니다." / "Hey."): dropped there
 NOT_SAID = re.compile(r"^\W*$|^\s*-|자막|시청해\s*주셔서|thanks? (?:you )?for watching|subtitles? by", re.I)
                                  # whisper's subtitle habits on music: no word at all, a dialogue dash ("-끝-", "- 네."),
                                  # a caption credit ("자막 제공 및 광고를 포함하고 있습니다.")
 _vad = {}
+_early = {}                      # the last early() run: its audio, done (Event), out (text, stt)
+EARLY_REST = mic.END_SILENCE - mic.EARLY_QUIET_S + 0.05   # s an utterance may be longer than its early run's audio
+                                 # for that run to be taken: only the quiet that ended it, no new speech
 CUT_OFF = re.compile(r"(?:\b(?:let'?s|can you|could you|would you|will you|can i|and|but|or|the|a|an|to|of|with|"
-                     r"my|your|i want|i'd like|i need)|(?<![가-힣])(?:저기|그리고|근데|혹시|그래서|그러니까|있잖아))\W*$", re.I)
+                     r"my|your|i want|i'd like|i need)|(?<![가-힣])(?:저기|그리고|근데|혹시|그래서|그러니까|있잖아))\W*$|"
+                     r"\b(?:our|at|about|from|for)[.,…]*$|(?:\.\.\.|…|,)\s*$", re.I)
                                  # a sentence cut off by a pause longer than mic.END_SILENCE ("Let's" of "Let's ...
                                  # follow me", 2026-10-22 14:36; today's clips: the longest pause inside an utterance
-                                 # 0.39 s at the 90th percentile, 0.51 s at most, so one cut in 140 turns)
+                                 # 0.39 s at the 90th percentile, 0.51 s at most, so one cut in 140 turns); also
+                                 # whisper's own trailing "..." / "," ("Can you look at...", "Well, if I get a little
+                                 # bit,": 17 such turns in lumi.log 2026-10-21 / 22, none a whole sentence)
 MERGE_WAIT_S = 1.5               # s waited for the rest of a cut-off sentence; it is heard with the first part
 
 BEAM_SIZE = 0                    # whisper beam search width (0: the server's greedy decoding)
@@ -189,7 +211,8 @@ def names(text):
 
 def lumi_like(text):
     """A word that may be the name as whisper writes it without the prompt ("Louie", "Lumen", "Remia", "루미")."""
-    if re.search(r"루미|루(?![가-힣])|ルミ|미야|민희|^\W*이미|\b[lr]e?mi|\bb?l[ou]{1,2}m", text, re.I):   # "안녕 민희야", "Bloomy"
+    if re.search(r"루미|루(?![가-힣])|ルミ|미야|민희|^\W*이미|\b[lr]e?mi|\bb?l[ou]{1,2}m|\bl[ou]{1,2}n(?:e?y|i|e)\b", text,
+                 re.I):                                  # "안녕 민희야", "Bloomy", "Looney" (logs/heard 18:35:10)
         return True
     return any(difflib.SequenceMatcher(None, w, "lumi").ratio() >= 0.5 for w in re.findall(r"[a-z]+", text.lower()))
 
@@ -203,33 +226,81 @@ def not_english(text):
                                 for w in words)
 
 
-def transcribe(audio, prompt=PROMPT):
-    """int16 mono 16 kHz -> text (empty string if nothing understood). Also fills last_stt.
-    Whisper sometimes names another language (Japanese) for Korean said from afar and writes only the prompt's
-    "Lumi." (2026-10-20: "컵 좀 주세요" came back as "Lumi." [japanese] four times): then it is asked again with
-    Korean and with English fixed, and the surer of the two is kept."""
-    ensure_stt_server()
-    audio = louder(audio)
+def set_names(markers):
+    """The map's marker names for whisper. Nothing: in the prompt they were no better (tests/asr_check.py, blind train
+    set: +2 of 82 fake-map cases, -5 of 394 others, 4 more far wake words lost); kept for tests/blind_check.py."""
+
+
+def _wav(audio):
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(RATE)
         w.writeframes(audio.tobytes())
-    wav = buf.getvalue()
+    return buf.getvalue()
+
+
+def transcribe(audio, prompt=None):
+    """int16 mono 16 kHz -> text (empty string if nothing understood). Also fills last_stt.
+    When whisper already heard this utterance up to a pause (early(), started mic.EARLY_QUIET_S into the quiet at its
+    end) and nothing was said after it, that result is taken: the reply starts that much sooner."""
+    ensure_stt_server()
     try:
         HEARD_DIR.mkdir(parents=True, exist_ok=True)
-        (HEARD_DIR / time.strftime("%H%M%S.wav")).write_bytes(wav)
+        (HEARD_DIR / time.strftime("%H%M%S.wav")).write_bytes(_wav(louder(audio)))
         for old in sorted(HEARD_DIR.glob("*.wav"), key=lambda p: p.stat().st_mtime)[:-HEARD_KEEP]:   # by time: names wrap at midnight
             old.unlink()
     except OSError:
         pass
+    job = _early.get("job")
+    out = None
+    if prompt is None and job is not None and 0 <= len(audio) - len(job["audio"]) <= EARLY_REST * RATE and \
+            np.array_equal(audio[:len(job["audio"])], job["audio"]):
+        job["done"].wait(30)
+        out = job.get("out")
+    text, stt = out or _hear(audio, prompt)
     last_stt.clear()
+    last_stt.update(stt, early=out is not None)
+    return text
+
+
+def early(audio):
+    """mic.py, in a pause of an utterance still going on: whisper starts on what was said so far, in the background
+    (one run at a time: a newer one waits for the older)."""
+    before = _early.get("job")
+    job = {"audio": audio, "done": threading.Event()}
+
+    def run():
+        if before is not None:
+            before["done"].wait(30)
+        try:
+            job["out"] = _hear(audio, None)
+        except Exception:                        # noqa: BLE001 - transcribe() asks again itself
+            pass
+        job["done"].set()
+    _early["job"] = job
+    threading.Thread(target=run, daemon=True).start()
+
+
+mic.on_quiet = early
+
+
+def _hear(audio, prompt):
+    """int16 mono 16 kHz -> (text, what is known about it for last_stt); text "" if nothing understood.
+    Whisper sometimes names another language (Japanese) for Korean said from afar and writes only the prompt's
+    "Lumi." (2026-10-20: "컵 좀 주세요" came back as "Lumi." [japanese] four times): then it is asked again with
+    Korean and with English fixed, and the surer of the two is kept."""
+    ensure_stt_server()
+    audio = louder(audio)
+    wav = _wav(audio)
     speech = speech_seconds(audio)
     if speech is not None and speech < MIN_SPEECH_S:
-        last_stt.update(text="", dropped=f"no speech ({speech:.2f} s): music or noise")
-        return ""
+        return "", dict(text="", dropped=f"no speech ({speech:.2f} s): music or noise")
+    prompt = prompt or PROMPT
     text, lang, prob, logprob = _infer(wav, prompt)
+    if names(text) != text and lang == "korean" and not re.search(r"[가-힣]", names(text)):
+        lang = "english"                         # "호월달요." -> "How old are you?"
     text = names(text)
     asked = {}
 
@@ -239,9 +310,15 @@ def transcribe(audio, prompt=PROMPT):
             asked[code] = (names(t2), {"en": "english", "ko": "korean"}[code], None, lp2)
         return asked[code]
     only_name = NAME_ONLY.fullmatch(text) and len(audio) > 1.5 * RATE
-    if lang not in LANGS or only_name:
-        tries = [(text, lang, prob, logprob)] if lang in LANGS and not only_name else []
+    # tagged Korean but written in other letters ("Wait.", "Кам туне.", "Tifa." for 뒤 봐): understood() refuses it,
+    # so it is asked in both languages like another language
+    ko_unsure = lang == "korean" and not re.search(r"[가-힣]", text) and re.search(r"[^\W\d_]", text) and \
+        not NOT_SAID.search(text)
+    if lang not in LANGS or only_name or ko_unsure:
+        tries = [(text, lang, prob, logprob)] if lang in LANGS and not only_name and not ko_unsure else []
         tries += [ask("ko"), ask("en")]
+        if lang not in LANGS:                    # forced on a sound whisper took for another language, Korean is
+            tries = [r for r in tries if not STOCK.fullmatch(r[0])] or [("", lang, prob, logprob)]   # "감사합니다."
         more = [r for r in tries if not NAME_ONLY.fullmatch(r[0])]   # "Lumi, 이리 와" came back "Lumi." in English
         # forced to English, Korean speech comes back translated and sure of itself: Hangul gets KO_BONUS
         text, lang, prob, logprob = max(more if only_name and more else tries,
@@ -255,14 +332,14 @@ def transcribe(audio, prompt=PROMPT):
     if lang == "english" and re.search(r"[가-힣]", text):
         lang = "korean"                          # "Red cup. 집어줘." tagged English: the Korean is real
     if text and NOT_SAID.search(text):
-        last_stt.update(text="", language=lang, dropped=f"{text!r}: whisper's subtitle text, nothing said")
-        return ""
+        return "", dict(text="", language=lang, dropped=f"{text!r}: whisper's subtitle text, nothing said")
+    if REPEAT.search(text):
+        return "", dict(text="", language=lang, dropped=f"{text!r}: whisper repeating itself")
     if speech is not None and speech < SPEECH_PER_SYLLABLE * syllables(text):
-        last_stt.update(text="", language=lang, dropped=f"{text!r} from {speech:.2f} s of speech: music or noise")
-        return ""
-    last_stt.update(text=text, language=lang, lang_prob=prob, logprob=round(logprob, 2), speech_s=speech)
+        return "", dict(text="", language=lang, dropped=f"{text!r} from {speech:.2f} s of speech: music or noise")
+    stt = dict(text=text, language=lang, lang_prob=prob, logprob=round(logprob, 2), speech_s=speech)
     # whisper writes things like "[BLANK_AUDIO]" or "(music)" for non-speech
-    return "" if text.startswith(("[", "(", "*")) else text
+    return ("" if text.startswith(("[", "(", "*")) else text), stt
 
 
 def understood(min_logprob=MIN_LOGPROB):

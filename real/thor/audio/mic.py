@@ -38,6 +38,11 @@ MIN_LEVEL_CLIP = 300             # ... (clip mic: close to the mouth, quiet room
 START_FRAMES = 4                 # 120 ms of speech to start
 END_LEVEL = 1.0                  # quiet = below this x the start threshold (0.7 kept room noise ~180-250 "speech")
 END_SILENCE = 0.6                # s of quiet that ends an utterance
+EARLY_QUIET_S = 0.3              # s of quiet after which speech-to-text starts on the utterance so far (on_quiet); kept
+                                 # when the utterance then ends without new speech (logs/heard 2026-10-22: the 50 real
+                                 # clips without their last 0.3 s gave the same commands)
+EARLY_MIN_S = 0.4                # ... for an utterance at least this long so far (shorter ones are not transcribed)
+on_quiet = None                  # function(int16 mono audio so far), set by audio/ears.py
 MAX_UTTERANCE = 8.0              # s (12 s: in a room with music an utterance never got quiet enough
                                  # to end, every one ran the full 12 s, 2026-10-21)
 PRE_ROLL = 10                    # frames kept before the start (300 ms)
@@ -72,6 +77,11 @@ class Segmenter:
     def reset(self):
         self.before.clear()
         self.frames, self.voiced, self.in_speech = [], 0, False
+
+    def quiet_now(self):
+        """True once per pause inside an utterance, when it has been quiet EARLY_QUIET_S."""
+        return self.in_speech and self.silent == round(EARLY_QUIET_S * RATE / FRAME) and \
+            len(self.frames) * FRAME >= EARLY_MIN_S * RATE
 
     def feed(self, frame, level, now):
         """Returns (frames, t_start, t_end, peak) when an utterance ended, else None."""
@@ -213,6 +223,8 @@ class Mic(threading.Thread):
                     frames, t0, t1, peak = done
                     mics = np.concatenate(frames)
                     self._put(Utterance(mics, mics.astype(np.float32).mean(1).astype(np.int16), t0, t1, peak, "head"))
+                elif on_quiet and self.head_seg.quiet_now():
+                    on_quiet(np.concatenate(self.head_seg.frames).astype(np.float32).mean(1).astype(np.int16))
         finally:
             proc.kill()
 
@@ -257,6 +269,8 @@ class Mic(threading.Thread):
                     frames, t0, t1, peak = done
                     during = talking_since is not None and t1 >= talking_since
                     self._put(Utterance(self.head_audio(t0, t1), np.concatenate(frames), t0, t1, peak, "clip", during))
+                elif on_quiet and self.clip_seg.quiet_now():
+                    on_quiet(np.concatenate(self.clip_seg.frames))
         finally:
             proc.kill()
 
