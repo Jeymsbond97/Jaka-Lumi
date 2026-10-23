@@ -98,6 +98,13 @@ assert L.follow_stop("stop") and "follow stop" in done, done
 for word in ("stop", "Stop it!", "멈춰", "wait"):
     L = fresh(word, -70.0)
     assert L.talk_turn() and "follow stop" in done and ("act", "stop") in done and heard == [], (word, done)
+# the clip mic (no direction): the followed person's when "follow me" came through it, else unsure (dropped)
+for by_clip in (True, False):
+    L = fresh("How far am I from you?", -70.0)
+    L.follow_by_clip = by_clip
+    lumi.ears.listen = lambda **k: ("How far am I from you?", type("Clip", (), {"source": "clip", "mics": None,
+                                                                              "seconds": 1.2, "during_speech": False})())
+    assert L.talk_turn() and heard == (["How far am I from you?"] if by_clip else []), (by_clip, heard)
 # not following: today's rule, anyone is heard and looked at
 run["on"] = False
 L = fresh("What time is it?", -70.0)
