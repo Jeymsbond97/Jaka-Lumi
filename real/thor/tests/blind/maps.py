@@ -9,3 +9,4 @@ MAPS = {
 }
 MAPS["conference"] = ["home", "dock2", "Main_Stage", "Booth_12", "Registration", "포토존", "라운지", "Coffee_Bar",
                       "Exit_B"]
+MAPS["gallery"] = ["home", "dock2", "Gallery_1", "Gallery_2", "Cafe", "기념품점", "화장실_앞", "Elevator"]

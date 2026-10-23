@@ -75,3 +75,35 @@ there). Files use round 2's formats exactly. Load them as `tests.blind.r3.<split
 | `hearing` | 293/301 | – (`text` keeps the marker as written, `say` what is spoken: "부스 십이로"; `not` near sounds: "Booth 2", "50 seconds") |
 
 Generators (seeded, not in the repo): the writer's scratchpad `gen/gen_r3_a.py` … `gen_r3_f.py` with `gen/genlib.py`.
+
+## r4 (round 4, 2026-10-23: the final, clean measure)
+
+`r4/train/` and `r4/held/` (split ~50/50 at random per case / dialogue, the same mix in both), written blind like
+rounds 1–3 by seven writers from docs/14, docs/16, docs/17 and knowledge/ only, and de-duplicated against rounds 1–3's
+train texts (exact text; detour and speed_short by text + before + state). A fair, representative exam rather than a
+hunt for weak spots: every crowd evenly (adults, children, elderly, non-native English, Konglish, testers, people
+talking among themselves), all six fake maps evenly, and in every set 60 % ordinary everyday requests, 25 % hard
+negatives (negation, condition / later, ability questions, remarks, quotes, words to others, idioms, past events, tag
+questions) and 15 % slips and self-corrections. New fake map `gallery` in `maps.py` (home, dock2, Gallery_1,
+Gallery_2, Cafe, 기념품점, 화장실_앞, Elevator); "gallery" alone there expects `ask`, as does an English name for a
+Korean-named marker ("souvenir shop", "in front of the restroom"). Formats are round 3's, plus two fields the
+checkers ignore: `"crowd"` (adult, child, elderly, non_native, konglish, tester, among_themselves) and `"mix"` (plain,
+hard, slip) on every dict case, every missions value and every scored dialogue turn (dialogues name the crowd in
+`"who"`); `commands_sing` stays tuples. Load them as `tests.blind.r4.<split>.<name>` (`blind_check.py --round r4`).
+
+| File | train / held | Notes |
+|---|---|---|
+| `commands_go`, `_move`, `_turn`, `_look`, `_lift` | 89/111, 101/99, 92/108, 97/103, 104/96 | lift by 10 cm or more also allows `refuse \| talk` (the height now is not known); "turn up the volume" = `voice louder` |
+| `commands_wave`, `_reach`, `_give`, `_take`, `_put`, `_bring` | 101/99, 99/101, 100/100, 106/94, 93/107, 91/109 | bring of a bottle / banana also allows `refuse`; "put it on the floor" `refuse \| talk \| ask` |
+| `commands_follow`, `_stop`, `_status` | 106/94, 101/99, 98/102 | a running mission's before line is `ACTION: mission`; "follow me to X" also allows the drive |
+| `commands_chain`, `commands_detour`, `speed_short` | 105/95, 88/112, 93/107 | detour: 10 cases idle with no block |
+| `commands_sing`, `commands_missions` | 102/98, 97/103 | missions: every step list parses with tests/test_steps.short, every marker on its map; "the last one" after the song list = Love Attack |
+| `seeing_dialogues` | 103/97 (993/989 scored turns) | a corrected question ("shirt, no, pants") must name the corrected thing; naming both is not wrong |
+| `followup_dialogues` | 113/137 (631/780 scored turns) | contradictions are scored by must (the fact again) and agreement phrases in must_not, not the wrong number |
+| `dialogues_mixed` | 110/90 (1156/971 scored turns) | 177 of 200 end with a goodbye |
+| `unknowns` | 150/150 | 165 unknown / 135 known; gallery / venue facts are unknown |
+| `silence_noise` | 103/97 | whisper's stock texts of rounds 1–3 were not repeated: close variants instead |
+| `hearing` | 216/184 | en 206 / ko 141 / mix 53 (more English than the other sets) |
+
+Generators (seeded, not in the repo): the writer's scratchpad `gen/gen_r4_*.py` with `gen/r4lib.py`; `gen/check_r4.py`
+checks imports, counts, the spread, regexes, markers and expect tokens.
