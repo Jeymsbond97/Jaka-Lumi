@@ -126,12 +126,12 @@ CASES_MORE = [
     C([SHIRT], "does it suit me?", "llm", "an opinion, not a camera fact"),
     C([SHIRT_KO], "잘 어울려?", "llm", "의견: 카메라 사실이 아님"),
     C([SHIRT], "is white your favourite colour?", "llm", "about Lumi's taste"),
-    C([SHIRT], "are you sure?", "llm", "a check of the last answer"),
-    C([SHIRT_KO], "확실해?", "llm", "확인 질문"),
+    C([SHIRT], "are you sure?", "seeing", "a check of the last answer: a new look (2026-10-22)", r"looked again.*white"),
+    C([SHIRT_KO], "확실해?", "seeing", "확인 질문: 다시 보기 (2026-10-22)", r"다시 봤어요.*흰색"),
     C([SHIRT], "why?", "llm", "why does it look white: the model explains"),
     C([SHIRT], "nope", "llm", "the user says the answer is wrong"),
-    C([SHIRT], "wrong, it's grey", "llm", "a correction of Lumi, not a new question"),
-    C([SHIRT_KO], "아닌데? 회색인데", "llm", "루미 답 정정: 새 질문 아님"),
+    C([SHIRT], "wrong, it's grey", "seeing", "a correction is checked against the camera (2026-10-22)", r"looks white; in this light it may well be grey"),
+    C([SHIRT_KO], "아닌데? 회색인데", "seeing", "정정은 카메라로 확인 (2026-10-22)", r"흰색으로 보이는데.*회색일 수도"),
 
     # ---------- anaphora after a thing seen (room frames) ----------
     C([PLANT], "where is it?", "seeing", "where is the plant", SIDE, fr="room"),
@@ -215,7 +215,7 @@ CASES_MORE = [
     C([SHIRT, T("okay thanks", "You're welcome.")], "and my shoes?", "seeing",
       "thanks between, then one more clothes question", NO_FEET),
     # back-channels as the turn itself: a reaction, not a camera question
-    C([PLANT], "진짜?", "talk", "mixed: a reaction", fr="room"),
+    C([PLANT], "진짜?", "seeing", "a doubt right after a seeing answer: a new look (2026-10-22)", r"다시 봤어요", fr="room"),
     C([PLANT], "oh nice", "talk", "a reaction", fr="room"),
     C([CUP], "wow", "talk", "a reaction", fr="room"),
     C([PLANT_KO], "헐 대박", "talk", "놀람", fr="room"),

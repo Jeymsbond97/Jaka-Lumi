@@ -74,7 +74,8 @@ f = fx("holding_cup_back")
 p = scene.person_in_front(f)
 assert p and p["clothes"]["upper"] == "blue" and p["pointing"] is None and p["facing"] is False, p
 assert scene.object_in_hand(f) is None and scene.person_holds("cup", f) is None    # depth stale: can't tell
-assert say("what am I wearing?", f) == "You're wearing a blue top and blue trousers. I can't see your shoes from here."
+assert say("what am I wearing?", f) == "You're wearing a blue top and black trousers. I can't see your shoes from here."
+                                         # the trousers are near black (V ~48): no hue there (2026-10-22 live: "blue")
 
 # ---------- a white shirt against a bright window: the pixels read grey (V 107), the face darker still (V 70) ----------
 f = fx("white_shirt_backlit")
