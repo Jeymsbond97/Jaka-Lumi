@@ -122,7 +122,9 @@ WAKE = re.compile(r"\b(hi|hey|hello|okay|ok|hai|high)?[\s,.!]*(lumi|lumia|loomi|
                   r"|루미|누미", re.I)
 WAKE_REPLY = {"en": "Yes? How can I help?", "ko": "네? 무엇을 도와드릴까요?"}
 NAME_ONLY = re.compile(r"^\s*(hi |hey |hello )?(lumi|loomi|rumi|루미)[\s,.!?]*$", re.I)
-FETCH_STOP = re.compile(r"\b(stop|halt|freeze|don'?t move)\b|멈춰|그만|정지|스톱|거기 ?서(?=[\s!.~,]*$)|움직이지 ?마", re.I)   # not "거기서 기다려"
+FETCH_STOP = re.compile(r"\b(sto+p|halt|freeze|don'?t move)\b|^\W*abort\W*$|\babort (?:the |this |your )?(?:mission|task|trip)\b|\bcancel (?:the |this |your )?(?:mission|task|trip)\b|"
+                        r"머+엄*춰|머+엄*추(?:세요|십시오)|멈춰|그만|정지|스톱|미션 ?취소|작업 ?취소|거기 ?서(?=[\s!.~,]*$)|움직이지 ?마|"
+                        r"^\W*(?:wait|잠깐|잠깐만|기다려)\W*$", re.I)   # not "거기서 기다려"
 FETCH_GIVE = re.compile(r"\bgive (it|that|this|the \w+)( to me)?\b|\bhand (it )?(over|to me)\b|줘|주세요|건네", re.I)
 FETCH_PLACE = re.compile(r"\b(put|place|set) (it|that|this|the \w+) (down|on the table)\b|테이블에 ?(놔|놓|둬)|내려 ?(놔|놓)", re.I)
 FETCH_BRING_IT = re.compile(r"\bbring (it|that|this)\b|가져와|가져다 ?줘|갖다 ?줘", re.I)   # no object named
@@ -1623,7 +1625,7 @@ class Lumi:
         if status not in ("running", "holding"):
             return False
         from tasks import fetch
-        if FETCH_STOP.search(text):
+        if FETCH_STOP.search(text) and stop_order(text, self.markers):   # not "he said stop", "don't stop"
             log("  fetch: stop by voice")
             safe(fetch.stop)
             self.act("stop", "")
@@ -2947,9 +2949,26 @@ class Lumi:
         self.run_camera() if self.vision else self.run_desk()
 
 
+NOT_STOP = re.compile(   # a stop word that orders no stop: negated, about someone or something else, another meaning
+    r"\b(?:don'?t|do not|never|no need to|not) (?:\w+ )?sto+p\b|\bkeep (?:going|moving|walking|driving)\b|\bcontinue\b|"
+    r"\bgo on\b|\bcarry on\b|\bno,? no,? (?:go|continue|keep)\b|멈추지 ?마|그만하지 ?마|계속(?: ?(?:해|가|하세요|가세요|해요|가요))?|"
+    r"(?<!\bi )\b(?:said|says|told|tells|yelled|shouted|keeps? saying)\b[^.?!]*\bsto+p\b|\bsto+p(?:ped|s|ping)\b|"
+    r"\bstop (?:working|smoking|drinking|eating|talking about|laughing|crying|worrying|by|sign|motion|watch)\b|"
+    r"\b(?:bus|train|tram|next|last|first) stop\b|\bcan'?t stop\b|non-?stop|정거장|정류장|"
+    r"\b(?:freezes|froze|frozen|freezing)\b|"
+    r"(?:다리|손|심장|시계|컴퓨터|노트북|버스|차|폰|핸드폰|화면|숨|시간|엘리베이터|에스컬레이터)(?:이|가|도|는|은)?\s*(?:\S+\s+){0,2}"
+    r"(?:멈췄|멈춰(?:요|서|버렸|있)|멈춰\.?$|멈추)|(?:멈췄|멈추더라|멈추던데|멈춘다)|"
+    r"(?:엄마|아빠|선생님|걔|쟤|친구|사람|그 ?분|형|누나|언니|오빠)\S*\s.*라고 ?했", re.I)
+
+
 def stop_order(text, markers):
     """"stop", "freeze", "멈춰": stop everything at once. Not "stop talking" and not a question about the stop button;
-    "can you stop?", "멈출 수 있어?" and "stop, where are you going?" do stop."""
+    "can you stop?", "멈출 수 있어?" and "stop, where are you going?" do stop. Not a negated stop ("don't stop", "계속
+    해"), talk about stopping ("he said stop", "bus stop", "my laptop freezes", "내 다리도 자주 멈춰"); a short bare
+    stop word always stops (also stretched: "stooop", "머엄춰")."""
+    if NOT_STOP.search(text) and not re.fullmatch(r"\W*(?:(?:no|ok|okay|lumi|루미야?|hey)\W+)*(?:sto+p|halt|freeze|멈춰|머+엄*춰|"
+                                                  r"그만|정지|스톱|stop it|stop now)\W*", text, re.I):
+        return False
     asked = bool(brain_mod.STOP_ASK.match(brain_mod.CALLING.sub("", text)) or
                  re.match(r"^\W*(?:stop|halt|freeze|멈춰|정지|스톱)\W*[,.!]", text, re.I))
     return bool(FETCH_STOP.search(text) or asked) and (brain_mod.intent(text, markers) or ("",))[0] not in ("quiet", "look") \

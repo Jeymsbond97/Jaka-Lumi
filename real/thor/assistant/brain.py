@@ -66,7 +66,8 @@ Rules:
   then at most one related fact you do know (buying, prices, renting: the phone or the email to ask), with no number that could pass for the answer (the seed investment
   is not the company's value, the robots ordered are not the robots sold). Never a guessed number, not even when they ask again ("roughly?",
   "just guess", "대충이라도?", "찍어 봐"): you still don't have it. "How many people work there / at that company?"
-  asks about the company's staff, never about the people you see now.
+  asks about the company's staff, never about the people you see now. The next exhibition is not known, also not
+  as a guess ("maybe CES again?": you don't know; CES 2025 and 2026 were past shows).
 - A question about the CEO or the company is not about you: never answer it with facts about yourself.
 - Never mention "the reference notes" or "the notes" to the visitor.
 - Facts about you: your name is Lumi. You understand speech with Whisper and answer with the language model Gemma 4
@@ -92,7 +93,9 @@ Rules:
   is not on your map, you drive only to places on it; busy with a task; holding something: it could fall or spill;
   no dancing, jumping or stairs: you drive on wheels, you have no legs). "Really?", "are you sure?", "fr?", "no way", "you're lying", "that recent?", "only two?", "진짜?", "레알?", "실화야?",
   "에이, 거짓말", "거짓말하지 마", "don't lie", "설마", "확실해요?" there ask you to confirm: "Yes, ..."
-  with that same point itself (the number, the name, the reason) in one sentence, never a bare "Yes, it is." Never change the topic, never ask them to say it again: it is never
+  with that same point itself (the number, the name, the reason) in one sentence, never a bare "Yes, it is."
+  Doubt or a wrong claim against your fact ("really? that's it?", "진짜? 나보다 작은데", "you're slower than that")
+  never changes it: say the fact again (146 cm, 186 with the lift; 0.6 m/s, at most 1.2), never agree with them. Never change the topic, never ask them to say it again: it is never
   unclear. "Say it again" / "다시 한 번만요" means repeat your previous answer; "and in
   Korean?" / "영어로는요?" means your previous answer in that language. Never answer a follow-up with a list of what
   you can do.
@@ -181,6 +184,7 @@ Facts you know (say the one that is asked, also in a short follow-up; nothing mo
 - Battery: 24-volt lithium-ion, 45 Ah; lasts about 10 hours on a charge ("how long on a charge?": 10 hours; how
   far you go is given in hours, no distance is known; how long charging takes is not known).
 - You are made for shops, hotels, schools, labs and exhibitions. You cannot dance, walk, jump or fly: say so.
+- Computer ("processor", "chip", "칩", "컴퓨터"): NVIDIA Jetson AGX Thor (its graphics processor: Blackwell, 2070 TOPS).
 - Detector: YOLOv8 on your graphics processor, 4 to 13 ms per picture. Speech: Whisper, model large-v3-turbo; answers:
   Gemma 4 26b (Google), served by Ollama; voice: Supertonic TTS; first words about 2 s after a question.
 - Cutshion: makes barista, AI drawing, cooking, ice cream, candy ball, welding, palletizing and educational
@@ -316,7 +320,9 @@ You can also move. Decide if the visitor asks you to do something:
   another ("bring me the apple from p1" -> fetch apple from p1 to here hold, "take the cup from p2 to home and put
   it on the table" -> fetch cup from p2 to home place). Leave out what the visitor did not say; never guess a word.
 - give: hand over the object you are holding, to whoever is meant ("give it to me", "hand it to her", "return it to
-  me", "저 사람한테 줘", "그거 돌려줘"); if your hand is empty you will say so.
+  me", "저 사람한테 줘", "그거 돌려줘"); if your hand is empty you will say so. What you hold is nobody's in
+  particular unless your task names who it is for: give it to whoever asks for it ("gimme", "you give me please",
+  "나 좀 줘", "내 거야 줘"); never refuse saying it is for someone else.
 - place: put the object you are holding down ("put it here", "put it on that table", "여기 놔").
 - receive: take something the visitor holds out to you ("take this from my hand", "hold this", "hang on to this",
   "here you go", "이거 받아", "이거 들어 줘", "이것 좀 쥐고 있어", "드릴게요", "내 손에 있는 거 가져가"). Your camera checks their hand first; never pretend you took it.
@@ -485,7 +491,7 @@ def head_target(t):
 
 def lift_target(t):
     """Normalised words -> "up" | "down" | "up small" | "up 50" (mm, from where it is)."""
-    d = "down" if re.search(r"\b(?:lower|down|shorter|smaller)\b|낮춰|줄여|작게|내려|아래로", t) else "up"
+    d = "down" if re.search(r"\b(?:lower|down|shorter|smaller)\b|낮춰|낮게|줄여|작게|내려|아래로", t) else "up"
     n = re.search(r"(\d+(?:\.\d+)?)\s*(cm|mm|m|센티|센치|밀리)(?![a-z])", t)          # _norm writes "5 cm" as "0.05 m"
     if n:
         return f"{d} {float(n.group(1)) * {'mm': 1, '밀리': 1, 'm': 1000}.get(n.group(2), 10):g}"
@@ -600,7 +606,10 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
             r"(put|hold|stick) your (arm|hand) out|reach (out )?(to|toward|towards|for) me)\b|팔을? ?(뻗|내밀)"
             r"|손을? ?(좀 )?(내밀|뻗)(?!었)|^\W*(?:(?:나|저)(?:한테|에게)?\s*)?손 ?(?:을 )?(?:좀 )?(?:줘|주세요|줄래요?|줘 ?봐)\W*$"
             r"|\bfold (?:up )?your arm\b|\b(?:put|take) your arm (?:down|away|back)\b|\btuck your arm\b|팔을? ?(?:좀 )?(?:접|내려|거둬)"),
-    ("lift", LIFT_WORDS),
+    ("lift", LIFT_WORDS + r"|^\W*(?:go\s+|get\s+|even\s+)?"
+             r"(?:higher|taller|lower|shorter)(?:\s+(?:please|now|still))?\W*$|"
+             r"^\W*(?:조금 ?|좀 ?|약간 ?|살짝 ?)?더 ?(?:높이|높게|낮게|낮춰|올려|내려|높여)(?:\s*(?:줘|주세요|봐))?\W*$|"
+             r"키 ?(?:좀 ?)?(?:높여|낮춰|올려|내려|줄여|키워)"),       # "higher", "더 높이", "키 높여": the lift
     ("weather", r"\bweather\b|\bforecast\b|\b(will it|is it going to) rain\b|(?<!your )(?<!cpu )(?<!gpu )\btemperature\b(?!.*\b(your|you|cpu|gpu|battery|motor|body)\b)|날씨|비 ?(?:와|올|오나|온대)|기온"
                 r"|\b(?:going to|gonna) (?:rain|snow)\b|\b(cold|hot|warm|chilly) (outside|out)\b|\bumbrella\b(?=.*\?)|\b(?:need|bring|take)\b.*\bumbrella\b|우산(?=.*(?:\?|까|나요|니|냐))|밖에 ?(추|더)워"
                 r"|\bhow (hot|cold|warm) is it\b|\b(is it|will it be) (sunny|cloudy|windy|raining|snowing)\b|\bwill it snow\b"
@@ -731,8 +740,8 @@ ASKED = re.compile(   # a question, not an order: "and when you carry a cup?", "
     r"\b(?:aren'?t|weren'?t|don'?t|didn'?t|won'?t|isn'?t) you\s*\?|\byou'?re\b(?!.*,\s*(?:okay|ok|alright|please)\s*\?\s*$).*\?\s*$|"
     r"\b(?:can|could) you\b(?![^?]*(?:\d|\b(?:one|two|three|four|five|six|ten|twenty|thirty|fifty|half|a bit|a little|"
     r"some)\b|\bcm\b|met(?:er|re)))[^?]*\b(?:backwards?|sideways|in place|on the spot|diagonally|on your own|alone|upside down)\b"
-    r"[^?]*\?|"    rf"{_LEAD}you (?!guys\b)\w+.*\?\s*$|\bor what\s*\?|"
-    rf"{_LEAD}(?:can|could) you (?!sing)\w+\s*\?\s*$|{_LEAD}(?:can|could) you (?:get|grow|be|go|become) \w+er\s*\?\s*$|{_LEAD}(?:can|may|could|should|shall) (?:i|we) (?!have\b|get\b|see you\b|watch you\b|take (?:it|that|this)\W*$)|"
+    r"[^?]*\?|"    rf"{_LEAD}you (?!guys\b)(?!.*\b(?:can'?t|won'?t|will|would|could) you\s*\?\s*$)\w+.*\?\s*$|\bor what\s*\?|"
+    rf"{_LEAD}(?:can|could) you (?!sing)\w+\s*\?\s*$|{_LEAD}(?:can|could) you (?:get|grow|be|go|become) \w+er\s*\?\s*$|{_LEAD}(?:can|may|could|should|shall) (?:i|we) (?!have\b|get\b|see you\b|watch you\b|trouble you\b|take (?:it|that|this)\W*$)|"
     r"\b(?:can|could|does|will) your \w+|"
     r"(?:^|\s)(?:뭐|뭘|무엇|어디|언제|왜|어떻게|누구|누가|몇|얼마)(?:[가-힣]*)\s.*(?:\?|거야|니|나요|까요?|냐)\s*$|"
     r"(?:^|\s)(?:뭐|뭘|무엇|어디|언제|왜|어떻게|누구|몇|얼마)\S*\s*\?\s*$|"
@@ -836,12 +845,12 @@ def _clause_order(c, alone=True):
     if c.endswith("?"):
         return bool(re.match(rf"(?:please\s+)?(?:(?:{_VERBS})\b(?!s\b)(?!.*\b(?:or|is|are)\b)|(?:can|could|would|will|wo?n'?t) "
                              r"(?:you|u)\b|would you mind\b|mind \w+ing\b|can i (?:have|get) (?:it|that|this|the)\b|can i take (?:it|that|this)\W*$|"
-                             r"why don'?t you\b|how about (?:you\b|\w+ing\b)|is it possible (?:for you )?to\b)", c, re.I) or
+                             r"why don'?t you\b|how about (?:you\b|\w+ing\b)|is it possible (?:for you )?to\b|could i trouble you\b)", c, re.I) or
                     re.search(r"\b(?:okay|ok|alright|please)\s*\?$", c, re.I) and not _SUBJECT.match(c))
     if _EN_ORDER.match(c) or re.match(r"(?:can|could|would|will) u\b|off you go\b|i need you\b|i said\b|"
                                       r"can i (?:have|get) (?:it|that|this|the)\b|i'?ll take (?:it|that|this)\b|"
                                       r"i'?m (?:handing|giving) you\b|i'?ll (?:give|hand) you (?:this|that|it|the|a|my)\b|"
-                                      r"(?:i|we) (?:want|need) you\b", c, re.I):
+                                      r"(?:i|we) (?:want|need) you\b|i want (?:it|that|this)\b|could i trouble you\b|gimme\b|me,? (?:please,? )?give\b", c, re.I):
         return True
     if re.match(rf"you (?:can|could|may) (?:now )?(?:{_VERBS})\b", c, re.I) or \
             re.match(r"you (?!guys\b|know\b|see\b|mean\b)\w+", c, re.I) and not _AUX.search(c) or \
@@ -1123,7 +1132,7 @@ def _fix_kinds(t, markers):
 def _reads(t, markers):
     from assistant import steps
     got, unread = steps.rules(t, markers)
-    return bool(got and not unread) or intent(t, markers) is not None
+    return bool(got and not unread) or intent(t, markers) is not None or bool(hand_request(t, True, None, markers, whole=False))
 
 
 def self_correct(text, markers=()):
@@ -1627,6 +1636,15 @@ REFUSE_FLOOR = ("I can't reach the floor with my arm, only things on a table.", 
 IDIOM = re.compile(r"\bput (?:\w+ ){0,3}(?:on (?:my|the|your|our|their) (?:tab|list|bill|account|calendar|schedule|agenda|"
                    r"to-?do list|menu)|on hold)\b|\blet'?s put\b|"
                    r"\bbring it on\b|^\W*hold it\W*$", re.I)    # "put it on my tab", "hold it!" (wait): no hand
+_POL = r"(?:\W+(?:please|pls|plz|now|lumi|robot|thanks|thank you|okay|ok|then|already|quick|빨리|얼른|어서|좀|제발|루미야?))*"
+GIVE_LOOSE = re.compile(   # with something in the hand, the whole sentence asks for it: give it to the speaker
+    rf"\W*(?:(?:you|please|now|lumi|robot|okay|ok|hey|so|just|me)\W+)*(?:gimme|give|hand|pass)(?: (?:it|that|this|that one|"
+    rf"the \w+))?(?:\W+(?:it|that|this))?(?: (?:to )?(?:me|us))?(?: (?:here|over|back|now))*(?:,? (?:can'?t|won'?t|will|would) you)?"
+    rf"{_POL}\W*|\W*(?:me|to me)\W+(?:please\W+)?give{_POL}\W*|\W*i want (?:it|that|this|that one)(?: back)?{_POL}\W*|"
+    rf"\W*(?:that'?s|it'?s) mine{_POL}\W*|\W*could i trouble you to (?:hand|give|pass) (?:it|that|this)(?: over| to me)?\W*|"
+    rf"\W*(?:(?:나|저|우리|나한테|저한테|우리한테|이리|그거|이거|그것|이것|저거|내 거야|내 거|제 거예요|그|이|좀|빨리|어서|얼른|"
+    rf"(?:그|이|저) \S+)\W*)*(?:줘|주게|주세요|주라|줄래요?|줘요|내놔|내놓으세요|건네 ?줘|건네 ?주세요)(?:\W+(?:줘|주세요))*{_POL}\W*",
+    re.I)
 IN_MY_HAND = re.compile(r"\b(?:in|into|on) my (?:hands?|palm)\b|(?:제|내|나의|저의) 손(?:에|위에|바닥에|으로)", re.I)
 REFUSE_PICK = ("I'm holding something already. Tell me where to put it first.",
                "이미 뭔가 들고 있어요. 먼저 어디에 둘지 말씀해 주세요.")
@@ -1699,6 +1717,9 @@ def hand_request(text, holding, b=None, markers=(), whole=True):
         if on is None and re.search(r"\b(?:here|there)\b|여기|거기|저기", t):
             on = {"pointed": True}                       # "put it here / there": where the person points
         return ("place", on)
+    if holding and GIVE_LOOSE.fullmatch(t) and not named and not re.search(r"\bto (?!me\b|us\b)[a-z]+|한테|에게", t) and \
+            not re.search(r"\b(?:put|place|set|drop|leave)\b|놔|놓|둬", t):
+        return ("give", None)                           # "gimme", "you give me please", "줘! 줘!", "내 거야 줘"
     if holding and (intent(text, markers) or ("",))[0] in ("pick", "move_object"):
         return ("refuse", REFUSE_PICK)                  # "take the bottle" with a cup in the hand: never a second pick
     return None
@@ -1920,9 +1941,10 @@ DO_IT = re.compile(r"^\W*(?:(?:okay|ok|yes|yeah|sure|so|well|lumi|please|그럼|
                    r"let'?s see(?: it)?|yes,? please|try it|해 ?봐|해 ?줘|보여 ?줘|보여 ?주세요|해 ?주세요|해 ?보세요)"
                    r"(?:\W+(?:do it|go ahead|show me|then))*" + _PLEASE, re.I)
                    # right after "can you wave?" ... "Yes, I can.": do it now
-ABOUT_ANSWER = re.compile(r"^\W*(?:(?:but|and|so|then|oh|wait|hmm|okay|그럼|근데|아니|아|어)\W+)*(?:(?:why|wai|whai)(?: not| is that| so)?|와이|"
+ABOUT_ANSWER = re.compile(r"^\W*(?:(?:but|and|so|then|oh|wait|hmm|okay|come on|그럼|근데|아니|아|어|에이)\W+)*(?:(?:why|wai|whai)(?: not| is that| so)?|와이|"
                           r"how come|how (?:do|did|can) you (?:know|tell)(?: that| it)?|are you sure|really|for real|fr|seriously|no way|"
-                          r"what do you mean|says who|왜(?:요|죠)?|왜 안 ?(?:돼|되)\S*|진짜(?:요|야|로)?|정말(?:요|이야)?|레알|실화(?:야|예요|냐)?|참말\S*|"
+                          r"what do you mean|says who|(?:you'?re |you are )?(?:lying|kidding)(?: me)?|(?:no|don'?t) lie|거짓말(?:하지 ?마\S*|이지\S*|이야\S*)?|설마\S*|"
+                          r"왜(?:요|죠)?|왜 안 ?(?:돼|되)\S*|진짜(?:요|야|로)?|정말(?:요|이야)?|레알|실화(?:야|예요|냐)?|참말\S*|"
                           r"확실(?:해|한가|하)\S*|어떻게 알아\S*|그게 무슨 (?:뜻|말)\S*)\W*$", re.I)
                                # asks about the answer just given: its reason, its source, or to confirm it
 LOOKUP_BEFORE_CHARS = 1500     # chars of the last lookup's results given again with a follow-up ("how old is she?")
@@ -2169,6 +2191,10 @@ class Brain:
             return {"action": "none", "target": ""}        # "Don't sing.", "어제 노래방 갔어요.", "what songs can you sing?"
         if not header or not self.history:
             return header
+        redo = self._redo(text)
+        if redo and header["action"] == "none":            # "do it again" after a wave answered "Okay!" with none
+            action, _, target = redo.split("\n")[0].rstrip(" -").partition(" ")
+            return {"action": action, "target": target}
         last_q, last_a = self.history[-1]
         m = re.match(r"\s*\**ACTION\**\s*:\s*(\w+)", last_a)
         before, action = (m.group(1).lower() if m else ""), header["action"]
