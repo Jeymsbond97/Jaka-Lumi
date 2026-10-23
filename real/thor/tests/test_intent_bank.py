@@ -46,6 +46,9 @@ READS = [   # (words, markers, holding, (action, target))
     ("컵 저한테 가져다 주세요", KOREAN, False, ("fetch", "컵 저한테 가져다 주세요")),
     ("pull your arm back in", EXPO, False, ("arm", "fold")),
     ("snatch the blue bottle", EXPO, False, ("pick", "blue bottle")),
+    ("go to booth twelve", ["home", "Exit_B", "Booth_12"], False, ("go_to", "Booth_12")),
+    ("go to exit b", ["home", "Exit_B", "Booth_12"], False, ("go_to", "Exit_B")),
+    ("bring me the banana", EXPO, False, ("fetch", "bring me the banana")),   # the same as the rules: refused later
 ]
 NEVER = [   # (words, markers, holding): no motion from the bank
     ("go to the kitchen", EXPO, False),             # not on this map
@@ -85,6 +88,27 @@ NEVER = [   # (words, markers, holding): no motion from the bank
     ("빨간 컵을 무대에 있는 안나한테 갖다줘", KOREAN, False),   # to a person: a mission
     ("I want the mug, the one at the entrance", EXPO, False),  # a thing at a place: fetch or ask, never a pick here
     ("take the cup to the stage", EXPO, False),
+    # wondering / ability talk about the robot in the third person (held-out wrong motions, round 3)
+    ("can it wave? I wonder", EXPO, False),
+    ("I wonder if it can go to the stage", EXPO, False),
+    ("does it follow people around?", EXPO, False),
+    ("this robot can look up, right", EXPO, False),
+    ("이거 손 흔들 수 있나?", KOREAN, False),
+    ("얘 따라오나 봐", KOREAN, False),
+    ("로봇이 무대로 가나?", KOREAN, False),
+    ("can it 손 흔들어?", KOREAN, False),
+    # holding: put it in my hand / give it over is the hand reader's, never an arm reach
+    ("my hand에 줘", EXPO, True),
+    ("손에 줘", KOREAN, True),
+    ("hand it over", EXPO, True),
+    ("give it to me, put it in my hand", EXPO, True),
+    ("그거 제 손에 쥐어 주세요", KOREAN, True),
+    # a place with another letter or number than the map's: asked, never snapped to the near marker
+    ("go to exit a", ["home", "Exit_B", "Booth_12"], False),
+    ("go to booth 13", ["home", "Exit_B", "Booth_12"], False),
+    ("go to booth number thirteen", ["home", "Exit_B", "Booth_12"], False),
+    ("부스 13으로 가 줘", ["home", "부스12"], False),
+    ("go to p11", ["home", "p1", "p2"], False),
 ]
 
 
