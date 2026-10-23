@@ -7,11 +7,13 @@ microphones, sent through ears.transcribe() exactly as Lumi does, then through L
     .venv/bin/python tests/asr_check.py --cases 2        # the second set (tests/asr_cases2.py)
     .venv/bin/python tests/asr_check.py --cases 3        # noise and talk not to Lumi (tests/asr_cases3.py)
     .venv/bin/python tests/asr_check.py --cases 4        # music only, and speech over soft music (tests/asr_cases4.py)
+    .venv/bin/python tests/asr_check.py --cases 5        # short commands, numbers with units, marker names (asr_cases5.py)
     .venv/bin/python tests/asr_check.py --cases tests/blind/train/hearing.py   # any file with CASES (own markers)
     .venv/bin/python tests/asr_check.py --trim 0.3       # the audio without its last 0.3 s (early transcription)
     .venv/bin/python tests/asr_check.py --no-vad         # without the speech detector and the subtitle-text filter
     .venv/bin/python tests/asr_check.py --heard          # also the real clips in logs/heard/ (text only, no judgement)
     .venv/bin/python tests/asr_check.py --set LANG_RETRY=False --tag before   # an ears constant; -> logs/asr_check_before.md
+    .venv/bin/python tests/asr_check.py --memo           # whisper's answers kept (logs/asr_check/memo.jsonl), re-runs fast
 
 Needs a whisper-server; the check starts its own on STT_PORT (never the live one on 8096, which Lumi uses).
 A case is right when the text routes as the written text does (tests/command_check.rules: the same motion, or both
@@ -37,7 +39,7 @@ from audio import ears
 from tests.asr_cases import CASES
 from tests.asr_cases2 import CASES as CASES2
 from tests.asr_cases3 import CASES as CASES3
-from tests import asr_cases4
+from tests import asr_cases4, asr_cases5
 from tests.command_check import rules
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -190,10 +192,12 @@ def main(args):
         global STT_PORT
         STT_PORT = int(args[args.index("--port") + 1])
     start_server()
+    if "--memo" in args:
+        memo()
     rng = np.random.default_rng(5)
     rows, t0 = [], time.time()
     which = args[args.index("--cases") + 1] if "--cases" in args else "1"
-    pool = {"1": CASES, "2": CASES2, "3": CASES3, "4": asr_cases4.CASES}.get(which) or load(which)
+    pool = {"1": CASES, "2": CASES2, "3": CASES3, "4": asr_cases4.CASES, "5": asr_cases5.CASES}.get(which) or load(which)
     trim = int(float(args[args.index("--trim") + 1]) * ears.RATE) if "--trim" in args else 0
     cases = [c for c in pool if not only or re.search(only, c["text"])]
     for i, c in enumerate(cases):
@@ -221,6 +225,31 @@ def main(args):
     name = "asr_check" + (f"_{tag}" if tag else "")
     (ROOT / "logs" / f"{name}.json").write_text(json.dumps(rows, ensure_ascii=False, indent=0))
     report(rows, time.time() - t0, ROOT / "logs" / f"{name}.md")
+
+
+def memo():
+    """Every whisper call kept in logs/asr_check/memo.jsonl by its audio and arguments: a re-run with other choices in
+    ears asks whisper only for what it never heard (and gets the same answer, no sampling noise between runs)."""
+    f = OUT / "memo.jsonl"
+    seen = {}
+    if f.exists():
+        for line in f.open():
+            try:
+                k, v = json.loads(line)
+                seen[k] = tuple(v)
+            except ValueError:                                   # a line cut by another process
+                pass
+    infer = ears._infer
+
+    def cached(wav, prompt, language=None, **kw):
+        k = hashlib.md5(wav).hexdigest() + json.dumps([prompt, language, ears.BEAM_SIZE, sorted(kw.items())],
+                                                      ensure_ascii=False)
+        if k not in seen:
+            seen[k] = infer(wav, prompt, language, **kw)
+            with f.open("a") as out:
+                out.write(json.dumps([k, seen[k]], ensure_ascii=False) + "\n")
+        return seen[k]
+    ears._infer = cached
 
 
 def load(path):
