@@ -470,6 +470,8 @@ def _drive_wait(watch_holding, again, goal):
                 raise FetchError("I dropped it.")
         there = st == "succeeded" and goal is not None and pose is not None and _at(pose, goal)
         if st != "running" and (seen_running or there or time.time() - t0 > DRIVE_START_S):
+            if isinstance(full.get("guard"), (list, tuple)):
+                raise FetchError(*full["guard"])     # robot/nav_guard.py ended it: the arm would hit something
             if st != "succeeded":
                 raise FetchError(f"I couldn't get there (base: {st}).")
             return
