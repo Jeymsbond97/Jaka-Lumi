@@ -107,3 +107,27 @@ hard, slip) on every dict case, every missions value and every scored dialogue t
 
 Generators (seeded, not in the repo): the writer's scratchpad `gen/gen_r4_*.py` with `gen/r4lib.py`; `gen/check_r4.py`
 checks imports, counts, the spread, regexes, markers and expect tokens.
+
+## r5 (round 5, 2026-10-23: the final exam)
+
+`r5/held/` only, no train split: the final exam, scored once and never read by whoever fixes the code. Written blind
+like rounds 1–4 by seven writers from docs/14, docs/16, docs/17 and knowledge/ only, and de-duplicated against the train
+texts of rounds 1–4 (exact text). A fair, representative picture of a conference booth: in every set 60 % ordinary
+requests and questions, 25 % hard negatives (plans between people, narration, remarks, quotes, hypotheticals,
+conditions, ability questions, teasing, words to others, announcements, a command cancelled later in the sentence)
+and 15 % slips and self-corrections; every crowd; English ~45 %, Korean ~40 %, mixed ~15 %. New fake map `airport` in
+`maps.py` (Gate_A3, Gate_B7, 수하물, Info_Desk, 면세점, Lounge_2, home, dock2), about a third of the place cases; "gate"
+alone there expects `ask`, as does an English name for a Korean-named marker ("baggage claim", "duty free"). Formats
+are round 4's (with `"crowd"` and `"mix"`). Load them as `tests.blind.r5.held.<name>` (`blind_check.py held --round r5`).
+
+| File | held |
+|---|---|
+| `commands_go`, `_move`, `_turn`, `_look`, `_lift`, `_wave`, `_reach` | 60 each |
+| `commands_give`, `_take`, `_put`, `_bring`, `_follow`, `_stop`, `_status` | 60 each |
+| `commands_sing`, `commands_missions`, `commands_chain`, `commands_detour`, `speed_short` | 60 each |
+| `seeing_dialogues` | 60 dialogues (632 scored turns) |
+| `followup_dialogues` | 80 dialogues (416 scored turns) |
+| `dialogues_mixed` | 50 dialogues (404 scored turns) |
+| `unknowns` | 100 (57 unknown / 43 known) |
+| `silence_noise` | 60 |
+| `hearing` | 120 |
