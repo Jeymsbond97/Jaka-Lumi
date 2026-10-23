@@ -172,6 +172,10 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
     understood: "Put the grey cup on the white dining table or chair.", "Put the grey cup on the lower table." With
     an empty hand a place command is refused at once. A thing's colour can be taught (`POST /objects/teach`,
     `data/known_things.json`); within 0.5 m of that place it has that colour from any side (`colour_of`).
+    Every navigation drive (`agv.go` / `go_point`, also turns and the dashboard's go / route) is watched by
+    `robot/nav_guard.py`: the arm's points along the planned path 0.30 m ahead; one that would come within 0.10 m of
+    an obstacle cancels the move, the same goal goes again when the way is clear 1 s, after 10 s blocked the task
+    fails with "I stopped: my arm would hit something on the way."
     Before every turn on the spot the arm's sweep is checked against lidar + map (`turn_hits`, 0.10 m), with the
     torso depth camera at the arm's real height (`depth_hits`; the arm's own parts within 120 mm do not count), and
     then with the head camera turned 60° to the side of the turn (`head_hits`, `HEAD_SIDE_DEG`, pitch −5°; the torso

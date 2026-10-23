@@ -146,27 +146,29 @@ around it is ignored.
 
 | Someone says | Lumi |
 |---|---|
-| "Hi Lumi", "stop", "wait" | halts, "Hi, I'm Lumi. I stopped for you. How can I help you?" |
-| a question ("what are you doing", "who made you") | answers (status from the task), then "Can I go on with my task?" |
-| "go on", "you can go", yes to "can I go on", a goodbye, "never mind" | goes on with the mission |
-| nothing for 15 s | "Can I go on with my task?"; nothing for 15 s more: goes on |
-| "watch out", "stop!", "STOP STOP", "my hand", "멈춰!", "위험해" | safety stop: stays halted until "go on" / "continue" / "계속 가" (a goodbye or silence does not let it go) |
-| another task, "come with me", "give me that", "take me to p2", asking again | refuses: "Sorry, I'm doing a task for someone: … I can help you when I've finished."; any motion the LLM or the quick rules would start is blocked while a mission runs |
+| a stop word, anyone, running or halted: "stop", "stop it", "okay, stop it", "enough", "그만", "그만해", "멈춰", "정지" | stops everything and **ends** the mission at once (`lumi.stop_order` / `ENOUGH` -> `stop_all`): "Okay, I stopped." It never goes on after a stop word |
+| "Hi Lumi", "wait", "excuse me" | halts, "Hi, I'm Lumi. I stopped for you. How can I help you?" |
+| a question ("what are you doing", "who made you", "what is in my hand", "내 손에 뭐 있어?") | answered as usual (status from the task, seeing questions from the camera), then "Can I go on with my task?" |
+| "go on", "continue", "you can go", "계속해", "계속 가", yes to "can I go on" | goes on with the mission. Nothing else lets a halted mission go on: not a goodbye, not "okay", not silence |
+| nothing for 15 s | "Can I go on with my task?" once; it stays halted |
+| "watch out", "my hand", "멈춰!", "위험해" | safety stop: stays halted until "go on" / "continue" / "계속 가" |
+| a new command from anyone ("follow me", "come to me", "take me to p2", "give me that", a song), running or halted | the mission ends (`fetch.end`) with "Okay, I've stopped my task." and the command is done as usual (`lumi.end_run`; the same for a fetch run, a new mission, follow, a song). Something held stays held. "Cancel it" alone: "Okay, I've cancelled my task." |
 | "I'm James" (James is who it is for) | "Hi James, this is for you. Here you go." and hands it over there (the rest of the mission is replaced by the give) |
 | "I'm James, put it on my desk at p3 instead", "I'm at p5 now, bring it there", "I don't need it, cancel it" | the person it is for, or the sender named in the mission ("Anvar asks you…", "안바르가 보내는 거야"), may change or cancel it; a change Lumi can't read: "Sorry, what should I…? Should I give it to you here?" |
-| "I'm Tom, give it to me" (it is for James) | "Sorry, this is for James, I have to bring it to them." |
+| "I'm Tom, give it to me" (it is for James) | a new command as any other: the mission ends, it is given to Tom |
 
 **Waiting for an instruction** ("go to p6 and do what they tell you"): while that wait runs, anything said is to Lumi,
 and the person there may give **one** command: read with `steps.read` (English / Korean only, LLM pass as usual),
 read back, an explicit spoken yes, `steps.check` with the rest of the mission, then done there
 (`lumi.instruction` -> `fetch.instruct`). It can't ask for another instruction wait. This is the only case where
-someone not named in the mission gives Lumi a task on the way; at every other wait (a time, "until go on", a receive)
-another person's task is refused as above. "Go on" / "you can go" ends any wait step. While receiving or giving on a
+someone gives Lumi a task that becomes part of the mission; at every other wait (a time, "until go on", a receive)
+a new command ends the mission as above. "Go on" / "you can go" ends any wait step. While receiving or giving on a
 mission, "okay" / "thank you" closes / opens the hand even when nobody spoke to Lumi before.
 
 A name is the person's word only: anyone can say "I'm James". A name said in Korean is not matched to one written in
-English in the mission (제임스 ≠ James). The person who started the mission is not known by voice: a voice "cancel"
-from someone not named in the mission is refused; the dashboard's Stop always works.
+English in the mission (제임스 ≠ James). Who speaks makes no difference to a stop word or a new command (tracks of
+the same person change: #10, #21, #24, #27 in one test). The dashboard's Stop always works; its Cancel (drive) also
+ends a running or halted mission.
 
 ## 5. Checks
 
@@ -200,3 +202,25 @@ from someone not named in the mission is refused; the dashboard's Stop always wo
 `MOVE_MIN_M` 0.1 m, `MOVE_MAX_M` 3.0 m, `TURN_MAX_DEG` 360°, `WAIT_SHORT_S` 10 s, `WAIT_MAX_S` 30 min,
 `WAIT_GIVE_S` 5 min, `WAIT_ORDER_S` 5 min (`assistant/steps.py`), `WAIT_POLL_S` 0.05 s, `MOVE_SPEED` 0.10 m/s,
 `MOVE_SEGMENT_M` 0.25 m, `RECEIVE_WAIT_S` 30 s, `RECEIVE_DI_S` 0.5 s (`tasks/fetch.py`). Estimates, to be tuned live (docs/TUNING.md).
+
+## 7. A blocked drive (`assistant/detour.py`, `tasks/fetch.py` `detour`)
+
+A drive that gets nowhere (a trip, a task's or a mission's drive: no progress for `STUCK_S`, or the base reports
+`failed`) is said ("Sorry, I can't find a way to p3. Something may be blocking the path.") and kept for
+`FRESH_S` 300 s in `/dev/shm/lumi_stuck.json`: its goal, the steps from that drive on, where the trip started. While
+it is kept, these words (voice or the Command box, both through `lumi.route`) mean:
+
+| Said | Lumi |
+|---|---|
+| "try again", "again", "keep going", "다시 해 봐", "한 번 더", "계속 가" | the same drive again, then the rest |
+| "back up a little and try again", "뒤로 갔다가 다시 가" | straight back `BACKUP_M` 0.3 m (the checked move), then again |
+| "go around it", "find a way", "try another way", "다른 길로 가 봐", "돌아서 가", "길 찾아서 와" | first to a free point beside the way (`VIA_AHEAD_M` 0.5 m along, `VIA_SIDE_M` 0.8 / 1.2 m to a side, `VIA_CLEAR_M` 0.6 m room by `agv.clearance`), then the goal |
+| "go back", "come back", "원래 자리로 돌아가", "돌아와" | back to where the trip started |
+
+Words the rules don't read go to the LLM with the block in "what you are doing now" (lumi.now_doing); it may answer
+`ACTION: detour retry|around|backup|back` (brain.ACTIONS_STREAM). Each runs as a mission (STOP, pause and questions work as on one), says what it does in one line, and says plainly
+when it still can't ("Sorry, I still can't get through. I can go back if you like."). Without a kept block the
+words keep their usual meaning ("go back" = 1 m back, "try again" = the LLM). Another place named, "come back here",
+"go back a bit", a no or a question are never a detour. The base's API has no call to clear its costmap: a retry
+sends the same goal again. Straight moves ("move forward 2 m") stopped by something are not kept (they say how far
+they got; "again" repeats them).
