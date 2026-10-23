@@ -242,6 +242,7 @@ RELEASE = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright|lumi|루미야?)[\s,.!]+)?(?:
 THANKS = re.compile(r"\bthank(?:s| you)\b|\bthanx\b|\bcheers\b|고마워|고맙|감사|땡큐", re.I)
 DONE_WORDS = re.compile(r"\bthat'?s (?:it|all|enough|everything)\b|\bno,? thanks?\b|\bnothing(?: else)?\b|\benough\b|됐어|됐습니다|"
                         r"그만", re.I)            # "that's it", "됐어요": maybe done; the LLM decides with the talk before
+HI_ANNYEONG = re.compile(r"(?<!히)안녕(?!히)[\s.!~]*$")   # 안녕 is hello or bye: before anything is said, hello
 CLEAR_BYE = re.compile(r"\b(?:bye|bay bay|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|see ya|good night|"
                        r"take care|i (?:have|need) to go|gotta (?:go|run)|i'?m leaving|i'?m off|have a (?:good|nice|great) (?:one|day)|"
                        r"nice (?:talking|meeting|chatting)(?: (?:to|with))? you|(?:was|been) nice to meet you)\b|"
@@ -830,9 +831,15 @@ class Lumi:
         if action in MOVING_ACTIONS and self.mission_running():
             log(f"  {action} refused: on a mission")             # the LLM's action must not take Lumi off its task
             return
-        if action == "look" and target == "me":
-            angle = self.current.angle if self.current else self.voice_angle
-            self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), 10)
+        if action == "look" and target == "me":           # "look at me", "이쪽 봐": the speaker, never just the centre
+            track = self.current if self.current and self.vision and self.vision.present(self.current) else None
+            if self.voice_trusted and (track is None or abs(track.angle - self.voice_angle) > SPEAKER_MATCH_DEG):
+                track = self.vision.near_angle(self.voice_angle) if self.vision else None
+                angle = track.angle if track else self.voice_angle
+            else:
+                track = track or (self.vision.only_person() if self.vision else None)
+                angle = track.angle if track else None      # no idea where they are: the head stays
+            self.turn_head(None if angle is None else HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), 10)
         elif action == "look" and target.split()[0:1] and (target.split()[0] in LOOK or target == "away"):
             self.look(target)
         elif action == "lift":
@@ -1159,7 +1166,7 @@ class Lumi:
         if self.interrupted():
             return True
         u = self.mic.next(0.0)
-        if u is None or not getattr(u, "during_speech", False) or u.seconds < 0.25:
+        if u is None or not getattr(u, "during_speech", False) or u.seconds < 0.25 or mouth.own_voice(u):
             return False
         text = (ears.transcribe(u.mono) or "").strip()
         if not text or self.own_echo(text) or not ears.understood(BARGE_IN_LOGPROB):
@@ -1910,6 +1917,9 @@ class Lumi:
             return False
         if not getattr(u, "during_speech", False) or u.seconds < 0.25:
             return False
+        if mouth.own_voice(u):                           # the speaker's sound in the clip mic (mouth.echo)
+            log(f"  ignored own voice (sound match {mouth.last_echo:.2f})")
+            return False
         text = (ears.transcribe(u.mono) or "").strip()
         if not text or self.own_echo(text):
             return False
@@ -1936,7 +1946,7 @@ class Lumi:
             log(f"  interrupted: {text!r} - stop talking, listen")
             return True
         if len(text.split()) >= 2 or brain_mod.WAKE_WORD_RE.search(text):
-            log(f"  interrupted by a new question: {text!r}")
+            log(f"  interrupted by a new question: {text!r} (sound match {mouth.last_echo and round(mouth.last_echo, 2)})")
             self.pending_text = text
             return True
         return False
@@ -1992,6 +2002,9 @@ class Lumi:
             return True
         self.warm_llm()                                    # the LLM's prompt start cached while they speak
         text, u = ears.listen(wait_s=4.0, on_start=lambda: log("  hearing speech"), abort=self.interrupted, full=True)
+        if text and mouth.own_voice(u):                    # the speaker's sound in the clip mic (mouth.echo)
+            log(f"  ignored own voice (sound match {mouth.last_echo:.2f}): {text!r}")
+            text = None
         if text and self.own_echo(text) and (u is None or (u.during_speech if u.source == "clip"
                                                             else len(text.split()) <= 2)):
             # Lumi heard itself: the clip mic while Lumi talked, or the room's echo of the last word on the head array
@@ -2131,6 +2144,7 @@ class Lumi:
         """Use the sound direction: pick the visible person who spoke; meanwhile collect calibration samples."""
         if not self.vision or u is None:
             return
+        self.voice_trusted = False                         # set again below only from this turn's own sound
         yaw = self.det_yaw()
         only = self.vision.only_person()
         if only is not None and only is self.current and only.distance <= 1.6 and u.seconds >= 0.8:
@@ -2145,6 +2159,7 @@ class Lumi:
         ang, conf, _ = doa.estimate(u.mics, cal)
         if conf < DOA_MIN_CONF:
             return
+        self.voice_angle, self.voice_trusted = HEAD_SIGN * yaw + ang, True   # "이쪽 봐": this voice, also out of view
         t = self.vision.near_angle(HEAD_SIGN * yaw + ang)
         if t is not None and t is not self.current:
             log(f"  voice from {HEAD_SIGN * yaw + ang:+.0f} deg: person #{t.id} is speaking")
@@ -2990,7 +3005,8 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     how = stuck and detour.read(text, markers, stuck["goal"])
     if how:
         return "detour", how
-    plan = chain_ok and chain.plan(text, markers, NOT_A_STEP)
+    hold = brain_mod.not_an_order(text)        # "when the show starts, go to the stage", "Jake, wave", "can you wave?"
+    plan = chain_ok and not brain_mod.not_an_order(text, asked=False) and chain.plan(text, markers, NOT_A_STEP)
     if plan:
         return "chain", plan
     got = seen(text) if seen else None
@@ -2998,6 +3014,9 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
         return "seeing", got
     if status_question(text):
         return "status", None
+    if hold:
+        return (("end", None) if talk_fate(text) == "end" else ("sing", None) if sing.asked(text, last) else
+                (None, None))                  # no motion from a keyword: the LLM reads it from the talk
     cor = brain_mod.correction(text, b.history)
     if cor:
         return "correction", cor
@@ -3009,7 +3028,7 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     read = read_mission(text, markers)
     if read:
         return "mission", read
-    if talk_fate(text) == "end":
+    if talk_fate(text) == "end" and (b.history or not HI_ANNYEONG.search(text)):   # "루미 안녕!" first: hello
         return "end", None
     if sing.asked(text, last):
         return "sing", None

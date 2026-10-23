@@ -24,16 +24,19 @@ SPAN_M = 0.2                 # m; "한 뼘", one hand span; estimate
 STEP_M = 0.5                 # m; one step ("two steps", "한 걸음", "반 걸음"); estimate of a person's step
 TURN_MORE_DEG = 15.0         # deg; "a bit more" right after a turn: this much further the same way
 
-DIRS = (("back", r"\bback(?:wards?)?\b|\bbackward\b|\breverse\b|^(?:let'?s )?(?:bake|big)\b(?= \d| half| a )|뒤로|뒤쪽|후진|"
+DIRS = (("back", r"\bback(?:wards?)?\b(?! down\b)|\bbackward\b|\breverse\b|^(?:let'?s )?(?:bake|big)\b(?= \d| half| a )|뒤로|뒤쪽|후진|"
                  r"물러"),                                    # whisper's "let's bake / big one meter"
         ("forward", r"\bforwards?\b|\bahead\b|앞으로|앞쪽|전진"),
         ("left", r"\b(?:to the |to your )?left\b|왼쪽|좌측"),
         ("right", r"(?<!all )\b(?:to the |to your )?right\b(?! now| away| here| there| back)|오른쪽|우측"))
 VERB = re.compile(r"\b(?:move|go|come|drive|step|scoot|scooch|shift|inch|roll|back (?:up|off)|reverse|get)\b|"
                   r"가|와|이동|움직|물러|빠져|후진|전진|비켜")
-NEAR_THING = re.compile(r"(?:테이블|책상|탁자|의자|소파|문|벽|창문)\s*(?:앞|옆|뒤)")   # "테이블 앞으로": to the table, not forward
-OTHER = re.compile(r"\b(?:look|head|turn|rotate|face|arm|hand|lift|raise|lower|it|this|that|them|those|these|here|there|"
-                   r"home|me|us)\b|\bthe (?!left\b|right\b)|\bgo (?:right )?ahead\b|\bback to (?![\d.])|\b[a-z]+\d+\b|\b[a-z]+(?:_[a-z0-9]+)+\b|고개|머리|팔|손|돌아|돌려|봐|쳐다|들어|올려|내려|"
+NEAR_THING = re.compile(r"(?:테이블|책상|탁자|의자|소파|문|벽|창문)\s*(?:앞|옆|뒤)|"
+                        r"(?<![가-힣])(?!(?:루미야?|조금만?|살짝|다시|그냥|이제|저기요?|여기|거기|약간|천천히|빨리|얼른|어서|그럼|근데|"
+                        r"그리고|좀|더|한|두|세|반|쭉|바로|똑바로|계속|한번|한 번|일단|먼저|자|아주|많이|쪼끔|쬐끔|요만큼|뼘|걸음|발짝|발자국|미터|센티|센치|밀리)만?(?:\s|$))(?:[가-힣]{1,8}|(?<![a-z0-9_.])(?!(?:m|cm|mm|lumi|loomi|rumi|hey|ok|okay|please)\b)[a-z][a-z0-9_]*)\s*"
+                        r"(?:앞|옆|뒤)(?:으?로|쪽|에)")   # "테이블 앞으로", "무대 앞으로 가": to that thing or place, not forward
+OTHER = re.compile(r"\b(?:look|head|turn|spin|rotate|face|arm|hand|lift|raise|lower|it|this|that|them|those|these|here|there|"
+                   r"home|me|us)\b|\bthe (?!left\b|right\b)|\bgo (?:right )?ahead\b|\bback to (?![\d.])|\b[a-z]+\d+\b|\b[a-z]+(?:_[a-z0-9]+)+\b|고개|머리|팔|손|돌아|돌려|봐|보(?:세요|십시오|시오|실래요|자|라|아|여)|볼래|쳐다|들어|올려|내려|"
                    r"여기|저기|이리|집|\S(?:을|를)(?=\s)|도십시오|도세요|\d+(?:\.\d+)? ?도(?=\s|$)|" + NEAR_THING.pattern)
                                                     # the head, an object, a place
                                                     # (p3, dock2, booth_9: a marker as written): not a short drive
@@ -48,6 +51,9 @@ TINY = re.compile(r"\b(?:tiny|teeny|wee|hair|hairs?breadth|smidge|smidgen|tad|to
                   r"\bfew (?:centimet(?:er|re)s|cm)\b|\binch (?:forward|back|left|right|ahead)|"
                   r"살짝|아주 조금|쪼끔|쬐끔|약간|요만큼|조금만 살짝")
 LITTLE = re.compile(r"\b(?:a little|a bit|little bit|bit)\b|조금|좀|쪼금")
+VAGUE = re.compile(r"\b(?:more|less|longer|further|farther|bit more|bit less) than\b|\bto (?:m|meters?|metres?)\b|"
+                   r"\b(?:some|like|uh|um)\s*$|(?<![가-힣])[이삼사오육칠팔구]?[십백][일이삼사오육칠팔구]?\s*(?:만\s*)?"
+                   r"(?:가|와|이동|움직|후진|전진)")   # an amount half said: asked, never a guess
 NUM_WORD = re.compile(r"\b(?:eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
                       r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|dozen|couple|several|few|half)\b")
 
@@ -84,6 +90,10 @@ def direction(t):
 def amount(t):
     """(metres, exact) said in normalised text: exact for a number with a unit ("0.2 m"), else the estimate a vague
     word stands for; (None, False) when no amount is said; ("?", False) for a number without a unit that is read."""
+    if re.search(r"\bquarter of (?:a |an |1 |one )?(?:m|meters?|metres?)\b", t):
+        return 0.25, True                                    # "a quarter of a meter"
+    if VAGUE.search(t):
+        return "?", False                                    # "more than a meter", "to meters" (two?), "move back some"
     m = re.search(r"(?<![\w.])(\d+(?:\.\d+)?) m(?![a-z])", t)
     if m:
         return float(m.group(1)), True
@@ -138,8 +148,9 @@ def read(t, last=None, talking=False):
     | ("look" / "lift", "left small"): "one more" after a look or a lift.
     `last` is the move / speed just before (last_command(history)): "more" / "again" repeat it. With none and
     `talking` (the turn before was conversation) "more" is left to the conversation, else it is asked about."""
+    asked = "?" in (t or "") and not re.search(r"\b(?:can|could|would|will) you\b|\bplease\b|줄래|주세요|줘", t or "")
     t = clean(t)
-    s = speed(t)
+    s = 0 if asked else speed(t)                             # "really? that slow?": a reaction, not an order
     if s:
         return ("speed", s)
     if AGAIN.search(t) or LESS.search(t):
@@ -152,6 +163,10 @@ def read(t, last=None, talking=False):
             side = last[1].split()[0]                        # "a bit more" after "turn left": a little further
             return ("turn", f"{side} {TURN_MORE_DEG:g}") if side in ("left", "right") else ("ask", "")
         return last
+    if last and last[0] == "lift":                           # "too high, go back down", "now back up": the lift
+        m = re.search(r"\bback (up|down)\b|^(?:(?:now|and|then|ok|okay) )*(up|down)(?: (?:again|please))?$", t)
+        if m:
+            return ("lift", m.group(1) or m.group(2))
     if last and last[0] == "move" and re.search(r"\bmore\b|더", t) and direction(t) is None and not JOINED.search(t):
         n, exact = amount(t)                                 # "just a few centimetres more", "10센티 더"
         if n is not None:
@@ -182,7 +197,7 @@ def last_command(history):
     if m.group(1) == "turn":                                 # "turn left" then "again": the same turn
         return ("turn", "around 180" if m.group(2) == "around" else f"{m.group(2)} {m.group(3) or 90}")
     if m.group(1) == "speed":
-        return ("speed", int(m.group(2)))
+        return ("speed", {"faster": 1, "slower": -1}.get(m.group(2)) or int(m.group(2)))
     return ("move", f"{m.group(2)} {m.group(3)}", True) if m.group(3) else None
 
 

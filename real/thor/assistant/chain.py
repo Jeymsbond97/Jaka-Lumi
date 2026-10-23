@@ -18,7 +18,9 @@ _KO_ORDER = {"보": "봐", "흔들": "흔들어", "돌": "돌아", "올리": "�
 ASK = re.compile(r"\?\s*$|^\W*(?:what|what'?s|where|when|who|why|how|which|is|are|do|does|did|tell me|explain|describe)\b|"
                  r"몇 ?시|몇|뭐|무엇|어때|알려|언제|어디|누구|왜|얼마|날씨|설명해|말해 ?줘|얘기해", re.I)
 _SPLIT = re.compile(steps._SPLIT.pattern, re.I)
-_FILL = re.compile(rf"(?:{steps._FILL}|루미야?|lumi|hey)", re.I)
+FETCHING = re.compile(r"\b(?:bring|fetch|deliver|carry)\b|가져|갖다", re.I)   # a part that carries something somewhere
+_FILL = re.compile(rf"(?:{steps._FILL}|루미야?|lumi|hey|do me a favou?r|부탁(?:해|해요|할게)?|dear|sir|ma'?am|madam|buddy|"
+                   r"my friend|robot|로봇아?|선생님?)", re.I)
 
 
 def _rule(words, markers):
@@ -27,6 +29,10 @@ def _rule(words, markers):
     if not rule:
         ko = re.sub(r"(보|흔들|돌|올리|내리|높이|낮추|들)고$", lambda m: _KO_ORDER[m.group(1)], words)
         rule = brain.intent(ko, markers) if ko != words else None
+    m = not rule and re.fullmatch(r"(?:(나|저|날|나를|저를)\s+)?([a-z][a-z ]*?)\s*(?:하고|해|해요|해 ?줘)?", words.strip())
+    if m:                                                # Konglish: "나 look 하고" -> "look at me", "wave 해" -> "wave"
+        en = m.group(2) + ((" at me" if m.group(2) == "look" else " me") if m.group(1) else "")
+        rule = brain.intent(en, markers)
     return rule
 
 
@@ -56,12 +62,17 @@ def plan(text, markers=(), cant=None):
         rule = _rule(p, markers)
         if got and not unread and not (rule and rule[0] in ("look", "lift", "wave", "come", "come_back", "follow")):
             out.append(["steps", p, got])
+        elif rule and rule[0] == "fetch" or FETCHING.search(p):
+            return None                                  # "go to the exit and bring an orange back": a fetch, whole
         elif rule and rule[0] in QUICK:
             out.append(["quick", p, rule])
         elif ASK.search(p) or rule and rule[0] in ("weather", "search") or cant is not None and cant.match(p):
             out.append(["talk", p, None])
         else:
             return None
+    out = [x for i, x in enumerate(out) if not (i and x[0] == "quick" and x[0::2] == out[i - 1][0::2])]
+    if len(out) < 2:
+        return None                                      # "wave, wave, wave!": one wave, said with feeling
     kinds = [k for k, _, _ in out]
     if "talk" not in kinds and "quick" not in kinds or "steps" not in kinds and "quick" not in kinds:
         return None                                      # all steps: a mission (read back); all talk: the LLM

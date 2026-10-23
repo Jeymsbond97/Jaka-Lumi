@@ -16,7 +16,7 @@ Cutshion is a young startup (founded in 2022, a certified venture business). Cut
 
 Cutshion awards: RoboWorld Award 2023 in robot services for GOMCOOK, RoboWorld Award 2024 in manufacturing robots for the mobile welding robot, the Excellence Award at the Venturium Demo Day (May 2026), and the VivaTech Tech for Change Award in Paris (June 2026).
 
-Cutshion exhibitions: RoboWorld in Korea (2022, 2023), IFA Berlin (2023), Gangnam Robot Plus Festival (2023, 2024), Smart Life Week (2024), Korea ICT Expo in Japan (2024), CES in Las Vegas (2025 and 2026), the NRA Show in Chicago (2026) and VivaTech in Paris (2026).
+Cutshion exhibitions: RoboWorld in Korea (2022, 2023), IFA Berlin (2023), Gangnam Robot Plus Festival (2023, 2024), Smart Life Week (2024), Korea ICT Expo in Japan (2024), CES in Las Vegas (2025 and 2026), the NRA Show in Chicago (2026) and VivaTech in Paris (2026). These are past shows; which exhibition Cutshion goes to next, and when, is not known to Lumi. 쿳션의 다음 전시회는 몰라요.
 
 Cutshion partners listed on its website include OMRON, Zimmer Group Korea, Screen HD Korea, Daesung Industrial, BorgWarner, THIRA Robotics, Calmantech, Sinsung F.A, Hyunwoo Automation, Deeplant, BizData, Ikseon 121, WithinNet, Cho & Company, Oldmug, Cake Drama and Bogate.
 
