@@ -35,7 +35,10 @@ ROOT = Path(__file__).resolve().parents[1]      # the project folder
 CAMERAS = ("head", "torso")      # the head camera watches people; the torso camera the table and the hands from below
 FRESH_S = 1.5                    # s; older detections are not "now"
 WAIT_S = 1.2                     # s to wait for a fresh detection when the camera service runs slow (idle: 1 per s)
+SINCE_WAIT_S = 2.0               # s to wait for a detection made after the question (idle service: 1 per s, woken)
 DEPTH_AGE_S = 2.0                # s; depth frames are written every 0.5 s
+DEPTH_BEFORE_S = 0.5             # s; with `since`, depth written at most this long before the question (a hand that
+                                 # moved while asking is measured where it is, else no depth: the colour-only checks)
 FRONT_M = 3.0                    # m; the person "in front" is nearer than this
 SIDE_DEG = 15.0                  # deg; a thing further left / right than this is "on my left / right"
 SAME_DEG, SAME_M = 8.0, 0.35     # two cameras' detections closer than this (angle, distance) are the same thing
@@ -70,6 +73,9 @@ THIGH = (0.1, 0.6)               # the trousers colour from this part of hip -> 
 LEG_W = 0.35                     # thigh band width as a part of the hip keypoint distance
 FOOT = (0.05, 0.35)              # the shoe: this part of the shin length past the ankle, away from the knee
 FOOT_W = 0.3                     # shoe band width as a part of the shin length
+SKIN_R = 6                       # px; half size of the face patch at the nose that gives the skin colour
+SKIN_HUE, SKIN_SAT = 6, 50       # a held thing's pixels this close to the skin (HSV hue, saturation) are the hand
+SKIN_KEEP = 0.3                  # ... unless fewer than this part of the box is left (estimates, not yet measured live)
 WHITE_VS_SKIN = 1.2              # "grey" clothes this much brighter than the face are white in shade or against a
                                  # bright window (a white shirt read V 107 by a nose at 70, 2026-10-21)
 VLM_MODEL = "gemma4:26b"         # multimodal; the conversation model, already loaded
@@ -94,25 +100,31 @@ def _transform(camera, d):
     return None
 
 
-def snapshot(cameras=CAMERAS):
-    """[{camera, color, depth (mm uint16 or None), people, objects, head_yaw, intr, T}] of the cameras now."""
+def snapshot(cameras=CAMERAS, since=None):
+    """[{camera, color, depth (mm uint16 or None), people, objects, head_yaw, intr, T}] of the cameras now.
+    since: a time.time(); only detections made after it count (a question is answered from frames taken after it
+    was asked, not from the second before, while the hand still moved). A camera without one is left out."""
     for c in cameras:
         camview.want(c)                       # wakes an idle camera service to full speed
     frames = []
     for c in cameras:
-        end = time.time() + WAIT_S
+        end = time.time() + (SINCE_WAIT_S if since else WAIT_S)
+
+        def fresh(d):
+            return d and time.time() - d["time"] < FRESH_S and (since is None or d["time"] >= since)
         while True:
             try:
                 d = json.loads(camview.det_path(c).read_text())
             except (FileNotFoundError, ValueError):
                 d = None
-            if (d and time.time() - d["time"] < FRESH_S) or time.time() > end:
+            if fresh(d) or time.time() > end:
                 break
             time.sleep(0.05)
         color = cv2.imread(str(camview.raw_path(c)))
-        if d is None or color is None or time.time() - d["time"] > FRESH_S:
+        if not fresh(d) or color is None:
             continue
-        frames.append({"camera": c, "color": color, "depth": camview.depth(c, DEPTH_AGE_S), "people": d["people"],
+        age = DEPTH_AGE_S if since is None else min(DEPTH_AGE_S, time.time() - since + DEPTH_BEFORE_S)
+        frames.append({"camera": c, "color": color, "depth": camview.depth(c, age), "people": d["people"],
                        "objects": d["objects"], "head_yaw": d.get("head_yaw") or 0.0,
                        "intr": camview.intrinsics(c), "T": _transform(c, d)})
     return frames
@@ -269,8 +281,32 @@ def _hand_boxes(f, cx, cy):
     return [(a + x1, b + y1, c + x1, d + y1, sc, cl) for a, b, c, d, sc, cl in boxes]
 
 
-def _held(f, kp, side, body_h):
-    """{position_mm, distance_m, object} for one hand, or None when the wrist is not seen."""
+def _skin(f, kp):
+    """(hue, saturation) medians of the face around the nose (HSV), or None: the hand holding a thing has this colour."""
+    nose = pose.seen(kp, "nose")
+    if nose is None:
+        return None
+    x, y = int(nose[0]), int(nose[1])
+    patch = f["color"][max(0, y - SKIN_R):y + SKIN_R, max(0, x - SKIN_R):x + SKIN_R]
+    if patch.size == 0:
+        return None
+    hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV).reshape(-1, 3)
+    return float(np.median(hsv[:, 0])), float(np.median(hsv[:, 1]))
+
+
+def _thing_colour(px, skin):
+    """Colour of a held thing's box pixels without the hand's skin (a grey phone in a hand read "orange", 2026-10-22);
+    the box as it is when the skin leaves too little (an orange thing itself)."""
+    if skin is None or len(px) == 0:
+        return objects.colour_name(px)
+    hsv = cv2.cvtColor(px.reshape(-1, 1, 3).astype(np.uint8), cv2.COLOR_BGR2HSV).reshape(-1, 3).astype(np.float32)
+    dh = np.abs(hsv[:, 0] - skin[0])
+    keep = ~((np.minimum(dh, 180 - dh) <= SKIN_HUE) & (np.abs(hsv[:, 1] - skin[1]) <= SKIN_SAT))
+    return objects.colour_name(px[keep] if keep.mean() >= SKIN_KEEP else px)
+
+
+def _held(f, kp, side, body_h, skin=None):
+    """{position_mm, distance_m, object} for one hand, or None when the wrist is not seen. skin: _skin()."""
     wr, el = pose.seen(kp, f"{side}_wrist"), pose.seen(kp, f"{side}_elbow")
     if wr is None:
         return None
@@ -301,6 +337,8 @@ def _held(f, kp, side, body_h):
         if f["depth"] is not None and (z is None or m["distance_m"] is None or
                                        abs(m["distance_m"] - z / 1000) > HAND_DEPTH_M):
             continue                                            # behind or before the hand: not in it
+        if skin is not None:
+            m["colour"] = _thing_colour(f["color"][int(y1):int(y2), int(x1):int(x2)].reshape(-1, 3), skin)
         o = {"name": name, "colour": m["colour"], "score": round(float(score), 2), "box": (x1, y1, x2, y2),
              "distance_m": m["distance_m"], "position_mm": m.get("position_mm"), "width_mm": m.get("width_mm")}
         if best is None or (gap, -score) < best[0]:
@@ -433,7 +471,8 @@ def _describe_person(f, p):
         chest = (chest[0], chest[1] + 0.3 * (np.mean([h[1] for h in hips if h]) - chest[1]))
     z = _depth_at(f, *chest, r=3 * DEPTH_R)
     raised, pointing = _gesture(kp)
-    hands = {s: _held(f, kp, s, body_h) for s in ("left", "right")}
+    skin = _skin(f, kp)
+    hands = {s: _held(f, kp, s, body_h, skin) for s in ("left", "right")}
     out = {"camera": f["camera"], "box": p["box"], "distance_m": None if z is None else round(z / 1000, 2),
            "bearing_deg": _bearing(f, chest[0]), "position_mm": _mm(_to_base(f, chest[0], chest[1], z)),
            "facing": _facing(kp), "raised": raised, "pointing": pointing,
@@ -497,6 +536,19 @@ def _front(frames):
         if me["facing"] is None:
             me["facing"] = other["facing"]
     return me
+
+
+def other_person(frames=None):
+    """The nearest person in view other than the one in front (another bearing), described as person_in_front, or
+    None: "what is my friend wearing?"."""
+    frames = snapshot() if frames is None else frames
+    me = _front(frames)
+    if me is None:
+        return None
+    for p in _persons(frames):
+        if abs(p["bearing_deg"] - me["bearing_deg"]) > _same_deg(me["distance_m"]):
+            return _public(p)
+    return None
 
 
 def person_in_front(frames=None):

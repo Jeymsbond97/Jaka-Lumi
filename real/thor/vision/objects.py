@@ -31,6 +31,8 @@ MAX_POINTS = 4000            # depth pixels used per object (random subset)
 MID_BAND = (0.3, 0.7)        # width is measured on this height band of the object (the table edge stays out)
 EDGE_PCT = (1, 99)          # percentiles taken as the object's edges (robust to stray depth pixels)
 MIN_SATURATION = 50          # HSV S below this is white / grey / black
+DARK_V = 60                  # HSV V below this has no hue the camera can tell (black trousers: V ~48, S ~95, read
+                             # "blue"; blue jeans V ~90, 2026-10-22)
 EDGE_PX = 4                  # a box this close to the bottom of the frame is cut off: height and centre z unknown
 STALE_S = 1.5                # s; an older detection file means the camera service is not live
 SURE_SCORE = 0.35            # a box scoring less (person.WEAK_SCORE) is kept only when depth measures this size there:
@@ -85,10 +87,10 @@ def colour_name(bgr_pixels):
     if len(bgr_pixels) == 0:
         return None
     hsv = cv2.cvtColor(bgr_pixels.reshape(-1, 1, 3).astype(np.uint8), cv2.COLOR_BGR2HSV).reshape(-1, 3)
-    vivid = hsv[hsv[:, 1] >= MIN_SATURATION]
+    vivid = hsv[(hsv[:, 1] >= MIN_SATURATION) & (hsv[:, 2] >= DARK_V)]
     if len(vivid) < 0.25 * len(hsv):
         v = np.median(hsv[:, 2])
-        return "white" if v > 170 else "black" if v < 60 else "grey"
+        return "white" if v > 170 else "black" if v < DARK_V else "grey"
     hist = np.bincount(vivid[:, 0], minlength=181)
     hist[:8] += hist[170:].sum()                      # red wraps around 0
     hist[170:] = 0
