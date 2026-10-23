@@ -99,6 +99,14 @@ def dock_marker():
     return min(docks)[1] if docks else None
 
 
+def marker_xy(name):
+    """(x, y) of a marker on the map ("home" = the dock marker), None when there is no such marker."""
+    name = (dock_marker() or DOCK_FALLBACK) if name == "home" else name
+    m = (request("/api/markers/query_list").get("results") or {}).get(name) or {}
+    p = (m.get("pose") or {}).get("position")
+    return (p["x"], p["y"]) if p else None
+
+
 def markers():
     """Marker names on the current map; the dock marker is called "home"."""
     names = list((request("/api/markers/query_brief").get("results") or {}).keys())
