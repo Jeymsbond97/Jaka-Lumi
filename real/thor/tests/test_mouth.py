@@ -25,4 +25,32 @@ assert llm_direct.render([{"role": "system", "content": "S"}, {"role": "user", "
 # a prefill (system + turns) is the start of the next prompt, so the runner's cache holds it
 start = [{"role": "system", "content": "S"}, {"role": "user", "content": "Q"}, {"role": "assistant", "content": "A"}]
 assert llm_direct.render(start + [{"role": "user", "content": "Q2"}]).startswith(llm_direct.render(start, reply=False))
-print(f"ok: {len(CUTS)} cuts, the prompt, the prefill")
+
+# Lumi's own voice in the clip mic (mouth.echo): what the speaker played 0.4 s earlier, quieter, with noise -> high; a
+# visitor's sound over it -> low; a sound after Lumi stopped -> no judgement. Speech-like test sounds: noise with a
+# syllable-rate envelope in each of four bands (tests/echo_check.py uses real TTS)
+import numpy as np                                                       # noqa: E402
+rng = np.random.default_rng(0)
+
+
+def voice(seconds):
+    n = int(seconds * 16000)
+    out = np.zeros(n, np.float32)
+    for lo, hi in [(200, 600), (600, 1200), (1200, 2400), (2400, 4000)]:
+        spec = np.fft.rfft(rng.standard_normal(n))
+        f = np.fft.rfftfreq(n, 1 / 16000)
+        spec[(f < lo) | (f > hi)] = 0
+        env = np.repeat(rng.uniform(0, 1, n // 1600 + 1) ** 2, 1600)[:n]   # a new level every 0.1 s
+        out += np.fft.irfft(spec, n).astype(np.float32) * env
+    return out / np.abs(out).max() * 0.5
+
+
+played, other = voice(3.0), voice(2.0)
+mouth._played.clear()
+mouth._played.append([100.0, 103.0, played])                             # played from t = 100 s to 103 s
+heard = played[8000:40000] * 0.3 + rng.standard_normal(32000).astype(np.float32) * 0.005   # 0.5-2.5 s of it, 0.4 s late
+assert mouth.echo((heard * 32767).astype(np.int16), 102.9) >= mouth.ECHO_MIN
+visitor = other * 0.5 + played[8000:40000] * 0.05                       # a visitor close to the mic, Lumi 20 dB lower
+assert mouth.echo((visitor * 32767).astype(np.int16), 102.9) < mouth.ECHO_MIN
+assert mouth.echo((heard * 32767).astype(np.int16), 106.0) is None       # said 1 s after Lumi stopped
+print(f"ok: {len(CUTS)} cuts, the prompt, the prefill, own voice")
