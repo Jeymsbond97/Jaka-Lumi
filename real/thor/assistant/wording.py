@@ -52,8 +52,14 @@ NAMED = [   # other markers on the map, as said / as whisper writes them -> the 
 # English words of marker names as people say them in Korean: plain transliterations only, never a translation
 KO_SPOKEN = {"start": ["스타트"], "end": ["엔드"], "final": ["파이널", "화이널"], "middle": ["미들"], "home": ["홈"],
              "stage": ["스테이지"], "booth": ["부스"], "table": ["테이블"], "front": ["프론트", "프런트"],
-             "init": ["이닛", "이니트"], "exit": ["엑시트", "엑싯"], "dock": ["도크"], "point": ["포인트"]}
-KO_NOT_ALONE = {"table", "point"}     # "테이블에 놔" is the table, "포인트" a p-number: Korean form only inside a longer name
+             "init": ["이닛", "이니트"], "exit": ["엑시트", "엑싯"], "dock": ["도크"], "point": ["포인트"],
+             "coffee": ["커피"], "corner": ["코너"], "info": ["인포"], "desk": ["데스크"], "gate": ["게이트"],
+             "hall": ["홀"], "zone": ["존"], "photo": ["포토"], "lounge": ["라운지"], "lobby": ["로비"], "room": ["룸"],
+             "demo": ["데모"], "main": ["메인"], "cafe": ["카페"], "area": ["에어리어"], "center": ["센터"],
+             "entrance": ["엔트런스"], "finish": ["피니시", "피니쉬"], "lab": ["랩"], "office": ["오피스"],
+             "a": ["에이"], "b": ["비"], "c": ["씨"], "d": ["디"]}   # letters only inside a longer name ("부스 에이")
+KO_NOT_ALONE = {"table", "point", "a", "b", "c", "d"}   # "테이블에 놔" is the table, "포인트" a p-number, "비" rain:
+                                                    # the Korean form only inside a longer name
 NOT_SLIPS = {"point", "marker", "here", "there", "me", "home", "table", "left", "right", "back", "front", "it", "them"}
 CLOSE = 0.8                           # difflib ratio for a whisper slip of a marker name ("stagee" -> stage)
 
@@ -190,7 +196,10 @@ def close_names(word, names):
     same digits ("booth3" is not booth_2, "p12" not p1). Several back: ask which one."""
     if len(_key(word)) < 3 or word in NOT_SLIPS:
         return []
-    by = {_key(n): n for n in names if re.findall(r"\d+", n) == re.findall(r"\d+", word)}
+    by = {_key(n): n for n in names if re.findall(r"\d+", n) == re.findall(r"\d+", word)
+          and _key(n)[:1] == _key(word)[:1] and abs(len(_key(n)) - len(_key(word))) <= 1}
+                                                         # whisper keeps the first sound and the length: "send" is no
+                                                         # slip of "end", "stage" none of "storage"
     return [by[k] for k in difflib.get_close_matches(_key(word), by, n=3, cutoff=CLOSE)]
 
 
@@ -202,18 +211,32 @@ def _spoken(name):
     for tok in toks:
         alts = [tok] + (KO_SPOKEN.get(tok, []) if len(toks) > 1 or tok not in KO_NOT_ALONE else [])
         if tok.isdigit():
-            alts += [w for w, n in {**EN_NUM, **KO_EN_NUM}.items() if n == int(tok)]
-        parts.append("(?:" + "|".join(sorted(map(re.escape, alts), key=len, reverse=True)) + ")")
+            alts += [w for w, n in {**EN_NUM, **KO_EN_NUM, **(SINO if len(toks) > 1 else {})}.items() if n == int(tok)]
+                                                         # "부스 삼"; a lone "이" / "오" is a word, not 2 / 5
+        alts = sorted(map(re.escape, alts), key=len, reverse=True)
+        if re.fullmatch(r"[가-힣]{3,}", tok):
+            alts.insert(0, r"\s?".join(tok))           # Korean words said or written apart: "커피 코너" for 커피코너
+        parts.append("(?:" + "|".join(alts) + ")")
     return rf"(?<![a-z0-9_가-힣])" + r"[\s_.-]*".join(parts) + rf"(?![a-z0-9_])(?:(?<=[a-z0-9])|{_KO_END})"
 
 
+def written(name):
+    """A marker name as norm() writes it: one word, lower case ("Coffee Corner" -> "coffee_corner")."""
+    return re.sub(r"\s+", "_", name.strip().lower())
+
+
+def marker(word, names):
+    """The marker of the map written as `word` in normalised text ("coffee_corner" -> "Coffee Corner"), or None."""
+    return next((n for n in names if written(n) == word), None)
+
+
 def map_names(t, names):
-    """Marker names of this map in normalised text written as the names (lower case), then one-name slips after a
+    """Marker names of this map in normalised text written as the names (written()), then one-name slips after a
     place word ("to the stagee")."""
     names = [n for n in names if not re.fullmatch(r"p\d+", n.lower())]       # p-numbers: markers() above
     for n in sorted(names, key=len, reverse=True):
-        t = re.sub(_spoken(n), n.lower(), t)
-    known = {n.lower() for n in names}
+        t = re.sub(_spoken(n), written(n), t)
+    known = {written(n) for n in names}
 
     def slip(m):
         for w in (m.group(2).split()[0], m.group(2)):          # one word, then two ("table fronts")
@@ -221,7 +244,7 @@ def map_names(t, names):
                 break
             close = close_names(w, names)
             if len(close) == 1:
-                return m.group(1) + close[0].lower() + m.group(2)[len(w):]
+                return m.group(1) + written(close[0]) + m.group(2)[len(w):]
         return m.group(0)
     return re.sub(r"(\b(?:to|from|at|toward|towards) (?:the )?)([a-z][a-z0-9_]*(?: [a-z0-9]+)?)", slip, t)
 
@@ -231,6 +254,10 @@ ASR_SLIPS = [   # how whisper writes Korean commands (tests/asr_check.py, 2026-1
     (r"(?<=로)\s*가죠(?![가-힣])", " 가 줘"),                        # "p3로 가 줘" written "p3로 가죠"
     (r"\blook (?:last|lest|less)(?=[\s.!,]*$)", "look left"), (r"\bdoc t\b", "dock 2"),     # said at the end
     (r"고게(?=\s*(?:들|숙))", "고개"), (r"찝어", "집어"), (r"파이나(?=\s*(?:갔|가|로))", "파이널"),
+    # the owner's English as whisper wrote it live (logs/lumi.log 2026-10-21 / 22)
+    (r"\bcount to(?= p\s?\d)", "come to"),                       # "Let's count to p5."
+    (r"\b(?:go )?(?:copy|pick) (\d+|one|two|three|four|five|six|seven|eight|nine|ten) point\b", r"go to p\1"),
+    (r"\bfall(?:ow)? (?:lonely|of him)\b", "follow me"),         # "Let's fall lonely.", "Let's fall of Him."
 ]
 
 
@@ -240,7 +267,8 @@ def norm(text, names=()):
     t = " " + (text or "").lower().replace("’", "'") + " "
     for slip, said in ASR_SLIPS:
         t = re.sub(slip, said, t)
-    return re.sub(r"\s+", " ", map_names(markers(numbers(t)), names)).strip()
+    return re.sub(r"\s+", " ", markers(map_names(numbers(t), names))).strip()   # the map's names first: "booth 3 point"
+                                                                                # is booth_3, not "booth p3"
 
 
 if __name__ == "__main__":

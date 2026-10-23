@@ -10,7 +10,7 @@ Behaviour
 - Every person the camera sees gets a track (an ID followed from frame to frame).
 - A new person who stays in the greeting zone is greeted once: Lumi turns its head to them and says hello
   (a greeting never moves the arm). A second person who arrives is greeted the same way, then the talk goes on.
-- While a greeted person stays but says nothing, after PROMPT_S of silence it asks "How can I help you?" (at most MAX_PROMPTS times).
+- While a greeted person stays but says nothing, Lumi says nothing more (MAX_PROMPTS 0): it never speaks by itself.
 - When the person disappears from the camera (LOST_S), listening and speaking stop at once.
   Someone who comes back later is a new visit and is greeted again.
 - Voice commands (English / Korean): go to <marker>, go home, look left/right/up/down/center, wave, stop. The arm
@@ -73,6 +73,7 @@ from robot import agv
 from robot import arm
 from assistant import brain as brain_mod
 from assistant import driving
+from assistant import detour
 from assistant import abilities
 from assistant import battery
 from assistant import voice_words
@@ -105,7 +106,8 @@ FACE_WAIT_S = 1.0                  # s after HOLD_S Lumi waits for those faces a
                                    # 2026-10-21: 6 of 8 returns had 3 good faces within 1.7 s, the other two after 5 s
 LOST_S = 2.0                       # s not seen -> the person is gone (detections can miss a few frames)
 PROMPT_S = 12.0                    # s of silence before "How can I help you?"
-MAX_PROMPTS = 2
+MAX_PROMPTS = 0                    # Lumi never speaks into a silence by itself: the greeting asked already (owner,
+                                   # 2026-10-22: "How can I help you?" twice to someone standing silent)
 TOO_CLOSE = 0.45                   # m, a running wave is stopped
 MATCH_DEG = 12.0                   # a detection belongs to the track with the closest angle within this ...
 MATCH_DEG_PER_M = 10.0             # ... where each m of distance difference counts as this many deg: two people at
@@ -222,10 +224,12 @@ FOREIGN_SCRIPT = re.compile(r"[\u0400-\u04ff\u4e00-\u9fff\u3040-\u30ff]")   # Cy
 UNSURE_LOOKUP = False      # look up what the model says it is not sure of: on for gemma4:e4b, which said "not sure"
                            # instead of choosing search; gemma4:26b chooses search itself, and its "not sure" answers
                            # (2026-10-19 checks: 11 of 11) were about Lumi, Cutshion or the venue, never a lookup
-NOT_KNOWN = {"en": ["I'm sorry, I don't have that information. A staff member can help you.",
+NOT_KNOWN = {"en": ["I don't have exact information about that. A staff member can tell you.",
+                    "I'm sorry, I don't have that information. A staff member can help you.",
                     "That one I don't know, sorry. A staff member here can tell you.",
                     "I'm not sure about that. Please ask a staff member."],
-             "ko": ["죄송해요, 그 정보는 없어요. 직원분께 여쭤봐 주세요.",
+             "ko": ["그건 정확한 정보가 없어요. 직원분께 여쭤봐 주세요.",
+                    "죄송해요, 그 정보는 없어요. 직원분께 여쭤봐 주세요.",
                     "그건 저도 잘 몰라요. 직원분께 물어봐 주시겠어요?",
                     "아쉽지만 그건 제가 알 수 없어요. 직원분이 알려 드릴 거예요."]}   # said when a lookup is refused
 
@@ -353,7 +357,8 @@ def safe(fn, *args, default=None):
         return default
 
 
-NOISE_WORDS = re.compile(r"\W*(?:u+m+|h?m+|uh+|ah+|oh+|boom|beep|ding|bang|pop|knock|음+|어+|아+)\W*", re.I)   # whisper for room sounds
+NOISE_WORDS = re.compile(r"\W*(?:u+m+|h?m+|uh+|ah+|oh+|ahem|a?choo|cough|boom|beep|ding|bang|pop|knock|음+|어+|아+|크?흠+|큼+|"
+                         r"콜록\S*|에?[취츄]|엣취)\W*", re.I)   # whisper for room sounds
 _doa_fit = threading.Lock()        # one sound-direction refit at a time
 
 class Track:
@@ -850,6 +855,9 @@ class Lumi:
         elif action == "come_back":
             if self.modes.drive:
                 self.come_back()
+        elif action == "detour":                                     # the model read it from now_doing's block
+            if target in detour.SAY:
+                self.detour(target, speak=False)
         elif action == "arm":
             self.arm_pose(target)
         elif action in ("pick", "put", "move_object"):
@@ -939,7 +947,7 @@ class Lumi:
         now. True if handled here."""
         from tasks import fetch
         hist = self.brain.history
-        t = brain_mod._norm(text)
+        t = brain_mod._norm(text, self.markers)            # "come back booth 9" is a place, not 9 of something back
         got = driving.read(t, driving.last_command(hist), driving.talking(hist))
         if not got or got[0] not in ("speed", "look") and (self.mission_running() or got == driving.read(t, None, True)
                                                          and got[0] == "move"):
@@ -1383,6 +1391,12 @@ class Lumi:
             name = "my charging dock" if to == "home" or self.patrol.mode == "going_home" else \
                 to if isinstance(to, str) else "the point I was sent to"
             en, ko = f"I'm driving to {name}.", "충전소로 가는 중이에요." if "dock" in name else f"{name} 위치로 가는 중이에요."
+        elif detour.recent():                          # the LLM reads "find a way" / "you can go now" from this
+            goal = detour.recent()["goal"]
+            name = brain_mod.place_said(goal) if isinstance(goal, str) else "the point I was sent to"
+            en, ko = (f"My last drive, to {name}, was blocked: something was in the way and I stopped. I can try again, "
+                      f"try another way, or go back.",
+                      f"{name}(으)로 가다가 길이 막혀서 멈췄어요. 다시 가거나, 다른 길로 가거나, 돌아갈 수 있어요.")
         elif held:
             en, ko = f"I'm holding {held} and waiting for what to do with it.", "물건을 들고 다음 지시를 기다리고 있어요."
         else:
@@ -1808,6 +1822,7 @@ class Lumi:
         if remember:
             from tasks import fetch
             fetch._task["trip_from"] = safe(agv.pose) or fetch._task["trip_from"]
+        detour.forget()                                   # a new trip: "try again" no longer means a blocked one
         if self.patrol:
             self.patrol.pause()
         self.patrol = Patrol(list(target) if isinstance(target, list) else [target], once=True, pause_s=pause_s)
@@ -1909,6 +1924,10 @@ class Lumi:
         if not ears.understood(BARGE_IN_LOGPROB):        # unclear while Lumi talks = mostly Lumi's own voice
             log(f"  ignored while talking (unclear): {text!r}")
             return False
+        if seeing.recheck(text):                         # "Really?", "진짜?", "Now?" right after a seeing answer
+            log(f"  interrupted by a check of what I see: {text!r}")
+            self.pending_text = text
+            return True
         if brain_mod.is_backchannel(text) and "?" not in text and not THANKS.search(text) and \
                 (brain_mod.UNDERSTOOD.search(text) or not brain_mod.is_closing(text)):
             log(f"  back-channel while talking: {text!r} - go on")   # "uh huh", "I see", "그렇구나": listening
@@ -1985,8 +2004,10 @@ class Lumi:
             log(f"  ignored a sound: {text!r}")
             text = None
         if not text and self.closing_pending and time.time() - self.closing_pending > CLOSING_WAIT_S:
-            log("  silence after a closing word - conversation over")
-            self.end_conversation("okay")
+            from tasks import follow                       # following: "okay" was to the follow, no goodbye
+            here = (self.current is not None or self.vision is None or self.vision.anyone_near()) and not follow.running()
+            log(f"  silence after a closing word - conversation over{'' if here else ', nobody here or following: no goodbye'}")
+            self.end_conversation("okay", quiet=not here)
             return False
         if not text or self.interrupted():
             if not self.interrupted():
@@ -2020,8 +2041,55 @@ class Lumi:
             if why:
                 mouth.say(why[0] if self.lang == "en" else why[1])
                 return
-            name = "my charging dock" if target == "home" else target
-            mouth.say(f"Sorry, I can't find a way to {name}. Something may be blocking the path.")
+            if self.patrol.once:                       # kept for "try again", "go around it", "go back" (detour)
+                from tasks import fetch
+                to = target if isinstance(target, str) else list(target)
+                detour.remember(to, [{"do": "go", "to": to}], fetch._task["trip_from"] and list(fetch._task["trip_from"]))
+            if self.lang == "en":
+                name = "my charging dock" if target == "home" else brain_mod.place_said(target) \
+                    if isinstance(target, str) else "there"
+                mouth.say(f"Sorry, I can't find a way to {name}. Something may be blocking the path.")
+            else:
+                name = "충전소로" if target == "home" else f"{brain_mod.place_said(target)}(으)로" \
+                    if isinstance(target, str) else "그곳으로"
+                mouth.say(f"죄송해요, {name} 가는 길을 못 찾겠어요. 뭔가 길을 막고 있는 것 같아요.")
+
+    def detour(self, how, speak=True):
+        """"try again" / "back up and try again" / "go around it" / "go back" after a blocked drive (assistant/detour.py):
+        said in one line, then driven by the task runner (tasks/fetch.detour: the arm in look, STOP and pause work as
+        on a mission). speak False: the LLM has said its own words. True when handled."""
+        from tasks import fetch
+        stuck = detour.recent()
+        if stuck is None:
+            return False
+        if self.base_off("go_to"):
+            return True
+        en = self.lang == "en"
+        if not self.modes.drive:
+            mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
+            return True
+        if how == "back":
+            if not stuck.get("start"):
+                self.fetch_say(*detour.NO_START)
+                self.keep_listening()
+                return True
+            steps, tries = [{"do": "go", "to": stuck["start"]}], 0
+        else:
+            steps, tries = stuck["rest"], stuck.get("tries", 0) + 1
+        if self.patrol:
+            self.patrol.pause()
+            self.patrol.mode = "done"
+        self.stay()
+        log(f"  detour {how}: {steps}")
+        try:
+            fetch.detour(steps, how, say=self.fetch_say, tries=tries)
+        except fetch.FetchError as e:
+            self.fetch_say(e.args[0], e.args[1] if len(e.args) > 1 else "죄송해요, 지금은 할 수 없어요.")
+            return True
+        if speak:
+            self.brain.history.append((self.heard, f"ACTION: detour {how}"))
+            self.fetch_say(*detour.SAY[how])
+        return True
 
     def followed_speaks(self, u):
         """While following: does the voice come from the person followed (the sound direction against their angle
@@ -2295,6 +2363,14 @@ class Lumi:
         return True
 
     def answer(self, text, part=False):
+        """_answer, and what was said by code in that turn (a refusal, a fixed reply, a place not on the map) kept in
+        the talk like the model's answers: "why?" / "really?" / "왜요?" next goes on from it."""
+        h, n, t0 = self.brain.history, len(self.brain.history), time.time()
+        self._answer(text, part)
+        if h is self.brain.history and len(h) == n:        # nothing kept by the turn, and the talk did not end
+            keep_said(self.brain, text, mouth.recent_speech(time.time() - t0))
+
+    def _answer(self, text, part=False):
         """Stream the LLM reply: act on the action line, speak sentence by sentence.
         Clear commands (go home, go to p1, come here, be quiet...) are done at once without the LLM.
         part: one part of a sentence of several (chain_run); otherwise a chain still running ends here."""
@@ -2351,6 +2427,8 @@ class Lumi:
                            last=last, chain_ok=not part and not self.mission_running() and not self.chain_busy())
         if kind == "stop":
             self.stop_all()                                # "stop", "stop, where are you going?": stop first, always
+            return
+        if kind == "detour" and self.detour(data):         # after a blocked drive: "try again", "다른 길로 가 봐"
             return
         if kind == "chain" and self.chain_request(text, data):   # "look at me and wave", "go to p5 and tell me the weather"
             return
@@ -2898,14 +2976,20 @@ NOT_A_STEP = re.compile(r"^\W*(?:(?:please|and|then|also)\s+)*(?:dance|jump|fly|
 
 def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     """Which way a command goes, the same for voice (Lumi.answer), the dashboard's Command box (/tasks/parse) and
-    tests/command_check: (kind, data). Kinds in this order: "stop"; "chain" (data: chain.plan); "seeing" (data: what
+    tests/command_check: (kind, data). Kinds in this order: "stop"; "detour" (data: assistant/detour.read's
+    "retry" / "backup" / "around" / "back", only right after a blocked drive); "chain" (data: chain.plan); "seeing" (data: what
     seen(text) answered); "status"; "correction" (brain.correction); "hand" ((kind, what), brain.hand_request with
     the hand as it is: holding is a bool or a function asked only here); "mission" (read_mission's (steps, unread,
-    by)); "end" (a goodbye); "sing"; "quick" (brain.intent's rule, one of QUICK_RULES); (None, None): the LLM reads
+    by)); "end" (a goodbye); "sing"; "quick" (brain.intent's rule, one of QUICK_RULES, or the example bank's
+    reading: assistant/intent_bank.py); (None, None): the LLM reads
     it. seen: seeing.answer or a stand-in; chain_ok: False on a mission or while a chain runs."""
     from assistant import chain
     if stop_order(text, markers):
         return "stop", None
+    stuck = detour.recent()                    # right after a blocked drive: "try again", "go around it", "go back"
+    how = stuck and detour.read(text, markers, stuck["goal"])
+    if how:
+        return "detour", how
     plan = chain_ok and chain.plan(text, markers, NOT_A_STEP)
     if plan:
         return "chain", plan
@@ -2932,6 +3016,11 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     rule = brain_mod.intent(text, markers)
     if rule and rule[0] in QUICK_RULES:
         return "quick", rule
+    if not rule:
+        from assistant import intent_bank
+        rule = intent_bank.read(text, markers, holding)   # the same request in other words, by meaning
+        if rule:
+            return "quick", rule
     return None, None
 
 
@@ -2973,6 +3062,13 @@ def not_online(text):
 SAID_BYE = re.compile(r"\b(?:bye|goodbye|see you|take care|have a (?:good|nice|great|lovely) (?:day|one|time|visit)|enjoy (?:the|your)|"
                       r"next time|come again|good luck)\b|안녕히|다음에|또 (?:봐|봬|만나|오세요|뵙)|좋은 하루|즐거운|조심히|들어가세요",
                       re.I)   # Lumi's own words take leave
+
+
+def keep_said(brain, text, said):
+    """A line Lumi said by code for `text` goes into the talk (the model sees it as its own answer), unless the turn
+    is in it already."""
+    if said and text and not (brain.history and brain.history[-1][0] == text):
+        brain.history.append((text, f"ACTION: none -\n{said}"))
 
 
 def kept_goodbye(said):
@@ -3027,8 +3123,8 @@ def consent_place(text, brain, markers):
     offer = (re.split(r"(?<=[.!])\s+", answer.strip()) or [""])[-1]      # Lumi's own "shall I go to p3?"
     last = asked if any(brain_mod.named_place(asked, m, markers) for m in markers) else (offer if "?" in offer else "")
     named = {m for m in markers if brain_mod.named_place(last, m, markers)}
-    if named == {"home", "dock2"}:
-        return None
+    if "home" in named and len(named) > 1 and all(re.search(r"dock|charg|도크|충전", m, re.I) for m in named - {"home"}):
+        return None                                      # "dock 2": the dock and dock2 both heard, not guessed
     return named.pop() if len(named) == 1 else None
 
 

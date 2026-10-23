@@ -1069,6 +1069,10 @@ def task_parse(body: ParseBody):
     kind, data = lumi.route(fixed, markers, brain.Brain(), held, seen=seen)
     if kind == "stop":
         return {"action": "command", "text": fixed, "sentence": "Stop.", "problems": [], "read_by": "rules"}
+    if kind == "detour":                              # after a blocked drive (assistant/detour.py): the assistant does it
+        from assistant import detour
+        return {"action": "command", "text": fixed, "sentence": detour.SAY[data][0], "problems": [], "read_by": "rules",
+                "base": True}
     if kind == "chain":
         base = any(k == "steps" and _drives(x) or k == "quick" and x[0] in lumi.BASE_ACTIONS for k, _, x in data)
         return {"action": "command", "text": fixed, "parts": [[k, w] for k, w, _ in data], "problems": [], "read_by": "rules",

@@ -54,6 +54,8 @@ def _norm(text, markers=()):
     t = re.sub(r"\b(?:take|pick up|pick|grab)\s?(?:해서|하고)", "집어서", t)   # "컵 take해서": mixed
     t = re.sub(r"(?<=[가-힣])고\s*나서(?=[\s,]|$)", "고", t)                     # "가고 나서" = "가고"
     t = re.sub(r"(?<![가-힣])(집었|잡았)다가(?=[\s,]|$)", lambda m: m.group(1)[0] + "고", t)   # "컵 집었다가" = "컵 집고"
+    for said, same in _SAME:                                                      # "get yourself to" = "go to"
+        t = re.sub(said, same, t)
     for honour, plain in _HON_KO:                                                 # "가셔서" = "가서", "받으시고" = "받고"
         t = re.sub(rf"(?<![가-힣]){honour}(?=[\s,.!?]|$)", plain, t)
     return re.sub(r"(?<![가-힣])(간|온|집은|잡은|든|받은|준|놓은|돈|기다린|들른|가신|오신|기다리신|받으신|집으신|잡으신|드신|주신|놓으신|도신)"
@@ -61,6 +63,18 @@ def _norm(text, markers=()):
                   lambda m: _AFTER_KO[m.group(1)], t).strip()                       # "p3에 간 다음에" = "p3에 가고"
 
 
+_SAME = [   # wordings read as the plain one (the blind mission sets, 2026-10-22)
+    (r"\bget yourself (?=to )", "go "), (r"\b(?:take|get|grab) hold of\b", "take"),
+    (r"\bmake a (left|right) turn\b", r"turn \1"),
+    (r"\bturn (\d+(?:\.\d+)?) degrees? (?:to (?:the |your )?)?(left|right)\b", r"turn \2 \1"),
+    (r"\breverse (?=\d)", "move back "), (r"\bkeep it in your hands?\b", "hold it"),
+    (r"\bcome back to where (?:i am|you are|we are)\b", "come back"),
+    (r"\buntil (?:someone|somebody|they|i|we) (?:says?|tells? you)(?: to)? (?:go on|continue|move on)\b"
+     r"|\buntil you(?:'re| are) told to (?:go on|continue|move on)\b", "until i tell you to go on"),
+    (r"(?:누가\s*)?계속\s*(?:가라고|하라고|가도 된다고)\s*(?:할|하실|말할)\s*때까지\s*(?:거기서\s*)?", ""),
+    (r"(?<=\S)까지\s*(?=갔다 ?와|다녀와)", " "),                      # "p4까지 갔다 와요" = "p4 갔다 와요"
+    (r"돌아오(?:세요|십시오)", "돌아와"), (r"(?:이리로|여기로|이쪽으로)\s*돌아와", "돌아와"),
+]
 _AFTER_KO = {"간": "가고", "온": "오고", "집은": "집고", "잡은": "잡고", "든": "들고", "받은": "받고", "준": "주고", "놓은": "놓고",
              "돈": "돌고", "기다린": "기다리고", "들른": "들르고", "가신": "가고", "오신": "오고", "기다리신": "기다리고",
              "받으신": "받고", "집으신": "집고", "잡으신": "잡고", "드신": "들고", "주신": "주고", "놓으신": "놓고",
@@ -77,10 +91,11 @@ def _place(word, markers):
     """A place word in a go clause -> marker name, "here", or None (not on the map)."""
     word = re.sub(r"(?<=\S) (?:point|marker)$|\s*(?:앞|옆|근처|쪽|포인트|지점)$", "", word.strip())   # "the final point", "p5 앞"
     w = re.sub(r"^(?:either |the |your |my |point |marker |포인트 ?)", "", word)
-    exact = next((mk for mk in markers if mk.lower() == w or mk.lower() == w.replace(" ", "")), None)
+    exact = next((mk for mk in markers if wording._key(mk) == wording._key(w)), None)   # "coffee_corner", "부스 3"
     if exact:
         return exact
-    close = wording.close_names(w, markers) if re.fullmatch(r"[a-z][a-z0-9_ ]*", w) else []
+    close = wording.close_names(w, markers) if re.fullmatch(r"[a-z][a-z0-9_]*", w) else []   # one word: "coffee_corner
+                                                                                            # later" is no slip
     if len(close) == 1:
         return close[0]                                  # a whisper slip of one name ("stagee로 가")
     m = re.fullmatch(brain._place_re(markers), word.strip())
@@ -94,7 +109,7 @@ def _place(word, markers):
 def _places(t, markers):
     """'p3, p5 or p7' / 'p3' / 'here' -> list of names, or None when one of them is not a place on the map."""
     t = re.sub(r"^(?:either|(?:a )?random (?:one )?of|one of|any of)(?: the)?\s+", "", t.strip())
-    words = [w for w in re.split(r"\s*(?:,\s*(?:or|and)\b|,|\bor\b|\band\b|또는|(?<=[a-z\d])이나(?=\s)|(?<=[a-z\d])나(?=\s))\s*",
+    words = [w for w in re.split(r"\s*(?:,\s*(?:or|and)\b|,|\bor\b|\band\b|또는|(?<=[a-z\d가-힣])이나(?=\s)|(?<=[a-z\d가-힣])나(?=\s))\s*",
                                  t) if w.strip()]
     names = [_place(w, markers) for w in words]
     return names if names and None not in names else None
@@ -122,7 +137,8 @@ def _go(c, markers):
     if m:
         to = _places(m.group(1), markers)
         return to and {"do": "go", "to": to if len(to) > 1 else to[0]}
-    m = re.fullmatch(r"(?:go|drive|head) (?:the )?([a-z][a-z0-9_]*)(?: point| marker)?", c)   # whisper drops the "to"
+    m = re.fullmatch(r"(?:go|drive|head) (?:the )?([a-z][a-z0-9_]*|[가-힣][가-힣0-9_]*)(?: point| marker| 포인트)?", c)   # whisper
+                                                                                                    # drops the "to"
     if m and m.group(1) not in ("home", "here") and (to := _places(m.group(1), markers)):
         return {"do": "go", "to": to[0]}
     if re.fullmatch(r"go (?:home )?(?:to )?charge(?: yourself)?|충전하러 (?:집으로 )?가", c):
@@ -138,7 +154,7 @@ def _go(c, markers):
     if m and (to := _places(m.group(1), markers)) and len(to) == 1:
         return [{"do": "go", "to": to[0]}, {"do": "go", "to": "here"}]   # "p3 갔다 와": there and back
     m = re.fullmatch(r"(?:(?:이거|이것|그거)\s+)?(.+?)\s*(?:중에서?|중)?\s*(?:아무 ?데나|아무 ?곳에나|하나|한 ?곳)?\s*"
-                     r"(?:으로|로|에|까지)?\s*(?:가져가|가져와|가져다 ?줘|가져다|갖다 ?줘|갖다|가|와|가 ?줘|돌아가|돌아와|갔다가|이동해|이동하고|이동해서|이동)"
+                     r"(?:으로|로|에|까지)?\s*(?:가져가|가져와|가져다 ?줘|가져다|갖다 ?줘|갖다|가|와|가 ?줘|돌아가|돌아와|갔다가|이동해|이동하고|이동해서|이동|go)"
                      r"(?:서|고|세요|줘|요)?|(\S+?)(?:으로|로)", c)
     if m:
         to = _places(re.sub(r"\s*(?:중에서?|중)\s*(?:아무 ?데나|아무 ?곳에나|하나|한 ?곳)?$", "", m.group(1) or m.group(2)),
@@ -157,7 +173,7 @@ def _move(c):
     pats = (rf"(?:(?:go|move|drive|step|walk|come|back up|head)\s+)?(?:to (?:the |your )?)?{_DIR}\s+(?:by\s+)?{_NUM} m",
             rf"(?:(?:go|move|drive|step|walk|come|back up|head)\s+)?{_NUM} m\s+(?:to (?:the |your )?)?{_DIR}",
             rf"(?:go|move|drive|step|walk|head)\s+{_NUM} m()",
-            rf"{_DIR_KO}\s*{_NUM} m\s*(?:가|가고|가서|이동|이동해|움직여|와|갔다가|갔다)(?:세요|줘)?",
+            rf"{_DIR_KO}\s*{_NUM} m\s*(?:가|가고|가서|이동|이동해|이동하고|이동해서|움직여|와|갔다가|갔다)(?:세요|줘)?",
             rf"{_NUM} m\s*(?:만\s*)?{_DIR_KO}\s*(?:가|가고|가서|이동|이동해|움직여|와|갔다가)(?:세요|줘)?",
             rf"(){_NUM} m\s*(?:더\s*)?(?:가|가고|가서|이동해|이동하고|이동해서|전진|전진해|전진하고)(?:세요|줘)?")   # "1미터 가": forward
     for p in pats:
@@ -281,7 +297,7 @@ def _give(c):
                     r"|wait (?:there )?(?:until|till) (?:someone|somebody|anyone|they|he|she) takes? it(?: from you)?"
                     r"|hand it over|(?:give|hand) it", c) or \
             re.fullmatch(rf"(?:그거|그것을?|(?:(?:{COL})\s*)?(?:{OBJ})(?:을|를)?)?\s*(?:줘|주고|주세요|건네 ?줘|건네주고|"
-                         rf"건네 ?주세요|건네)", c):
+                         rf"건네 ?주세요|건네|전해 ?줘|전해 ?주고|전해 ?주세요|전해)", c):
         return {"do": "give"}
     if re.fullmatch(r"(?:거기 (?:있는|계신)\s*)?(?:나한테|저한테|나에게|저에게|그 사람한테|사람한테|그분께|분께|분한테)\s*"
                     rf"(?:(?:이거|그거|이것|그것|이걸|그걸|(?:(?:이|그)\s*)?(?:{OBJ})(?:을|를)?)\s*)?"
@@ -473,7 +489,7 @@ _GIVE_KO = r"(?:갖다 ?주고|가져다 ?주고|갖다 ?줘|갖다 ?드려|가�
 def _is_name(n, markers):
     n = n.strip()
     return bool(n) and n not in _NOT_NAME and n.split()[-1] not in _NOT_NAME and n not in brain.OBJECTS and \
-        n not in brain.COLOURS and not any(n == m.lower() for m in markers) and not re.fullmatch(r"p\d+", n)
+        n not in brain.COLOURS and not any(n == wording.written(m) for m in markers) and not re.fullmatch(r"p\d+", n)
 
 
 def _ko_name(n):
@@ -600,7 +616,7 @@ def _person(c, markers):
     if m and _places(m.group(1), markers) and len(_places(m.group(1), markers)) == 1:
         return [{"do": "go", "to": _places(m.group(1), markers)[0]}, {"do": "place", "on": {
             "name": brain.SUPPORTS[m.group(3)], "colour": brain.COLOURS.get(m.group(2)), "side": None}}]
-    m = re.fullmatch(r"([a-z][a-z0-9_]*) (?:테이블|책상|식탁)(?: 위)?에 (?:놔|놓아|올려놔)", c)
+    m = re.fullmatch(r"([a-z][a-z0-9_]*|[가-힣][가-힣0-9_]*) (?:테이블|책상|식탁)(?: 위)?에 (?:놔|놓아|올려놔)", c)
     if m and (to := _places(m.group(1), markers)) and to != ["here"]:
         return [{"do": "go", "to": to[0]}, {"do": "place", "on": {"name": "dining table", "colour": None,
                                                                        "side": None}}]
@@ -689,7 +705,8 @@ def _clause_steps(c, markers, after=None):
     c = re.sub(r"^\S+ 말고\s+", "", c)                     # "미나 말고 사라한테": not Mina, Sara
     c = re.sub(r"^\S+ (?:없으니까|없어서|없대서)\s+", "", c)   # "현우 없으니까 ...": the reason, not a step
     c = re.sub(r"\s+(?:거기로|내가) 갈게$", "", c)
-    c = re.sub(r"(?<=[a-z0-9]) (?:하고|해서|하고서|하고 나서|한 다음에?)$", "", c)     # "turn left 하고 p2로 가"
+    c = re.sub(r"(?<=[a-z0-9가-힣]) (?:하고|해서|하고서|하고 나서|한 다음에?)$", "", c)   # "turn left 하고 p2로 가",
+                                                                                        # "go to 입구 하고"
     raw, c = c, _sender(c)
     if not c:
         return []
@@ -777,10 +794,18 @@ def _cut_says(text):
     return _SAY_EN.sub(keep, text), says
 
 
-def _split(t):
+def _split(t, markers=()):
+    """Clauses; a Korean marker name that ends like a verb ("창고 가서", "창고 point") is not cut after."""
+    ends = tuple(wording.written(m) for m in markers if re.search(r"[가-힣](?:고|서)$", m))
     out = []
     for part in _SPLIT.split(t):
-        out += [p for p in _SPLIT_KO.split(part) if p.strip()]
+        pieces = []
+        for p in _SPLIT_KO.split(part):
+            if pieces and ends and re.search(rf"(?<![가-힣])(?:{'|'.join(ends)})$", pieces[-1]):
+                pieces[-1] += " " + p
+            else:
+                pieces.append(p)
+        out += [p for p in pieces if p.strip()]
     return out
 
 
@@ -788,11 +813,11 @@ def _protect_lists(t, markers):
     """'p3, p5 or p7' (one of them) must not be split as clauses: joined with '|'. Only a list that says "or",
     "one of", "random", "중": "go to p1 and p2" is two drives, not a choice."""
     place = rf"(?:{brain._place_re(markers)})"
-    sep = r"\s*(?:,\s*(?:or|and)\b|,|\bor\b|\band\b|또는|(?<=\d)나)\s*"
+    sep = r"\s*(?:,\s*(?:or|and)\b|,|\bor\b|\band\b|또는|(?<=[a-z\d가-힣])(?:이나|나)(?=\s))\s*"   # "입구나 로비"
 
     def join(m):
         before, after = t[:m.start()], t[m.end():]
-        if re.search(r"\bor\b|또는|(?<=\d)나", m.group(0)) or re.match(r"\s*중", after) or \
+        if re.search(r"\bor\b|또는|(?<=[a-z\d가-힣])나(?=\s)", m.group(0)) or re.match(r"\s*중", after) or \
                 re.search(r"\b(?:(?:one|any) of|random(?: one)? of)(?: the)?\s*$", before):
             return re.sub(sep, "|", m.group(0))
         return m.group(0)
@@ -811,7 +836,8 @@ _PIECE = re.compile(r"\s+(?=(?:go|come|wait|turn|pick up|grab|give|hand|put|brin
 def _pieces(c, markers, after):
     """A clause read as several steps when it splits at step verbs and every piece reads; else None."""
     parts = _PIECE.split(c)
-    if len(parts) < 2 or re.search(r"[가-힣]", c):
+    names = "|".join(re.escape(wording.written(m)) for m in markers if re.search("[가-힣]", m)) or "^$"
+    if len(parts) < 2 or re.search(r"[가-힣]", re.sub(names, "", c)):              # Korean words, not a Korean name
         return None
     out = []
     for p in parts:
@@ -828,7 +854,7 @@ def rules(text, markers=()):
     t = _protect_lists(_norm(cut, markers), markers)
     t = _INTERJECTION.sub("", t)
     steps, unread = [], []
-    for c in _split(t):
+    for c in _split(t, markers):
         c = c.replace("|", ", ")
         m = re.fullmatch(r"§(\d+)§", c.strip())
         got = [{"do": "say", "text": says[int(m.group(1))]}] if m else _clause(c, markers, steps[-1] if steps else None)
@@ -919,7 +945,7 @@ def read(text, markers=(), llm=True):
     clauses unread, the LLM reads the whole command and its answer is kept only if every value in it is written in
     the command (_checked). "other": the LLM says it is not English or Korean, nothing is taken."""
     s, u = rules(text, markers)
-    if not u or not llm or len(_split(_norm(_cut_says(text)[0], markers))) < 2:
+    if not u or not llm or len(_split(_norm(_cut_says(text)[0], markers), markers)) < 2:
         return s, u, "rules"
     got = _llm(text, markers)
     if got == "other":
@@ -1031,7 +1057,7 @@ def _checked(raw, text, markers):
             if x == "here" and re.search(r"\b(?:here|back|me)\b|여기|돌아|나한테|저한테", t):
                 names.append("here")
                 continue
-            mk = next((m for m in markers if m.lower() == x.lower()), None)
+            mk = next((m for m in markers if wording._key(m) == wording._key(x)), None)
             if mk is None or not brain.named_place(text, mk, markers):
                 return None
             names.append(mk)

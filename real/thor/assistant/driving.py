@@ -31,9 +31,12 @@ DIRS = (("back", r"\bback(?:wards?)?\b|\bbackward\b|\breverse\b|^(?:let'?s )?(?:
         ("right", r"(?<!all )\b(?:to the |to your )?right\b(?! now| away| here| there| back)|오른쪽|우측"))
 VERB = re.compile(r"\b(?:move|go|come|drive|step|scoot|scooch|shift|inch|roll|back (?:up|off)|reverse|get)\b|"
                   r"가|와|이동|움직|물러|빠져|후진|전진|비켜")
+NEAR_THING = re.compile(r"(?:테이블|책상|탁자|의자|소파|문|벽|창문)\s*(?:앞|옆|뒤)")   # "테이블 앞으로": to the table, not forward
 OTHER = re.compile(r"\b(?:look|head|turn|rotate|face|arm|hand|lift|raise|lower|it|this|that|them|those|these|here|there|"
-                   r"home|me|us)\b|\bthe (?!left\b|right\b)|\bgo (?:right )?ahead\b|\bback to (?![\d.])|\bp\d+\b|고개|머리|팔|손|돌아|돌려|봐|쳐다|들어|올려|내려|"
-                   r"여기|저기|이리|집|\S(?:을|를)(?=\s)|도십시오|도세요|\d+(?:\.\d+)? ?도(?=\s|$)")    # the head, an object, a place: not a short drive
+                   r"home|me|us)\b|\bthe (?!left\b|right\b)|\bgo (?:right )?ahead\b|\bback to (?![\d.])|\b[a-z]+\d+\b|\b[a-z]+(?:_[a-z0-9]+)+\b|고개|머리|팔|손|돌아|돌려|봐|쳐다|들어|올려|내려|"
+                   r"여기|저기|이리|집|\S(?:을|를)(?=\s)|도십시오|도세요|\d+(?:\.\d+)? ?도(?=\s|$)|" + NEAR_THING.pattern)
+                                                    # the head, an object, a place
+                                                    # (p3, dock2, booth_9: a marker as written): not a short drive
 SAYER = re.compile(r"\b(?:i|i'm|im|i'll|i've|we|we're|he|she|they|there|it's|it is|my|our|his|her|their|was|were|"
                    r"if|when)\b|(?:^|\s)(?:나|저|우리|저희)(?:는|도|가)\s")   # "I live a few metres to the left"
 _NATIVE = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9, "열": 10,
