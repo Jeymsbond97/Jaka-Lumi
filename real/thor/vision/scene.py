@@ -40,6 +40,8 @@ DEPTH_AGE_S = 2.0                # s; depth frames are written every 0.5 s
 DEPTH_BEFORE_S = 0.5             # s; with `since`, depth written at most this long before the question (a hand that
                                  # moved while asking is measured where it is, else no depth: the colour-only checks)
 FRONT_M = 3.0                    # m; the person "in front" is nearer than this
+OFF_CENTRE_M = 0.5               # m; someone off to the side counts this much further when choosing who talks to Lumi
+                                 # (the head turns to the speaker; a passer-by 0.1 m nearer at the side is not them)
 SIDE_DEG = 15.0                  # deg; a thing further left / right than this is "on my left / right"
 SAME_DEG, SAME_M = 8.0, 0.35     # two cameras' detections closer than this (angle, distance) are the same thing
 CAMS_APART_M = 0.25              # m; the head and torso cameras see a near person at angles apart by about atan(this / d)
@@ -78,6 +80,8 @@ SKIN_HUE, SKIN_SAT = 6, 50       # a held thing's pixels this close to the skin 
 SKIN_KEEP = 0.3                  # ... unless fewer than this part of the box is left (estimates, not yet measured live)
 WHITE_VS_SKIN = 1.2              # "grey" clothes this much brighter than the face are white in shade or against a
                                  # bright window (a white shirt read V 107 by a nose at 70, 2026-10-21)
+PALE_S, PALE_V = 70, 150         # HSV median S under / V over: "light blue" clothes (measured 2026-10-22, the light blue
+                                 # shirt in tests/data/scene_holding_cup_back: S 48, V 173; jeans S 107, V 90; white S 4-13)
 VLM_MODEL = "gemma4:26b"         # multimodal; the conversation model, already loaded
 VLM_URL = "http://127.0.0.1:11434/api/chat"
 VLM_WIDTH = 448                  # px; the picture sent (5 s on a quiet GPU, 20+ s while other LLM work runs)
@@ -106,20 +110,22 @@ def snapshot(cameras=CAMERAS, since=None):
     was asked, not from the second before, while the hand still moved). A camera without one is left out."""
     for c in cameras:
         camview.want(c)                       # wakes an idle camera service to full speed
+    def fresh(d):
+        return d and time.time() - d["time"] < FRESH_S and (since is None or d["time"] >= since)
+
+    def det(c):
+        try:
+            return json.loads(camview.det_path(c).read_text())
+        except (FileNotFoundError, ValueError):
+            return None
+    end = time.time() + (SINCE_WAIT_S if since else WAIT_S)
+    dets = {c: det(c) for c in cameras}
+    while not all(fresh(d) for d in dets.values()) and time.time() < end:   # both cameras at once, not one by one
+        time.sleep(0.01)
+        dets = {c: d if fresh(d) else det(c) for c, d in dets.items()}
     frames = []
     for c in cameras:
-        end = time.time() + (SINCE_WAIT_S if since else WAIT_S)
-
-        def fresh(d):
-            return d and time.time() - d["time"] < FRESH_S and (since is None or d["time"] >= since)
-        while True:
-            try:
-                d = json.loads(camview.det_path(c).read_text())
-            except (FileNotFoundError, ValueError):
-                d = None
-            if fresh(d) or time.time() > end:
-                break
-            time.sleep(0.05)
+        d = dets[c]
         color = cv2.imread(str(camview.raw_path(c)))
         if not fresh(d) or color is None:
             continue
@@ -361,6 +367,9 @@ def _named(f, mask, ref_z=None, skin_v=None):
         if keep.sum() > 50:
             px = px[keep]
     name = objects.colour_name(px)
+    if name == "blue":                                         # a pale blue shirt is not the blue of jeans
+        hsv = cv2.cvtColor(px.reshape(-1, 1, 3).astype(np.uint8), cv2.COLOR_BGR2HSV).reshape(-1, 3)
+        return "light blue" if np.median(hsv[:, 1]) < PALE_S and np.median(hsv[:, 2]) > PALE_V else name
     # ponytail: one skin reference, so a light grey shirt over dark skin may read white; a second reference if so
     return "white" if name == "grey" and skin_v and np.median(px.max(axis=1)) >= WHITE_VS_SKIN * skin_v else name
 
@@ -518,11 +527,17 @@ def _public(p):
     return {k: v for k, v in p.items() if not k.startswith("_")}
 
 
+def speaker_key(distance_m, bearing_deg):
+    """Who of the people in view is the one talking to Lumi: the nearest, someone off-centre counted further."""
+    return (distance_m if distance_m is not None else 99) + (OFF_CENTRE_M if abs(bearing_deg or 0) > SIDE_DEG else 0)
+
+
 def _front(frames):
     """The nearest person within FRONT_M, the other camera's view of the same person filling in the hands."""
     persons = [p for p in _persons(frames) if p["distance_m"] is None or p["distance_m"] <= FRONT_M]
     if not persons:
         return None
+    persons.sort(key=lambda p: speaker_key(p["distance_m"], p["bearing_deg"]))
     me = persons[0]
     for other in persons[1:]:                                  # the same person in the other camera
         if other["camera"] == me["camera"] or abs(other["bearing_deg"] - me["bearing_deg"]) > _same_deg(me["distance_m"]):
