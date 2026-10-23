@@ -16,6 +16,8 @@ import time
 
 from robot import agv
 
+ENABLED = False        # off (owner, 2026-10-22): it stopped drives near the docks and in narrow places; navigation
+                       # drives as before. Turns on the spot and joy_control moves keep their own arm checks (tasks/fetch.py)
 MARGIN_M = 0.10        # m; an arm point nearer than this to an obstacle stops the drive (estimate, tune live)
 LOOKAHEAD_M = 0.30     # m along the planned path checked ahead of the base: ~1 s at 0.3 m/s, its stop included (estimate)
 STEP_M = 0.15          # m between the path points checked
@@ -88,6 +90,8 @@ def hit(pose, poses, pts):
 
 def watch(command, gen):
     """Guard the navigation move `command` (sent just now) until it ends or agv's guard generation moves on."""
+    if not ENABLED:
+        return
     threading.Thread(target=_run, args=(command, gen), daemon=True, name="nav-guard").start()
 
 
