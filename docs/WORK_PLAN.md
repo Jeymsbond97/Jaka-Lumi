@@ -642,6 +642,255 @@ the last rerun (example fixed after it, 9b7abdb, not re-run); fragments over 4 w
 the arm). Commands agent: "say hi with your arm" (no wave), "move your hand a little for me" (arm reach). The
 dialogue subset and company checks were stopped for the owner's live test: tonight's big run.
 
+## Big night test (2026-10-22, from 18:40)
+
+Owner's goal: Lumi understands anyone (EN, KO, mixed, Konglish, whisper slips), fast and exact, and never makes
+anything up. Three layers: rules only for one-meaning and safety words (stop, 멈춰, clear goodbyes); an **example
+bank** matched by meaning with the embedding server (thousands of wordings per capability, places as a `<place>`
+slot, guards first: negation, condition / later, ability questions, words to someone else, two-meaning closings;
+motions need a high match, 0 wrong motions); the **LLM** reads the rest from the conversation. `assistant/song_bank.py`
+is the prototype.
+
+Tests: a writer that never sees the code writes new sets per capability; each set is split into **train** (fixed
+from) and **held-out** (only scored, never read by the fixers). Fake maps with other marker names ("booth A",
+"커피 코너", Korean names, numbers) so nothing depends on p1–p10. The old ~4000 cases stay as regression checks.
+
+Added by the owner (live faults, 2026-10-22):
+1. **What Lumi sees must be now.** Shirt colour said "blue", owner: "is it really blue?" → silence, then blue
+   again; "it's white" → "sorry, white", later wrong again. Watch in the left hand → "left"; moved to the right,
+   "and now?" not understood, then "left" again; "it's in the right" → "yes, right". A phone moved to the other
+   hand, "what about now?" → the old hand. Every seeing answer, follow-up ("now?", "really?", "are you sure?",
+   "look again") and correction is answered from a fresh look, never from what was said before; a correction is
+   checked against the camera, not just agreed with. Find why the data is late (cached frames / facts, the LLM
+   repeating its history).
+2. **Follow-up questions about Lumi's own answer.** "Why?", "when?", "where?", "how?", "what?", "really?",
+   "왜?", "진짜?", "어떻게?" right after an answer go on from it: "I can't go there" → "why?" → the reason;
+   "it's white" → "really white?" → "yes, white" (after a fresh look). Answer the question that was asked, no
+   hesitation, no topic change. Long dialogues (8–20 turns) of every kind, hundreds, EN + KO + mixed.
+3. **Never make anything up.** "How many people work at that company?" was answered with the people in the camera.
+   Company / Lumi questions without a known fact: "I don't have exact information about that." Say what is known,
+   say plainly what is not.
+4. **Hearing**: more work on speech-to-text and reading what was heard, hundreds of new tests (real voice paths,
+   EN / KO / mixed, noise, cut-off starts, accents), whatever helps.
+
+5. **Lumi never speaks by itself without a reason.** A goodbye ("Nice chatting with you!") came with nobody
+   there and nothing said (18:27, after a Command-box mission). Fixed for the silent end (f3b016c: only after
+   something was said and with someone near); the agents look for every other unprompted line (prompts, greetings
+   to nobody, echoes of its own voice, noise heard as speech) and test it.
+
+6. **Blocked way** (owner 19:05): after "I can't find a way / something is blocking", "find a way", "try again",
+   "go around", "go back", "다른 길로 가 봐", "다시 해 봐", "돌아가" are done (retry, back up and retry, another
+   approach, back to the trip's start). `robot/nav_guard.py` is off (`ENABLED` False, afe3c51): it stopped drives
+   near the docks and in narrow places; the base's own footprint was never changed.
+7. **Overnight to 09:20 2026-10-23** (owner): round after round until morning: more blind cases each round
+   (hundreds of ways per command, r2, r3 ...), fixers on the train halves, held-out scored only by the lead,
+   reply speed measured with every round. Ready by 09:20: numbers, commits, Gitea push, this file updated.
+
+Agents (none moves the robot or restarts a service; each owns its files; results to logs/ and below):
+writer (blind sets, train / held-out), bank (`assistant/intent_bank.py`, the bank step in `lumi.route`),
+seeing (`assistant/seeing.py`, freshness, corrections), conversation (`assistant/brain.py` prompt, follow-ups,
+unknowns, examples, knowledge), hearing (`audio/ears.py`, `audio/mic.py`, `assistant/wording.py`,
+`assistant/voice_words.py`), maps (fake maps, place reading in `assistant/steps.py`).
+
+### Hearing, second night (2026-10-22 night, hearing agent)
+
+What went wrong live (lumi.log / lumi_console.log 2026-10-21 and 10-22, every "visitor" / "no wake word" line judged
+against the turns around it; `tests/asr_live.py` keeps them: 150 heard texts with what was said, and the last 50
+real clips in `logs/asr_real/1022/` with labels, local only):
+- The owner's English: "Look at the big side" (back side; already read right), "Let's count to p5", "Let's copy 10
+  point", "Let's go pick five point", "Let's fall lonely" / "Let's fall of Him" (follow me), "Lumi stopped", "What is
+  it / that / the hand of my hand?" (what is in my hand), Kuching / Kuchung / Kutsche company (Cutshion), and
+  "How old are you?" written as 호월달요 / 호화 다리 / Powa tari / Hovalt arıyor: 8 times, never heard right.
+- English tagged Korean in Latin letters ("Wait.", "What is it?", "Can you sing song?", "You got it."):
+  understood() refused it, Lumi said "say it again".
+- Noise: a sound whisper took for Japanese "はい" became "감사합니다." when made Korean (18:39, five times);
+  "Looney." for a real "Lumi" dropped the wake word (18:35:10).
+- "It's bringing your insulin to the hand." (18:25) was Lumi's own "Please bring it near its look pose by hand."
+  through the clip mic. Not fixable from the text: Lumi's words and visitors' words overlap the same (word or
+  letter match, 47 own-voice catches against 116 accepted barge-ins). Needs the played audio as an echo reference
+  (`audio/mouth.py` keeping what it plays, compared with the clip-mic sound): not done.
+
+Changes (`audio/ears.py`, `audio/mic.py`, `assistant/wording.py`; checks `tests/asr_live.py`, `tests/asr_early.py`,
+`tests/test_ears.py`, `tests/asr_check.py --cases <file> / --trim`, `tests/voice_check.py --port / --tag`):
+- Slips after recognition: ears `SLIPS` (stop, hand, Cutshion, how old are you; the text Korean-tagged becomes
+  English), wording `ASR_SLIPS` (count to p, copy / pick N point, fall lonely). Only phonetic forms seen live.
+- Korean-tagged text in Latin letters is asked once in English; the same words again (`SAME_WORDS` 0.8) are taken
+  as English. Also asking Korean was tried: far Korean came back as other Korean words (6 right of 37), left out.
+- A sound taken for another language: the stock words a forced language writes for it (`STOCK`: 감사합니다, thank
+  you, hey, hi, bye; not 네 / yes, answers to Lumi) are dropped. Whisper repeating a phrase three times (`REPEAT`) is dropped ("Look right." x3
+  for "dock2로 가서 충전해" became a chain of head turns).
+- `lumi_like` takes "Looney"; `CUT_OFF` also waits for the rest after whisper's own trailing "...", "," or "of",
+  "at", "about" (17 such turns live, none a whole sentence).
+- **Early transcription**: `mic.Segmenter.quiet_now()` after `EARLY_QUIET_S` 0.3 s of quiet inside an utterance
+  (0.4–4 s long); `ears.early()` runs whisper on it in the background; `transcribe()` takes that result when the
+  utterance ended with only the quiet after it (any listener: talk turns, the wake word, barge-in). A run replaced
+  by a newer pause or passed over is skipped if not started.
+- Tried and left out: the map's marker names in the prompt (blind train set: +2 of 82 fake-map cases, −5 of the
+  others, 4 more far wake words lost; `ears.set_names` stays as a no-op for `tests/blind_check.py`).
+
+| Check | Before | After |
+|---|---|---|
+| `asr_live.py` live texts read as said | 125 of 142 | 141 |
+| `asr_live.py --real` (50 real clips, 44 judged) | 42 | 44 |
+| blind r1 train (238 x near / far) | 283 of 476, 21 "say it again" | 290, 5 |
+| blind r2 train (325 x 2) | 420 of 650, 26 | 422, 10 |
+| blind r3 train (293 x 2) | 370 of 586, 7 | 375, 1 |
+| blind r2 speed_short (197 short ones x 2) | 235 of 394, 18 | 237, 9 |
+| `voice_check.py 300` (Lumi's voice, mission texts) | 269 of 300 | 275 |
+| set 3 (noise, people not talking to Lumi) | 95 of 96 | 96 |
+| set 4 (music, speech over music) | 92 of 128 | 94 |
+| End of speech → text (`asr_early.py`, real clips in real time) | median 1.14 s, mean 1.12 | 0.83 s, 0.89 (49 of 50 the same text) |
+
+Two runs of the same code differ by ~4 cases (whisper falls back to sampling on unclear audio); a case whose heard
+text is the same in both runs but whose verdict changed is another agent's routing change. No former "say it again"
+became a wrong motion. Live test needed: the owner's "How old are you?", "Wait.", "What is in my hand?", a call of
+"Lumi" from 2–3 m, and the reply time after short commands (logs: `early` in last_stt).
+
+### Conversation: follow-ups, unknowns, no unprompted lines (2026-10-22 night, conversation agent)
+
+- **Follow-ups on Lumi's own answer** ("why?", "how do you know?", "really?", "fr?", "wai?", "왜요?", "진짜?", "레알?",
+  "어떻게 알아?"): a line said by code (Greeter only, arm off, place not on the map, busy, nothing held, a refused lookup,
+  status) now goes into the talk like the model's answers (`Lumi.answer` wraps `_answer`, `lumi.keep_said` with what
+  `mouth.recent_speech` played in that turn), so "why?" has the reason. The prompt's follow-up rule (reason / source /
+  "Yes, ..." with the fact again, never "say it again"), `brain.ABOUT_ANSWER` adds a hint naming the answer asked
+  about and lets an "unclear" there be asked once more. Seeing follow-ups still go to `seeing.py` first (routing
+  checked: no rule takes "why?", "진짜?", "and now?").
+- **Unknowns**: "I don't have exact information about that." / "그건 정확한 정보가 없어요.", at most one related fact
+  with no number that could pass for the answer (buying: the phone / email), no guess on "roughly?"; never a colour or
+  thing not seen; "how many people work there / made you / came today / 만든 사람" never from the camera
+  (`seeing.NOT_IN_VIEW`); knowledge: the next exhibition is not known (index rebuilt).
+- **No unprompted lines** (logs 2026-10-22): no "How can I help you?" after silence (`MAX_PROMPTS` 0, twice live);
+  no goodbye after a closing word when nobody is near or while following (17:41, 12:10); coughs ("크흠", "ahem",
+  "콜록", "에취") are noise. Music captions, "-끝-" were fixed by the hearing agent (VAD, `NOT_SAID`). "루미 안녕!" before
+  anything was said is hello, not goodbye (`lumi.HI_ANNYEONG` in `route`).
+
+| Check | Before | After |
+|---|---|---|
+| own follow-up dialogues (`tests/followup_check.py`, 66 dialogues / 595 turns; every 3rd: 22 / 182) | - | 173 / 182, failed ones rerun after fixes: 176 (2 of the rest are harness-only: `rules_route` has no `route`) |
+| blind r1 unknowns (`--unknowns 2`, 76) | - | 73, after fixes 76 / 76 |
+| blind r1 follow-ups (`--blind 6`, 28 dialogues / 142 scored) | - | 124 / 142; the 14 failed dialogues rerun after the fixes: 128 / 142 |
+| blind r3 follow-ups (`blind_check.py ... --round r3 --limit 25`, 149) | - | 122 / 149 (before "fr?" / "wai?" / confirm fixes) |
+| blind r3 unknowns (first 25) | - | 25 / 25 |
+| silence / noise, text path (`tests/silence_check.py`; r1 88, r2 178 "nothing" cases) | 87 / 88 | 88 / 88, r2 178 / 178 |
+| unknowns routed to the camera (r1 152, r2 239) | 2, 1 | 0, 0 |
+| `company_check` | 362 / 368 + 60 / 62 (2026-10-20) | 364 / 368 + 59 / 62 (2 of the 3 are lookups, not made by the harness) |
+| `closing_check` | 65 / 69 | 65 / 69, last run 66 / 69 (first sentence median 1.2 s with the GPU free; 8-15 s while other agents' checks ran) |
+| `test_followup.py` routing | 551 / 551 | 551 / 551 |
+
+Left: the facts in knowledge the model does not use in a short follow-up (position "to within about 5 cm", "at most
+3 m", the held thing could fall), song titles counted as a "Korean reply"; "can you get taller?" lifts (rules,
+ability question); "왜 손은 안 되고 노래는 돼?" sings (`sing.asked`); Lumi's own voice taken as a barge-in with other
+words ("The plant develops and supplies..." for "Cutshion develops and supplies...", 4 times on 2026-10-22): a
+letter-overlap test caught them but also real questions, not done (needs the echo reference, hearing notes).
+
+### Hearing, round 2 (2026-10-23 night, hearing agent)
+
+Lumi's own voice through the clip mic ("It's bringing your insulin to the hand." was Lumi's "Please bring it near its
+look pose by hand.", 18:25; "It's still empty." for "Your right hand is still empty." interrupted Lumi, 18:49):
+`audio/mouth.py` keeps what the speaker played (16 kHz, `ECHO_KEEP_S` 30 s, cut short when a sentence is stopped);
+`mouth.own_voice(u)` compares a clip-mic utterance with what played at the same time (`echo()`: correlation of the two
+log-spectrograms, 16 bands, the mic's frames within 15 dB of its loudest, lags −0.3…1.0 s) and drops it at
+`ECHO_MIN` 0.6. A visitor saying Lumi's words after Lumi stopped has nothing played to match (not judged); a visitor
+talking over Lumi is dominated by their own voice at their clip mic. `lumi.py` drops it in `barge_in`, `song_abort`
+(before whisper) and `talk_turn`, logged as "ignored own voice (sound match 0.xx)"; interruptions log their match too.
+The word-overlap rule (`own_echo`) stays as it was. `tests/echo_check.py`: made cases (Lumi's TTS through a room,
+0-0.8 s late, a part of a sentence) 0.67 and more; a visitor (other voices, also saying Lumi's words) with Lumi 12-20 dB
+lower 0.39 at most; the owner's real clips against Lumi's lines at any time reach 0.6 in 1.8 % of placements. The four
+real own-voice clips score 0.16-0.5 against Lumi's lines made again (the TTS samples differ each time: a made line
+against itself made again drops from 0.8 to 0.4-0.6), so the real level is not known: **live test needed**.
+
+Short commands and marker names (`tests/asr_check.py --cases 5`, new: 239 cases x near / far: 116 short commands, 44
+numbers with units, 79 marker names on the office, conference, korean, expo and hall maps, EN / KO / mixed; `--memo`
+keeps every whisper answer in logs/asr_check/memo.jsonl so a re-run asks only new questions). Fixed in
+`wording.ASR_SLIPS` / `KO_SPOKEN`: "커피 바로" / "커피바" = Coffee_Bar on a map that has it ("bar": 바 inside a longer
+name), "30센트" before a direction = 30센티, "boot (number) 12" = booth 12, "go / move write", "turn rate" = right,
+"drive to .8" = point 8, "mean stage" = main stage, "1m 50cm" = 1.5 m.
+
+| Set (train) | Before | After |
+|---|---|---|
+| blind r3 hearing (293 x 2) | 374 of 586, 20 wrong motions | 395, 16 |
+| set 5 (239 x 2) | 263 of 478 | 268 |
+| blind r1 / r2 hearing | 290 of 476 / 422 of 650 (round 1) | 290 / 415: the same heard texts, the 7 are routing changes of commit 7caf94f |
+| blind r2 / r3 speed_short | 238 of 394 / 156 of 306 | the same |
+| set 3 (noise, people not talking to Lumi) | 96 of 96 | 96 |
+| `asr_live.py` live texts | 141 of 142 | 141 |
+| `voice_check.py 300` | 275 of 300 | 279 |
+
+Tried and left out (each measured on the r2 speed_short set, 394; noise sets checked where it mattered):
+- The conversation's language for short clips (speech < 1.2 s in another language than the last clear utterance asked
+  again in that language, bonus 0.3 / 5): +1 / +2; forced Korean on far short words came back as other Korean words.
+- Snapping a short Korean reading to the nearest command by letters (jamo, "정기." -> 정지): +4 to +11 on the short
+  sets, but on 6440 Korean texts from the test files it changed real words into motions ("가 봐" -> 나 봐, "피십으로 가"
+  -> 집으로 가, "천천히 해" -> 천천히 가, "송편" -> 손 펴). Never a guess into a command: left out.
+- No temperature fallback (`temperature_inc` 0): the same right on short2 / r3, set 5 −4; fewer wrong talk, more
+  "say it again". Beam 5: −2, slower.
+- VAD padding / a minimum length: a clip-mic utterance always holds 0.3 s before and 0.6 s quiet after the speech, and
+  none of the failures was a clip too short for whisper.
+
+Still weak: short Korean commands far away with people talking (r2 short: KO far 24 of 90), "루미야 + a short
+command" where whisper writes only "루미야." (then the wake word works and the visitor says it again), mixed
+sentences cut at the language change ("Booth A. Rulga Jua."). The TTS voices are not the owner's accent.
+
+## Now: midday 2026-10-23 (written 11:15 by the lead session)
+
+Goal: a live voice test at 13:00 (owner says move / turn / look / lift / go commands in EN and KO, then give while
+holding). Code freeze 12:45: the lead runs all tests/test_*.py, commits what passes, then the owner restarts
+`lumi-api` (`systemctl --user restart lumi-api`, base idle). Six agents of the lead session, each reports by 12:40:
+
+| agent | job | files it edits |
+|---|---|---|
+| LLM action gate | a motion chosen by the LLM runs only if the words are a direct order (plans, negations, conditions, remarks -> words only) | brain.py `_action`, lumi.py `act` / answer action handling |
+| Korean numbers | 사십오 / 마흔다섯 / 사 십오 도, 1.5미터, 반 미터, 레프트 = left, a number without a unit = ask | brain.py `_norm`, wording.py norm, driving.py, steps.py, chain.py, intent_bank said_amount; new tests/test_korean_numbers.py |
+| Hearing numbers | whisper slips of numbers / units ("1.m가"), short Korean commands far away | wording.py (own function), audio/ears.py, tests/asr_* |
+| Give while holding | give 55 % -> better; reach, put back / 원위치, drop it here | fetch_dialog.py, lumi `fetch_voice`, brain hand rules, api/server.py parse |
+| Bank + quick answers | many more command wordings; NEW assistant/quick_answers.py: frequent standalone questions answered at once from knowledge facts (follow-ups always to the LLM) | intent_bank.py, quick_answers.py (new), one block in lumi.route |
+| LLM prompt / examples | explanations and examples for the LLM: commands vs talk, amounts, give, exact answers, follow-ups | brain.py SYSTEM / ACTIONS_STREAM, talk_examples.py, company_examples.py, knowledge/ |
+
+Order of understanding (owner's plan): rules -> bank -> quick answers -> LLM. Tonight: another big training run
+(more banks, examples, blind sets). Never fix from tests/blind/r5 (final exam) — write a round 6.
+
+## Big night test: results (2026-10-22 18:40 – 2026-10-23 07:45)
+
+Final exam = round 5 (`tests/blind/r5/held/`, 2992 cases / scored turns, written blind at 04:10, seen by no fixer,
+scored once at 06:00–07:45 on the frozen code e32e0bb, with gemma4:26b): **2414 right (80 %), 56 unasked or wrong
+motions (1.9 %)**. Report: `logs/final_r5_all.md` (rules-only: `logs/final_r5_rules.md`).
+
+| set (r5, with the LLM) | right | motion |
+|---|---|---|
+| 19 command sets (1140) | 945 (83 %) | 30 |
+| best: take 93, wave 91, look / lift / bring / follow / stop 90, go / move / missions 88 % | | |
+| weakest: give 55, speed_short 61 (the LLM answered where a fast answer was wanted), reach / put 76 % | | |
+| seeing dialogues (632 turns) | 456 (72 %) | 4 |
+| follow-up dialogues (416) | 376 (90 %) | 5 |
+| mixed dialogues (404) | 336 (83 %) | 7 |
+| unknowns (100) | 77 (most misses: airport facts sent to a web lookup the harness has no answer for) | 1 |
+| silence / noise (60) | 59 | 0 |
+| hearing (120 x near / far) | 165 / 240 (68 %) | 9 |
+
+How the night went: rounds r1–r3 of blind sets (train / held-out halves) and fixers; r1–r3 held-out reached ~5
+motions, but a fresh round 4 showed 74 motions / 49 % rules-only: the blacklist guards had fitted the old sets.
+Rules were then changed to act only on a positive **direct order** check (`brain.direct_order`, per clause, EN / KO /
+mixed request forms), every path gated (route, hand reader, Command box, detour, chain, bank): r4 held motions
+74 → 29 → 10. The lead leaked held examples into briefs twice (r3, r4), so the clean number is r5's.
+
+Done tonight (all committed on main, all 46 tests/test_*.py pass): arm-off messages and drives without an enabled
+arm (ea4badf); "look behind" stays 60 s (8fb683a); no goodbye into an empty room (f3b016c); nav guard off (afe3c51);
+seeing from a fresh look, corrections checked against the camera (2e68d0c + b3028ec); blocked-way commands
+(assistant/detour.py); any map names; intent bank fast lane (assistant/intent_bank.py, ~20–30 ms, 0 wrong on train);
+direct-order rules; hearing: early transcription (end of speech → text 1.14 → 0.83 s), live slips, own voice in the
+clip mic (audio/mouth.py echo); conversation: refusals kept for "why?", unknowns never made up, no silence prompts,
+do it again, look at me = the voice. First sentence on a quiet GPU ~1.7 s median.
+
+Next (from the r5 misses; never fix from r5 itself — write a round 6):
+1. The LLM still picks motions for remarks / plans the rules leave to it ("우리 X 들렀다가 Y 가자" -> go, "Don't
+   look up." -> look down, conditions "점심 먹고 나서 …"): check the LLM's action against `direct_order` too.
+2. Korean number words for degrees and distances ("마흔다섯 도", "사 십오 도", "다섯만") and "Korean-English" words
+   (레프트 = left, not lift).
+3. Give while holding (55 %), reach ("extend your arm in my direction" -> fold), put back / 원위치.
+4. Seeing dialogues 72 % on r5 (training sets were 93–96 %): read logs/final_r5_all.md seeing rows by class.
+5. Hearing far Korean short commands; "1.5미터" heard "1.m".
+6. Live tests for everything above (ROADMAP Next).
+
 ## Next (in order)
 
 0. Re-runs started 2026-10-16 ~19:55 with all fixes (`logs/recheck_all.log`): conversation_check, company_check,
@@ -680,4 +929,4 @@ tests/voice_check.py (new), tests/llm_bench.py, tests/status_cases.py, tests/con
 tests/conversation_check.py, tests/dialogues.py, tests/dialogue_check.py, tests/company_cases.py,
 tests/company_check.py (new, agents), assistant/company_examples.py, tests/conversation_cases_more.py, tests/company_cases_more.py, tests/dialogues_more_a.py, tests/dialogues_more_b.py (new, agents), tests/company_check.py, docs/14, docs/17_MISSIONS.md (new), docs/WORK_PLAN.md (this), docs/14, docs/TUNING.md,
 docs/ROADMAP.md, README.md, CLAUDE.md, assistant/wording.py (new), tests/steps_cases5.py (new), tests/test_places.py (new), tests/steps_cases6.py (new), tests/test_fetch_wait.py (new),
-tests/test_mission_wait.py (new), docs/TUNING.md, audio/tts_gpu.py (new), audio/mouth.py, assistant/llm_direct.py, tests/test_mouth.py, tests/command_cases2.py (new), tests/steps_cases7.py (new), tests/test_mission_route.py (new), tests/steps_llm_check.py (new), tests/command_cases3.py (new), tests/steps_cases8.py (new), assistant/driving.py, tests/test_driving.py, tests/command_check.py, tests/command_cases.py, audio/ears.py, assistant/wording.py, tests/asr_check.py, tests/asr_cases.py, tests/asr_cases2.py, tests/asr_cases3.py, tests/test_ears.py (new), README.md, assistant/seeing.py, assistant/talk_examples.py, tests/dialogues_prag_en.py (new), tests/dialogues_prag_ko.py (new), tests/followup_cases_more.py (new), tests/followup_cases.py, tests/dialogue_check.py, docs/14_VOICE_ASSISTANT.md, tests/closing_cases.py (new), tests/closing_check.py (new), tests/test_web.py, tests/web_check.py, tests/web_cases2.py, tests/conversation_check.py, tests/test_fetch_intents.py, tests/test_followup.py. Not synced: logs/, models (now also `models/ggml-large-v3-turbo.bin`), knowledge/index.npz.
+tests/test_mission_wait.py (new), docs/TUNING.md, audio/tts_gpu.py (new), audio/mouth.py, assistant/llm_direct.py, tests/test_mouth.py, tests/command_cases2.py (new), tests/steps_cases7.py (new), tests/test_mission_route.py (new), tests/steps_llm_check.py (new), tests/command_cases3.py (new), tests/steps_cases8.py (new), assistant/driving.py, tests/test_driving.py, tests/command_check.py, tests/command_cases.py, audio/ears.py, assistant/wording.py, tests/asr_check.py, tests/asr_cases.py, tests/asr_cases2.py, tests/asr_cases3.py, tests/test_ears.py (new), README.md, assistant/seeing.py, assistant/talk_examples.py, tests/dialogues_prag_en.py (new), tests/dialogues_prag_ko.py (new), tests/followup_cases_more.py (new), tests/followup_cases.py, tests/dialogue_check.py, docs/14_VOICE_ASSISTANT.md, tests/closing_cases.py (new), tests/closing_check.py (new), tests/test_web.py, tests/web_check.py, tests/web_cases2.py, tests/conversation_check.py, tests/test_fetch_intents.py, tests/test_followup.py, tests/followup_check.py (new), tests/dialogues_followup_en.py (new), tests/dialogues_followup_ko.py (new), tests/silence_check.py (new), tests/test_command_box.py, knowledge/cutshion_en.md, assistant/seeing.py. Not synced: logs/, models (now also `models/ggml-large-v3-turbo.bin`), knowledge/index.npz.
