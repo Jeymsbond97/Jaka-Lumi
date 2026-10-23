@@ -126,7 +126,7 @@ def action_ok(expect, got):
         if alt in ("weather", "unclear", "status", "mission", "search(unsure)") and got == alt:
             return True
         if got.startswith("action:"):
-            want, have = alt.split(), got[7:].lower().split()
+            want, have = alt.lower().split(), got[7:].lower().split()
             if want and have and want[0] == have[0] and all(w in have[1:] for w in want[1:]):
                 return True
     return False

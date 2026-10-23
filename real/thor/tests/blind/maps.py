@@ -7,3 +7,5 @@ MAPS = {
     "korean": ["home", "커피코너", "부스3", "입구", "무대", "안내데스크", "휴게실", "회의실"],
     "hall": ["home", "dock2", "gate_1", "gate_2", "hall_A", "exit", "table_front", "photo_zone", "stage"],
 }
+MAPS["conference"] = ["home", "dock2", "Main_Stage", "Booth_12", "Registration", "포토존", "라운지", "Coffee_Bar",
+                      "Exit_B"]

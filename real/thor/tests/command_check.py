@@ -83,6 +83,12 @@ def rules(text, state, marks, b):
     if kind == "sing":
         return "sing" if sing.choose(text) else "talk"     # a song we don't have: said so (sing.unknown_reply)
     if kind == "quick":
+        if data[0] == "wave" and holding:
+            return "refuse"                                  # Lumi.wave refuses with something held (wave.HOLDING)
+        if data[0] == "put" and not holding:
+            return "empty_hand"                              # skills.put_down: nothing picked, nothing moves
+        if data[0] == "fetch" and not holding and {"object", "place"} & set(brain.parse_fetch(text, marks)[1]):
+            return "ask"                                     # fetch_dialog asks what is missing before anything moves
         return data[0] if data[0] in ("weather", "search") else f"action:{data[0]} {data[1]}".strip()
     return None
 
@@ -137,8 +143,8 @@ def ok(expect, got):
             return "right"
         if want[0] == "chain" and g[0].startswith("chain:"):
             return "right"                                      # several parts, each done in turn (lumi.chain_run)
-        if want[0] == "action:fetch" and g[0] == "action:fetch":
-            return "right"                                      # parse_fetch reads the words later
+        if want[0] in ("action:fetch", "mission") and g[0] == "action:fetch":
+            return "right"                                      # parse_fetch reads the words later (as dialogue_check)
         if want[0] == g[0] and all(w in g[1:] for w in want[1:]):
             return "right"
     return "missed" if g[0] in NO_MOTION else "wrong"

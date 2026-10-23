@@ -179,7 +179,8 @@ def turn_route(b, say, lang, mk, state="idle", use_llm=True):
         b.reset()
         return "action:end", reply, "rules"
     if got is not None:
-        r = {"talk": "none", "ask": "none", "stop": "action:stop", "unclear": "unclear", "weather": "weather",
+        got = command_check.refused(got)                   # a pick the fingers can't do is answered with the reason
+        r = {"talk": "none", "ask": "none", "refuse": "none", "stop": "action:stop", "unclear": "unclear", "weather": "weather",
              "search": "search", "empty_hand": "empty_hand", "llm?": "llm?"}.get(got) or \
             ("mission" if got == "mission" else "action:chain" if got.startswith("chain:") else
              got if got.startswith("action:") else "action:" + got)

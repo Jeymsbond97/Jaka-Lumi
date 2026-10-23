@@ -45,3 +45,33 @@ use round 1's format exactly. Load them as `tests.blind.r2.<split>.<name>` (blin
 | `hearing` | 325/325 | – (`"not"` always present, may be empty) |
 
 Generators (seeded, not in the repo): the writer's scratchpad `gen/gen_f1.py` … `gen_f10.py` with `gen/genlib.py`.
+
+## r3 (round 3, 2026-10-22 night)
+
+`r3/train/` and `r3/held/` (split ~50/50 at random per case / dialogue, the same mix in both), written blind like rounds
+1–2 and de-duplicated against their train texts (exact text). The crowd is a conference's: children and teenagers
+(slang, "yo robot"), elderly Korean visitors (하십시오체, dialect words: 보이소, 따라온나, 뭐 하노; slow repeats),
+non-native English ("robot, bring cup me", "you go stage please"), Konglish both ways, business visitors (Cutshion facts
+and unknowns), testers (tricks, contradictions, sarcasm, "you're wrong"), people talking among themselves near Lumi (no
+action), self-corrections ("go to the— no wait, the stage"; "…, never mind" = no motion), long multi-part requests,
+numbers in every form, whisper slips. New fake map `conference` in `maps.py` (home, dock2, Main_Stage, Booth_12,
+Registration, 포토존, 라운지, Coffee_Bar, Exit_B), about half of the cases; an English spoken name for a Korean-named
+marker ("photo zone", "the lounge") also allows `ask`, as does "the stage" on the conference map (only Main_Stage
+there). Files use round 2's formats exactly. Load them as `tests.blind.r3.<split>.<name>` (`blind_check.py --round r3`).
+
+| File | train / held | New |
+|---|---|---|
+| `commands_go`, `_move`, `_turn` | 154/146, 154/146, 155/145 | – (fixed-amount words "a tiny bit", "한 뼘" left out: their sizes are estimates) |
+| `commands_look`, `_lift`, `_wave`, `_reach` | 150/150, 162/138, 151/136, 154/146 | – ("look behind you" expects `action:look`) |
+| `commands_give`, `_take`, `_put`, `_bring` | 152/148, 153/147, 148/152, 156/144 | – |
+| `commands_follow`, `_stop`, `_status` | 133/160, 131/155, 164/136 | – |
+| `commands_chain`, `commands_detour`, `speed_short` | 154/146, 152/148, 153/147 | – (detour and speed_short de-duplicated by text + before + state: one wording may come with several blocked goals) |
+| `commands_sing`, `commands_missions` | 154/145, 154/146 | – (missions: every step list parses with tests/test_steps.short and every marker is on its map) |
+| `seeing_dialogues` | 143/157 (2069/2345 scored turns) | scenes change between turns (a thing to the other hand, people leave / arrive, a new person steps in front: the new speaker is "A", the earlier one B–D); objects also umbrella, teddy bear |
+| `followup_dialogues` | 191/209 (1236/1355 scored turns) | – (nested follow-ups, contradictions to keep the fact against) |
+| `dialogues_mixed` | 138/162 (2000/2341 scored turns) | in a dialogue that starts idle, the give right after a pick expects `give \| empty_hand \| none` (the checker keeps the start's hand state) |
+| `unknowns` | 218/236 | head-count questions also have the camera's `people_in_view` number (digit and word) in must_not |
+| `silence_noise` | 131/110 | conference PA announcements are kind `tv`; visitors talking among themselves: `no_action` in an open talk, else `nothing` |
+| `hearing` | 293/301 | – (`text` keeps the marker as written, `say` what is spoken: "부스 십이로"; `not` near sounds: "Booth 2", "50 seconds") |
+
+Generators (seeded, not in the repo): the writer's scratchpad `gen/gen_r3_a.py` … `gen_r3_f.py` with `gen/genlib.py`.
