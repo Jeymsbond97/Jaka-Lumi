@@ -52,16 +52,11 @@ assert ears.transcribe(AUDIO) == "" and asked == [None, "no prompt"], asked
 # the name really said: kept
 asked = fake({None: ("Hey Lumi.", "english", 0.9, -0.05), "no prompt": ("Hey, Liumu!", "english", 0.9, -0.8)})
 assert ears.transcribe(AUDIO) == "Hey Lumi." and asked == [None, "no prompt"], asked
-# tagged Korean but written in Latin or Cyrillic letters (understood() would refuse it): asked in both languages
-asked = fake({None: ("Wait.", "korean", 0.6, -0.01),
-              "ko": ("웨이트.", "korean", None, -0.6), "en": ("Wait.", "english", None, -0.02)})
-assert ears.transcribe(AUDIO) == "Wait." and ears.understood() and asked == [None, "ko", "en"], asked
-asked = fake({None: ("Кам туне.", "korean", 0.5, -0.29),
-              "ko": ("감 투네.", "korean", None, -0.9), "en": ("Come to me.", "english", None, -0.1)})
-assert ears.transcribe(AUDIO) == "Come to me." and ears.understood(), ears.last_stt
-asked = fake({None: ("Tifa.", "korean", 0.5, -0.84),          # "뒤 봐" from afar
-              "ko": ("뒤 봐.", "korean", None, -0.3), "en": ("Tifa.", "english", None, -0.5)})
-assert ears.transcribe(AUDIO) == "뒤 봐." and ears.heard_lang() == "ko", ears.last_stt
+# tagged Korean but written in Latin letters (understood() would refuse it): asked in English, the same words kept
+asked = fake({None: ("Wait.", "korean", 0.6, -0.01), "en": ("Wait.", "english", None, -0.02)})
+assert ears.transcribe(AUDIO) == "Wait." and ears.understood() and asked == [None, "en"], asked
+asked = fake({None: ("Tifa.", "korean", 0.5, -0.84), "en": ("To the bar.", "english", None, -0.5)})   # 뒤 봐, far
+assert ears.transcribe(AUDIO) == "Tifa." and not ears.understood(), ears.last_stt   # other words: "say it again"
 # a sound taken for Japanese, made Korean: whisper's "감사합니다." and "Hey." are dropped, not a turn or a wake word
 asked = fake({None: ("Okay.", "japanese", 0.4, -0.03),
               "ko": ("감사합니다.", "korean", None, -0.15), "en": ("Hey.", "english", None, -0.09)})

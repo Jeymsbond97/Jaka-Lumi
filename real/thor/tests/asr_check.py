@@ -96,7 +96,9 @@ def synth(pieces, voice, speed):
     x = np.concatenate(parts)
     x = np.interp(np.arange(0, len(x), tts.sample_rate / ears.RATE), np.arange(len(x)), x).astype(np.float32)
     f.parent.mkdir(parents=True, exist_ok=True)
-    np.save(f, x)
+    tmp = f.with_suffix(f".{time.time_ns()}.tmp.npy")
+    np.save(tmp, x)
+    tmp.replace(f)                                               # whole, for another check reading the cache
     return x
 
 

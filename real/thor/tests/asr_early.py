@@ -57,8 +57,8 @@ def main(args):
         new.append(tb)
         same += a == b
         discarded += max(0, k - 1)
-        if a != b:
-            print(f"  {f.name}: {a!r} | early {b!r}")
+        if a != b or tb > ta + 0.3 or "-v" in args:
+            print(f"  {f.name}: {a!r} {ta:.2f} s | early {b!r} {tb:.2f} s, {k} early runs")
     print(f"{n} clips: text the same {same}; end of speech -> text median {statistics.median(old):.2f} s -> "
           f"{statistics.median(new):.2f} s, mean {statistics.mean(old):.2f} -> {statistics.mean(new):.2f} s; "
           f"{discarded} early runs thrown away (speech went on)")
