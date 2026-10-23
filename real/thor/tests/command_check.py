@@ -57,7 +57,8 @@ def rules(text, state, marks, b):
     drive = driving.read(t, driving.last_command(b.history), driving.talking(b.history))
     if drive and (drive[0] != "move" or drive != driving.read(t, None, True)):
         return {"speed": lambda d: f"speed {'faster' if d[1] > 0 else 'slower'}", "move": lambda d: f"action:move {d[1]}",
-                "turn": lambda d: f"action:turn {d[1]}",
+                "turn": lambda d: f"action:turn {d[1]}", "look": lambda d: f"action:look {d[1]}",
+                "lift": lambda d: f"action:lift {d[1]}",
                 "refuse": lambda d: "refuse", "ask": lambda d: "ask"}[drive[0]](drive)
     if lumi.NAME_ONLY.match(text):
         return "talk"

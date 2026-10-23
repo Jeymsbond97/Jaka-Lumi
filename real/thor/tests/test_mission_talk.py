@@ -14,6 +14,7 @@ fetch.pause = lambda: (done.append("pause"), run.update(paused=True), True)[-1]
 fetch.paused = lambda: run["paused"]
 fetch.resume = lambda: (done.append("resume"), run.update(paused=False))
 fetch.stop = lambda: done.append("stop")
+fetch.end = lambda timeout=5.0: done.append("end")
 fetch.replace = lambda steps, say=None: done.append(("replace", steps))
 lumi.brain_mod.intent.__globals__  # the real rules
 
@@ -38,18 +39,18 @@ assert talk(L, "the weather is nice today")[0] and not done and not L.said      
 L = fresh()
 ok, said = talk(L, "Hi Lumi!")
 assert ok and done == ["pause"] and "How can I help you" in said, (done, said)
-ok, said = talk(L, "go to p3")                                                        # a stranger's task: refused
-assert ok and "doing a task for someone" in said and not any(isinstance(d, tuple) for d in done), said
 ok, said = talk(L, "what are you doing?")                                              # a question: answered as usual
 assert not ok
 ok, said = talk(L, "okay, you can go")
 assert ok and done[-1] == "resume" and L.mission_hold is None, done
+ok, said = talk(L, "go to p3")                    # anyone's new task: the mission ends with one line, then it is done
+assert ok is False and done[-1] == "end" and said == "Okay, I've stopped my task.", (done, said)
 L = fresh()
 ok, said = talk(L, "Lumi, I'm James, give it to me")                                  # the person it is for
 assert ok and done[-1] == ("replace", [{"do": "give", "person": "James"}]) and "James" in said, (done, said)
 L = fresh()
-ok, said = talk(L, "Lumi, I'm Tom, give it to me")
-assert ok and "this is for James" in said and not any(isinstance(d, tuple) for d in done), (done, said)
+ok, said = talk(L, "Lumi, I'm Tom, give it to me")                                    # done for Tom, as anyone's
+assert ok is False and done[-1] == "end", (done, said)
 L = fresh()
 ok, said = talk(L, "Hey Lumi, I'm James. Take it to p3 and put it on the table")
 assert ok and done[-1] == ("replace", [{"do": "go", "to": "p3"}, {"do": "place", "on": {"name": "dining table",
@@ -72,11 +73,7 @@ L.mission_wait()
 assert L.said[-1] == "Can I go on with my task?" and "resume" not in done
 L.last_activity -= 100
 L.mission_wait()
-assert done[-1] == "resume", done
-L = fresh()
-talk(L, "Lumi, stop")
-ok, said = talk(L, "can you take me to p2?")
-assert "doing a task for someone" in said, said
+assert "resume" not in done, done                                                     # never goes on by itself
 L = fresh()
 ok, said = talk(L, "루미야, 제가 제임스예요")            # 제임스 is not matched to "James" (another script): nothing given
 assert not any(isinstance(d, tuple) for d in done) and "this is for James" not in said, (done, said)

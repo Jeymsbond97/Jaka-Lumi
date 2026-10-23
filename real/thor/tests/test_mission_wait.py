@@ -17,6 +17,7 @@ fetch.pause = lambda: (done.append("pause"), True)[-1]
 fetch.paused = lambda: "pause" in done and "resume" not in done
 fetch.resume = lambda: done.append("resume")
 fetch.stop = lambda: done.append("stop")
+fetch.end = lambda timeout=5.0: done.append("end")
 fetch.proceed = lambda: done.append("proceed")
 fetch.release_now = lambda: done.append("release")
 fetch.instruct = lambda steps: done.append(("instruct", steps))
@@ -53,10 +54,10 @@ assert L.mission_talk("go to the kitchen and dance") and "didn't understand" in 
 L = fresh(ORDER)
 assert not L.mission_talk("what are you doing?")                     # a question: answered as usual
 assert L.now_doing()[0] == "I'm waiting at p6 for an instruction.", L.now_doing()
-# a mission waiting for go on / a time: someone else's task is still refused; "go on" ends the wait
+# a mission waiting for go on / a time: anyone's new task ends it with one line (then it is done); "go on" ends the wait
 for w in ({"at": "exit", "for": "go on", "end": None}, {"at": "p3", "for": "time", "end": time.time() + 25}):
     L = fresh(w)
-    assert L.mission_talk("Lumi, take me to p2") and "doing a task for someone" in L.said[-1], L.said
+    assert L.mission_talk("Lumi, take me to p2") is False and "end" in done and "stopped my task" in L.said[-1], L.said
     L = fresh(w)
     assert L.mission_talk("okay, you can go now") and "proceed" in done and done[-1] == "resume", done
 L = fresh({"at": "exit", "for": "go on", "end": None}, step="waiting at exit")
