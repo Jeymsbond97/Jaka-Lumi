@@ -159,6 +159,15 @@ assert seeing.facts_for("tell me a joke").startswith(" Your cameras see now") an
 seeing._last["at"] = 0.0
 assert seeing.facts_for("tell me a joke") == ""
 
+# one word while Lumi still talks: a barge-in only right after a seeing answer (lumi.barge_in)
+seeing._last.update(kind=None, at=0.0)
+assert not seeing.recheck("Really?")
+seeing._last.update(kind="shirt", at=time.time())
+assert all(seeing.recheck(w) for w in ("Really?", "진짜?", "Now?", "정말?", "지금은?", "are you sure?"))
+assert not any(seeing.recheck(w) for w in ("yes", "okay", "thanks", "what time is it?"))
+seeing._last.update(at=time.time() - seeing.RECHECK_S - 1)
+assert not seeing.recheck("Really?")
+
 # colour naming: the hand's skin is not the held thing's colour; near-black has no hue (black trousers read "blue")
 SKIN = (110, 140, 200)                                             # BGR of a face / hand
 hsv = cv2.cvtColor(np.uint8([[SKIN]]), cv2.COLOR_BGR2HSV)[0, 0]

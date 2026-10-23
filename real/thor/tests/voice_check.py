@@ -5,6 +5,8 @@ of the typed text. Needs the whisper server (started by the API); nothing moves.
     .venv/bin/python tests/voice_check.py            # all mission cases, English and Korean
     .venv/bin/python tests/voice_check.py 50         # the first 50 only
     .venv/bin/python tests/voice_check.py failed     # only the ones in logs/voice_check.log
+    .venv/bin/python tests/voice_check.py --port 8099   # a whisper-server of one's own (not the robot's)
+    .venv/bin/python tests/voice_check.py --tag after   # failures to logs/voice_check_after.log
 Units are spoken as words ("1 m" -> "1 meter"), as people say them; in Korean also the markers and numbers
 ("p3로" -> "피쓰리로" or "피삼으로", "1미터" -> "일 미터": the TTS reads "p3" and "1" in Korean badly); the words of a message may be spelled
 differently by whisper ("canceled"), only that a message is there counts. Failures go to logs/voice_check.log."""
@@ -63,10 +65,13 @@ def heard(text):
     return ears.transcribe(pcm, **({"prompt": PROMPT} if PROMPT else {})), ears.understood()
 
 
+LOG = ROOT / "logs" / "voice_check.log"
+
+
 def main(limit=None):
     cases = [t for t, want in {**C1, **C2, **C5}.items() if want != "?"][:limit if isinstance(limit, int) else None]
     if limit == "failed":
-        cases = [ln[1:-1] for ln in (ROOT / "logs" / "voice_check.log").read_text().splitlines() if ln.startswith("'")]
+        cases = [ln[1:-1] for ln in LOG.read_text().splitlines() if ln.startswith("'")]
     bad, t0 = [], time.time()
     for i, text in enumerate(cases, 1):
         typed = steps.read(text, M, llm=False)[:2]
@@ -76,12 +81,19 @@ def main(limit=None):
             bad.append(f"{text!r}\n  heard {said!r} (understood {ok})\n  typed {typed}\n  heard {got}")
         if i % 25 == 0:
             print(f"{i}/{len(cases)}  wrong {len(bad)}  {time.time() - t0:.0f} s", flush=True)
-    (ROOT / "logs" / "voice_check.log").write_text("\n".join(bad) + "\n")
-    print(f"{len(cases) - len(bad)}/{len(cases)} heard and read the same; failures in logs/voice_check.log")
+    LOG.write_text("\n".join(bad) + "\n")
+    print(f"{len(cases) - len(bad)}/{len(cases)} heard and read the same; failures in {LOG.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":
     import os
     PROMPT = os.environ.get("VOICE_PROMPT") or None
+    if "--port" in sys.argv:
+        ears.STT_URL = f"http://127.0.0.1:{sys.argv.pop(sys.argv.index('--port') + 1)}"
+        ears.HEARD_DIR = ROOT / "logs" / "asr_check" / "heard"   # never the robot's logs/heard
+        sys.argv.remove("--port")
+    if "--tag" in sys.argv:
+        LOG = ROOT / "logs" / f"voice_check_{sys.argv.pop(sys.argv.index('--tag') + 1)}.log"
+        sys.argv.remove("--tag")
     arg = sys.argv[1] if len(sys.argv) > 1 else None
     main(int(arg) if arg and arg.isdigit() else arg)

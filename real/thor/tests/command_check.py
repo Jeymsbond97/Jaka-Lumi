@@ -53,7 +53,7 @@ def rules(text, state, marks, b):
     if not fixed:
         return "ask" if fixed is None else "talk"
     text = fixed
-    t = brain._norm(text)                                # lumi.drive_words: speed, "again", how far?, too far
+    t = brain._norm(text, marks)                         # lumi.drive_words: speed, "again", how far?, too far
     drive = driving.read(t, driving.last_command(b.history), driving.talking(b.history))
     if drive and (drive[0] != "move" or drive != driving.read(t, None, True)):
         return {"speed": lambda d: f"speed {'faster' if d[1] > 0 else 'slower'}", "move": lambda d: f"action:move {d[1]}",
@@ -132,7 +132,7 @@ def ok(expect, got):
     """'right' | 'missed' | 'wrong'."""
     g = got.lower().split()
     for alt in expect.split(" | "):
-        want = refused(alt).split()                             # "pick bottle": the reason why not is right
+        want = refused(alt).lower().split()                             # "pick bottle": the reason why not is right
         if want[0] in ("talk", "ask") and g[0] in ("talk", "ask", "refuse"):     # a reason why not is an answer
             return "right"
         if want[0] == "chain" and g[0].startswith("chain:"):

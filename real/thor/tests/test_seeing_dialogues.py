@@ -5,18 +5,24 @@ conversation model answers are only checked for their route.
 
     python tests/test_seeing_dialogues.py            # score, the failures to logs/seeing_dialogues.log
     python tests/test_seeing_dialogues.py --min 0.9  # fails below this part of the turns right
+    python tests/test_seeing_dialogues.py --set r2   # round 2's train set (r1 default); --set mixed: the scene turns
+                                                     # of r2/train/dialogues_mixed.py (other turns: must not be seeing)
+Only train sets: the held-out halves are scored by the lead, never from here.
 """
+import importlib
 import re
 import sys
 import time
 from pathlib import Path
 
 from assistant import brain, lumi, seeing
-from tests.blind.train.seeing_dialogues import DIALOGUES
 from vision import scene
 
+SETS = {"r1": "tests.blind.train.seeing_dialogues", "r2": "tests.blind.r2.train.seeing_dialogues",
+        "mixed": "tests.blind.r2.train.dialogues_mixed"}
+
 MARKS = ["home", "dock2", "p1", "p2", "p3", "p4", "p5"]
-LOG = Path(__file__).resolve().parents[1] / "logs" / "seeing_dialogues.log"
+LOGS = Path(__file__).resolve().parents[1] / "logs"
 BEARING = {"front": 0.0, "left": 30.0, "right": -30.0}
 now = {"scene": {"people": [], "objects": []}}
 
@@ -36,7 +42,7 @@ def _scene(frames):
 
 def _front(frames):
     near = [p for p in _scene(frames)["people"] if (p.get("dist_m") or 0) <= scene.FRONT_M]
-    return min(near, key=lambda p: p.get("dist_m") or 99) if near else None
+    return min(near, key=lambda p: scene.speaker_key(p.get("dist_m"), BEARING.get(p.get("side"), 0.0))) if near else None
 
 
 def _thing(name, colour):
@@ -46,7 +52,10 @@ def _thing(name, colour):
 
 
 def person_in_front(frames=None):
-    p = _front(frames)
+    return _person(_front(frames))
+
+
+def _person(p):
     if p is None:
         return None
     seen = p.get("hands_visible", True)
@@ -64,7 +73,7 @@ def other_person(frames=None):
     rest = sorted((p for p in _scene(frames)["people"] if p is not me), key=lambda p: p.get("dist_m") or 99)
     if me is None or not rest:
         return None
-    return person_in_front([{"scene": {"people": [rest[0]], "objects": []}}])
+    return _person(rest[0])
 
 
 def object_in_hand(frames=None):
@@ -84,7 +93,7 @@ def person_holds(obj=None, frames=None):
 
 
 def things(frames=None):
-    out = [{"name": o["name"], "colour": o.get("colour"), "distance_m": o.get("dist_m"),
+    out = [{"name": seeing._name(o["name"]) or o["name"], "colour": o.get("colour"), "distance_m": o.get("dist_m"),
             "bearing_deg": BEARING.get(o.get("side"), 0.0), "where": _where(o.get("side")), "camera": "head",
             "position_mm": None, "score": 0.9, "box": (0, 0, 1, 1)} for o in _scene(frames)["objects"]]
     return sorted(out, key=lambda t: t["distance_m"] or 99)
@@ -106,20 +115,26 @@ def lang_of(text):
     return "ko" if re.search(r"[가-힣]", text) else "en"
 
 
-def run():
-    ok, bad = 0, []
-    for n, d in enumerate(DIALOGUES):
+def run(dialogues):
+    ok, bad, asked = 0, [], 0
+    for n, d in enumerate(dialogues):
         seeing._last.update(thing=None, name=None, kind=None, asked=None, parts=[], at=0.0)
         b = brain.Brain()
+        marks = d.get("markers") or MARKS
         for i, turn in enumerate(d["turns"]):
-            now["scene"] = turn["scene"]
+            now["scene"] = turn.get("scene") or {"people": [], "objects": []}
             text, lang = turn["say"], lang_of(turn["say"])
             brain.FORCED_LANG["lang"] = lang
-            kind, data = lumi.route(text, MARKS, b, seen=lambda x: seeing.answer(x, lang))
+            if "reply" in turn:                            # a setup turn of the mixed set: Lumi's line, not scored
+                b.history.append((text, turn["reply"]))
+                seeing.answer(text, lang)                  # what the router would do with it before the LLM
+                continue
+            kind, data = lumi.route(text, marks, b, seen=lambda x: seeing.answer(x, lang))
             got = data if kind == "seeing" else None
             if got:
                 b.history.append((text, f"ACTION: none -\n{got}"))
-            want = turn["route"]
+            want = turn.get("route")
+            asked += want == "seeing"
             if want == "seeing":
                 good = bool(got) and all(re.search(m, got, re.I) for m in turn["must"]) and \
                     not any(re.search(m, got, re.I) for m in turn["must_not"])
@@ -129,13 +144,17 @@ def run():
             if not good:
                 bad.append(f"[{n} {d['topic']} #{i}] {text!r} -> {kind}: {got!r}\n    want {want} {turn['must']} "
                            f"not {turn['must_not']}  ({turn['check']})")
-    return ok, bad
+    return ok, bad, asked
 
 
 if __name__ == "__main__":
-    ok, bad = run()
+    name = sys.argv[sys.argv.index("--set") + 1] if "--set" in sys.argv else "r1"
+    ok, bad, asked = run(importlib.import_module(SETS[name]).DIALOGUES)
     n = ok + len(bad)
-    LOG.write_text(f"seeing dialogues (train) {time.strftime('%Y-%m-%d %H:%M')}: {ok}/{n} turns right\n\n" + "\n".join(bad))
-    print(f"seeing dialogues: {ok}/{n} turns right ({LOG})")
+    missed = sum("\n    want seeing " in b for b in bad)
+    log = LOGS / f"seeing_dialogues{'' if name == 'r1' else '_' + name}.log"
+    line = f"{ok}/{n} turns right (camera questions {asked - missed}/{asked}, other turns left alone {n - asked - len(bad) + missed}/{n - asked})"
+    log.write_text(f"seeing dialogues ({name} train) {time.strftime('%Y-%m-%d %H:%M')}: {line}\n\n" + "\n".join(bad))
+    print(f"seeing dialogues ({name}): {line} ({log})")
     if "--min" in sys.argv:
         assert ok >= float(sys.argv[sys.argv.index("--min") + 1]) * n

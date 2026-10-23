@@ -52,6 +52,47 @@ assert ears.transcribe(AUDIO) == "" and asked == [None, "no prompt"], asked
 # the name really said: kept
 asked = fake({None: ("Hey Lumi.", "english", 0.9, -0.05), "no prompt": ("Hey, Liumu!", "english", 0.9, -0.8)})
 assert ears.transcribe(AUDIO) == "Hey Lumi." and asked == [None, "no prompt"], asked
+# tagged Korean but written in Latin or Cyrillic letters (understood() would refuse it): asked in both languages
+asked = fake({None: ("Wait.", "korean", 0.6, -0.01),
+              "ko": ("웨이트.", "korean", None, -0.6), "en": ("Wait.", "english", None, -0.02)})
+assert ears.transcribe(AUDIO) == "Wait." and ears.understood() and asked == [None, "ko", "en"], asked
+asked = fake({None: ("Кам туне.", "korean", 0.5, -0.29),
+              "ko": ("감 투네.", "korean", None, -0.9), "en": ("Come to me.", "english", None, -0.1)})
+assert ears.transcribe(AUDIO) == "Come to me." and ears.understood(), ears.last_stt
+asked = fake({None: ("Tifa.", "korean", 0.5, -0.84),          # "뒤 봐" from afar
+              "ko": ("뒤 봐.", "korean", None, -0.3), "en": ("Tifa.", "english", None, -0.5)})
+assert ears.transcribe(AUDIO) == "뒤 봐." and ears.heard_lang() == "ko", ears.last_stt
+# a sound taken for Japanese, made Korean: whisper's "감사합니다." and "Hey." are dropped, not a turn or a wake word
+asked = fake({None: ("Okay.", "japanese", 0.4, -0.03),
+              "ko": ("감사합니다.", "korean", None, -0.15), "en": ("Hey.", "english", None, -0.09)})
+assert ears.transcribe(AUDIO) == "", ears.last_stt
+# whisper's loop on a sound it can't read: dropped
+asked = fake({None: ("Look right. Look right. Look right.", "english", 0.6, -0.3)})
+assert ears.transcribe(AUDIO) == "" and "repeating" in ears.last_stt["dropped"], ears.last_stt
+# the owner's "How old are you?" written in Hangul: English
+asked = fake({None: ("호월달요.", "korean", 0.6, -0.3)})
+assert ears.transcribe(AUDIO) == "How old are you?" and ears.understood() and ears.heard_lang() == "en", ears.last_stt
+# an early run (started in the pause at the end) is taken when only the quiet came after it, else asked again
+fake({None: ("Look at the left side.", "english", 0.9, -0.05)})
+speech = (np.sin(np.arange(16000) / 3) * 3000).astype(np.int16)
+ears.early(speech)
+ears._early["job"]["done"].wait(5)
+asked = fake({None: ("Look at the.", "english", 0.9, -0.05)})
+assert ears.transcribe(np.concatenate([speech, np.zeros(4800, np.int16)])) == "Look at the left side." and \
+    asked == [] and ears.last_stt["early"], asked
+assert ears.transcribe(np.concatenate([speech, np.zeros(4800, np.int16), speech])) == "Look at the." and \
+    asked == [None], asked                       # more was said after the pause
+asked = fake({None: ("Look at the.", "english", 0.9, -0.05)})
+assert ears.transcribe(speech[:8000]) == "Look at the." and asked == [None], asked   # another utterance
+ears._early.clear()
+# the segmenter's pause signal: once, EARLY_QUIET_S into the quiet of an utterance still going on
+from audio import mic
+seg, fired = mic.Segmenter(100), []
+for i in range(80):                                      # quiet, 0.6 s speech, 0.45 s pause, 0.15 s speech, quiet
+    loud = 20 <= i < 40 or 55 <= i < 60
+    if seg.feed(np.zeros(480, np.int16), 1000.0 if loud else 10.0, i * 0.03) is None and seg.quiet_now():
+        fired.append(i)
+assert fired == [49, 69] and not seg.in_speech, fired
 # music or noise (no speech frames): whisper is not asked
 ears.speech_seconds = lambda audio: 0.03
 asked = fake({None: ("-끝-", "korean", 0.9, -0.01)})
@@ -79,6 +120,11 @@ calls = []
 ears.record = lambda wait_s=8.0, on_start=None, abort=None, since=None: calls.append(since) or (first if since is None else rest)
 ears.transcribe = lambda audio: "Let's" if len(audio) == 8000 else "Let's follow me."
 assert ears.listen() == "Let's follow me." and calls == [None, 10.0], calls
+for cut in ["What is the color of the...", "Well, if I get a little bit,", "You're the address of", "Can you find…"]:
+    ears.transcribe = lambda audio, cut=cut: cut if len(audio) == 8000 else "x"
+    calls.clear()
+    first.mono, first.t_end = np.ones(8000, np.int16), 10.0   # listen() kept the joined audio in it
+    assert ears.listen() == "x" and calls == [None, 10.0], cut
 ears.transcribe = lambda audio: "Can you see me?"                 # a whole sentence: nothing waited for
 calls.clear()
 assert ears.listen() == "Can you see me?" and calls == [None], calls

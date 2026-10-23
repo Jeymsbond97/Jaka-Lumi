@@ -7,6 +7,8 @@ microphones, sent through ears.transcribe() exactly as Lumi does, then through L
     .venv/bin/python tests/asr_check.py --cases 2        # the second set (tests/asr_cases2.py)
     .venv/bin/python tests/asr_check.py --cases 3        # noise and talk not to Lumi (tests/asr_cases3.py)
     .venv/bin/python tests/asr_check.py --cases 4        # music only, and speech over soft music (tests/asr_cases4.py)
+    .venv/bin/python tests/asr_check.py --cases tests/blind/train/hearing.py   # any file with CASES (own markers)
+    .venv/bin/python tests/asr_check.py --trim 0.3       # the audio without its last 0.3 s (early transcription)
     .venv/bin/python tests/asr_check.py --no-vad         # without the speech detector and the subtitle-text filter
     .venv/bin/python tests/asr_check.py --heard          # also the real clips in logs/heard/ (text only, no judgement)
     .venv/bin/python tests/asr_check.py --set LANG_RETRY=False --tag before   # an ears constant; -> logs/asr_check_before.md
@@ -126,11 +128,11 @@ def plain(t):
     return re.sub(r"[^\w가-힣 ]", "", (t or "").lower()).split()
 
 
-def route(text, b):
+def route(text, b, marks=MARKERS):
     try:
-        r = rules(text, "idle", MARKERS, b) or "llm"
+        r = rules(text, "idle", marks, b) or "llm"
         if r.startswith("action:fetch"):                         # its target is the whole text: what it asks for
-            task = brain.fetch_from_text(text, MARKERS)[0]
+            task = brain.fetch_from_text(text, marks)[0]
             r = "action:fetch " + " ".join(f"{k}={task[k]}" for k in sorted(task) if task[k] and k != "said")
         return r
     except Exception as e:                                       # noqa: BLE001 - a crash is a failure of that case
@@ -142,7 +144,7 @@ def judge(c, heard, stt):
     if c["kind"] == "noise":                                     # not said to Lumi: no wake word, no motion
         if heard and (lumi.WAKE.search(heard) or lumi.HELLO_ONLY.match(heard)):
             return "slip", "wake word"
-        got = route(heard, brain.Brain()) if heard else "llm"
+        got = route(heard, brain.Brain(), c.get("markers", MARKERS)) if heard else "llm"
         if c.get("music") and heard and ears.understood():      # in a conversation any text taken is a turn
             return "slip", f"a turn ({got})"
         return ("slip", got) if heard and ears.understood() and re.match(
@@ -158,7 +160,8 @@ def judge(c, heard, stt):
         return "unclear", f"{stt.get('language')} {stt.get('logprob')}"
     if want_lang and stt.get("language") != want_lang:
         return "lang", stt.get("language")
-    want, got = route(c["text"], brain.Brain()), route(heard, brain.Brain())
+    marks = c.get("markers", MARKERS)                           # a fake map's names (tests/blind/maps.py)
+    want, got = route(c["text"], brain.Brain(), marks), route(heard, brain.Brain(), marks)
     if want != got:
         return "slip", f"{got} (want {want})"
     if want == "llm" or c["kind"] in ("short", "question"):
@@ -187,7 +190,9 @@ def main(args):
     start_server()
     rng = np.random.default_rng(5)
     rows, t0 = [], time.time()
-    pool = {"1": CASES, "2": CASES2, "3": CASES3, "4": asr_cases4.CASES}[args[args.index("--cases") + 1] if "--cases" in args else "1"]
+    which = args[args.index("--cases") + 1] if "--cases" in args else "1"
+    pool = {"1": CASES, "2": CASES2, "3": CASES3, "4": asr_cases4.CASES}.get(which) or load(which)
+    trim = int(float(args[args.index("--trim") + 1]) * ears.RATE) if "--trim" in args else 0
     cases = [c for c in pool if not only or re.search(only, c["text"])]
     for i, c in enumerate(cases):
         voice, speed = VOICES[i % len(VOICES)], [0.85, 0.95, 1.05, 1.15][(i // len(VOICES)) % 4]
@@ -202,7 +207,7 @@ def main(args):
                       for k in range(3)] if ROOMS[rname]["babble"] and c["say"] else ()   # music alone: no people
             audio = room(x, ROOMS[rname], rng, others)
             t1 = time.time()
-            heard = ears.transcribe(audio, ears.PROMPT)
+            heard = ears.transcribe(audio[:len(audio) - trim])
             stt = dict(ears.last_stt, secs=round(time.time() - t1, 2))
             verdict, why = judge(c, heard, stt)
             rows.append({**c, "room": rname, "voice": voice, "speed": speed, "heard": heard, "stt": stt,
@@ -216,12 +221,23 @@ def main(args):
     report(rows, time.time() - t0, ROOT / "logs" / f"{name}.md")
 
 
+def load(path):
+    """CASES of any case file (tests/blind/...: the same format, places with their own markers)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cases", ROOT / path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return [c if "say" in c else {"kind": "short", "lang": c["lang"], "text": c["text"], "say": [(c["lang"], c["text"])],
+                                  **({"markers": c["markers"]} if "markers" in c else {})}
+            for c in mod.CASES if "say" in c or c.get("lang") in ("en", "ko")]   # command sets: their text, spoken
+
+
 def heard_clips(rows):
     """The real utterances kept in logs/heard (local only): the text with this prompt, no judgement."""
     for f in sorted((ROOT / "logs" / "heard").glob("*.wav")):
         with wave.open(str(f)) as w:
             audio = np.frombuffer(w.readframes(w.getnframes()), np.int16)
-        heard = ears.transcribe(audio, ears.PROMPT)
+        heard = ears.transcribe(audio)
         rows.append({"kind": "real", "lang": "?", "text": f.name, "room": "real", "heard": heard,
                      "stt": dict(ears.last_stt), "verdict": "real", "why": ""})
 

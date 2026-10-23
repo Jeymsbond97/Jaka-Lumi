@@ -51,4 +51,32 @@ NAMED = {   # (words, the LLM's marker) -> named in the words?
 off = {k: v for k, v in NAMED.items() if brain.named_place(k[0], k[1], M) != v}
 assert not off, off
 assert not wrong
+
+# ---- other maps' names (the whole sets on fake maps: tests/fake_maps.py) ----
+from assistant import driving, steps
+KO = ["home", "커피코너", "부스3", "입구", "무대", "창고", "출구"]
+EXPO = ["home", "booth_A", "booth_B", "booth_3", "stage", "coffee_corner", "info_desk", "end", "a"]
+SPACED = ["home", "Main Stage", "Storage", "Coffee Corner", "Back Door"]
+GO = {   # (words, map) -> intent
+    ("커피 코너로 가 줘", "KO"): ("go_to", "커피코너"), ("부스 삼으로 가", "KO"): ("go_to", "부스3"),
+    ("go to 입구", "KO"): ("go_to", "입구"), ("출입구로 가", "KO"): None, ("도서관으로 가", "KO"): None,
+    ("부스 에이로 가 줘", "EXPO"): ("go_to", "booth_A"), ("booth a로 go", "EXPO"): ("go_to", "booth_A"),
+    ("인포 데스크로 가", "EXPO"): ("go_to", "info_desk"), ("come back booth 3", "EXPO"): ("go_to", "booth_3"),
+    ("go to the end of the hall", "EXPO"): None, ("go a bit forward", "EXPO"): ("move", "forward 0.5"),
+    ("go to the coffee corner", "SPACED"): ("go_to", "Coffee Corner"), ("go to stage", "SPACED"): None,   # asked
+    ("no need to go to booth B", "EXPO"): None, ("테이블 앞으로 가", "EXPO"): None,
+}
+maps = {"KO": KO, "EXPO": EXPO, "SPACED": SPACED}
+off = {k: brain.intent(k[0], maps[k[1]]) for k, v in GO.items() if brain.intent(k[0], maps[k[1]]) != v}
+assert not off, off
+assert brain.place_problem("go to stage", SPACED)[0] == "Did you mean Main Stage?"
+assert driving.read(brain._norm("come back booth 3", EXPO)) is None              # a place, not "3 back"
+for text, want in {"창고 가서 기다려": [{"do": "go", "to": "창고"}, {"do": "wait", "s": None}],
+                   "입구나 무대 중에 아무 데나 가": [{"do": "go", "to": ["입구", "무대"]}],
+                   "go to back door then main stage": [{"do": "go", "to": "Back Door"}, {"do": "go", "to": "Main Stage"}],
+                   "James asked me to send this to Sara at booth B": [{"do": "go", "to": "booth_B"},
+                                                                     {"do": "give", "person": "Sara"}]}.items():
+    m = KO if "창고" in text or "입구" in text else SPACED if "door" in text else EXPO
+    got, unread = steps.rules(text, m)
+    assert got == want and not unread, (text, got, unread)
 print("places ok")

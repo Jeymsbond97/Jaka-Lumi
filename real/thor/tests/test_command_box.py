@@ -70,7 +70,8 @@ def hand(text):
 
 fetch.check_hand = lambda: False
 lumi.log = fetch.log = lambda *a: None
-lumi.mouth = types.SimpleNamespace(say=lambda *a, **k: None, lang_of=lambda t: "ko" if brain.HANGUL.search(t) else "en")
+lumi.mouth = types.SimpleNamespace(say=lambda *a, **k: None, lang_of=lambda t: "ko" if brain.HANGUL.search(t) else "en",
+                                recent_speech=lambda s=30.0: "")
 lumi.ears = types.SimpleNamespace(heard_lang=lambda x: x, last_stt={}, understood=lambda: True, heard_clearly=lambda: True)
 real_seeing = lumi.seeing.answer
 lumi.seeing.answer = lambda t, lang="en", frames=None, slow_line=None: real_seeing(t, lang, frames=[])   # no camera
