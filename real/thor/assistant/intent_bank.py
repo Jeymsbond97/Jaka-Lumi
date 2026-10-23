@@ -48,18 +48,31 @@ WONDER = re.compile(r"\bi wonder\b|\bwonder(?:ing)? (?:if|whether|how)\b|\bi bet
                     r"(?:있|하|되|가|와|오|돌|봐|올라|내려|흔들|집|따라)나(?:요)?\s*[?？.~]*\s*$|나 ?봐(?:요)?\s*[?？.~]*\s*$|"
                     r"(?:^|\s)(?:얘|쟤|걔|이 로봇|저 로봇|로봇이|로봇은|로봇도|이게|이거는)\s|궁금", re.I)
                     # "can it wave? I wonder", "does it follow people?", "이거 손 흔들 수 있나?", "얘 따라오나 봐"
+NOT_TO_LUMI = re.compile(
+    r"\bshall we\b|\bwe(?:'re| are) (?:heading|going|off|gonna)\b|\bwe (?:should|could|can|will|might|must|need to)\b|\bwe'll\b|"
+    r"\byou and (?:i|me)\b|\bmy plan\b|\bour plan\b|우리.*(?:자|까|래|기로)\s*[?？.!~]*$|"          # plans between people
+    r"\bimagine\b|\bsuppose\b|\bwhat if\b|\bwould you ever\b|\bif you were\b|\bpretend\b|\bhypothetical|"
+    r"만약|[가-힣](?:라면|다면)|어떨까|겠다\s*[!.~]*$|"                                                  # hypotheticals
+    r"\battention\b|\bladies and gentlemen\b|\b(?:visitors|guests|attendees|passengers)(?: are)? (?:please|should|must|may|"
+    r"are asked|are requested)\b|\bare (?:kindly )?(?:asked|requested) to\b|안내 ?말씀|(?<![가-힣])여러분(?!한테|에게|께)|"
+    r"관람객|방문객|승객|"                                                                               # announcements
+    r"\bso (?:well|nicely|smoothly|fast|good)\b|\b(?:really|very) (?:well|nicely|smoothly)\b|\bthe way you\b|"
+    r"\blove how\b|[가-힣](?:네|네요|구나|군요|더라|던데)\s*[!.~]*$|[가-힣](?<!니)다\s*[!.~]*$", re.I)
+    # plans, hypotheticals, announcements, praise and remarks: nobody asked Lumi to do anything now
 QUESTION = re.compile(r"^\W*(?:(?:hey|so|um+|uh+|lumi|okay|ok)\W+)*(?:what|where|why|how|when|who|whose|which|is|are|was|"
                       r"were|do(?=\s+(?:you|i|we|they|robots?)\b)|does|did|have|has|had|should|shall i|may i|can i|could i)\b(?! about\b)|"
-                      r"어디|뭐|무엇|왜|언제|누구|어떻게|몇|어느|무슨|어떤|얼마|봤(?:어|니|나|냐|어요|습니까)|본 ?적|"
+                      r"어디|뭐|무엇|왜|언제|누구|어떻게|몇|어느|무슨|어떤|얼마|[가-힣]까\s*[?？]+\s*$|봤(?:어|니|나|냐|어요|습니까)|본 ?적|"
                       r"\bhave you (?:been|gone|ever)\b|(?:어|아|해|여)도 ?(?:돼|되|될까|괜찮)", re.I)
 OTHER_SENSE = re.compile(r"instagram|insta\b|\bsns\b|\baccount\b|\bsubscribe\b|인스타|계정|채널|구독|팔로우 ?해 ?주세요|"
                          r"따라 ?(?:해|하|말|불러)|\brepeat after\b|\bcopy me\b|\bdo what i do\b|\b(?:lend|give) me a hand\b|"
-                         r"\bneed a hand\b|\bhand it to\b|\bfollow (?:what|how|the|this|that|your)\b|법 ?알려|방법|\bhow to\b", re.I)   # follow an account, copy me, help me: no motion
+                         r"\bneed a hand\b|\bhand it to\b|가는 ?길|길 ?(?:좀 )?알려|\bhow (?:do i|to) get\b|\bdirections?\b|\bthe way to\b|"
+                         r"(?:^|\s)(?:다 ?같이|모두 ?(?:같이|다)|다들)\s|\beverybody\b|\beveryone,|\ball together\b|\bfollow (?:what|how|the|this|that|your)\b|법 ?알려|방법|\bhow to\b", re.I)   # follow an account, copy me, help me: no motion
 REPEAT = re.compile(r"^\W*(?:(?:\w+\W+){0,2})?(?:again|one more time|once more|do it again|same again|more)\W*$|"
                     r"^\W*(?:[가-힣]+\s+)?(?:한 ?번(?:만)? 더|다시|또)\s*(?:해|해 ?줘|해 ?봐|해 ?주세요|하자)?\W*$", re.I)
                     # "again", "한 번만 더 해 줘": what again is the history's (driving.read, the LLM)
-SEVERAL = re.compile(r"\b(?<!hundred )and\b(?! a half\b)|\b(?:then|after that|also|plus|while|no|not|wait|stay|sleep|sorry|i mean|actually|rather)\b|;|"
-                     r"(?!갖고|지고|고고|에서)[가-힣](?:서|고)(?:\s|$)|하고|면서|다가|갔다|다녀|아니|기다|대기|(?:가|와) ?있어|계세요|"
+SEVERAL = re.compile(r"\b(?<!hundred )and\b(?! a half\b)|\bwait\w*|\bcorrection\b|\binstead\b|"
+                     r"\b(?:look|turn|go|move|wave|come|follow|pick|take|put|lift|raise|lower|reach|grab|bring)\b[^,]*,\s*(?:look|turn|go|move|wave|come|follow|pick|take|put|lift|raise|lower|reach|grab|bring)\b|\b(?:then|after that|also|plus|while|no|not|wait|stay|sleep|sorry|i mean|actually|rather)\b|;|"
+                     r"(?!갖고|고고|에서)(?<!가)[가-힣](?:서|고)(?:[\s,]|$)|하고|면서|다가|갔다|다녀|아니|기다|대기|(?:가|와) ?있어|계세요|"
                      r"계십시오", re.I)
                      # several requests or a stay ("go to p3 and wait", "가서 기다려", "p3에 가 있어"): steps.read's
 HAND_WORDS = re.compile(r"\byou(?:'re| are) holding\b|\b(?:in|from) my hand\b|\bhere'?s\b|\bhanding\b|\bi'?ll give\b|"
@@ -489,7 +502,7 @@ SLANG = [(re.compile(rf"(?<![\w가-힣]){a}(?![\w가-힣])", re.I), b) for a, b 
     ("얘(?= ?,? ?(?:로봇|루미))", ""), ("로봇아|로봇 양반|로봇씨", ""), ("어이|ㅋ+", ""))]
     # slang, whisper's spellings, dialect endings and calls: read as the plain word (the bank and the slots)
 LEAD = re.compile(r"^\W*(?:(?:excuse me|okay so|ok so|so|uh+|um+|yo|hi|hey|hello|alright|all right|okay|ok|well|listen|"
-                  r"ah+|oh+|wow|hmm+|buddy|lumi|robot|hey robot|루미 ?군|루미 ?선생|루미 ?씨|루미야|루미씨|루미|저기요|저기|자|야|음|어|좋아|이제|그럼|근데|그런데|아|like)\b[\s,.!~]*)+", re.I)
+                  r"ah+|oh+|wow|hmm+|buddy|lumi|robot|hey robot|루미 ?군|루미 ?선생|루미 ?씨|루미야|루미씨|루미|저기요|저기|자|야(?=\s*,?\s*(?:루미|로봇))|음|어|좋아|이제|그럼|근데|그런데|아|like)\b[\s,.!~]*)+", re.I)
 AMOUNT = [(re.compile(r"\b\d+(?:\.\d+)?\s*(?:degrees?|도)(?![a-z])|\b\d+(?:\.\d+)?도", re.I), "90 degrees"),
           (re.compile(r"\b\d+(?:\.\d+)?\s*(?:m|meters?|metres?|cm|centimet(?:er|re)s?|mm|millimet(?:er|re)s?|"
                       r"미터|센티(?:미터)?|센치|밀리)(?![a-z])", re.I), "1 meter")]   # embedded as one amount
@@ -513,13 +526,15 @@ def guarded(text):
         return "length"
     for name, rx in (("negation", NEGATION), ("later", LATER), ("ability", ABILITY), ("question", QUESTION),
                      ("self", SELF_TALK), ("several", SEVERAL), ("hand", HAND_WORDS), ("other sense", OTHER_SENSE),
-                     ("repeat", REPEAT), ("past", PAST_EN), ("tag", TAG), ("wonder", WONDER)):
+                     ("repeat", REPEAT), ("past", PAST_EN), ("tag", TAG), ("wonder", WONDER), ("not to lumi", NOT_TO_LUMI)):
         if rx.search(t):
             return name
     if brain.LATER.search(t):
         return "later"
     if past_ko(t):
         return "past"
+    if re.match(r"^\W*야\s", t):
+        return "someone else"                          # "야 커피코너에서 컵 좀 가져와": a friend called (야 루미 is cut before)
     name = NAME_CALL.match(t)
     if brain.to_someone_else(t) or brain.to_someone_else(brain.CALLING.sub("", t)) or name and name.group(1).lower() not in NOT_A_NAME:
         return "someone else"
@@ -665,6 +680,7 @@ def said_amount(text):
         metres = 0.25
     elif re.search(r"\bhalf an? (?:meter|metre)\b|(?:^|\s)반 ?미터", t):
         metres = 0.5
+    parts = []                                       # (metres, unit factor) in the order said
     for m in SAID.finditer(t):
         n = _number(re.sub(r"^(?:a|and)\s+", "", m.group(1).strip()) or m.group(1))
         unit = t[m.end(1):m.end()].strip()
@@ -673,7 +689,11 @@ def said_amount(text):
         if re.fullmatch(r"degrees?|도|°", unit):
             degrees = n
         else:
-            metres = n * next(f for u, f in UNIT if re.fullmatch(u, unit))
+            f = next(f for u, f in UNIT if re.fullmatch(u, unit))
+            parts.append((n * f, f))
+    if parts:                                        # "1미터 50센티": 1.5; "30 cm, sorry, 20 cm": not read (nan)
+        ok = all(a[1] > b[1] for a, b in zip(parts, parts[1:]))
+        metres = sum(x for x, _ in parts) if ok else float("nan")
     if metres is not None and re.search(r"\band a half\b|미터 ?반", t):
         metres += 0.5
     return metres, degrees
@@ -721,6 +741,8 @@ def _to_person(text):
     m = re.search(r"([가-힣]+)(?:은|는)\s.*에\s*있", text)
     if m and m.group(1) not in brain.OBJECTS and not any(m.group(1).startswith(o) for o in brain.OBJECTS):
         return True
+    if re.search(r"님(?![가-힣])|님(?:은|이|께|한테)|계셔|계시|계세요|드려|드리", text):
+        return True                                    # "김 부장님 라운지에 계셔, 사과 좀 갖다 드려": to someone honoured
     return bool(re.search(r"\b[A-Z][a-z]+(?: is|'s) (?:at|in|by|over)\b", text))
 
 
@@ -738,8 +760,9 @@ def _slot(kind, text, markers, holding):
                                                                      + CARRY + r"|\btake (?:it|this|that|them)\b", t):
             return None                                # "get the bottle from booth two": a fetch, the rules' / LLM's
         named = [m for m in markers if brain.named_place(text, m, markers)]
-        if len(named) != 1 or _other_suffix(text, named[0]) or re.search(r"\bp ?\d+", text.lower()) and \
-                not re.search(rf"(?<![a-z0-9]){re.escape(named[0].lower())}(?![0-9])", text.lower().replace(" ", "")):
+        said = re.sub(r"\bp\s+(?=\d)", "p", text.lower())
+        if len(named) != 1 or _other_suffix(text, named[0]) or re.search(r"\bp\d+", said) and \
+                not re.search(rf"(?<![a-z0-9]){re.escape(named[0].lower())}(?![0-9])", said):
             return None                                # "exit a" with only Exit_B, "booth 13" with Booth_12: asked
         return ("go_to", named[0])
     if kind == "come" and (re.search(CARRY + r"|따라", t) or not re.search(COME_VERB, t)):
@@ -753,6 +776,8 @@ def _slot(kind, text, markers, holding):
         return ("come", "")                            # "come back here": to the person, not to the old spot
     if kind == "follow" and (re.search(r"\bfollow (?:you|him|her|them|it|that)\b", t) or not re.search(FOLLOW_WORD, t)):
         return None                                    # "follow you": not "follow me"; "가자 이제": let's go, where?
+    if kind == "wave" and re.search(r"\bto you\b|너한테|너에게", t):
+        return None                                # "wave to you": Lumi's own words back, or about Lumi
     if kind == "wave" and (holding() if callable(holding) else holding):
         return None                                    # a wave with a cup in the hand: the LLM says why not
     if kind in ("come", "follow", "come_back", "wave"):
@@ -765,7 +790,7 @@ def _slot(kind, text, markers, holding):
             return None                                # "move back some", "forward to meters": how far? asked
         d = _dirs(t)
         n = said_amount(text)[0]
-        n = driving.amount(t)[0] if n is None else n
+        n = driving.amount(re.sub(r"(?:^|\s)좀(?=\s)", " ", t))[0] if n is None else n   # "뒤로 좀 가": 좀 is "please"
         if re.search(r"\b(?:third|fourth)\b", t) or n is None and re.search(r"\b(?:half|meters?|metres?|cm|centimet\w*|inch\w*|feet|foot|yards?)\b|미터|"
                                    r"센티|\d", t):
             return None                                # an amount the words say but driving.amount does not read
@@ -793,6 +818,8 @@ def _slot(kind, text, markers, holding):
             return ("turn", f"{d[0]} {words_deg:g}")
         if not deg and re.search(r"\bdegrees?\b|[가-힣]\s*도(?:만)?\s", t + " ") and not re.search(r"(?:^|\s)(?:한|좀)\s", t):
             return None                                # "삼십 도": a number the words don't give as digits
+        if not deg and re.search(r"\d", t):
+            return None                                # "turn left 30.": a number with no unit, asked
         return ("turn", f"{d[0]} {deg.group(1) if deg else 90}")
     if kind == "look":
         if re.search(r"\byour back\b|\bback to me\b|등 ?돌", t):
@@ -819,7 +846,7 @@ def _slot(kind, text, markers, holding):
             return None                                # no direction, or both: asked
         metres = said_amount(text)[0]
         if metres is not None:
-            if metres > LIFT_SAID_MAX_M:
+            if not metres <= LIFT_SAID_MAX_M:            # also nan: two amounts said
                 return None                            # "grow to three meters tall": not a lift amount, the LLM answers
             return ("lift", f"{'down' if down else 'up'} {metres * 1000:g}")
         target = brain.lift_target(t).split(" ", 1)
@@ -836,7 +863,9 @@ def _slot(kind, text, markers, holding):
         return ("arm", pose)
     if kind in ("pick", "fetch"):
         got = brain._mentions(text, markers)
-        if not got.get("object") or re.search(r"\b(?:throw|toss|kick|break|eat|drink|wash|clean|buy|sell|"
+        if not got.get("object") or re.search(r"\b(?:a|one|two) (?:cup|glass|bottle) of\b|한 ?잔|두 ?잔|아메리카노|라떼|"
+                                              r"\b(?:americano|latte|coffee|tea|juice)\b|주스|음료|먹|마셔|마시|"
+                                              r"\b(?:throw|toss|kick|break|eat|drink|wash|clean|buy|sell|"
                                               r"put|place|set|drop|leave|this|hold (?:this|my|it|on)|my)\b|놔|놓|내려", t) or \
                 not re.search(CARRY, t) and re.search(r"\bfrom\b|\bgo get\b|에서", t) or \
                 (holding() if callable(holding) else holding):
