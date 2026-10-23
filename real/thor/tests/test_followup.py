@@ -145,5 +145,6 @@ if __name__ == "__main__":
         assert b._after({"action": "none", "target": ""}, t) == {"action": "wave", "target": ""} and not b.again(t), t
     assert b._after({"action": "none", "target": ""}, "what's that?")["action"] == "none"
     b.history = [("what's a lidar?", "ACTION: none -\nA laser scanner.")]
+    assert b._after({"action": "quiet", "target": ""}, "에이, 거짓말하지 마")["action"] == "none"
     assert b.again("one more time") == "same" and b._after({"action": "none", "target": ""}, "again")["action"] == "none"
     print("followup ok")
