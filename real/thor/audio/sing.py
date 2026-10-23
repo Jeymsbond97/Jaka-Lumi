@@ -73,7 +73,9 @@ NOT_ASKED = re.compile(r"\b(?:don'?t|do not|never)\s+(?:\w+\s+)?(?:sing|play)\b|
                        r"\b(?:later|tomorrow|tonight|next time|after (?:lunch|dinner|the|this|that|we|i)|"
                        r"when (?:the|they|i|we|guests?|everyone|people)|at the end)\b|"
                        r"(?:부르|하|틀|불르)지\s*(?:마|말)|노래방|나중에|이따가?|있다가|끝나고|면\s*그때|(?:내가|제가)\s*(?:노래\s*)?"
-                       r"(?:불러|부를|부르|할)", re.I)   # "don't sing", "I'll sing later", "노래 부르지 마":
+                       r"(?:불러|부를|부르|할)|"
+                       r"^\W*(?:\w+\W+){0,3}?(?:why|how come|how (?:do|does|did|can|could) you)\b|왜|어째서|어떻게", re.I)
+                       # "don't sing", "I'll sing later", "노래 부르지 마", "why can you sing?", "왜 손은 안 되고 노래는 돼?":
                                                                         # no song, also when the LLM says sing
 # right after a song (or the list of songs): a short word switches or repeats it
 AFTER_SONG = re.compile(r"^\W*(?:(?:lumi|ok|okay|no|nah|um|please|then|now|and)\W+)*(?:sing |play )?"
@@ -82,7 +84,7 @@ AFTER_SONG = re.compile(r"^\W*(?:(?:lumi|ok|okay|no|nah|um|please|then|now|and)\
                         r"(?:\W+(?:please|lumi))*\W*$|"
                         r"^\W*(?:루미야?\W*)?(?:아니\W*)?(?:(?:그거|그\s*노래|이거|이\s*노래)\s*말고(?:\s*(?:다른|딴)\s*(?:거|걸로|노래))?|"
                         r"(?:다른|딴)\s*(?:거|걸|걸로|것)|다음\s*(?:거|곡|노래)?|한\s*번\s*더|하나\s*더|다시|또)"
-                        r"\s*(?:요|줘|해\s*줘|불러\s*줘|들려\s*줘|부탁해요?|해요|주세요)?\W*$", re.I)
+                        r"\s*(?:요|줘|해\s*줘|해\s*봐|해|불러\s*줘|들려\s*줘|부탁해요?|해요|주세요)?\W*$", re.I)
 AGAIN = re.compile(r"\bagain\b|\bone more time\b|\bonce more\b|한 ?번 ?더|다시", re.I)
 ANOTHER = re.compile(r"\b(another|different|next|other)\b|\bsomething else\b|\bnot (this|that)\b|다른|딴|다음|말고", re.I)
 STOP = re.compile(r"\b(stop|enough|halt|quiet|shh+)\b|멈춰|그만|스톱|정지|조용", re.I)
