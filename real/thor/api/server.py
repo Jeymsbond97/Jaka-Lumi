@@ -1115,7 +1115,7 @@ def task_parse(body: ParseBody):
     problem = brain.place_problem(fixed, markers)
     if problem:                                       # quick_command says it: "I don't have a place called p12"
         return _talk(problem[0], kind="refuse")
-    if held and kind is None and brain.held_command(fixed):
+    if held and kind is None and brain.held_command(fixed) and brain.direct_order(fixed) and not brain.not_an_order(fixed):
         return _held_parse(body, markers)
     if kind is None and body.llm:                     # the rules leave it: the LLM, one call, as by voice
         gen = brain.Brain().respond_stream(fixed, markers)

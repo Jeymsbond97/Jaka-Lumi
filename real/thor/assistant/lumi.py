@@ -1631,6 +1631,11 @@ class Lumi:
         elif (FETCH_THANKS.search(text) and fetch.state().get("step") == "giving") or \
                 (RECEIVE_OK.search(text) and fetch.state().get("step") == "receiving: waiting for okay"):
             safe(fetch.release_now)                    # the person has taken it
+        elif status == "holding" and not (brain_mod.direct_order(text) and not brain_mod.not_an_order(text)):
+            return False                               # "엄마가 내려놓을게", "put it on our list": no order to the hand
+        elif status == "holding" and (FETCH_GIVE.search(text) or FETCH_PLACE.search(text)) and (
+                brain_mod.FLOOR.search(text) or re.search(r"\bon (?:his|her|my|your|their|someone'?s) head\b|머리 ?위", text)):
+            self.fetch_say(*(brain_mod.REFUSE_FLOOR if brain_mod.FLOOR.search(text) else brain_mod.REFUSE_HEAD))
         elif status == "holding" and not any(w in text.lower() for w in brain_mod.OBJECTS) and \
                 (FETCH_GIVE.search(text) or FETCH_BRING_IT.search(text)):
             self.fetch_finish("give")                  # "bring it to me" while holding = hand it over
@@ -3074,6 +3079,8 @@ def read_mission(text, markers):
         return None                                # "come here, I need help": the old paths (rules, the LLM) answer it
     if not got:
         return None
+    if len(got) > 1 and all(st == got[0] for st in got) and got[0]["do"] in ("arm", "wave", "look", "lift"):
+        got = got[:1]                              # "reach out, reach out to me": one reach, said twice
     plain = not steps.is_mission(got) and (len(got) == 1 or (brain_mod.intent(text, markers) or ("",))[0] == "fetch")
     if not unread and (plain or (len(got) == 1 and got[0]["do"] in ("move", "turn", "arm"))):   # "take the cup and put
         return None                                                     # it on the chair": two steps, not a pick

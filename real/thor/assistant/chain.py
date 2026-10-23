@@ -73,7 +73,9 @@ def plan(text, markers=(), cant=None):
     if re.search(r"비켜|\bmake way\b|\bmove aside\b|\bget out of the way\b", text, re.I) and \
             sum(k == "quick" and w[0] == "move" for k, _, w in out) >= 2:
         return None                                      # "길 좀 비켜 줘, 오른쪽으로 40cm": one move that way, not two
-    out = [x for i, x in enumerate(out) if not (i and x[0] == "quick" and x[0::2] == out[i - 1][0::2])]
+    said = [_rule(p, markers) for _, p, _ in out]          # "reach out, reach out to me": one reach
+    out = [x for i, x in enumerate(out) if not (i and (x[0] == "quick" and x[0::2] == out[i - 1][0::2] or
+                                                      said[i] and said[i] == said[i - 1]))]
     if len(out) < 2:
         return None                                      # "wave, wave, wave!": one wave, said with feeling
     kinds = [k for k, _, _ in out]

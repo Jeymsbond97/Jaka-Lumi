@@ -88,8 +88,9 @@ Rules:
   "my notes"). The reason is usually a fact you know about that same thing: say it (why ten hours: the 24 V 45 Ah
   battery; why only 3 metres: a voice move is a short straight drive, farther you go to a place on your map; how
   exact: about 5 cm). Say plainly when you don't know the reason; for a "can't" answer the reason is in your words
-  (Patrol switched off: you work standing in place; your arm switched off; the place is not on your map; busy with
-  a task; holding something: it could fall or spill). "Really?", "are you sure?", "fr?", "no way", "you're lying", "that recent?", "only two?", "진짜?", "레알?", "실화야?",
+  (Patrol switched off: you work standing in place; your arm switched off; a place you don't know or can't go to
+  is not on your map, you drive only to places on it; busy with a task; holding something: it could fall or spill;
+  no dancing, jumping or stairs: you drive on wheels, you have no legs). "Really?", "are you sure?", "fr?", "no way", "you're lying", "that recent?", "only two?", "진짜?", "레알?", "실화야?",
   "에이, 거짓말", "거짓말하지 마", "don't lie", "설마", "확실해요?" there ask you to confirm: "Yes, ..."
   with that same point itself (the number, the name, the reason) in one sentence, never a bare "Yes, it is." Never change the topic, never ask them to say it again: it is never
   unclear. "Say it again" / "다시 한 번만요" means repeat your previous answer; "and in
@@ -174,7 +175,8 @@ Facts you know (say the one that is asked, also in a short follow-up; nothing mo
 - Base ("how fast / how quick are you?", "얼마나 빨라요?", "니 얼마나 빠르노?" ask this; how fast you answer only when they ask about answering): two
   wheels with hub motors (differential drive); 0.6 m/s normally, at most 1.2 m/s, about 10 cm/s with a
   cup (a cup may lean at most 15 degrees); climbs a step of at most 1.5 cm and a slope of at most 8 degrees, needs
-  a passage at least 70 cm wide, no stairs. You know where you are by comparing the lidar with the map, to within
+  a passage at least 70 cm wide, no stairs. Lidar: a laser scanner at the bottom of the base, 2 cm to 10 m, 240
+  degrees, 30 times a second. You know where you are by comparing the lidar with the map, to within
   about 5 cm. A move by voice is at most 3 m at a time; farther, you drive to a named place on your map.
 - Battery: 24-volt lithium-ion, 45 Ah; lasts about 10 hours on a charge ("how long on a charge?": 10 hours; how
   far you go is given in hours, no distance is known; how long charging takes is not known).
@@ -533,7 +535,7 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
                   r"그만 ?(?:좀 ?)?(?:쳐다|바라)(?:봐|보세요)|"
                   r"(?:날|나를?|저를?|절)\s*(?:좀\s*)?(?:보지|쳐다보지) ?마|다른 ?(?:데|곳|쪽)(?:을|를)? ?(?:좀 )?봐"),
     ("stop", r"\b(stop|halt|freeze|don'?t move)\b|멈춰|정지|그만 ?가|거기 ?서(?=[\s!.~,]*$)|스톱|움직이지 ?마|^\s*(서[\s,!.]*){2,}$"),
-    ("follow", r"\b(?:follow|following|come with|come along with|walk with|tag along with)\s+(?:me|us)\b(?!\s+(?:on|at)\b)|"   # not "follow
+    ("follow", r"\b(?:follow|following|come with|come along with|come together with|walk with|tag along with)\s+(?:me|us)\b(?!\s+(?:on|at)\b)|"   # not "follow
                r"\bcome along\b|(?<!말 )(?<!말을 )따라\s?(?:와|오세요|오십시오|올래)|(?<!로 )(?:같이|함께)\s?(?:가자|가요|갑시다|걸어)"),   # me on instagram"
     ("fetch",rf"\b(fetch|bring|deliver|carry)\b.*\b({_OBJ}|it|that|this)s?\b|\b(take|get|grab)\b.*\b({_OBJ})s?\b.*\b(from|to)\b"
               rf"|\b(go|drive) to\b.*\b(get|take|grab|pick up|fetch|bring)\b.*\b({_OBJ})s?\b"
@@ -594,7 +596,7 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
                    r"hand closed?|squeeze (your )?(hand|fingers)( shut)?)\b|^\W*grip\W*$"
                    r"|손을? ?(쥐|오므려|닫아)|주먹 ?(을 )?쥐|잡아(?!먹|당)|손 ?close|(그리퍼|집게)(를|을)? ?(좀 )?(닫아|오므려)"),
     ("arm", r"\b(reach out(?! to (?!me\b))|stretch (out )?your (arm|hand)|put your (arm|hand) (out|forward)|hand forward|"
-            r"hold out your (arm|hand)|extend your (arm|hand)|give me your hand|offer me your hand|"
+            r"hold out your (arm|hand|gripper|claw|fingers)|extend your (arm|hand|gripper)|give me your hand|offer me your hand|"
             r"(put|hold|stick) your (arm|hand) out|reach (out )?(to|toward|towards|for) me)\b|팔을? ?(뻗|내밀)"
             r"|손을? ?(좀 )?(내밀|뻗)(?!었)|^\W*(?:(?:나|저)(?:한테|에게)?\s*)?손 ?(?:을 )?(?:좀 )?(?:줘|주세요|줄래요?|줘 ?봐)\W*$"
             r"|\bfold (?:up )?your arm\b|\b(?:put|take) your arm (?:down|away|back)\b|\btuck your arm\b|팔을? ?(?:좀 )?(?:접|내려|거둬)"),
@@ -715,6 +717,14 @@ REMARK = re.compile(   # about Lumi or someone, what was said or seen, the speak
     r"\bwould you\b[^.?!]*\bif\b|\bif i (?:were|was)\b|\bsuppose\b|\bimagine\b|\bwhat if\b|\bi'?d \w+ \w*\s*if\b|"
     r"(?:^|\s)[\"“‘'][^\"”’']{3,}[\"”’']|\bmake it\b|\bat the same time\b|\bsimultaneously\b|동시에|"
     rf"{_LEAD}my \w+ (?:say|says|tell|tells)\b|(?:^|\s)(?:다 ?같이|모두 ?같이|여러분)\s|[가-힣]고 있(?:어|어요|다|습니다)\W*$|"
+    r"\b(?:attention|ladies and gentlemen|all (?:visitors|guests|passengers)|dear (?:visitors|guests|customers)|the museum|"
+    r"will (?:close|be closing)|closing (?:time|soon))\b|관람객|안내 ?말씀|고객 ?여러분|방문객|"
+    r"[,.]\s*(?:your (?:shoe\w*|lace\w*|hair|face|shirt|head|nose|hands?|feet|foot|bag|pocket|jacket|fly|zipper)\b|"
+    r"there'?s \w+ (?:on|in) your\b)|신발 ?끈|지퍼|줄 ?알아|가능해|가능한가|가능할까|"
+    r"사진\s*(?:을\s*)?찍(?:고|은|으면|을 때)|\b(?:after|once) (?:the|a|we take the|i take the) (?:photo|picture)\b|"
+    r"\btake (?:a|the) (?:photo|picture) (?:and|then|first)\b|\blet'?s (?:meet|have|grab|eat)\b|만나자|"
+    r"\bat (?:\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|noon)(?::\d\d)?\s*(?:pm|am|p\.m\.|a\.m\.|o'?clock)?(?!\s*(?:degrees?|m\b|meters?|cm))\b|"
+    r"(?:^|\s)[0-9한두세네다섯여섯일곱여덟아홉열]+ ?시(?:에|쯤)|^(?!.*\b(?:put|place|set|drop|leave)\b|.*(?:놔|놓|둬)).*(?:\b(?:or|either)\b(?! (?:else|something|so|not)\b)|아니면)|"
     r"\b(?:to|at) (?:the|this|that) robot\b|로봇(?:한테|에게)|\b(?:left or right|right or left)\b|왼쪽(?:이나|이야|으로 아니면) 오른쪽", re.I)
 ASKED = re.compile(   # a question, not an order: "and when you carry a cup?", "그거 누구 줄 거야?", "can you wave?"
     rf"{_LEAD}(?:what|where|when|why|how(?! about)|who|which|whose|are you|were you|was it|is it(?! possible)|is that|do you|does it|did it)\b.*\?|"
@@ -752,12 +762,12 @@ def not_an_order(text, asked=True):
 
 
 _VERBS = (r"go|come|move|turn|look|face|lift|raise|lower|wave|say|tell|follow|stop|halt|freeze|bring|fetch|get|take|pick|grab|"
-          r"put|place|set|drop|give|hand|pass|reach|stretch|extend|hold|open|close|release|let|back|drive|head|spin|rotate|show|"
+          r"put|place|set|drop|give|hand|pass|reach|stretch|extend|hold|open|close|release|let (?:go|it|me)|back|drive|head|spin|rotate|show|"
           r"sing|play|keep|stay|wait|return|deliver|carry|make|do|try|find|check|stand|tilt|nod|shake|glance|swivel|center|"
           r"centre|straighten|step|scoot|scooch|shift|roll|walk|retry|lead|guide|quiet|be|shut|proceed|navigate|travel|hurry|"
           r"rise|grow|shrink|duck|bend|crouch|slide|inch|reverse|park|dock|charge|accept|receive|catch|offer|greet|nudge|"
           r"swing|spin|rotate|pivot|clear|make way|cancel|continue|resume|repeat|again|lean|aim|point|watch|eye|peek|peer|"
-          r"gaze|stare|scan|search|lead|escort|accompany|meet|sit|kneel|tuck|fold|unfold|collect|clean|throw|toss|move|"
+          r"gaze|stare|scan|search|lead|escort|accompany|sit|kneel|tuck|fold|unfold|collect|clean|throw|toss|move|"
           r"slip|squeeze|sneak|edge|weave|wiggle|dodge|avoid|circle|bypass|skirt|detour|reroute|cross|enter|exit|leave|pull|"
           r"push|hop|jump|dance|use|approach|join|visit|wander|patrol|explore|pause|rest|relax|smile|blink|listen|talk|speak|"
           r"answer|introduce|describe|explain|read|count|ignore|wake|power|switch|bow|salute|clap|hug|high-five|zoom|swap|"
@@ -765,8 +775,8 @@ _VERBS = (r"go|come|move|turn|look|face|lift|raise|lower|wave|say|tell|follow|st
           r"hurry|speed|slow|ease|steer|navigate|rotate|scoot|budge|veer|get out|get back|get over|go back|start|finish|end")
 _EN_ORDER = re.compile(
     rf"^(?:(?:please|pls|plz|kindly|just|now|ok(?:ay)?|so|then|and|also|first|quick(?:ly)?|go ahead and|come on|"
-    rf"lumi|robot|buddy|dear)\W+)*(?:(?:{_VERBS})\b(?!s\b)|let'?s (?!(?:meet|talk|eat|have|see|grab (?:a )?(?:coffee|lunch|"
-    rf"dinner|drink))\b)|(?:can|could|would|will|wo?n'?t) you\b|would you mind\b|mind \w+ing\b|(?:i|we)(?:\s+|['’]d\s+)(?:want|need|"
+    rf"lumi|robot|buddy|dear)\W+)*(?:(?:{_VERBS})\b(?!s\b)|let'?s (?!(?:meet|talk|eat|have|grab (?:a )?(?:coffee|lunch|"
+    rf"dinner|drink)|see(?! you\b))\b)|(?:can|could|would|will|wo?n'?t) you\b|would you mind\b|mind \w+ing\b|(?:i|we)(?:\s+|['’]d\s+)(?:want|need|"
     rf"would like|like|wanna|would love|love) (?:you|lumi|the robot) to\b|i'?d (?:love|like) (?:it )?if you\b|it would be (?:great|nice|"
     rf"good|lovely) if you\b|it'?d be (?:great|nice|good|lovely) if you\b|(?:why don'?t you|how about you|maybe you could|"
     rf"you (?:should|might want to))\b|i was wondering if you\b|(?:be a dear|do me a favou?r)\b|"
@@ -1030,6 +1040,10 @@ def intent(text, markers=()):
             return ("move", f"{driving.direction(driving.clean(t))} {n:g}")
         if action == "make_way":
             return ("move", "back 1")                       # owner: a checked 1 m back-off (lumi.move_by)
+        if action in ("move", "come_back", "go_point") and re.search(r"\barms?\b|팔", t):
+            if re.search(r"\barms? (?:go |goes |come )?(?:back|in|away)\b|팔 ?(?:다시 )?(?:넣|접|거둬)", t):
+                return ("arm", "fold")                      # "arm go back": the arm, not the base
+            continue
         if action == "move" and re.search(r"\bback down\b", t):
             return ("lift", "down") if re.search(r"\b(?:go|come) back down\b", t) else None   # "go back down": the lift
         if action == "move":
@@ -1047,7 +1061,7 @@ def intent(text, markers=()):
                 return None                                 # asked about / refused with the limit (driving.read)
             return ("move", f"{d} {n:g}")
         if action == "arm":
-            return ("arm", "fold" if re.search(r"fold|tuck|down|away|back|접|내려|거둬", t) else "reach")
+            return ("arm", "fold" if re.search(r"fold|tuck|down|away|back|\bin\b|접|내려|거둬|넣어", t) else "reach")
         if action == "grip_close" and re.search(rf"(?<![a-z])(?:{_OBJ})s?(?![a-z])", t):
             continue                                        # "the cup. grab it.": from the table or my hand? not a fist
         if action in ("grip_open", "grip_close"):
@@ -1058,6 +1072,9 @@ def intent(text, markers=()):
             return ("fetch", text)                        # "get me an orange at gate one": a trip there, not a pick here
         if action in ("pick", "move_object"):
             g = [x for x in m.groups() if x]                  # [colour,] object
+            late = re.search(rf"(?<![a-z])({_COL})(?:\s*(?:one|ones|1|거|것|색)|(?=\W*$))", t[m.end():])
+            if len(g) == 1 and late:                          # "pick up the cup! the red one!", "컵 집어, 빨간 거"
+                g = [late.group(1)] + g
             return (action, f"{COLOURS[g[0]]} {OBJECTS[g[1]]}" if len(g) == 2 else OBJECTS[g[0]])
         return (action, "")
     got = None if held or asks or re.search(r"\b(don'?t|do not|never)\b|지 ?마", t) else driving.move(t)
@@ -1127,9 +1144,10 @@ def self_correct(text, markers=()):
         else re.sub(r"\s*[—–]+\s*", ", ", t)            # "grab the orange— wait, the blue glass": a cut-off and a fix
     t = re.sub(r"\s*(?:\.{2,}|…)\s*(?=(?:uh|um|er|oh|아|어|음|no|nope|아니|forget|never ?mind|cancel)\b)", ", no, ", t)
     t = re.sub(r"\s*(?:\.{2,}|…)\s*", ", ", t)          # "lower... uh, raise yourself": a restart; "follow... yes": a pause
-    t = re.sub(r",\s*(?:아|어|oh|uh)\s+(?=\d)", ", 아니 ", t)   # "앞으로 one meter, 아 two meter"
+    t = re.sub(r",\s*(?:아|어|oh|uh)\s+(?=\d)", ", 아니 ", t)
+    t = re.sub(rf",\s*(?:er+|uh+|um+|어|음)\W+(?=(?:the |a |an )?(?:(?:{_COL})\s+)?(?:{_OBJ}))", ", no, ", t)   # "the cup, er, the bottle"   # "앞으로 one meter, 아 two meter"
     t = re.sub(r"\b(?:a |one )?quarter of (?:a |an |1 |one )?(?:m|meters?|metres?)\b", "0.25 m", t)
-    end = re.search(r"[\s,.;!?]+(?:(?:oh|uh|um|아|음)\W+)?(?:never ?mind|forget (?:it|that|about it)|cancel (?:that|it)|"
+    end = re.search(r"[\s,.;!?]+(?:(?:oh|uh|um|아|음)\W+)?(?:never ?mind|forget (?:it|that|about it)|cancel(?: (?:that|it))?|"
                     r"(?:아니\s*)?(?:됐어요?|됐다|취소))\W*$", t)
     if end and t[:end.start()].strip(" ,.;!?") and not FIX.search(t[:end.start()]) and _reads(t[:end.start()], markers):
         return ""                                        # "go to the stage, never mind": taken back
@@ -1597,15 +1615,17 @@ HAND_Q = re.compile(r"^\W*(?:what|how|why|when|where|which|who|do|does|did|is|ar
                     r"(?<!줄 )(?<!주실 )(?<!받을 )수 ?있(?:어|나|니|을까|습니까)|\bif i\b", re.I)
 MULTI = re.compile(r"\b(?:and then|then|after that|go to|drive to|come back|bring it to (?!me\b))\b|그리고|가서|다음에|"
                    r"(?:으로|로) ?(?:가|와)", re.I)
-FLOOR = re.compile(r"\b(?:floor|ground)\b|바닥", re.I)   # the arm reaches table height, never the floor
+FLOOR = re.compile(r"(?<!not on the )(?<!not the )(?<!not on )\b(?:floor|ground)\b(?!\s*(?:but|instead))|바닥(?!\s*(?:에\s*)?말고)", re.I)   # the arm reaches table height, never the floor
 _PLACE_AFTER = r"(?![\s_]*(?:bottle|cup|mug|glass|co[rn]\w*|bar|shop|zone|area|machine|table|코너|바|숍|샵|머신|존|테이블|병|컵))"
 DRINK = re.compile(rf"\b(?:coffee|tea|juice|beer|wine|latte|soda|cola|coke|drink|milk|americano|espresso|cappuccino|"
                    rf"smoothie|lemonade)(?:e?s)?\b{_PLACE_AFTER}|(?:아메리카노|에스프레소|카푸치노|스무디|레모네이드|녹차|홍차|보리차|유자차|밀크티)|"
                    r"(?:한|두|세) ?잔|"
                    rf"\b(?:glass|cup|bottle) of\b|\bsome water\b|(?:커피|주스|음료|라떼|콜라|맥주|우유){_PLACE_AFTER}|"
                    r"물 ?한 ?(?:잔|컵)|차 ?한 ?잔", re.I)                                   # a drink to be made or poured, not a thing on the table
+REFUSE_HEAD = ("I won't put things on people.", "사람 위에는 물건을 놓지 않아요.")
 REFUSE_FLOOR = ("I can't reach the floor with my arm, only things on a table.", "제 팔은 바닥까지 닿지 않아요. 테이블 위에 있는 것만 집을 수 있어요.")
-IDIOM = re.compile(r"\bput (?:it|that|this) (?:on (?:my|the|your|our) (?:tab|list|bill|account|calendar|schedule|agenda)|on hold)\b|"
+IDIOM = re.compile(r"\bput (?:\w+ ){0,3}(?:on (?:my|the|your|our|their) (?:tab|list|bill|account|calendar|schedule|agenda|"
+                   r"to-?do list|menu)|on hold)\b|\blet'?s put\b|"
                    r"\bbring it on\b|^\W*hold it\W*$", re.I)    # "put it on my tab", "hold it!" (wait): no hand
 IN_MY_HAND = re.compile(r"\b(?:in|into|on) my (?:hands?|palm)\b|(?:제|내|나의|저의) 손(?:에|위에|바닥에|으로)", re.I)
 REFUSE_PICK = ("I'm holding something already. Tell me where to put it first.",
@@ -1671,6 +1691,10 @@ def hand_request(text, holding, b=None, markers=(), whole=True):
         # not "팔 거둬" / "팔 내려" (the arm), not a bare "leave it" (never mind)
         if named and not holding:
             return None                                  # "put the cup on the table": the put intent / a mission
+        if FLOOR.search(t):
+            return ("refuse", REFUSE_FLOOR)              # "put it on the floor": the arm can't reach down there
+        if re.search(r"\bon (?:his|her|my|your|their|someone'?s|the (?:kid|child|man|woman|baby)'?s?) (?:head|lap|shoulder)\b|머리 ?위|어깨 ?위", t):
+            return ("refuse", REFUSE_HEAD)
         on = place_on(text)
         if on is None and re.search(r"\b(?:here|there)\b|여기|거기|저기", t):
             on = {"pointed": True}                       # "put it here / there": where the person points
@@ -1892,8 +1916,9 @@ FRAGMENT_CHARS = 160           # chars of the last answer's first sentence shown
 _PLEASE = r"(?:\W+(?:please|lumi|then|now|해 ?줘|해 ?봐|해요|해 ?주세요|해|요|봐|줘))*\W*$"
 AGAIN = re.compile(r"^\W*(?:(?:and|okay|ok|please|lumi|루미야?|그럼|자)\W+)*(?:(?:do (?:it|that) )?again|one more(?: time)?|once more|"
                    r"more|encore|한 ?번 ?더|다시(?: ?한 ?번)?|또|더)" + _PLEASE, re.I)   # right after an action: that action again
-DO_IT = re.compile(r"^\W*(?:(?:okay|ok|yes|yeah|sure|so|well|lumi|그럼|자|네)\W+)*(?:go on|go ahead|do it|show me|let'?s see(?: it)?|"
-                   r"yes,? please|try it|해 ?봐|해 ?줘|보여 ?줘|보여 ?주세요|해 ?주세요|해 ?보세요)" + _PLEASE, re.I)
+DO_IT = re.compile(r"^\W*(?:(?:okay|ok|yes|yeah|sure|so|well|lumi|please|그럼|자|네)\W+)*(?:go on|go ahead|do it|show me|"
+                   r"let'?s see(?: it)?|yes,? please|try it|해 ?봐|해 ?줘|보여 ?줘|보여 ?주세요|해 ?주세요|해 ?보세요)"
+                   r"(?:\W+(?:do it|go ahead|show me|then))*" + _PLEASE, re.I)
                    # right after "can you wave?" ... "Yes, I can.": do it now
 ABOUT_ANSWER = re.compile(r"^\W*(?:(?:but|and|so|then|oh|wait|hmm|okay|그럼|근데|아니|아|어)\W+)*(?:(?:why|wai|whai)(?: not| is that| so)?|와이|"
                           r"how come|how (?:do|did|can) you (?:know|tell)(?: that| it)?|are you sure|really|for real|fr|seriously|no way|"
@@ -2120,9 +2145,10 @@ class Brain:
         last = self._last_said() if self.history else ""
         done = self._redo(text)
         if done:                     # "do it again" / "한 번 더" after a wave, "more" after a look
-            return f"(Right after your action \"{done.split(chr(10))[0].rstrip(' -')}\": this asks for it again; choose that action.)\n"
+            line = done.split(chr(10))[0].rstrip(" -")
+            return f"(Right after your action \"{line}\": this asks for it again; write \"ACTION: {line}\" first.)\n"
         if last and DO_IT.match(text):                     # "can you wave?" "Yes, I can." "go on then" / "보여 줘"
-            return f"(This follows your answer \"{last[:FRAGMENT_CHARS * 2]}\": if it said you can do something, do it now: choose that action.)\n"
+            return f"(This follows your answer \"{last[:FRAGMENT_CHARS * 2]}\": if it said you can do something, do it now: its ACTION line is that action (wave, sing, look ...), not none.)\n"
         part = SAME_ABOUT.match(text) or KO_SAME_ABOUT.match(text)
         if last and part:                                  # "What about your cameras?" / "카메라는요?" after "can I wipe you?"
             return (f"(The visitor's question \"{self.history[-1][0]}\" asked again, now about {part.group(1)}: answer "
