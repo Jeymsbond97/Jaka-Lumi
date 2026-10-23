@@ -55,7 +55,7 @@ KO_SPOKEN = {"start": ["스타트"], "end": ["엔드"], "final": ["파이널", "
              "init": ["이닛", "이니트"], "exit": ["엑시트", "엑싯"], "dock": ["도크"], "point": ["포인트"],
              "coffee": ["커피"], "corner": ["코너"], "info": ["인포"], "desk": ["데스크"], "gate": ["게이트"],
              "hall": ["홀"], "zone": ["존"], "photo": ["포토"], "lounge": ["라운지"], "lobby": ["로비"], "room": ["룸"],
-             "demo": ["데모"], "main": ["메인"], "cafe": ["카페"], "area": ["에어리어"], "center": ["센터"],
+             "demo": ["데모"], "bar": ["바"], "main": ["메인"], "cafe": ["카페"], "area": ["에어리어"], "center": ["센터"],
              "entrance": ["엔트런스"], "finish": ["피니시", "피니쉬"], "lab": ["랩"], "office": ["오피스"],
              "a": ["에이"], "b": ["비"], "c": ["씨"], "d": ["디"]}   # letters only inside a longer name ("부스 에이")
 KO_NOT_ALONE = {"table", "point", "a", "b", "c", "d"}   # "테이블에 놔" is the table, "포인트" a p-number, "비" rain:
@@ -142,7 +142,8 @@ def numbers(t):
                lambda m: f"{float(m.group(1)) * 1000:g} m", t)
     t = re.sub(r"(\d+(?:\.\d+)?)\s*(?:miles?|마일)(?![a-z])", lambda m: f"{float(m.group(1)) * 1609.344:g} m", t)
     t = re.sub(r"(\d+(?:\.\d+)?)\s*(?:meters?|metres?|metals?|미터)", r"\1 m", t)
-    t = re.sub(r"(?<![\d.])(\d+) m (0\.\d+) m", lambda m: f"{int(m.group(1)) + float(m.group(2)):g} m", t)  # "1미터 50센치"
+    t = re.sub(r"(?<![\d.])(\d+) ?m (0\.\d+) m", lambda m: f"{int(m.group(1)) + float(m.group(2)):g} m", t)  # "1미터 50센치",
+                                                                      # whisper's "1m 50cm"
     t = re.sub(r"(?<![\d.])(\d+)(?: m)? and (?:a )?(?:half|0\.5)(?: m)?", lambda m: f"{int(m.group(1)) + 0.5:g} m", t)
     t = re.sub(r"(?<![\d.])(\d+) ?m 반", lambda m: f"{int(m.group(1)) + 0.5:g} m", t)
     t = re.sub(r"\ba 0\.5 m", "0.5 m", t)
@@ -258,6 +259,13 @@ ASR_SLIPS = [   # how whisper writes Korean commands (tests/asr_check.py, 2026-1
     (r"\bcount to(?= p\s?\d)", "come to"),                       # "Let's count to p5."
     (r"\b(?:go )?(?:copy|pick) (\d+|one|two|three|four|five|six|seven|eight|nine|ten) point\b", r"go to p\1"),
     (r"\bfall(?:ow)? (?:lonely|of him)\b", "follow me"),         # "Let's fall lonely.", "Let's fall of Him."
+    # hearing round 2 (tests/asr_check.py blind r3 / set 5, 2026-10-22 night)
+    (r"(\d)\s*센트(?=\s*(?:앞|뒤|가|와|이동|옆|만|[.!]|$))", r"\1센티"),   # "왼쪽으로 30센트 가죠"
+    (r"\bboot(?:h)?(?: number)? (?=\d|(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b)",
+     "booth "),                                                    # "Go to boot number 12.", "Go to boot three."
+    (r"\b(go|move|turn) write\b", r"\1 right"), (r"\bturn rate\b", "turn right"),   # "Go write one meter."
+    (r"\bto \.(\d+)\b", r"to point \1"),                         # "Please drive to .8."
+    (r"\bmean stage\b", "main stage"),
 ]
 
 
