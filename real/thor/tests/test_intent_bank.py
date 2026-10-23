@@ -109,6 +109,32 @@ NEVER = [   # (words, markers, holding): no motion from the bank
     ("go to booth number thirteen", ["home", "Exit_B", "Booth_12"], False),
     ("부스 13으로 가 줘", ["home", "부스12"], False),
     ("go to p11", ["home", "p1", "p2"], False),
+    # not an order to Lumi now: plans between people, narration, hypotheticals, announcements, a cancel later, praise
+    ("shall we go to the stage?", EXPO, False),
+    ("we're heading to the coffee corner now", EXPO, False),
+    ("우리 무대 갈까?", KOREAN, False),
+    ("엄마랑 커피코너 가기로 했어", KOREAN, False),
+    ("the robot goes to the stage and waves", EXPO, False),
+    ("로봇이 무대로 가더니 손을 흔들더라", KOREAN, False),
+    ("imagine you could wave at everyone", EXPO, False),
+    ("would you ever pick up a cup?", EXPO, False),
+    ("만약에 네가 입구로 가면 어떻게 돼?", KOREAN, False),
+    ("attention please, visitors please move to the stage", EXPO, False),
+    ("ladies and gentlemen, please go to the entrance", EXPO, False),
+    ("안내 말씀 드립니다, 관람객 여러분은 무대로 이동해 주시기 바랍니다", KOREAN, False),
+    ("go to the stage, actually never mind", EXPO, False),
+    ("손 흔들어... 아냐 하지 마", KOREAN, False),
+    ("you follow so well", EXPO, False),
+    ("nice wave!", EXPO, False),
+    ("잘 따라오네", KOREAN, False),
+    ("고개 돌리는 거 신기하다", KOREAN, False),
+    ("야 커피코너에서 컵 좀 가져와", KOREAN, False),      # 야 to a friend (야 루미 / 야 로봇 is to Lumi)
+    ("김 부장님 무대에 계셔, 컵 좀 갖다 드려", KOREAN, False),   # to someone honoured: a mission
+    ("다 같이 손 흔들어 주세요!", KOREAN, False),          # to the crowd
+    ("p10 가는 길 알려 줘", ["home", "p10"], False),       # the way, not a trip
+    ("사과 하나 집어 먹어", KOREAN, False),
+    ("look left, look right", EXPO, False),               # several: the chain reader
+    ("Turn left 30.", EXPO, False),                       # a number with no unit: asked
 ]
 
 

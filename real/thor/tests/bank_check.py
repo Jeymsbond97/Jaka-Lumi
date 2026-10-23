@@ -34,8 +34,9 @@ def _from_steps(short):
     if short.strip() == "?":
         return "skip"                               # the mission reader asks; a single quick rule may still read it
     parts = [p.strip() for p in short.split("|")]
-    if len(parts) > 1:
-        return "chain"
+    if len(parts) > 1:                              # go there, pick, come back: what a fetch does
+        fetch = len(parts) == 3 and parts[0].startswith("go ") and parts[1].startswith("pick ") and parts[2] == "go here"
+        return "chain | action:fetch" if fetch else "chain"
     w = parts[0].split()
     if w[0] == "go" and w[1] == "here":
         return "action:come | action:come_back"
