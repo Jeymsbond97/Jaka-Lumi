@@ -544,6 +544,10 @@ class Vision(threading.Thread):
             near = [t for t in self.tracks if t.distance <= 3.0]
         return near[0] if len(near) == 1 else None
 
+    def anyone_near(self):
+        with self.lock:
+            return any(t.distance <= STAY_MAX for t in self.tracks)
+
     def nearest_greeted(self):
         with self.lock:
             here = [t for t in self.tracks if t.greeted and t.distance <= STAY_MAX]
@@ -2155,13 +2159,16 @@ class Lumi:
             self.voice_until = time.time() + VOICE_SESSION_S
         self.last_activity = time.time()
 
-    def end_conversation(self, text=None):
-        """Say a goodbye that fits the conversation, forget it, and drive on if Lumi was on the way."""
-        bye = self.brain.farewell(text, self.lang)
-        log(f"  goodbye: {bye}")
-        if text and BYE_WAVE.search(text) and self.current is not None and self.vision and self.vision.present(self.current):
+    def end_conversation(self, text=None, quiet=False):
+        """Say a goodbye that fits the conversation (none when `quiet`: nobody to say it to), forget it, and drive on if
+        Lumi was on the way."""
+        bye = "" if quiet else self.brain.farewell(text, self.lang)
+        if bye:
+            log(f"  goodbye: {bye}")
+        if bye and text and BYE_WAVE.search(text) and self.current is not None and self.vision and self.vision.present(self.current):
             threading.Thread(target=self.wave, kwargs={"quiet": True}, daemon=True).start()   # only if safe: else no arm
-        mouth.say(bye, abort=self.speak_abort)
+        if bye:
+            mouth.say(bye, abort=self.speak_abort)
         self.current, self.voice_until, self.closing_pending = None, 0.0, None
         self.brain.reset()
         self.turn_head(0, 0)
@@ -2748,8 +2755,9 @@ class Lumi:
                     self.voice_until = max(self.voice_until, time.time() + VOICE_SESSION_S)
                 return
             if self.voice_until:
-                log("voice conversation over (silence)")
-                self.end_conversation(None)
+                talked = bool(self.brain.history) and self.vision is not None and self.vision.anyone_near()
+                log(f"voice conversation over (silence){'' if talked else ', nobody here or nothing said: no goodbye'}")
+                self.end_conversation(None, quiet=not talked)
             if self.check_wake():                          # "Hi Lumi" works in every mode
                 return
             if self.patrol:
