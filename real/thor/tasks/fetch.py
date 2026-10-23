@@ -2361,6 +2361,13 @@ def stop():
         log("stopped")
 
 
+def end(timeout=5.0):
+    """stop() and wait until the run has ended, so a new task can start right after."""
+    stop()
+    if _thread is not None:
+        _thread.join(timeout)
+
+
 # ---------- measuring the arm's yaw on the base ----------
 def _straight(dist_m, speed=None):
     """Drive straight by dist_m (+ forward) at `speed` m/s (AXIS_SPEED; a function: read again every 0.1 s, so a
