@@ -715,9 +715,9 @@ def go_point(body: PointBody):
         send_to_assistant("go_point", point=[body.x, body.y, body.theta])
         return {"ok": True, "by": "assistant"}
     part(fetch_head_ahead)
-    r = agv.request(f"/api/move?location={body.x:.3f},{body.y:.3f},{body.theta:.3f}")
-    if r.get("status") != "OK":
-        raise HTTPException(502, f"AGV refused: {r.get('error_message') or r}")
+    ok, msg = agv.go_point(body.x, body.y, body.theta)
+    if not ok:
+        raise HTTPException(502, f"AGV refused: {msg}")
     return {"ok": True}
 
 

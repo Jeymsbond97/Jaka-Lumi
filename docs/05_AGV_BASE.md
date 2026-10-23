@@ -150,7 +150,7 @@ def drive(v, w, seconds, rate=10):
 |---|---|---|
 | `/api/move?marker=NAME` | `marker`, or `location=x,y,theta` (map frame, m, rad); optional `max_continuous_retries` (30), `distance_tolerance` (m), `theta_tolerance` (official PDF: degrees; company translation: radians, **verify**), `angle_offset` (rad, −3.14…3.14), `yaw_goal_reverse_allowed` (1/0), `occupied_tolerance` (m) | Plans a path and avoids obstacles. Returns `task_id`. Rejected while another move is `running` |
 | `/api/move?markers=m1,m2,m3&count=-1&distance_tolerance=1.0` | ≥ 2 markers, count (−1 forever; default 1), tolerance ≥ 0.5 m (default 0.5), `max_continuous_retries` (default 5) | Patrol; a failed point is skipped and the patrol continues; stop it with `/api/move/cancel` |
-| `/api/move/cancel` | — | Stop the task and stay |
+| `/api/move/cancel` | — | Stop the task and stay (the manual: stops on the spot and waits for the next move). The manual v1.8.8 has no pause / resume command and no footprint, padding or inflation parameter on `/api/move` or `/api/set_params` (only `max_speed_linear`, `max_speed_angular`; `occupied_tolerance` is how near an occupied goal it may stop) |
 | `/api/get_planned_path` | — | Points of the current global path |
 | `/api/make_plan?start_x=..&start_y=..&start_floor=..&goal_x=..&goal_y=..&goal_floor=..` | | Path length between two points |
 

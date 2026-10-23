@@ -569,6 +569,7 @@ class Patrol:
         self.moving = False              # a move that we started is running
         self.progress = None             # (pose, time) of the last movement, to notice a stuck drive
         self.stuck = None                # target of a drive that could not get anywhere (Lumi says so)
+        self.stuck_why = None            # (en, ko) when robot/nav_guard.py ended it (the arm would hit something)
         self.wait_until = 0.0
         self.last_poll = 0.0
 
@@ -638,6 +639,8 @@ class Patrol:
                 self.i = (self.i + 1) % len(self.route)
                 self.wait_until = now + self.pause_s
             else:
+                if isinstance(st.get("guard"), (list, tuple)):
+                    self.stuck, self.stuck_why = self.route[self.i], st["guard"]
                 log(f"patrol move {ms} - retry in 5 s")
                 self.wait_until = now + 5
             return
@@ -1979,6 +1982,10 @@ class Lumi:
     def say_stuck(self):
         if self.patrol and self.patrol.stuck:
             target, self.patrol.stuck = self.patrol.stuck, None
+            why, self.patrol.stuck_why = self.patrol.stuck_why, None
+            if why:
+                mouth.say(why[0] if self.lang == "en" else why[1])
+                return
             name = "my charging dock" if target == "home" else target
             mouth.say(f"Sorry, I can't find a way to {name}. Something may be blocking the path.")
 
@@ -2543,6 +2550,8 @@ class Lumi:
             st = safe(agv.status, default={}) or {}
             if st.get("move_status") != "running":
                 log(f"  arrived ({st.get('move_status')})")
+                if isinstance(st.get("guard"), (list, tuple)):
+                    mouth.say(st["guard"][0] if self.lang == "en" else st["guard"][1])
                 break
             if self.vision.present(track):
                 if track.distance <= COME_STOP:

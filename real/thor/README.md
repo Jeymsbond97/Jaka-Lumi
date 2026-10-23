@@ -131,7 +131,7 @@ lumi-wave/                      run with the venv: .venv/bin/python <folder>/<mo
 ├── assistant/                  the voice assistant: main loop (lumi.py), answers (brain.py), knowledge, web lookups
 ├── audio/                      microphones, speech to text, text to speech, voice direction
 ├── vision/                     camera service (the only camera owner), detection, objects in mm, calibration
-├── robot/                      one driver per piece of hardware: base, body, arm, gripper; checked arm motion
+├── robot/                      one driver per piece of hardware: base, body, arm, gripper; checked arm motion; the arm guard on navigation drives
 ├── manipulation/               pick and place skills, the arm's pose graph, the wave
 ├── tasks/                      whole jobs made of skills, driving and talking
 ├── tests/                      self-checks without the robot
