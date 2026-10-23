@@ -41,7 +41,7 @@ _NOT = re.compile(r"\b(?:don'?t|do not|never(?! ?mind)|no need|stop trying|no mo
                   r"하지 ?(?:마|말)|가지 ?(?:마|말)|그만|안 ?해도|필요 ?없", re.I)
 _ASKED = re.compile(r"\b(?:did|have|had) you\b|\bwhy\b|\bhow come\b|봤(?:어|니|나요|어요)?\s*\?|왜", re.I)
 _SPEECH = re.compile(r"\b(?:say|tell|repeat|sing|speak|explain|spell)\b|말해|말씀|얘기|이야기|들려|노래|불러", re.I)
-_BACK_UP = (r"\b(?:back (?:up|off|out)|reverse|(?:move|go|step|drive|come|get) back(?:wards?)?|backwards?)\b|"
+_BACK_UP = (r"\b(?:b[ae]ck (?:up|off|out)|reverse|(?:move|go|step|drive|come|get) back(?:wards?)?|backwards?)\b|"
             r"\bback(?= ?(?:좀|하))|뒤로|후진|물러|한 ?발")
 _AGAIN = (r"\bagain\b|\bretry\b|\bonce more\b|\bone more time\b|\b(?:try|go) (?:on|forward)\b|"
           r"\b(?:then|and) (?:go|try)\b(?! (?:another|a different|other|some other|a new))|다시|한 ?번 ?더|재시도|다가 ?가|하고 ?가|서 ?가")
@@ -62,7 +62,7 @@ _AROUND = re.compile(
     r"\b(?:go|pass|squeeze|keep|fit|get) (?:\w+ )?(?:by|on|to|through on|through) the (?:left|right)|"
     r"\bkeep (?:to the )?(?:left|right)\b|\balong the wall|\b(?:left|right) side|"
     r"\b(?:get|slip|navigate|squeeze|weave|edge|go|move) (?:past|through|between)\b(?!\W*$)|\b(?:hallway|corridor|aisle|passage)\b|"
-    r"사이로|빠져 ?나가|다른 ?데로|경로|통로|우회로|멀리 ?돌아|돌아가는 ?길|반대쪽|공간|틈|벽 ?쪽|(?:왼|오른)쪽 ?(?:으로|옆으로)? ?(?:지나|비켜|붙어)|"
+    r"길 ?find|find.{0,4}길|사이로|빠져 ?나가|다른 ?데로|경로|통로|우회로|멀리 ?돌아|돌아가는 ?길|반대쪽|공간|틈|벽 ?쪽|(?:왼|오른)쪽 ?(?:으로|옆으로)? ?(?:지나|비켜|붙어)|"
     r"옆으로 ?지나|방법.{0,4}찾|길.{0,8}(?:찾|search)|(?:route|path|경로) ?바꿔|(?:way|path|route).{0,4}찾|"
     r"다른 ?(?:길|쪽|방향|경로|루트|way|route|path)|돌아서|둘러|우회|비켜서|피해서|피해 ?가|길(?:을)? ?찾|옆으로 ?(?:돌아|비켜|피해)", re.I)
 _BACK = re.compile(r"\b(?:go|come|head|drive|turn|get|move) back\b|\breturn\b|\bback to (?:the )?(?:start|beginning|where)|"
@@ -86,6 +86,19 @@ _RETRY = re.compile(
     r"진행|고고|ㄱㄱ|가 ?(?:봐|보세요|볼래|주세요|줘)|(?:^|[,.!]\s*)(?:(?:그럼|자|음|그냥|이제|루미야)\s*)*가(?:세요|요|라|자)?[\s.!~]*$|"
     r"(?:치웠|비웠|비켰|열렸|뚫렸|지나갔)|움직여|막힌 ?(?:거|게) ?없|장애물 ?(?:치웠|없)|지나갈 ?수 ?있어(?![?요]?\?)|괜찮아.{0,3}가|"
     r"\bclear\b.*가", re.I)
+# only a direct order now is acted on: everything else goes to the LLM, which sees the blocked drive (lumi.now_doing)
+_NOT_ORDER = re.compile(   # a condition, a later time, a wish, past events, words about something else
+    r"(?<!see )\bif\b(?! you (?:could|can|would|will|don'?t mind)\b| possible\b)|\bwhen(?:ever)?\b|\bunless\b|\bsuppose|\bimagine|\bin case\b|\blater\b|\btomorrow\b|"
+    r"\byesterday\b|\bnext time\b|\blast time\b|\btold (?:you|it|him|her)\b|\bi(?:'d| would)\b(?! (?:like|love|appreciate|prefer)\b)|\bwe'?ll\b|"
+    r"\bwe will\b|\bit (?:can'?t|cannot|couldn'?t|won'?t|will|should|has to|needs to|tried|went)\b|"
+    r"\b(?:the|that|this|other|another) robot\b|\b(?:he|she) (?:can|will|should|is|has|tried|went)\b|"
+    r"\bphoto|\bpicture|\bselfie|"
+    r"(?:으면|다면|라면|하면|가면|되면)(?:\s|[,.!?~]|$)|이따|나중에|내일|어제|그때|지난번|아까 ?(?:도|는)|했었|었었|혼난|"
+    r"안 ?(?:돼|되)|큰일|사진|찍|우리.{0,12}(?:가자|하자)|(?:다른|저) 로봇|쟤|걔", re.I)
+_TAKEN_BACK = re.compile(r"\bnever ?mind\b|\bforget (?:it|that|about it)\b|\bcancel\b|\bno(?:t)? need\b|\bwait\b|"
+                         r"\bhold on\b|\bstay\b|됐어|됐다|됐고|그만|취소|기다려|말자", re.I)   # after the order: taken back
+_FIXED = re.compile(r"(?:^|[\s,.!?—–-])(?:no|nope|actually|i mean|아니(?:야|요)?)(?=[\s,.!?—–-])", re.I)   # a correction
+_BACK_UP_RE = re.compile(_BACK_UP, re.I)
 _START = re.compile(r"\bwhere\b|\bstart|\bforget\b|원래|처음|출발|제자리|있던|잊어", re.I)   # "come back where you started"
 _HOME = re.compile(r"\bhome\b|홈|\b(?:dock|charger|charging station)\b|집(?:으로|에)|충전|도크", re.I)
 
@@ -97,6 +110,14 @@ def read(text, markers=(), goal=None):
     from assistant import brain
     t = _KEEP_TRYING.sub("keep trying", " ".join((text or "").lower().split()))
     t = re.split(r"말고", t)[-1] if "말고" in t else re.split(r"\b(?:instead of|rather than)\b", t)[0]
+    ends = [m.end() for r in (_BACK_UP_RE, _AROUND, _BACK, _RETRY) for m in r.finditer(t)]
+    if not ends or _NOT_ORDER.search(t):
+        return None
+    if _TAKEN_BACK.search(t, max(ends)) or _FIXED.search(t, max(ends)):
+        return None                              # "try again. never mind", "go around— no, not need"
+    fixed = list(_FIXED.finditer(t))
+    if fixed:                                    # "go around— no, go back to the start": what follows counts
+        t = t[fixed[-1].end():]
     if not t.strip(" .!?,~") or _NOT.search(t) or _ASKED.search(t) or _SPEECH.search(t):
         return None
     others = [m for m in markers if m != goal and (_HOME.search(t) if m == "home" else brain.named_place(t, m, markers))]
