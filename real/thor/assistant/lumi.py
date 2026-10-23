@@ -291,6 +291,9 @@ ANSWER_ECHO_S = 10.0               # s of Lumi's speech a dialog answer is check
 VOICE_SESSION_S = 15.0             # s a conversation started by voice (nobody in view) waits for the next words
 SPEAKER_MATCH_DEG = 25.0           # a voice direction belongs to the visible person within this angle
 DOA_MIN_CONF = 0.12                # below this the sound direction is not trusted
+FOLLOW_VOICE_DEG = 35.0            # while following, a voice this near the followed person's angle is theirs (estimate:
+                                   # the sound direction's median error was 22-31 deg on 2026-10-22)
+FOLLOW_SORRY_S = 20.0              # s; "Sorry, I'm following someone" at most this often
 COME_STOP = 1.1                    # m; driving to a person stops when the camera sees them this close
 COME_TIMEOUT = 60.0                # s
 MAX_MOVE_M = 3.0                   # m; "move forward N metres" is limited to this
@@ -1888,9 +1891,12 @@ class Lumi:
             return False
         from tasks import follow
         if follow.running() and follow.stop_word(text):   # following: the base stops now, "stop" is answered next
-            follow.stop()
+            follow.stop()                                  # (anyone's: safety)
             self.pending_text = "stop"
             return True
+        if follow.running() and not self.followed_speaks(u):
+            log(f"  following: not the person I follow, ignored: {text!r}")
+            return False
         if not ears.understood(BARGE_IN_LOGPROB):        # unclear while Lumi talks = mostly Lumi's own voice
             log(f"  ignored while talking (unclear): {text!r}")
             return False
@@ -1978,7 +1984,11 @@ class Lumi:
                 log(f"  heard nothing (mic noise {ears.last.get('noise')}, threshold {ears.last.get('threshold')}, "
                     f"loudest {ears.last.get('peak')}{', ' + ears.last_stt['dropped'] if ears.last_stt.get('dropped') else ''})")
             return False
-        self.who_spoke(u)
+        from tasks import follow
+        if self.follow_filter(text, u):                    # following: only the followed person is listened to
+            return True
+        if not follow.running():                           # following: the head stays on the followed person
+            self.who_spoke(u)
         self.answer(text)
         if self.mission_hold == "talk" and not self.asked_go_on and self.mission_running():
             self.asked_go_on = True                        # answered while halted for them: may I go on?
@@ -2002,6 +2012,40 @@ class Lumi:
                 return
             name = "my charging dock" if target == "home" else target
             mouth.say(f"Sorry, I can't find a way to {name}. Something may be blocking the path.")
+
+    def followed_speaks(self, u):
+        """While following: does the voice come from the person followed (the sound direction against their angle
+        now, within FOLLOW_VOICE_DEG)? False when it can't tell (not calibrated, unsure, not seen)."""
+        from tasks import follow
+        want = follow.followed_angle()
+        if want is None or u is None or getattr(u, "mics", None) is None:
+            return False
+        cal = doa.load_calib()
+        if not cal["fitted"]:
+            return False
+        ang, conf, _ = doa.estimate(u.mics, cal)
+        if conf < DOA_MIN_CONF:
+            return False
+        heard = HEAD_SIGN * self.det_yaw() + ang
+        return abs((heard - want + 180.0) % 360.0 - 180.0) <= FOLLOW_VOICE_DEG
+
+    def follow_filter(self, text, u):
+        """While following, words not from the followed person: a stop word still stops the base (safety); anything
+        else is not acted on, at most one short line every FOLLOW_SORRY_S, the head not turned. True if dropped here."""
+        from tasks import follow
+        if not follow.running() or self.followed_speaks(u):
+            return False
+        if follow.stop_word(text) or stop_order(text, self.markers):
+            log(f"  follow: stop word from someone else {text!r} - stopped")
+            follow.stop()
+            self.stop_all()
+            return True
+        log(f"  follow: not the person I follow, not acted on: {text!r}")
+        if time.time() - getattr(self, "sorry_at", 0.0) > FOLLOW_SORRY_S:
+            self.sorry_at = time.time()
+            mouth.say("Sorry, I'm following someone right now." if mouth.lang_of(text) == "en"
+                      else "지금은 다른 분을 따라가는 중이에요.")
+        return True
 
     def who_spoke(self, u):
         """Use the sound direction: pick the visible person who spoke; meanwhile collect calibration samples."""
@@ -2440,6 +2484,9 @@ class Lumi:
     # ---------- wake word ----------
     def check_wake(self):
         """Idle or driving: is someone calling "Lumi" / "Hi Lumi" / "Hey Lumi" (or just "Hi" / "Hey")? Handles it."""
+        from tasks import follow
+        if follow.running():                                  # following: talk_turn listens to the followed person only
+            return False
         u = self.mic.next(0.0)
         if u is None or not (0.3 <= u.seconds <= WAKE_MAX_S) or getattr(u, "during_speech", False):
             return False
