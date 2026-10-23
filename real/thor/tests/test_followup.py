@@ -138,4 +138,12 @@ if __name__ == "__main__":
             print(f"{'ok  ' if ok else 'FAIL'} {c['say']!r} -> {a}: {reply[:110]!r}")
         print(f"LLM: {good}/{len(picked)}")
     assert not bad, bad
+    # "again" right after an action (a remark in between) is that action again, never "say it again"
+    b = brain.Brain()
+    b.history = [("let's see it", "ACTION: wave -\nOkay!"), ("와 귀엽다", "ACTION: none -\n고마워요!")]
+    for t in ("do it again", "한 번 더", "one more time!", "또"):
+        assert b._after({"action": "none", "target": ""}, t) == {"action": "wave", "target": ""} and not b.again(t), t
+    assert b._after({"action": "none", "target": ""}, "what's that?")["action"] == "none"
+    b.history = [("what's a lidar?", "ACTION: none -\nA laser scanner.")]
+    assert b.again("one more time") == "same" and b._after({"action": "none", "target": ""}, "again")["action"] == "none"
     print("followup ok")
