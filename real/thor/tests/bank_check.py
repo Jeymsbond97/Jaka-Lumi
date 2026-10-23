@@ -67,10 +67,10 @@ def cases(blind):
     out += [("songs", t, "talk", "idle", None, None) for t, kind, ctx in SONGS if ctx is None]
     if blind:
         for f in sorted((ROOT / "tests" / "blind" / "train").glob("*.py")) + \
-                sorted((ROOT / "tests" / "blind" / "r2" / "train").glob("*.py")):
-            pkg = "r2.train" if f.parent.parent.name == "r2" else "train"
-            mod = importlib.import_module(f"tests.blind.{pkg}.{f.stem}")
-            tag = f"blind/{'r2/' if pkg.startswith('r2') else ''}{f.stem}"
+                sorted((ROOT / "tests" / "blind").glob("r*/train/*.py")):   # round 1, then r2, r3 ... (never held/)
+            rnd = f.parent.parent.name if f.parent.parent.name != "blind" else ""
+            mod = importlib.import_module(f"tests.blind.{rnd + '.' if rnd else ''}train.{f.stem}")
+            tag = f"blind/{rnd + '/' if rnd else ''}{f.stem}"
             got = getattr(mod, "CASES", [])
             if isinstance(got, dict):                # missions: text -> {"steps", "markers"}
                 out += [(tag, t, _from_steps(c["steps"]), "idle", c.get("markers"), None)
@@ -80,9 +80,9 @@ def cases(blind):
                 if isinstance(c, dict) and "heard" in c:      # noise, others talking: nothing may move
                     if c["heard"].strip():
                         out.append((tag, c["heard"], "talk", "idle", None, None))
-                elif isinstance(c, dict) and "expect" in c and "text" in c and c.get("state", "idle") in ("idle", "holding"):
+                elif isinstance(c, dict) and "expect" in c and "text" in c and c.get("state", "idle") in ("idle", "holding", "stuck"):
                     out.append((tag, c["text"], c["expect"], c.get("state", "idle"), c.get("markers"),
-                                c.get("before")))
+                                c.get("before"), c.get("stuck_goal")))
                 elif isinstance(c, tuple) and c[2] is None:   # songs: no motion of the bank's may come of them
                     out.append((tag, c[0], "talk | sing", "idle", None, None))
     return out
@@ -105,15 +105,20 @@ def main(args):
     real = intent_bank.read
     by = collections.defaultdict(collections.Counter)
     wrong, hits, times = [], [], []
-    for name, text, expect, state, mk, before in cases("--blind" in args):
+    from assistant import detour
+    no_stuck = detour.recent
+    for name, text, expect, state, mk, before, *goal in cases("--blind" in args):
         mk = mk or marks
+        stuck = {"goal": goal[0]} if state == "stuck" and goal else None   # right after a blocked drive
+        detour.recent = lambda: stuck
         b = brain.Brain()
         if before:
             b.history.append(tuple(before))
         brain.FORCED_LANG["lang"] = "ko" if brain.HANGUL.search(text) else "en"
         intent_bank.read = lambda *a, **k: None      # the rules alone first
+        how = stuck and detour.read(text, mk, stuck["goal"])
         try:
-            ruled = command_check.rules(text, state, mk, b)
+            ruled = f"detour {how}" if how else command_check.rules(text, state, mk, b)
         except command_check.NoLLM:
             ruled = "llm?"
         finally:
@@ -136,6 +141,7 @@ def main(args):
         else:
             by[name][tag] += 1
             hits.append(f"- [{name}/{state}] {text!r} -> {g}")
+    detour.recent = no_stuck
     for c in by.values():
         c["cases"] = sum(c.values())
     total = sum(by.values(), collections.Counter())

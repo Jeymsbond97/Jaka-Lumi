@@ -37,8 +37,15 @@ READS = [   # (words, markers, holding, (action, target))
     ("reset your head", EXPO, False, ("look", "center")),
     ("hang a left", EXPO, False, ("turn", "left 90")),
     ("오른쪽으로 삼십 도 회전해 줘", KOREAN, False, ("turn", "right 30")),
+    ("오른쪽으로 십오 도만 돌아", KOREAN, False, ("turn", "right 15")),
+    ("move a quarter of a meter to your right", EXPO, False, ("move", "right 0.25")),
+    ("go forward eight centimetres", EXPO, False, ("move", "forward 0.08")),
+    ("앞으로 이 미터 반만 가 주십시오", KOREAN, False, ("move", "forward 2.5")),
+    ("spin fifteen degrees right", EXPO, False, ("turn", "right 15")),
+    ("bring me the cup from the coffee corner", EXPO, False, ("fetch", "bring me the cup from the coffee corner")),
+    ("컵 저한테 가져다 주세요", KOREAN, False, ("fetch", "컵 저한테 가져다 주세요")),
     ("pull your arm back in", EXPO, False, ("arm", "fold")),
-    ("take hold of the red cup", EXPO, False, ("pick", "red cup")),
+    ("snatch the blue bottle", EXPO, False, ("pick", "blue bottle")),
 ]
 NEVER = [   # (words, markers, holding): no motion from the bank
     ("go to the kitchen", EXPO, False),             # not on this map
@@ -54,7 +61,30 @@ NEVER = [   # (words, markers, holding): no motion from the bank
     ("turn your back to me", EXPO, False),
     ("a little lower", EXPO, False),                # the head or the lift? the LLM asks
     ("move forward to meters", EXPO, False),
-    ("오른쪽으로 십오 도만 돌아", KOREAN, False),     # a Korean number the words don't give as digits: not 90
+    # a past event in the first person, a statement with a tag: never an order (held-out wrong motions, round 2)
+    ("I walked over to the stage", EXPO, False),
+    ("we went to the coffee corner earlier", EXPO, False),
+    ("I turned left at the entrance", EXPO, False),
+    ("I moved back a bit so you could pass", EXPO, False),
+    ("무대에 갔었어", KOREAN, False),
+    ("아까 왼쪽으로 돌았어요", KOREAN, False),
+    ("the next stop is the stage, right?", EXPO, False),
+    ("this is the end, isn't it?", EXPO, False),
+    ("you go to the entrance after this, don't you?", EXPO, False),
+    ("다음은 무대지?", KOREAN, False),
+    ("입구로 가는 거 맞죠?", KOREAN, False),
+    ("stage로 가는 거 맞지?", KOREAN, False),
+    ("in five minutes go to the entrance", EXPO, False),
+    ("go to the stage, oh, forget it", EXPO, False),
+    ("get me a cup from the cafeteria", EXPO, False),   # not on this map: asked
+    ("bring the cup to James", EXPO, False),            # to a person: a mission
+    ("제임스에게 컵 가져다 줘", KOREAN, False),
+    ("move forward 2 feet", EXPO, False),                # feet: asked
+    ("가자 이제", KOREAN, False),
+    ("would you throw the cup", EXPO, False),
+    ("빨간 컵을 무대에 있는 안나한테 갖다줘", KOREAN, False),   # to a person: a mission
+    ("I want the mug, the one at the entrance", EXPO, False),  # a thing at a place: fetch or ask, never a pick here
+    ("take the cup to the stage", EXPO, False),
 ]
 
 
