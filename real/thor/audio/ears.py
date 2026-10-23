@@ -132,9 +132,11 @@ SPEECH_PER_SYLLABLE = 0.05       # s of speech frames a text needs per syllable:
 REPEAT = re.compile(r"(\b\w+(?:\W+\w+)+?)(?:\W+\1\b){2,}", re.I)   # a phrase of 2+ words three times over:
                                  # whisper's loop on a sound it can't read ("Look right. Look right. Look right." for
                                  # "dock2로 가서 충전해" far away, "이 마가의 피지않아." x3 in lumi.log 2026-10-21)
-STOCK = re.compile(r"\W*(?:감사합니다|고맙습니다|네|예|thank you|thanks|okay|hey|hi|bye|yes|mm+)\W*", re.I)
+SAME_WORDS = 0.8                 # difflib ratio of two readings' letters to count as the same words
+STOCK = re.compile(r"\W*(?:감사합니다|고맙습니다|thank you|thanks|hey|hi|bye|mm+)\W*", re.I)
                                  # whisper's stock words when made to write a language for a sound it took for another
-                                 # one (logs/heard 18:39: "はい" -> "감사합니다." / "Hey."): dropped there
+                                 # one (logs/heard 18:39: "はい" -> "감사합니다." / "Hey."): dropped there. Not "네" /
+                                 # "yes": answers to Lumi (a real "네" tagged Japanese was lost, blind short set)
 NOT_SAID = re.compile(r"^\W*$|^\s*-|자막|시청해\s*주셔서|thanks? (?:you )?for watching|subtitles? by", re.I)
                                  # whisper's subtitle habits on music: no word at all, a dialogue dash ("-끝-", "- 네."),
                                  # a caption credit ("자막 제공 및 광고를 포함하고 있습니다.")
@@ -209,6 +211,10 @@ def names(text):
     return text
 
 
+def _letters(text):
+    return re.sub(r"[^a-z가-힣]", "", text.lower())
+
+
 def lumi_like(text):
     """A word that may be the name as whisper writes it without the prompt ("Louie", "Lumen", "Remia", "루미")."""
     if re.search(r"루미|루(?![가-힣])|ルミ|미야|민희|^\W*이미|\b[lr]e?mi|\bb?l[ou]{1,2}m|\bl[ou]{1,2}n(?:e?y|i|e)\b", text,
@@ -259,6 +265,8 @@ def transcribe(audio, prompt=None):
             np.array_equal(audio[:len(job["audio"])], job["audio"]):
         job["done"].wait(30)
         out = job.get("out")
+    elif job is not None and _early.get("job") is job:
+        _early.pop("job", None)                  # speech went on after that pause: a run not started is skipped
     text, stt = out or _hear(audio, prompt)
     last_stt.clear()
     last_stt.update(stt, early=out is not None)
@@ -275,7 +283,8 @@ def early(audio):
         if before is not None:
             before["done"].wait(30)
         try:
-            job["out"] = _hear(audio, None)
+            if _early.get("job") is job:             # not yet replaced by a newer pause or passed over by transcribe()
+                job["out"] = _hear(audio, None)
         except Exception:                        # noqa: BLE001 - transcribe() asks again itself
             pass
         job["done"].set()
@@ -310,12 +319,16 @@ def _hear(audio, prompt):
             asked[code] = (names(t2), {"en": "english", "ko": "korean"}[code], None, lp2)
         return asked[code]
     only_name = NAME_ONLY.fullmatch(text) and len(audio) > 1.5 * RATE
-    # tagged Korean but written in other letters ("Wait.", "Кам туне.", "Tifa." for 뒤 봐): understood() refuses it,
-    # so it is asked in both languages like another language
-    ko_unsure = lang == "korean" and not re.search(r"[가-힣]", text) and re.search(r"[^\W\d_]", text) and \
-        not NOT_SAID.search(text)
-    if lang not in LANGS or only_name or ko_unsure:
-        tries = [(text, lang, prob, logprob)] if lang in LANGS and not only_name and not ko_unsure else []
+    # tagged Korean but written in Latin letters ("Wait.", "What is it?", "Can you sing song?" live 2026-10-21 / 22):
+    # understood() refuses it. Asked in English: the same words again are English. (Asked in Korean too, far Korean
+    # came back as other Korean words more often than right: tests/asr_check.py blind sets, 6 right of 37.)
+    if lang == "korean" and re.search(r"[a-z]", text, re.I) and not re.search(r"[가-힣]", text) and \
+            not NOT_SAID.search(text) and not only_name:
+        t2 = ask("en")
+        if difflib.SequenceMatcher(None, _letters(t2[0]), _letters(text)).ratio() >= SAME_WORDS:
+            text, lang, prob, logprob = t2
+    if lang not in LANGS or only_name:
+        tries = [(text, lang, prob, logprob)] if lang in LANGS and not only_name else []
         tries += [ask("ko"), ask("en")]
         if lang not in LANGS:                    # forced on a sound whisper took for another language, Korean is
             tries = [r for r in tries if not STOCK.fullmatch(r[0])] or [("", lang, prob, logprob)]   # "감사합니다."

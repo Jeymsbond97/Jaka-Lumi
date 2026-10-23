@@ -41,7 +41,8 @@ END_SILENCE = 0.6                # s of quiet that ends an utterance
 EARLY_QUIET_S = 0.3              # s of quiet after which speech-to-text starts on the utterance so far (on_quiet); kept
                                  # when the utterance then ends without new speech (logs/heard 2026-10-22: the 50 real
                                  # clips without their last 0.3 s gave the same commands)
-EARLY_MIN_S = 0.4                # ... for an utterance at least this long so far (shorter ones are not transcribed)
+EARLY_MIN_S, EARLY_MAX_S = 0.4, 4.0   # ... for an utterance this long so far: shorter ones are not transcribed, longer
+                                 # ones are talk with pauses where each early run delays the last (a 6.8 s clip: 11 s)
 on_quiet = None                  # function(int16 mono audio so far), set by audio/ears.py
 MAX_UTTERANCE = 8.0              # s (12 s: in a room with music an utterance never got quiet enough
                                  # to end, every one ran the full 12 s, 2026-10-21)
@@ -81,7 +82,7 @@ class Segmenter:
     def quiet_now(self):
         """True once per pause inside an utterance, when it has been quiet EARLY_QUIET_S."""
         return self.in_speech and self.silent == round(EARLY_QUIET_S * RATE / FRAME) and \
-            len(self.frames) * FRAME >= EARLY_MIN_S * RATE
+            EARLY_MIN_S * RATE <= len(self.frames) * FRAME <= EARLY_MAX_S * RATE
 
     def feed(self, frame, level, now):
         """Returns (frames, t_start, t_end, peak) when an utterance ended, else None."""
