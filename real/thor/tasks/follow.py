@@ -61,7 +61,6 @@ HEAD_VEL = 50               # speed ratio %; the head is at its full speed from 
 HEAD_TIMEOUT_S = 5          # s; one head move (90 deg at ~40 deg/s takes ~2.5 s)
 
 CHARGER = ("I'm on the charger, I can't follow you from here.", "충전 중이라 따라갈 수 없어요.")
-ARM_OFF = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")   # only when the arm must go to look
 ARM_BUSY = ("A program is running on my arm, so I can't follow you.", "팔에서 프로그램이 실행 중이라 따라갈 수 없어요.")
 LOST = ("I lost you, so I stopped. Stand in front of me and say follow me again.",
         "놓쳐서 멈췄어요. 제 앞에 서서 다시 따라오라고 말해 주세요.")
@@ -147,8 +146,9 @@ def blocked(v, w, arm_pts, pose=None):
 
 
 def ready():
-    """Why following can't start now as (en, ko), None when it can. The arm must be able to go to look, or be there
-    already: then it may stay switched off (it does not move while following)."""
+    """Why following can't start now as (en, ko), None when it can. The arm goes to look; switched off (not powered /
+    enabled) it stays where it is (it does not move while following, its points are checked), unless it reads all
+    joints 0 (powered off: where it is is not known)."""
     if fetch._charging():
         return CHARGER
     try:
@@ -156,8 +156,13 @@ def ready():
             return None
         motion._ready()
     except motion.MotionError as e:
-        fetch.log(f"follow: the arm can't go to look: {e}")
-        return ARM_BUSY if "program" in str(e) else ARM_OFF
+        if "program" in str(e):
+            fetch.log(f"follow: the arm can't go to look: {e}")
+            return ARM_BUSY
+        if not any(fetch.skills._joints()):
+            fetch.log("follow: the arm is powered off, where it is is not known")
+            return fetch.ARM_UNSEEN
+        fetch.log("follow: the arm is switched off: it stays where it is")
     except Exception as e:                               # the controller does not answer
         fetch.log(f"follow: the arm does not answer: {e!r}")
         return NO_ARM
@@ -173,7 +178,7 @@ def prepare():
     if why:
         raise fetch.FetchError(*why)
     fetch._stop.clear()                                  # a stop said earlier must not end this one
-    fetch._pose(fetch._look())
+    fetch._drive_pose()
     fetch._waist_front()
     if fetch.arm_yaw() is None:
         fetch.log("follow: the arm's place on the base is not measured: only the base is checked")

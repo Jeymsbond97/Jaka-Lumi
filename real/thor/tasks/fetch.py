@@ -175,6 +175,8 @@ stay_put = False                             # set by assistant/lumi.py for a ta
                                              # head and lift only, no base move, no waist turn (NEED_PATROL)
 NEED_PATROL = ("For that I'd have to drive or turn. Switch on Patrol, please.",
                "그러려면 이동하거나 돌아야 해요. 패트롤을 켜 주세요.")
+ARM_UNSEEN = ("My arm's power is off, so I can't tell where it is. Please switch it on.",   # drives check the
+              "팔 전원이 꺼져 있어서 팔 위치를 알 수 없어요. 팔 전원을 켜 주세요.")            # arm's way
 _task = {"start_pose": None,                 # map pose (x, y, theta) where the current task was given
          "trip_from": None}                  # where Lumi stood before its last trip, task or mission: "come back"
                                              # returns there (lumi.come_back); short moves and turns don't set it
@@ -327,6 +329,20 @@ def _at_pose(name):
     """The arm is at pose `name` already (every joint within 1 deg)."""
     j = skills._joints()
     return max(abs(a - b) for a, b in zip(j, motion.nearest(motion.poses()[name], j))) <= 1.0
+
+
+def _drive_pose(holding=False):
+    """The arm to look before the base drives or turns. A switched-off arm (Cobo π: not powered or not enabled) stays
+    where it is: drives and talk need no arm, and the arm's points are still checked from its joints. Powered off, it
+    reads all joints 0: where it is is not known, so no drive (ARM_UNSEEN)."""
+    try:
+        _line_holding(LOOK_POSE) if holding else _pose(_look())
+    except (FetchError, motion.MotionError) as e:
+        if tuple(e.args[:1]) != arm_route.OFF[:1] and "not powered" not in str(e):
+            raise
+        if not any(skills._joints()):
+            raise FetchError(*ARM_UNSEEN) from e
+        log("the arm is switched off: it stays where it is for the drive")
 
 
 def _pose(name, holding=False, leaf=False):
@@ -653,7 +669,7 @@ def _turn(deg, holding=False, why="to look further"):
         log("on the charger: I don't turn")
         return False
     if not holding:
-        _pose(_look())
+        _drive_pose()
     _waist_front()
     if _sweep_blocked(deg, "turning"):
         return False
@@ -1979,10 +1995,7 @@ def _run_steps(steps, say):
 def _do_step(s, say):
     d, holding = s["do"], _state["holding"]
     if d == "go":
-        if holding:
-            _line_holding(LOOK_POSE)
-        else:
-            _pose(_look())
+        _drive_pose(holding)
         _step(f"driving to {s['to']}")
         _drive_to("here" if s["to"] == "here" else {"marker": s["to"]}, say, watch_holding=holding)
         _say(say, "I'm here.", "도착했어요.")
@@ -2111,10 +2124,7 @@ def _move(direction, m, holding):
     """Drive `m` metres forward / back, or turn 90 deg left / right (arm sweep checked) and drive forward. Straight
     with joy_control in MOVE_SEGMENT_M pieces; before each the base's way (_straight_clear) and the arm's (line_hits)
     are checked again with the live lidar, and a held object is checked after it. Stopped short -> FetchError."""
-    if holding:
-        _line_holding(LOOK_POSE)
-    else:
-        _pose(_look())
+    _drive_pose(holding)
     if direction in ("left", "right"):
         _step(f"turning {direction}")
         if not _turn(90.0 if direction == "left" else -90.0, holding, why=f"to drive {direction}"):
