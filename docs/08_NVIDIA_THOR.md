@@ -95,3 +95,43 @@ Measured on our Thor (`lumi-thor`, JetPack R38.4, CUDA 13.0, driver 580):
   DNN. TensorRT 11 has no FP16 builder flag (networks are strongly typed). An engine only runs with the TensorRT
   version and GPU it was built with.
 - The camera service used ~8.4 cores with YOLO on the CPU, ~1 core with it on the GPU.
+
+## Local files and models (not in git)
+
+| Path | What | How it is made |
+|---|---|---|
+| `logs/` | all log files and debug pictures | written at run time |
+| `data/camera_extrinsics*.json`, `data/calib_samples*/`, `data/doa_*`, `data/volume.txt`, `data/speech_speed.txt` | calibrations and settings of this robot | `vision/calib.py`, `audio/doa.py`, the dashboard |
+| `.venv/` | Python 3.12 venv with `site-packages/lumi_wave.pth` (the path of this folder): numpy, opencv-python-headless, pyorbbecsdk2, fastapi, uvicorn, supertonic, soundfile, tensorrt-cu13, cuda-python | |
+| `models/yolov8s.onnx`, `models/yolov8s.engine` | GPU detector. The engine only runs on the TensorRT version and GPU it was built with: rebuild after a JetPack or TensorRT change | `YOLO("yolov8s.pt").export(format="onnx", imgsz=640, opset=17)`; `vision/yolo_engine.py models/yolov8s.onnx models/yolov8s.engine` (~100 s) |
+| `models/yolov8n.onnx` | CPU fallback detector | `YOLO("yolov8n.pt").export(format="onnx", imgsz=640, opset=12, simplify=True)` |
+| `models/yolo11s-pose.onnx`, `.engine` | pose keypoints for `vision/pose.py` | ultralytics export, then `vision/yolo_engine.py` |
+| `models/face_detection_yunet_2023mar.onnx`, `models/face_recognition_sface_2021dec.onnx` | face detector and embedding for `vision/reid.py` (without them only clothes are used) | github.com/opencv/opencv_zoo |
+| `models/ggml-large-v3-turbo.bin` | whisper model (f16; `ggml-large-v3-turbo-q5_0.bin` is still used by `audio/sing_mine.py`) | Hugging Face `ggerganov/whisper.cpp` |
+| `models/supertonic3/` | TTS model | Hugging Face `Supertone/supertonic-3` |
+| `models/supertonic3_vector_estimator.engine`, `models/supertonic3_vocoder.engine` | the TTS's two slow parts on the GPU (`audio/tts_gpu.py`; without them the CPU, 5–10x slower). Bound to this TensorRT and GPU: rebuild after a JetPack or TensorRT change | `.venv/bin/python audio/tts_gpu.py build` (~3 min), then `check` |
+| `whisper.cpp/` | v1.9.5, built with CUDA | `cmake -B build -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=110 -DCMAKE_BUILD_TYPE=Release && cmake --build build -j 12 --target whisper-server whisper-cli` |
+| `~/models/bge-m3-Q8_0.gguf` | embedding model for the knowledge base | Hugging Face |
+| `knowledge/index.npz` | knowledge vectors | `assistant/knowledge.py build` |
+| Ollama `gemma4:26b` | LLM | `ollama pull gemma4:26b` |
+| `docs/private/` | company-internal notes (access, vendor manuals, screenshots) | kept off git |
+
+The Orbbec cameras need the udev rule `SUBSYSTEM=="usb", ATTR{idVendor}=="2bc5", MODE="0666"` in `/etc/udev/rules.d/99-orbbec.rules`.
+
+---
+
+
+## Operational pitfalls
+
+- **Never open the cameras from a second program** while the camera service runs. After `vision/camview.py --stop` / `--start` the torso camera may not be found for a few seconds while it re-enumerates: wait and start again.
+- **Check the USB speed after any cable work** (`/sys/bus/usb/devices/*/speed` must say 5000 for the cameras). A head camera opened at USB 2 stays colour-only until the camera service is restarted.
+- **Never call `tasks/fetch.py` functions from a second process while the API runs**: its log writes that process's empty state over `/dev/shm/lumi_task.json`, and the held object is forgotten.
+- After a controller power cycle the body axes are disabled and every move times out; `robot/head.py` enables them. All tool I/O must be PNP in Cobo π, or the gripper does not move.
+- The base drives into a table's margin and reports "succeeded" without moving; the last part of a reach is a straight checked drive. Drives with the arm in `carry` stall (the base's 3D camera sees the hand): drive in `look`.
+- The base's planning API does not check real paths, so `robot/nav.py` uses the map image. Closed glass doors need a no-go line in the base's web panel.
+- The body API's `/stop` does not stop a `moveto`, so hold-to-move uses small steps.
+- `pkill -f` / `pgrep -f` also match your own shell's command line: find the PID with `ps -eo pid,args | grep "[n]ame"` and kill that.
+- Headless Chrome screenshots of the dashboard: do not use `--timeout` (it freezes the page's JavaScript).
+- Other projects and services on this Thor belong to colleagues (`~/Dev/lumi_edu`, `lumi-vision`, `lumi_voice_app`, services on :8000, :8001, :8090, :3080). Do not touch them.
+
+Every value meant to be tuned by hand, with its file: [TUNING.md](TUNING.md).
