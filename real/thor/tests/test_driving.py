@@ -1,6 +1,7 @@
 """Self-check of distances and speed by voice (assistant/driving.py, brain.intent's moves, fetch's straight move and
 speed) with a fake base, no robot: python tests/test_driving.py"""
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -118,13 +119,33 @@ assert driving.say_speed(1, 1.2, True) == "Okay, a bit faster: 120 percent of my
 assert driving.say_speed(1, fetch.SPEED_MAX, False) == "I'm already at my top speed."
 
 # ---------- a 1 cm move is driven, and the last joy_control command lasts only the time left ----------
-pose = [0.0, 0.0, 0.0]
-fetch.agv.pose = lambda: tuple(pose)
+# a fake base (heading 0): its x follows the joy_control speed, each command for JOY_HOLD_S; no wheels: it stays
+base = {"x": 0.0, "v": 0.0, "t": time.time(), "wheels": True}
+
+
+def roll():
+    now = time.time()
+    dt, base["t"] = now - base["t"], now
+    if base["wheels"]:
+        base["x"] += base["v"] * min(dt, fetch.JOY_HOLD_S)
+    if dt > fetch.JOY_HOLD_S:
+        base["v"] = 0.0
+
+
+def joy_request(cmd, timeout=3.0):
+    if "joy_control" in cmd:
+        roll()
+        base["v"] = float(cmd.split("linear_velocity=")[1].split("&")[0])
+        joy.append((time.time(), cmd))
+    return {}
+
+
+fetch.agv.pose = lambda: (roll(), (base["x"], 0.0, 0.0))[1]
 fetch.agv.clearance = lambda x, y: 5.0
 fetch._waist_front = lambda: None
 real_moved, skills.moved = skills.moved, lambda after=0.0: None
 joy = []
-fetch.agv.request = lambda cmd, timeout=3.0: joy.append((time.time(), cmd)) or {}
+fetch.agv.request = joy_request
 for dist in (0.01, 0.03, 0.07, 0.37):
     joy.clear()
     t0 = time.time()
@@ -150,7 +171,57 @@ for m, v in ((0.01, "-0.050"), (0.3, "-0.120")):
     vel = {c.split("linear_velocity=")[1].split("&")[0] for _, c in joy} - {"0"}
     assert vel == {v}, (m, vel)
 fetch.speed_factor = 1.0
+
+# _move rolls on between its pieces (no stop-and-go), the time spent checking counted as driven: 0.8 m is 0.8 m
+STOP = "linear_velocity=0&angular_velocity=0"
+fetch.MOVE_SPEED = 0.5
+real_line_hits = fetch.line_hits
+fetch.line_hits = lambda d: time.sleep(0.15)                                  # a slow check of the arm's way
+joy.clear()
+x0 = base["x"]
+fetch._move("back", 0.8, holding=False)
+time.sleep(fetch.JOY_HOLD_S + 0.05)
+roll()
+stops = [k for k, (_, c) in enumerate(joy) if c.endswith(STOP)]
+assert stops == [len(joy) - 1], stops                                         # one stop: at the end
+assert abs((x0 - base["x"]) - 0.8) < 0.03, x0 - base["x"]
+assert fetch._rolling["v"] == 0.0
+
+# the base does not follow the commands (2026-10-23: a follow loop sent its own): said, stopped, never "done"
+base["wheels"] = False
+joy.clear()
+try:
+    fetch._move("back", 1.0, holding=False)
+    raise AssertionError("a move the base did not drive ended as done")
+except fetch.FetchError as e:
+    assert "did not move" in e.args[0] and "0.00 m of 1" in e.args[0], e.args
+assert joy[-1][1].endswith(STOP) and fetch._rolling["v"] == 0.0, joy[-3:]
+base["wheels"] = True
+
+# something steps into the way after the first piece: stops at once (also while rolling), says how far it got
+clear_at = {"x": base["x"] - 0.3}
+fetch.agv.clearance = lambda x, y: 5.0 if x > clear_at["x"] else 0.1
+joy.clear()
+try:
+    fetch._move("back", 1.0, holding=False)
+    raise AssertionError("drove into an obstacle")
+except fetch.FetchError as e:
+    assert "in my way" in e.args[0], e.args
+time.sleep(fetch.JOY_HOLD_S + 0.05)
+assert base["x"] > clear_at["x"] and joy[-1][1].endswith(STOP), (base, clear_at)   # stopped before it
+fetch.agv.clearance = lambda x, y: 5.0
+fetch.line_hits = real_line_hits
 fetch.agv.request, skills.moved = real_request, real_moved
+
+# a task (a move by voice) ends a follow that runs first: two joy_control senders must never fight
+from tasks import follow
+follow._stop.clear()
+follow._thread = threading.Thread(target=follow._stop.wait, daemon=True)
+follow._thread.start()
+follow._joy = lambda v, w: None
+fetch._launch(lambda: None)
+assert not follow.running() and follow._stop.is_set()
+fetch._thread.join(1.0)
 # "again" / "a bit more" right after a turn (2026-10-21)
 _turn = driving.last_command([("turn left", "ACTION: turn left 90")])
 assert _turn == ("turn", "left 90"), _turn

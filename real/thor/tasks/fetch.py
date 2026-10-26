@@ -151,6 +151,12 @@ RECEIVE_WAIT_S = 30.0        # s; receive: nothing put in the hand by then -> th
 RECEIVE_DI_S = 0.5           # s; DI_1 (finger sensor) sees something this long -> Lumi asks the person to let go;
                              # the hand closes only on their "okay" / Release (never on fingers still in it)
 MOVE_SEGMENT_M = 0.25        # m; a mission move is driven in pieces this long, the way (base and arm) checked before each
+                             # (the base rolls on while the next piece is checked: no stop between pieces)
+JOY_HOLD_S = 0.5             # s; one joy_control command lasts this long, then the base stops by itself (docs/05)
+MOVED_MIN_PART = 0.5         # a move whose base pose went less than this part of the distance driven by time: the base
+                             # did not follow the commands (a second joy_control sender, 2026-10-23) -> stop, say so
+                             # (estimate; pose jitter and lag are a few cm)
+MOVED_CHECK_M = 0.1          # m; ... checked once this much is driven by time (shorter moves are within the jitter)
 WAIT_POLL_S = 0.05           # s between looks at stop / go on / an instruction while a mission waits (a wait step)
 LOG_LINES = 40
 POINT_STEPS_MM = (0, -50, 50, -100, 100)   # "put it here" with pointing: spots on this grid around the point (estimate)
@@ -513,7 +519,7 @@ def _lift_to(mm):
         return
     _go_on()
     log(f"lift {lift:.0f} -> {mm:.0f} mm")
-    head.moveto([mm, waist, yaw, pitch], vel=LIFT_VEL, acc=20, timeout=90)
+    _body_move([mm, waist, yaw, pitch], vel=LIFT_VEL, acc=20, timeout=90)
     skills.moved()
     _go_on()
 
@@ -576,6 +582,27 @@ def depth_hits(deg, camera="torso", T=None):
     return None
 
 
+def _body_move(pos, **kw):
+    """head.moveto that a STOP does not wait for: the body API answers only when the motion ends, and a hung call took
+    its full timeout (2026-10-23: two 30 s timeouts in a row kept a stopped reach "busy" for a minute). The call ends in
+    its own thread (the body finishes the move anyway); a STOP raises Stopped at once."""
+    out = {}
+
+    def run():
+        try:
+            out["reply"] = head.moveto(pos, **kw)
+        except Exception as e:
+            out["error"] = e
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    while t.is_alive():
+        if _stop.wait(0.1):
+            raise Stopped()
+    if "error" in out:
+        raise out["error"]
+    return out.get("reply")
+
+
 def _head_to(yaw, pitch):
     """Turn the head (lift and waist stay) unless it is there; its frames are then read from after the move
     (skills.moved)."""
@@ -583,7 +610,7 @@ def _head_to(yaw, pitch):
     camview.want("head")
     if abs(y0 - yaw) < 1.0 and abs(p0 - pitch) < 1.0:
         return
-    head.moveto([lift, waist, yaw, pitch])
+    _body_move([lift, waist, yaw, pitch])
     skills.moved("head")
 
 
@@ -648,7 +675,7 @@ def _waist_to(rel):
         return False
     lift, waist, yaw, pitch = head.status()
     log(f"waist {waist:.0f} -> {waist + d:.0f} deg")
-    head.moveto([lift, waist + d, yaw, pitch], vel=WAIST_VEL, acc=20, timeout=60)
+    _body_move([lift, waist + d, yaw, pitch], vel=WAIST_VEL, acc=20, timeout=60)
     skills.moved()
     _go_on()
     return True
@@ -1068,25 +1095,34 @@ def set_speed(factor):
     return factor
 
 
-def _straight_clear(dist, speed=None):
+def _straight_clear(dist, speed=None, stop=True):
     """Drive straight by `dist` m (+ forward), only as far as the base keeps BASE_HALF_M + CLEAR_M from every obstacle
     the sensors and the map show (checked every PROBE_STEP_M before it starts; getting further from one is fine).
-    Returns the distance driven (m)."""
+    Returns the distance driven (m). stop=False: the base is left rolling (_straight) when the way is clear also
+    rolling_lead() further, the most it rolls on while the next piece is checked."""
     _waist_front()
     x, y, th = agv.pose()
     sign = 1.0 if dist > 0 else -1.0
-    free, last = 0.0, agv.clearance(x, y)
-    for k in range(1, math.ceil(abs(dist) / PROBE_STEP_M - 1e-9) + 1):
-        at = min(k * PROBE_STEP_M, abs(dist))         # every PROBE_STEP_M, and the end itself (a 1 cm move too)
+    reach = abs(dist) + (0.0 if stop else rolling_lead(speed))
+    free, last, blocked = 0.0, agv.clearance(x, y), False
+    for k in range(1, math.ceil(reach / PROBE_STEP_M - 1e-9) + 1):
+        at = min(k * PROBE_STEP_M, reach)              # every PROBE_STEP_M, and the end itself (a 1 cm move too)
         c = agv.clearance(x + sign * at * math.cos(th), y + sign * at * math.sin(th))
         if c < BASE_HALF_M + CLEAR_M and c < last:
             log(f"an obstacle {c:.2f} m from the way after {free:.2f} m")
+            blocked = True
             break
         free, last = at, c
+    free = min(free, abs(dist))
     if free > 0:
         log(f"straight {sign * free:+.2f} m")
-        free = _straight(sign * free, speed or AXIS_SPEED)
+        free = _straight(sign * free, speed or AXIS_SPEED, stop=stop or blocked)
     return free
+
+
+def rolling_lead(speed):
+    """How far (m) the base can roll on at `speed` (m/s or a function) after its last joy_control command."""
+    return (speed() if callable(speed) else speed or AXIS_SPEED) * JOY_HOLD_S
 
 
 def _approach(obj, yaw, tried, goal=PICK_ZONE_CENTRE, holding=False):
@@ -1814,6 +1850,11 @@ def _new_run():
 
 def _launch(fn, *a):
     global _thread
+    from tasks import follow                     # imported here: follow imports this module
+    if follow.running():                         # its joy_control commands would fight this task's (2026-10-23:
+        log("follow: ended for a task")          # "go back 1 m" while following did not move and said done)
+        follow.stop()
+        follow._thread.join(follow.JOIN_S)
 
     def run():
         fn(*a)
@@ -2229,26 +2270,40 @@ def _move(direction, m, holding):
     _step(f"driving {m:g} m {'back' if direction == 'back' else 'forward'}")
     speed = (lambda: AXIS_SPEED) if m < SHORT_MOVE_M else (lambda: MOVE_SPEED * speed_factor)   # "faster" while on it
     done = 0.0
-    while m - done > 1e-3:
-        _go_on()
-        piece = min(MOVE_SEGMENT_M, m - done)
-        hit = line_hits(sign * piece)
-        if hit is not None:
-            raise FetchError(f"My arm would hit something: I stopped after {done:.2f} m of {m:g}.",
-                             f"팔이 부딪힐 것 같아서 {done:.2f}미터에서 멈췄어요.")
-        cut = _pause.is_set
-        got = _straight_clear(sign * piece, speed)
-        done += got
-        if cut():                                # someone stopped me: wait, then the rest of the way, checked again
+    x0, y0, th0 = agv.pose()
+    try:
+        while m - done > 1e-3:
             _go_on()
-            continue
-        if holding and not gripper.state()["holding"]:
-            skills._held.clear()
-            _set(holding=False)
-            raise FetchError("I dropped it.", "떨어뜨렸어요.")
-        if got < piece - 1e-3:
-            raise FetchError(f"Something is in my way: I stopped after {done:.2f} m of {m:g}.",
-                             f"앞에 뭔가 있어서 {done:.2f}미터에서 멈췄어요.")
+            piece = MOVE_SEGMENT_M if m - done > MOVE_SEGMENT_M + rolling_lead(speed) else m - done
+            last = piece == m - done                 # (no last piece shorter than what rolls on during a check)
+            hit = line_hits(sign * (piece + (0.0 if last else rolling_lead(speed))))
+            if hit is not None:
+                raise FetchError(f"My arm would hit something: I stopped after {done:.2f} m of {m:g}.",
+                                 f"팔이 부딪힐 것 같아서 {done:.2f}미터에서 멈췄어요.")
+            cut = _pause.is_set
+            got = _straight_clear(sign * piece, speed, stop=last)
+            done += got
+            x, y, _ = agv.pose()
+            real = sign * ((x - x0) * math.cos(th0) + (y - y0) * math.sin(th0))
+            if done >= MOVED_CHECK_M and real < MOVED_MIN_PART * done:
+                log(f"the base went {real:.2f} m of {done:.2f} m driven")
+                raise FetchError(f"My wheels did not move as they should, so I stopped after {max(0.0, real):.2f} m "
+                                 f"of {m:g}.", f"바퀴가 제대로 움직이지 않아서 {max(0.0, real):.2f}미터에서 멈췄어요.")
+            if cut():                            # someone stopped me: wait, then the rest of the way, checked again
+                _go_on()
+                continue
+            if holding and not gripper.state()["holding"]:
+                skills._held.clear()
+                _set(holding=False)
+                raise FetchError("I dropped it.", "떨어뜨렸어요.")
+            if got < piece - 1e-3:
+                raise FetchError(f"Something is in my way: I stopped after {done:.2f} m of {m:g}.",
+                                 f"앞에 뭔가 있어서 {done:.2f}미터에서 멈췄어요.")
+    finally:
+        if _rolling["v"]:                        # left rolling between pieces: an error or STOP stops it now
+            _rolling["v"] = 0.0
+            agv.request("/api/joy_control?linear_velocity=0&angular_velocity=0")
+            skills.moved(after=COAST_S)
 
 
 def _reach_to_hand(p, short=RECEIVE_SHORT_MM):
@@ -2474,24 +2529,37 @@ def end(timeout=5.0):
 
 
 # ---------- measuring the arm's yaw on the base ----------
-def _straight(dist_m, speed=None):
+_rolling = {"v": 0.0, "t": 0.0, "sent": 0.0}   # a straight drive left rolling (stop=False): its signed speed (m/s),
+                                                # the end of its counted time and when its last command went out
+
+
+def _straight(dist_m, speed=None, stop=True):
     """Drive straight by dist_m (+ forward) at `speed` m/s (AXIS_SPEED; a function: read again every 0.1 s, so a
     speed change applies at once) with joy_control (no turning), then stop. The last command lasts only the time
     left (no overshoot of up to 0.1 s). Stopped() on STOP; a pause stops it early. Returns the distance driven (m,
-    by time)."""
+    by time). stop=False (_move's pieces): when it got all the way the base is left rolling at its speed; the next
+    _straight the same way counts what it rolled meanwhile (at most JOY_HOLD_S) as driven."""
     if stay_put:
         raise FetchError(*NEED_PATROL)
     rate = speed if callable(speed) else (lambda: speed or AXIS_SPEED)
     done, t = 0.0, time.time()
+    if _rolling["v"] * dist_m > 0:              # rolled on since the last piece's time ended, until its command ran out
+        done = min(abs(dist_m), abs(_rolling["v"]) * max(0.0, min(t, _rolling["sent"] + JOY_HOLD_S) - _rolling["t"]))
+    _rolling["v"], v, sent = 0.0, 0.0, t
     try:
         while abs(dist_m) - done > 1e-4 and not _stop.is_set() and not _pause.is_set():
-            v = rate()
+            v, sent = rate(), time.time()
             agv.request(f"/api/joy_control?linear_velocity={v if dist_m > 0 else -v:.3f}&angular_velocity=0")
             time.sleep(max(0.0, min(0.1, (abs(dist_m) - done) / v - (time.time() - t))))
             now = time.time()
             done, t = done + v * (now - t), now
     finally:
-        agv.request("/api/joy_control?linear_velocity=0&angular_velocity=0")
+        if stop or abs(dist_m) - done > 1e-4 or not v:   # cut short (STOP, pause, error): stopped now
+            agv.request("/api/joy_control?linear_velocity=0&angular_velocity=0")
+        else:
+            _rolling.update(v=v if dist_m > 0 else -v, t=t, sent=sent)
+    if _rolling["v"]:
+        return min(abs(dist_m), done)
     skills.moved(after=COAST_S)                  # frames from after the base has coasted to a stop
     if _stop.is_set():
         raise Stopped()

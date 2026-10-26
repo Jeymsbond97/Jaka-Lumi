@@ -48,7 +48,8 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `assistant/lumi.py` | `FOLLOW_VOICE_DEG`, `FOLLOW_SORRY_S` | 35°, 20 s | While following, a voice this near the followed person's angle is theirs (estimate); the "I'm following someone" line at most this often |
 | `tasks/follow.py` | `FOLLOW_GAP_M`, `NEAR_STOP_M` | 1.0 m, 0.8 m | "Follow me": camera distance kept to the person (nearer: no forward); nearer than `NEAR_STOP_M` no turn either. Estimate |
 | `tasks/follow.py` | `FOLLOW_MAX_MS`, `SPEED_GAIN` | 0.5 m/s, 0.8 /s | Follow speed cap (joy_control's own clamp, [05_AGV_BASE.md](05_AGV_BASE.md)); speed = their walking speed + this per m beyond the gap |
-| `tasks/follow.py` | `ACCEL_MS2`, `DECEL_MS2` | 0.5, 0.8 m/s² | Speeding up / slowing down limits; never faster than lets the base stop at the gap with `DECEL_MS2`. Estimates |
+| `tasks/follow.py` | `ACCEL_MS2`, `DECEL_MS2` | 0.5, 0.8 m/s² | Speeding up / slowing down limits; never faster than lets the base stop at the gap with `DECEL_MS2` after `REACT_S`. Estimates |
+| `tasks/follow.py` | `REACT_S` | 0.3 s | From the person stopping to the base braking (frame, track, tick, command); with `DECEL_MS2` it sets the follow distance while walking (~1.3 m at 0.5 m/s). Estimate |
 | `tasks/follow.py` | `TURN_GAIN`, `TURN_MAX_RS`, `TURN_ACCEL_RS2`, `TURN_DEAD_DEG`, `TURN_ONLY_DEG` | 1.5, 0.6 rad/s, 2.0 rad/s², 5°, 35° | Turning toward the person: gain, cap, change limit, no turn within, no forward beyond (turn first) |
 | `tasks/follow.py` | `STALE_S`, `COAST_S`, `LOST_S` | 0.4 s, 1.0 s, 3 s | A sighting older than `STALE_S` is not new; unseen, the base drives on toward where they should be for `COAST_S`, then slows; "I lost you" after `LOST_S` |
 | `tasks/follow.py` | `VEL_TAU_S`, `WALK_MAX_MS` | 0.5 s, 2 m/s | Walking-velocity filter time constant; faster estimates are noise |
@@ -110,7 +111,8 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `assistant/lumi.py` | `REACH_FRONT_DEG` | 20° | "Reach out to me": a person further to the side is turned to first (Patrol) or asked to stand in front (Greeter). Estimate |
 | `tasks/fetch.py` | `POINT_STEPS_MM` | 0, ±50, ±100 mm | "Put it here" with pointing: spot grid around the pointed point |
 | `tasks/fetch.py` | `RECEIVE_DI_S` | 0.5 s | `receive`: the finger sensor (DI_1) must see something this long before Lumi asks the person to let go (the hand closes on their "okay") |
-| `tasks/fetch.py` | `MOVE_SEGMENT_M` | 0.25 m | A mission `move` is driven in pieces this long; the way of the base and the arm is checked again before each |
+| `tasks/fetch.py` | `MOVE_SEGMENT_M` | 0.25 m | A mission `move` is driven in pieces this long; the way of the base and the arm is checked again before each (also what the base rolls on meanwhile, `JOY_HOLD_S` 0.5 s); the base does not stop between pieces |
+| `tasks/fetch.py` | `MOVED_MIN_PART`, `MOVED_CHECK_M` | 0.5, 0.1 m | A move whose base pose went less than this part of the distance driven by time stops and says the wheels did not move (checked from 0.1 m on). Estimate |
 
 ## Placing
 

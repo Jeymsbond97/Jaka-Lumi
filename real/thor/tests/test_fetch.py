@@ -135,6 +135,7 @@ fetch.agv.request = lambda cmd, **kw: (calls.append(("joy", cmd.split("linear_ve
 room = {"clear": lambda x, y: 1.0, "probe": lambda x, y: (float("inf"), float("inf"))}
 fetch.agv.probe = lambda x, y: room["probe"](x, y)
 fetch.AXIS_SPEED, fetch.COAST_S = 100.0, 0.0
+fetch.MOVED_CHECK_M = float("inf")         # this fake base never moves its pose (the check: test_driving.py)
 arm = {"j": [5.0] * 6}                                                     # the fake arm's joints: away from every pose
 fetch.motion.go = lambda name, *a, **k: (calls.append(("pose", name)), arm.update(j=list(fetch.motion.poses()[name])))
 fetch.motion.stop = lambda: calls.append(("arm stop",))
@@ -1000,7 +1001,9 @@ for bad in ([P(do="give")], [P(do="place", on=None)], [P(do="go", to="p9")], [P(
         assert not any(c[0] in ("go", "go_point", "joy", "pose") for c in calls), calls
 # a move is driven in pieces, each checked again; back on the charger is refused
 reset()
+hold, fetch.JOY_HOLD_S = fetch.JOY_HOLD_S, 0.0005      # at this fake 100 m/s a real hold would roll the whole way
 st = run(fetch.run_steps, [P(do="move", dir="forward", m=0.6)], say)
+fetch.JOY_HOLD_S = hold
 assert st["status"] == "done" and [c for c in calls if c[0] == "joy"].count(("joy", "100.000")) == 3, calls  # 0.25+0.25+0.1
 fetch.agv.status = lambda: {"move_status": "succeeded", "charge_state": True}
 st = run(fetch.run_steps, [P(do="move", dir="back", m=0.5)], say)

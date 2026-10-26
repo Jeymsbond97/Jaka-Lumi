@@ -78,7 +78,8 @@ lumi.seeing.answer = lambda t, lang="en", frames=None, slow_line=None: real_seei
 L = lumi.Lumi.__new__(lumi.Lumi)
 L.lang, L.markers, L.current, L.patrol = "en", M, None, None
 L.now_doing = lambda: ("", "")
-for name in ("follow_stop", "voice_setting", "fixed_answer", "drive_words", "mission_running", "chain_busy", "fetch_voice"):
+for name in ("follow_stop", "voice_setting", "fixed_answer", "drive_words", "mission_running", "chain_busy", "fetch_voice",
+             "pointed_drive"):
     setattr(L, name, lambda *a, **k: False)
 L.fetch_status = lambda: None
 L.keep_listening = lambda: None

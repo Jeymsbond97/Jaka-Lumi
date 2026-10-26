@@ -28,8 +28,12 @@ from vision import reid
 
 FOLLOW_GAP_M = 1.0          # m; keep this far from the person (camera distance); nearer: no forward
 NEAR_STOP_M = 0.8           # m; nearer than this no turn either: the arm would swing close to them (estimate)
-FOLLOW_MAX_MS = 0.3         # m/s; forward cap, first live run slow (joy_control clamps at 0.5, docs/05); raise to 0.5 after it
-SPEED_GAIN = 0.8            # m/s per m the person is further than FOLLOW_GAP_M, on top of their walking speed
+FOLLOW_MAX_MS = 0.5         # m/s; forward cap = joy_control's own clamp (docs/05). At 0.3 a person walking 0.6-0.75 m/s
+                            # got 4 m ahead (2026-10-23 15:06): the cap, not the gain, was the lag
+SPEED_GAIN = 0.8            # m/s per m the person is further than FOLLOW_GAP_M, on top of their walking speed (signed:
+                            # coming back toward the base slows it). A standing person: 0.4 m/s 0.5 m beyond the gap
+REACT_S = 0.3               # s; from a person stopping to the base braking (frame, track, tick, command); the speed is
+                            # kept low enough to stop at the gap after this plus braking at DECEL_MS2 (estimate)
 ACCEL_MS2 = 0.5             # m/s^2; speeding up at most this fast (estimate, tune live)
 DECEL_MS2 = 0.8             # m/s^2; slowing down this fast, and never faster than lets it stop at the gap (estimate)
 TURN_GAIN = 1.5             # rad/s per rad the person is off to the side
@@ -74,7 +78,7 @@ SEEN_MAX_S = 1.5            # s; an older sighting does not tell where they are 
 
 
 STOP_WORDS = re.compile(r"\b(stop|halt|freeze|enough|wait|hold on|stay(?! with)|don'?t (move|follow)|no more|"
-                        r"that'?s (enough|far enough|it))\b|멈춰|그만|정지|스톱|거기 ?(있어|서|계세요|있으세요)|기다려|"
+                        r"that'?s (enough|far enough|it))\b|멈춰|그만|정지|스톱|스탑|거기 ?(있어|서|계세요|있으세요)|기다려|"
                         r"여기 ?(있어|서)|따라오지 ?마|됐어|^\s*서[\s,!.]*$", re.I)   # end following (only while it runs)
 
 
@@ -111,8 +115,9 @@ def stop():
 
 
 def speeds(distance, angle_deg, v_last, w_last=0.0, walk=0.0, go=True, dt=TICK_S):
-    """(v m/s, w rad/s) toward a person `distance` m away at `angle_deg` (+ left), walking `walk` m/s away: their
-    speed plus SPEED_GAIN per m beyond the gap, never faster than lets the base stop at the gap, changed smoothly.
+    """(v m/s, w rad/s) toward a person `distance` m away at `angle_deg` (+ left), walking `walk` m/s away (- toward
+    the base): their speed plus SPEED_GAIN per m beyond the gap, never faster than lets the base stop at the gap,
+    changed smoothly (ACCEL_MS2 / DECEL_MS2).
     Never forward inside the gap; nothing at all inside NEAR_STOP_M. go=False: only slow down (and turn)."""
     if distance < NEAR_STOP_M:
         return 0.0, 0.0
@@ -123,9 +128,15 @@ def speeds(distance, angle_deg, v_last, w_last=0.0, walk=0.0, go=True, dt=TICK_S
     if room <= 0:
         return 0.0, w                                   # at the gap: no forward now
     v_want = 0.0 if not go or abs(angle_deg) > TURN_ONLY_DEG else \
-        min(FOLLOW_MAX_MS, max(0.0, walk) + SPEED_GAIN * room, math.sqrt(2 * DECEL_MS2 * room))
+        min(FOLLOW_MAX_MS, walk + SPEED_GAIN * room, _brake_speed(room))
     v = min(v_last + ACCEL_MS2 * dt, max(v_last - DECEL_MS2 * dt, v_want))
     return max(0.0, v), w
+
+
+def _brake_speed(room):
+    """Fastest speed (m/s) from which the base still stops within `room` m: REACT_S at it, then DECEL_MS2 braking."""
+    dr = DECEL_MS2 * REACT_S
+    return math.sqrt(dr * dr + 2 * DECEL_MS2 * room) - dr
 
 
 def blocked(v, w, arm_pts, pose=None):

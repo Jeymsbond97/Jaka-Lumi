@@ -592,4 +592,41 @@ L.follow_me = lambda: called.append(1)
 L.mission_running = lambda: False
 L.brain, L.markers = types.SimpleNamespace(history=[]), M
 assert L.quick_command("follow me") and called
+# the speed law (live 2026-10-23: capped at 0.3 m/s the base fell 4 m behind a person walking 0.6-0.75 m/s)
+def settle(d, walk, v=0.0, n=60):
+    for _ in range(n):
+        v = follow.speeds(d, 0.0, v, 0.0, walk, dt=0.1)[0]
+    return v
+
+
+assert follow.FOLLOW_MAX_MS == 0.5                                        # joy_control's own clamp (docs/05)
+assert settle(1.8, 0.7) == follow.FOLLOW_MAX_MS                            # far behind a walker: full speed
+assert abs(settle(1.5, 0.0) - 0.4) < 1e-6                                  # standing 0.5 m beyond the gap: gentle
+assert settle(1.1, 0.0) < 0.1 and settle(1.0, 0.5) == 0.0                  # near the gap: slow; at it: none
+assert settle(1.3, -0.4, v=0.4) == 0.0                                     # coming back toward the base: slows
+vs = [settle(1.0 + r, 0.3) for r in (0.1, 0.3, 0.6, 1.0)]
+assert vs == sorted(vs) and vs[-1] == follow.FOLLOW_MAX_MS, vs             # faster the further behind
+v, prev = 0.0, []                                                          # speeds up and eases back gradually
+for d in [3.0] * 20 + [1.2] * 20:
+    prev.append(v)
+    v = follow.speeds(d, 0.0, v, 0.0, 0.0, dt=0.1)[0]
+steps = [b - a for a, b in zip(prev, prev[1:])]
+assert max(steps) <= follow.ACCEL_MS2 * 0.1 + 1e-9 and min(steps) >= -follow.DECEL_MS2 * 0.1 - 1e-9, steps
+
+# never into the person: they walk at 0.5 m/s and stop dead; the base sees them REACT_S late (walking estimate
+# filtered as Person does) and must still stand before NEAR_STOP_M
+gap, v, walk, t, seen = follow.FOLLOW_GAP_M + 0.1, 0.0, 0.0, 0.0, []
+for k in range(300):                                                      # 0.1 s ticks
+    t = k * 0.1
+    pw = 0.5 if t < 15.0 else 0.0
+    seen.append((gap, pw))
+    lag = seen[max(0, len(seen) - 1 - round(follow.REACT_S / 0.1))]
+    walk += (lag[1] - walk) * 0.1 / (follow.VEL_TAU_S + 0.1)
+    v = follow.speeds(lag[0], 0.0, v, 0.0, walk, dt=0.1)[0]
+    gap += (pw - v) * 0.1
+    assert gap > follow.NEAR_STOP_M, (t, gap, v)
+    if 10.0 < t < 15.0:
+        assert v > 0.45, (t, v)                                            # keeps up with a 0.5 m/s walk
+assert v == 0.0 and gap < follow.FOLLOW_GAP_M + 0.2, (v, gap)
+
 print("all follow checks passed")
