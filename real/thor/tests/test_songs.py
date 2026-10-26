@@ -204,6 +204,7 @@ L.sing_song("sing another song")
 assert sung[-1] != first and L.pending_text is None, sung
 
 threading.Timer(0.3, lambda: heard.append("thank you")).start()   # whisper's guess on music: ignored
+L.interrupted = lambda: True        # the dancing head lost the listener ("person left"): the song goes on (2026-10-23)
 t0 = time.time()
 L.sing_song("sing Fantastic Baby")
 assert time.time() - t0 > 4.5 and L.pending_text is None
@@ -228,6 +229,21 @@ assert sung[-1] == ("sing", "그거 말고"), sung
 L.brain.history = []
 L.answer("what songs can you sing?")
 assert "Which one would you like?" in said[-1] and L.brain.history[-1][1].startswith("ACTION: none songs"), said
+# live 2026-10-23: after the list a title or a place in it starts that song, never an LLM "Okay, I'll play it"
+for words in ("Let's put the first one.", "Fantastic Baby.", "아무거나", "두 번째 거 불러 줘", "the last one"):
+    L.answer(words)
+    assert sung[-1] == ("sing", words), (words, sung)
+    L.brain.history = L.brain.history[:-1] + [("what songs can you sing?", "ACTION: none songs\n" + said[-1])]
+listed = "ACTION: none songs\nI can sing ..."
+assert sing.picked("Let's put the first one.", listed) == B and sing.picked("Fantastic Baby.", listed) == F
+assert sing.picked("두 번째 거", listed) == F and sing.picked("세 번째", listed) == D and sing.picked("the last one", listed) == L_
+assert sing.picked("마지막 거", listed) == L_ and sing.picked("판타스틱", listed) == F and sing.picked("아무거나", listed) in SONGS
+assert sing.picked("first one", "ACTION: none -\nOkay.") is None and sing.picked("go to p3", listed) is None
+assert sing.picked("don't sing the first one", listed) is None
+assert sing.asked("Let's change music.") and sing.choose("Let's change music.", last=B) not in (None, B)   # not "not ours"
+assert sing.asked("노래 바꿔 줘") and sing.choose("노래 바꿔 줘", last=B) not in (None, B)
+assert lumi.brain_mod.promised("Okay, I'll play it.") == "sing" and lumi.brain_mod.promised("판타스틱 베이비 틀어 드릴게요.") == "sing"
+assert lumi.mouth.sentences("我会唱歌。 Okay! 好的") == ["Okay!"] and lumi.mouth.sentences("你好") == []
 lumi.ears.understood = lambda *a: False              # English words tagged 'korean' (logs/lumi.log 2026-10-21 11:30)
 lumi.ears.heard_clearly = lambda *a: True
 lumi.ears.last_stt = {"language": "korean", "logprob": -0.08}

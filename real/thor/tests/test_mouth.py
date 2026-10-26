@@ -53,4 +53,35 @@ assert mouth.echo((heard * 32767).astype(np.int16), 102.9) >= mouth.ECHO_MIN
 visitor = other * 0.5 + played[8000:40000] * 0.05                       # a visitor close to the mic, Lumi 20 dB lower
 assert mouth.echo((visitor * 32767).astype(np.int16), 102.9) < mouth.ECHO_MIN
 assert mouth.echo((heard * 32767).astype(np.int16), 106.0) is None       # said 1 s after Lumi stopped
-print(f"ok: {len(CUTS)} cuts, the prompt, the prefill, own voice")
+
+# one voice: every sentence (English, Korean, short, long) is synthesised with the same style, steps and speed, and
+# starts from the same noise, so the same sentence always sounds the same and sentences don't change pitch
+calls = []
+
+
+class FakeTTS:
+    def synthesize(self, text, **kw):
+        calls.append(kw)
+        return np.zeros((1, 10), np.float32), None
+
+
+mouth._tts, mouth._style = FakeTTS(), object()
+for s in ["Hello.", "I can talk with you in English and Korean, answer questions, and guide you.", "네, 갈게요.",
+          "오늘은 날씨가 맑고 따뜻해요, 그래서 산책하기 좋은 날이에요."]:
+    mouth._synth(s, mouth.lang_of(s))
+assert all({k: v for k, v in c.items() if k != "lang"} == {k: v for k, v in calls[0].items() if k != "lang"}
+           for c in calls), calls
+assert all(c["voice_style"] is mouth._style for c in calls)
+
+
+class FakeModel:
+    ldim, chunk_compress_factor, base_chunk_size, sample_rate = 4, 2, 512, 44100
+
+
+m = FakeModel()
+mouth._fixed_noise(m)
+a, _ = m.sample_noisy_latent(np.array([1.0]))
+b, _ = m.sample_noisy_latent(np.array([1.0]))
+c, _ = m.sample_noisy_latent(np.array([2.5]))
+assert np.array_equal(a, b) and np.array_equal(a, c[:, :, :a.shape[2]])   # same noise, a longer one goes on from it
+print(f"ok: {len(CUTS)} cuts, the prompt, the prefill, own voice, one voice")

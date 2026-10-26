@@ -28,6 +28,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]      # the project folder
 DEVICE = "plughw:CARD=Device,DEV=0"          # "USB Audio Device"
 VOICE = "F1"                                  # F1-F5 female, M1-M5 male
 STEPS = 4                                     # quality/speed: 4 fast ... 8 best
+NOISE_SEED = 7                                # Supertonic starts every sentence from random noise; with 4 steps that
+                                              # noise sets the pitch (one sentence rendered 4 times: up to 24 Hz apart,
+                                              # 2026-10-23). One fixed noise for every sentence: the same voice always
 SPEED = 0.92                                  # < 1 = slower; 1.05 sounded rushed
 SPEED_MIN, SPEED_MAX = 0.72, 1.2              # what "speak slower / faster" may set (Supertonic takes 0.7 to 2.0)
 SPLIT_WORDS = 8                               # TTS on the CPU only: a first sentence this long is said in two parts,
@@ -110,6 +113,21 @@ def _set_volume():
         _volume_set = True
 
 
+def _fixed_noise(model):
+    """Every sentence starts from the same noise (the first frames of one fixed bank), not np.random's."""
+    from supertonic.core import get_latent_mask
+    bank = np.random.default_rng(NOISE_SEED).standard_normal(
+        (model.ldim * model.chunk_compress_factor, 2048)).astype(np.float32)   # 2048 latent frames: ~140 s of speech
+
+    def sample_noisy_latent(duration):
+        wav_lengths = (duration * model.sample_rate).astype(np.int64)
+        chunk = model.base_chunk_size * model.chunk_compress_factor
+        n = int((duration.max() * model.sample_rate + chunk - 1) / chunk)
+        mask = get_latent_mask(wav_lengths, model.base_chunk_size, model.chunk_compress_factor)
+        return np.repeat(bank[None, :, :n], len(duration), 0) * mask, mask
+    model.sample_noisy_latent = sample_noisy_latent
+
+
 def _load():
     global _tts, _style, _gpu
     _set_volume()
@@ -119,6 +137,7 @@ def _load():
         _tts = TTS(model="supertonic-3", model_dir=ROOT / "models/supertonic3", auto_download=False,
                    intra_op_num_threads=8)
         _style = _tts.get_voice_style(VOICE)
+        _fixed_noise(_tts.model)
         try:
             tts_gpu.use(_tts.model)
             _gpu = True
