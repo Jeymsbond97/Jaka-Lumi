@@ -37,7 +37,7 @@ NEAR_THING = re.compile(r"(?:테이블|책상|탁자|의자|소파|문|벽|창�
                         r"(?:앞|옆|뒤)(?:으?로|쪽|에)")   # "테이블 앞으로", "무대 앞으로 가": to that thing or place, not forward
 OTHER = re.compile(r"\b(?:look|head|turn|spin|rotate|face|arm|hand|lift|raise|lower|it|this|that|them|those|these|here|there|"
                    r"home|me|us)\b|\bthe (?!left\b|right\b)|\bgo (?:right )?ahead\b|\bback to (?![\d.])|\b[a-z]+\d+\b|\b[a-z]+(?:_[a-z0-9]+)+\b|고개|머리|팔|손|돌아|돌려|봐|보(?:세요|십시오|시오|실래요|자|라|아|여)|볼래|쳐다|들어|올려|내려|"
-                   r"여기|저기|이리|집|\S(?:을|를)(?=\s)|도십시오|도세요|\d+(?:\.\d+)? ?도(?=\s|$)|" + NEAR_THING.pattern)
+                   r"여기|저기|이리|집|\S(?:을|를)(?=\s)|도십시오|도세요|회전|\d+(?:\.\d+)? ?도(?:만|쯤|정도|가량)?(?=\s|$)|" + NEAR_THING.pattern)
                                                     # the head, an object, a place
                                                     # (p3, dock2, booth_9: a marker as written): not a short drive
 SAYER = re.compile(r"\b(?:i|i'm|im|i'll|i've|we|we're|he|she|they|there|it's|it is|my|our|his|her|their|was|were|"
@@ -56,6 +56,14 @@ VAGUE = re.compile(r"\b(?:more|less|longer|further|farther|bit more|bit less) th
                    r"(?:가|와|이동|움직|후진|전진)")   # an amount half said: asked, never a guess
 NUM_WORD = re.compile(r"\b(?:eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
                       r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|dozen|couple|several|few|half)\b")
+KO_NUM_WORD = re.compile(r"(?<![가-힣])(?:하나|둘|셋|넷|다섯|여섯|일곱|여덟|아홉|열|스물|서른|마흔|쉰)(?:만|쯤|정도)?(?![가-힣])")
+                                                    # "앞으로 다섯만 가": a count with no unit, asked
+KO_COUNT = re.compile(KO_NUM_WORD.pattern + r"|(?<![가-힣])[이삼사오육칠팔구]?[십백][일이삼사오육칠팔구]?(?:만|쯤|정도)?(?![가-힣])|"
+                      r"(?<![\w.])\d+(?:\.\d+)?(?![\d.])(?!\s?(?:m|도|degrees?|°)(?![a-z]))")   # a number with no unit
+WRONG_UNIT = (re.compile(r"(?<![\w.])\d+(?:\.\d+)? ?(?:도|degrees?)(?:만|쯤|정도|가량)?(?![가-힣a-z])"),       # degrees for a drive
+              re.compile(r"(?<![\w.])\d+(?:\.\d+)? m(?![a-z])"))                        # metres for a turn
+TURN_WORD = re.compile(r"\b(?:turn|spin|rotate|pivot)\b|돌아|돌려|돌(?:까|래|면)|회전|도세요|도십시오")
+NOT_BASE = re.compile(r"\b(?:look|head|face|lift|arm)\b|고개|머리|얼굴|봐|보세요|리프트|팔|손")
 
 FASTER = re.compile(r"\b(?:faster|quicker|speed (?:it )?up|pick up (?:the )?(?:pace|speed)|step on it|hurry(?: up)?|"
                     r"get a move on|more speed|full speed|go quick(?:ly)?|too slow(?:ly)?|so slow(?:ly)?|"
@@ -107,7 +115,7 @@ def amount(t):
         if m and not re.search(r"\b(?:few|couple|several|some)\b", t):
             n = m.group(1)
             return (float(n) if n and n[0].isdigit() else _NATIVE.get(n, 1)) * unit, False
-    if re.search(r"(?<![\w.])\d", t) or NUM_WORD.search(t):
+    if re.search(r"(?<![\w.])\d", t) or NUM_WORD.search(t) or KO_NUM_WORD.search(t):
         return "?", False                                    # "move back 20", "two feet", "a couple of metres"
     if LITTLE.search(t):
         return LITTLE_M, False
@@ -174,6 +182,15 @@ def read(t, last=None, talking=False):
         n, exact = amount(t)                                 # "just a few centimetres more", "10센티 더"
         if n is not None:
             return _checked(last[1].split()[0], n, exact)
+    d = direction(t)
+    if d and not (JOINED.search(t) or SAYER.search(t) or NOT_BASE.search(t)):
+        if WRONG_UNIT[0].search(t) and VERB.search(t) and not TURN_WORD.search(t):
+            return ("ask", d)                                # "앞으로 30도 가": degrees for a drive
+        if WRONG_UNIT[1].search(t) and TURN_WORD.search(t) and d in ("left", "right") and not VERB.search(TURN_WORD.sub(" ", t)):
+            return ("ask", f"turn {d}")                      # "왼쪽으로 1미터 돌아": metres for a turn
+        if TURN_WORD.search(t) and d in ("left", "right") and re.search(r"[가-힣]", t) and \
+                not WRONG_UNIT[0].search(t) and KO_COUNT.search(t):
+            return ("ask", f"turn {d}")                      # "왼쪽으로 서른만 돌아", "왼쪽으로 30 돌아": degrees?
     got = move(t)
     return _checked(*got) if got else None
 
@@ -237,6 +254,10 @@ def say_refused(d, n, lang="en"):
 
 
 def say_ask(d, lang="en"):
+    if d.startswith("turn "):
+        d = d.split()[1]
+        return (f"How far should I turn {d}? Please say it in degrees, like 30 degrees." if lang == "en"
+                else f"{KO_DIR.get(d, '')} 몇 도 돌까요? 30도처럼 말씀해 주세요.")
     if not d:
         return ("More of what? Please tell me what to do." if lang == "en" else "무엇을 더 할까요? 다시 말씀해 주세요.")
     return (f"How far should I go {d}? Please say it with a unit, like 20 centimetres." if lang == "en"

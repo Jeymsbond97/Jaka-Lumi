@@ -25,6 +25,12 @@ NATIVE = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5, "여섯": 6, "일
 SINO = {"일": 1, "이": 2, "삼": 3, "사": 4, "오": 5, "육": 6, "륙": 6, "칠": 7, "팔": 8, "구": 9}
 _D = "[일이삼사오육륙칠팔구]"
 _SINO = rf"(?:{_D}?천(?:{_D}?백)?(?:{_D}?십)?{_D}?|(?:{_D}?백)(?:{_D}?십)?{_D}?|{_D}?십{_D}?|{_D})"   # 일 … 구천구백구십구
+NATIVE_TENS = {"열": 10, "스물": 20, "스무": 20, "서른": 30, "마흔": 40, "쉰": 50, "예순": 60, "일흔": 70, "여든": 80, "아흔": 90}
+NATIVE_ONES = {"하나": 1, "한": 1, "둘": 2, "두": 2, "셋": 3, "세": 3, "넷": 4, "네": 4, "다섯": 5, "여섯": 6, "일곱": 7,
+               "여덟": 8, "아홉": 9}
+_NATIVE_NUM = (rf"(?:({'|'.join(NATIVE_TENS)})\s?({'|'.join(NATIVE_ONES)})?|(다섯|여섯|일곱|여덟|아홉))")   # 한 / 두 / 세 /
+                                                    # 네 alone: NUM_WORDS (before a unit only; "한 도" is no angle)
+_ABOUT = r"(?:만|쯤|정도|가량|씩)?"                  # "45도만", "30도쯤": still that amount
 TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
 NUM_WORDS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7", "eight": "8",
              "nine": "9", "ten": "10", "a": "1", "an": "1", "한": "1", "두": "2", "세": "3", "네": "4"}
@@ -121,6 +127,13 @@ def numbers(t):
                lambda m: f"{_num(m.group(1))}.{_num(m.group(2))} ", t)                   # "one point five meters"
     t = re.sub(rf"\b(?:zero |oh )?point ({'|'.join(list(EN_NUM)[:9])}|\d)\s*(?={UNIT}\b)",
                lambda m: f"0.{_num(m.group(1))} ", t)                                    # "point five meters"
+    t = re.sub(rf"(?<![가-힣\d])({_SINO}(?:\s{_SINO})+)(?=\s*(?:{UNIT}|도|걸음|점))",       # "사 십오 도", "삼백 육십 도":
+               lambda m: m.group(1).replace(" ", "") if re.fullmatch(_SINO, m.group(1).replace(" ", "")) else m.group(1),
+               t)                                                                        # one number said apart
+    t = re.sub(rf"(?<![가-힣]){_NATIVE_NUM}\s*(?={UNIT}|걸음|발짝|발자국|뼘|도{_ABOUT}(?![가-힣]))",   # "마흔다섯 도", "스무 센티"
+               lambda m: f"{NATIVE_TENS.get(m.group(1), 0) + NATIVE_ONES.get(m.group(2) or m.group(3), 0)} ", t)
+    t = re.sub(rf"(?<![가-힣\d])({_SINO})\s*도(?={_ABOUT}(?![가-힣]))",                         # "사십오 도만", "백팔십 도"
+               lambda m: f"{sino(m.group(1))}도" if len(m.group(1)) > 1 or m.group(1) in "십백" else m.group(0), t)
     t = re.sub(rf"(?<![가-힣])(?:({_SINO})|[영공])\s*점\s*({_D})\s*(?={UNIT})",
                lambda m: f"{sino(m.group(1)) if m.group(1) else 0}.{SINO[m.group(2)]} ", t)  # "영점오 미터", "일 점 오"
     t = re.sub(rf"(?<![가-힣\d])({_SINO})\s*(?={UNIT}(?![a-z]))", lambda m: f"{sino(m.group(1))} ", t)   # "오십 센치"
@@ -269,12 +282,65 @@ ASR_SLIPS = [   # how whisper writes Korean commands (tests/asr_check.py, 2026-1
 ]
 
 
-def norm(text, names=()):
-    """Lower case, whisper's slips (ASR_SLIPS), numbers first ("point five meters" is a distance), then marker names
-    (names: the map's)."""
-    t = " " + (text or "").lower().replace("’", "'") + " "
-    for slip, said in ASR_SLIPS:
+_NO = r"(?<![가-힣a-z])"
+KONGLISH = [   # English direction words said in Korean -> the Korean word ("레프트로 반 미터 가 줘요", "라이트 턴 해")
+    (_NO + r"레프트\s*(?:쪽으로|으로|로|쪽)?", "왼쪽으로 "),
+    (_NO + r"라이트\s*(?:쪽으로|으로|로|쪽)(?![가-힣])|" + _NO + r"라이트(?=\s*(?:턴|turn|무브|move|\d|반\s*미터))",
+     "오른쪽으로 "),                                     # "라이트 켜" is a light
+    (_NO + r"포워드\s*(?:쪽으로|으로|로|쪽)?", "앞으로 "),
+    (_NO + r"백\s*(?:쪽으로|으로|쪽)(?![가-힣])|" + _NO + r"백(?=\s+(?:\d|반\s*미터|무브|move|고(?![가-힣])|해(?![가-힣])))",
+     "뒤로 "),                                           # "백 미터", "백팔십" stay numbers
+    (r"(?:" + _NO + r"턴|(?<=으로 )turn\b)(?:\s*(?:해|해요|해라|하세요|하십시오|해\s*줘|해\s*주세요|해\s*줄래요?))?(?![가-힣])",
+     "돌아"),                                            # "왼쪽으로 턴 해", "왼쪽으로 turn 해"
+    (r"(?:" + _NO + r"무브|(?:(?<=미터 )|(?<=센티 )|(?<=센치 )|(?<=cm )|(?<=\dm )|(?<=으로 ))고|" + _NO + r"고\s*고)(?:\s*(?:해|해요|하세요|해\s*줘|해\s*주세요))?(?![가-힣])",
+     "이동해"),                                          # "고" alone is a particle / a place's "go": after a way only
+    (r"(고개|머리|헤드|얼굴)\s*(?:를|을)?\s*업(?![가-힣])", r"\1 들어"),
+    (r"(고개|머리|헤드|얼굴)\s*(?:를|을)?\s*다운(?![가-힣])", r"\1 숙여"),
+    (_NO + r"헤드(?=\s)", "고개"),
+]
+
+
+_DIR = r"(?:forward|backwards?|back|left|right|앞으로|뒤로|왼쪽|오른쪽|옆으로)"
+_AMOUNT = r"(?:(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|and|a|half)\s+)+"
+# whisper's slips of amounts in a move (tests/asr_check.py set 5, blind train hearing; 2026-10-23). Each needs a move
+# direction in the text (MOVE_SAID); none guesses a lost digit: "1.m" (1.5미터 with the 5 dropped) becomes "1점 몇 m",
+# which is asked ("how far?") instead of driving 1 m.
+NUMBER_SLIPS = [
+    (r"(?<![\d.])(\d+)\.\s?m(?![a-z\d])", r"\1점 몇 m"),                           # "앞으로 1.m가"
+    (r"(?<![\d.])(\d+)\s?미가(?![가-힣])", r"\1미터 가"),                          # "1미가"
+    (r"(?<![\d.])(\d+)\s?m\s?(\d+)\s?cm\b", r"\1 m \2 cm"),                      # "1m50cm 뒤로 가"
+    (r"(?<![\d.])(\d+(?:\.\d+)?)\s*(?:센트|센터|세트|세기|cent(?:uries|ury|s|i)?(?: letters?)?)(?![a-z])",
+     r"\1 cm"),                                                                  # "30 centuries", "40센터만", "60세기"
+    (r"\b(forward|backward|left|right)\.\s+(\d+(?:\.\d+)?)\s*(?=cm|m\b|meters?|미터|센티|도|degrees?)", r"\1 \2 "),
+                                                     # a clause cut at the language change: "Left. 30cm가." (a period
+                                                     # only: commas mark self-corrections, "forward, sorry, right, 150 cm")
+    (r"\b((?:go|move|drive|step) " + _DIR + " " + _AMOUNT + r")(?:years?|later)\b", r"\1meters"),   # "go back two years"
+    (r"\b(forward|backward|left|right)[,.]? to me(?=\W*$)", r"\1 2 meters"),     # "Go forward. Forward to me." (not back:
+                                                                                 # "go back to me" may be meant)
+    (r"(\bto [\w.-]+)[,.]? weight[,.]? (?=\S)", r"\1, wait, "),                  # "Move to P3 weight P8"
+]
+MOVE_SAID = re.compile(rf"\b(?:go|move|drive|step|come|turn)\b|{_DIR}|가|와|이동|돌아")
+NOT_MOVE = re.compile(r"\b(?:come|look|turn|wave|give|bring|hand|show)\b[^.!?]*\bto me\W*$")
+
+
+def number_slips(t):
+    """Whisper's slips of a distance in a move command (NUMBER_SLIPS); text without a move is left as it is."""
+    if not MOVE_SAID.search(t):
+        return t
+    for slip, said in NUMBER_SLIPS:
+        if "to me" in slip and NOT_MOVE.search(t):
+            continue
         t = re.sub(slip, said, t)
+    return t
+
+
+def norm(text, names=()):
+    """Lower case, whisper's slips (ASR_SLIPS), Konglish directions (KONGLISH), numbers first ("point five meters" is
+    a distance), then marker names (names: the map's)."""
+    t = " " + (text or "").lower().replace("’", "'") + " "
+    for slip, said in ASR_SLIPS + KONGLISH:
+        t = re.sub(slip, said, t)
+    t = number_slips(t)
     return re.sub(r"\s+", " ", markers(map_names(numbers(t), names))).strip()   # the map's names first: "booth 3 point"
                                                                                 # is booth_3, not "booth p3"
 
