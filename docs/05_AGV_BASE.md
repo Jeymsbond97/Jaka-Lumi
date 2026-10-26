@@ -1,6 +1,6 @@
 # 05. Mobile base (AGV)
 
-The base drives and navigates on its own (lidar SLAM). We use it two ways: the **web monitor** for mapping, markers and manual driving, and the **TCP API** from code. Specs are in [01_HARDWARE.md](01_HARDWARE.md#3-mobile-base-agv).
+The base drives and navigates on its own (lidar SLAM). It is used two ways: the **web monitor** for mapping, markers and manual driving, and the **TCP API** from code. Specs are in [01_HARDWARE.md](01_HARDWARE.md#3-mobile-base-agv).
 
 ---
 
@@ -17,7 +17,7 @@ While the base is off but charging, its Wi-Fi may be visible, but nothing answer
 
 ## 2. Web monitor (`http://192.168.10.10:9001`)
 
-Use Chrome. Screenshots: `private/images/agv-*.png`.
+Use Chrome.
 
 **Status bar (top left):** map name / floor, battery %, soft E-stop and hard E-stop state, move state (`idle`, `running`, ...), target marker, chassis serial number, software version.
 
@@ -34,8 +34,8 @@ Use Chrome. Screenshots: `private/images/agv-*.png`.
 
 1. Bottom menu → **map management** → tab **Map Creating**.
 2. Enter **Map Name** (e.g. `office_0301`) and **floor** (e.g. `1`) → **Create Map**.
-3. Choose the map size: **small map** (< 3600 m²), **middle map** (3600–10 000 m²), **big map** (> 10 000 m²). Tabs "v1 scanning / v2 scanning" are at the top (v2 used in the company test).
-4. The map builder opens (port 8809). Drive the base by hand with the keyboard: **i** forward, **k** back, **j** turn left, **l** turn right. Keep about 0.5 m from the walls, steady speed (≤ 0.5 m/s; slider at the top, 0.7 used), turn 360° in each corner to help feature matching. ("start" on the right runs an automatic scan; manual driving is recommended.)
+3. Choose the map size: **small map** (< 3600 m²), **middle map** (3600–10 000 m²), **big map** (> 10 000 m²). Tabs "v1 scanning / v2 scanning" are at the top.
+4. The map builder opens (port 8809). Drive the base by hand with the keyboard: **i** forward, **k** back, **j** turn left, **l** turn right. Keep about 0.5 m from the walls, steady speed (≤ 0.5 m/s; slider at the top), turn 360° in each corner to help feature matching. ("start" on the right runs an automatic scan; manual driving is recommended.)
 5. Watch "optimizing progress"; press **Save** when done. A page `192.168.10.10:8809/map-build/map.html?hotelid=<map>&floor=1&map_type=v2` opens (buttons "continue scan" / "rescan"); close it.
 
 ### 2.3 Use the map
@@ -120,7 +120,7 @@ def agv(command, timeout=5.0):
 print(agv("/api/robot_status"))
 ```
 
-### Direct velocity control: `/api/joy_control` (our own trajectories)
+### Direct velocity control: `/api/joy_control`
 
 ```
 /api/joy_control?linear_velocity=0.2&angular_velocity=0.5
@@ -148,7 +148,7 @@ def drive(v, w, seconds, rate=10):
 
 | Command | Parameters | Notes |
 |---|---|---|
-| `/api/move?marker=NAME` | `marker`, or `location=x,y,theta` (map frame, m, rad); optional `max_continuous_retries` (30), `distance_tolerance` (m), `theta_tolerance` (official PDF: degrees; company translation: radians, **verify**), `angle_offset` (rad, −3.14…3.14), `yaw_goal_reverse_allowed` (1/0), `occupied_tolerance` (m) | Plans a path and avoids obstacles. Returns `task_id`. Rejected while another move is `running` |
+| `/api/move?marker=NAME` | `marker`, or `location=x,y,theta` (map frame, m, rad); optional `max_continuous_retries` (30), `distance_tolerance` (m), `theta_tolerance` (unit: degrees in the official manual, radians in a translation; not confirmed), `angle_offset` (rad, −3.14…3.14), `yaw_goal_reverse_allowed` (1/0), `occupied_tolerance` (m) | Plans a path and avoids obstacles. Returns `task_id`. Rejected while another move is `running` |
 | `/api/move?markers=m1,m2,m3&count=-1&distance_tolerance=1.0` | ≥ 2 markers, count (−1 forever; default 1), tolerance ≥ 0.5 m (default 0.5), `max_continuous_retries` (default 5) | Patrol; a failed point is skipped and the patrol continues; stop it with `/api/move/cancel` |
 | `/api/move/cancel` | — | Stop the task and stay (the manual: stops on the spot and waits for the next move). The manual v1.8.8 has no pause / resume command and no footprint, padding or inflation parameter on `/api/move` or `/api/set_params` (only `max_speed_linear`, `max_speed_angular`; `occupied_tolerance` is how near an occupied goal it may stop) |
 | `/api/get_planned_path` | — | Points of the current global path |
@@ -202,19 +202,19 @@ Keep the socket open to receive the callbacks.
 **Notifications** (pushed; do not use for flow control): full code list in [3.2](#32-further-details-from-the-agv-api-manual).
 
 
-### 3.1 Captured on our robot
+### 3.1 Differences on this base
 
-Real replies from our base (move, cancel, estop, the full `robot_status` with extra fields, `query_list`), the markers on our map, and the company's streaming client: [private/AGV_ON_OUR_ROBOT.md](private/AGV_ON_OUR_ROBOT.md) (local only). In short: on our base `task_id` comes inside `results`, and `robot_status` has extra fields (`chassis_lift_state`, `collision_state`, `hall_state`, `hand_charge`, `hard_estop_abolish_state`, `is_paused`, `extraData`, `outTaskId`, `target_floor`, `task_id`, `ts`).
+Base software 0.10.351.1D is newer than the API manual: `task_id` comes inside `results`, and `robot_status` has extra fields (`chassis_lift_state`, `collision_state`, `hall_state`, `hand_charge`, `hard_estop_abolish_state`, `is_paused`, `extraData`, `outTaskId`, `target_floor`, `task_id`, `ts`).
 
 ### 3.2 Further details from the AGV API manual
 
-Source: `AGV API手册.pdf` (69 pages, Chinese; document v1.8.8 of 2022-03-18; the copy in this project root is byte-identical to the one in the JAKA_Lumi repo). Our base runs software 0.10.351.1D, which is newer than the manual, so some fields differ (see 3.1 and the private notes).
+Source: `AGV API手册.pdf` (69 pages, Chinese; document v1.8.8 of 2022-03-18, in the JAKA_Lumi repo). Some fields differ on this base (3.1).
 
 **Protocol notes**
 
 - Replies are JSON; fields at the same level have no fixed order, parse them with a JSON parser.
 - Socket is recommended; a serial link is also possible but can corrupt data.
-- Old address format: since v1.4.0 the `http://192.168.10.10:8808` prefix was dropped from the commands, and the manual says the original format "can still be used", i.e. `http://192.168.10.10:8808/api/robot_status` over HTTP. **Verify** on our base before relying on it.
+- Old address format: since v1.4.0 the `http://192.168.10.10:8808` prefix was dropped from the commands, and the manual says the original format "can still be used", i.e. `http://192.168.10.10:8808/api/robot_status` over HTTP. Not confirmed on this base.
 - `error_code` in `robot_status`: hexadecimal string of 8 bytes; anything other than `"00000000"` means a fault.
 
 **`running_status` values** (`move_status` in brackets): `idle` (idle/succeeded/failed/canceled), `leave_charging_pile`, `dock_to_charging_pile`, `leave_container`, `dock_to_container`, `leave_cabin`, `dock_to_cabin`, `goto_lift`, `wait_lift_unlock`, `wait_lift_outside`, `enter_lift`, `avoid_lift`, `take_lift`, `exit_lift`, `back_to_lift` (all running), `running` (any other running state). Do not cancel a move during `enter_lift`, `avoid_lift`, `take_lift`, `exit_lift`.
@@ -227,7 +227,7 @@ Source: `AGV API手册.pdf` (69 pages, Chinese; document v1.8.8 of 2022-03-18; t
 |---|---|---|
 | `/api/markers/insert` | `name` (no special characters), `type` (int, default 0), `num` (int, default 1) | marker at the current pose and floor. Examples: `?name=205_room`, `?name=charge_dock_2&type=11` |
 | `/api/markers/insert_by_pose` | `name` (an existing name is updated), `x`, `y` (map, float), `theta` (float, −π…π), `floor` (int ≠ 0, default current floor), `type` (default 0), `num` (default 1) | `?name=205_room&x=-0.1&y=1.0&theta=0.0&floor=2&type=0` |
-| `/api/markers/query_list` | `floor` (optional; all floors otherwise) | `results` = `{name: {"floor", "pose": {"orientation": {x, y, z, w}, "position": {x, y, z}}, "key": type, "marker_name"}}`; `null` if there are no markers. Our robot also returns `avatar` (icon) |
+| `/api/markers/query_list` | `floor` (optional; all floors otherwise) | `results` = `{name: {"floor", "pose": {"orientation": {x, y, z, w}, "position": {x, y, z}}, "key": type, "marker_name"}}`; `null` if there are no markers. This base also returns `avatar` (icon) |
 | `/api/markers/count` | — | `{"results": {"count": 10}}` |
 | `/api/markers/query_brief` | — | `{"results": {"meeting_room": "0-1", ...}}` = `"type-floor"` per name |
 | `/api/markers/delete` | `name` | `OK`; unknown name → `status: "INVALID_REQUEST"`, `error_message: "Marker Not Found"` |
@@ -292,9 +292,11 @@ After joining another Wi-Fi, the API is also reachable at that IP (port 31001).
 
 ## 5. First-session base tests
 
+Commissioning checks:
+
 1. Web monitor: map loaded? position correct? battery? E-stops off?
 2. API read-only: `robot_status`, `get_power_status`, `software/get_version`, `map/get_current_map`, `markers/query_brief`, `diagnosis/get_result`.
 3. In a clear area: `joy_control` 0.1 m/s for 2 s at 10 Hz, then 0.3 rad/s for 2 s. Compare `robot_velocity` and `current_pose`.
 4. Try the soft E-stop on and off.
-5. Subscribe to `human_detection`, walk around the robot, log positions (tells us whether leg tracking is enabled).
+5. Subscribe to `human_detection`, walk around the robot, log positions (shows whether leg tracking is enabled).
 6. Create a marker, `/api/move?marker=...`, poll until `succeeded`.

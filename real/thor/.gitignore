@@ -45,3 +45,5 @@ docs/17_MISSIONS.md
 notes/
 data/intent_bank.npz
 data/quick_answers.npz
+docs/gripper/
+docs/history/

@@ -1,8 +1,6 @@
 # 01. Hardware
 
-What the JAKA Lumi is made of, with every specification found in the official material. Sources are listed in [12_SOURCES.md](12_SOURCES.md). Screenshots mentioned as `private/images/...` are local only.
-
-Values marked **verify** disagree between sources or are undocumented.
+What the JAKA Lumi is made of, with its specifications from the vendor material ([12_SOURCES.md](12_SOURCES.md)). Where two vendor sources disagree, both values are given.
 
 ---
 
@@ -18,10 +16,10 @@ Lumi is a wheeled mobile manipulator ("embodied AI platform"): an AGV base, a li
 | Head and torso cameras | Orbbec Gemini 2 L RGB-D (+ IMU) | USB 3.0 to the host computer | [06_CAMERAS_AND_VISION.md](06_CAMERAS_AND_VISION.md) |
 | Base camera, lidar, ultrasonics, IMU, bumper | Built into the AGV, used by its navigation | AGV API | [05_AGV_BASE.md](05_AGV_BASE.md) |
 | Voice module | iFlytek AIUI XF-USB-MC, 6-mic ring array | USB audio to the host computer | [07_VOICE_AND_AUDIO.md](07_VOICE_AND_AUDIO.md) |
-| Main AI computer (optional, separate) | Jetson Orin NX / AGX Orin / AGX Thor; the company uses an AGX Thor | Ethernet / Wi-Fi to the robot network | [08_NVIDIA_THOR.md](08_NVIDIA_THOR.md) |
-| Gripper | **None mounted yet** | Tool I/O (RS485) or USB serial | [10_GRIPPER.md](10_GRIPPER.md) |
+| Main AI computer | Jetson AGX Thor (vendor options: Orin NX / AGX Orin / AGX Thor) | Ethernet / Wi-Fi to the robot network; USB 3.0 to the base | [08_NVIDIA_THOR.md](08_NVIDIA_THOR.md) |
+| Gripper | Zimmer GEP2013IO-05-B electric parallel gripper on the arm flange | Arm tool I/O (digital outputs, analog input) | [10_GRIPPER.md](10_GRIPPER.md) |
 
-Camera positions on the robot (`private/images/camera-02-demo-download-camera-positions.png`): **1** head (front of the head), **2** torso (under the handle on the column), **3** base front (the AGV's own camera).
+Camera positions: **1** head (front of the head), **2** torso (under the handle on the column), **3** base front (the AGV's own camera).
 
 ### Whole robot
 
@@ -30,10 +28,10 @@ Camera positions on the robot (`private/images/camera-02-demo-download-camera-po
 | Size (W × D × H) | 510 × 510 × 1460–1860 mm (height changes with the lift) | Lumi manual 5.1.1, brochure |
 | Weight | 95.6 kg | Brochure |
 | Degrees of freedom | 12 = lift 1 + waist 1 + head 2 + arm 6 + 2 drive wheels | Lumi manual 5.1.1 |
-| Power | 800 W (manual) / 1500 W (brochure) **verify** | |
+| Power | 800 W (manual) / 1500 W (brochure) | |
 | Arm and controller supply | 48 V DC; base battery 24 V | Lumi manual, AGV spec |
 | Arm payload | 2 kg | Lumi manual, brochure, web doc 3.3.5 |
-| Lift range | 0–400 mm (hardware); 0–300 mm (body API doc) **verify** | see [03](03_BODY_LIFT_WAIST_HEAD.md#joint-ranges) |
+| Lift range | 0–400 mm (hardware); 0–300 mm (body API doc) | see [03](03_BODY_LIFT_WAIST_HEAD.md#joint-ranges) |
 | Waist | ±160° (hardware); ±140° (body API doc) | |
 | Head yaw (neck) | ±180° | |
 | Head pitch | −5…+35° | |
@@ -48,7 +46,7 @@ From the Lumi manual 5.1.2, Mini hardware manual 3.3 and web doc 3.3.5.
 
 | Item | Value |
 |---|---|
-| Model | JAKA Mini 2. Cobo π names it `MiniCobo2` on our robot. (The teleop hardware list says "MiniCobo"; MiniCobo is the 1 kg / 24 V sibling. Our robot reports MiniCobo**2**, i.e. the Mini 2.) |
+| Model | JAKA Mini 2; Cobo π shows it as `MiniCobo2`. (MiniCobo, named in the vendor teleop list, is the 1 kg / 24 V sibling.) |
 | Payload | 2 kg |
 | Weight | 9.9 kg |
 | Reach | 580 mm |
@@ -87,7 +85,7 @@ From the Lumi manual 5.1.2, Mini hardware manual 3.3 and web doc 3.3.5.
 | Network | Wi-Fi (DHCP only) and two LAN ports: LAN1 fixed at `10.5.5.x`, LAN2 configurable (cannot be set to `10.5.5.x`) |
 | Wi-Fi reset | Hold the button next to the antenna for > 10 s (gateway goes back to factory settings) |
 | Brake voltage | Must be set in the app when an external power supply is used (robot powered off and disabled) |
-| Controller software (seen in vendor docs) | 1.7.1-46-X64-minicab for teleoperation; newer robots ship controller 3.2 with Cobo π. See [04_ARM.md](04_ARM.md#2-controller-versions-17-vs-32) |
+| Controller software | 1.7.1-46-X64-minicab (vendor teleoperation docs); controller 3.2 with Cobo π on newer robots. See [04_ARM.md](04_ARM.md#2-controller-versions-17-vs-32) |
 | Absolute limits | logic/power supply −0.3…40 V absolute; recommended 40–56 V (48 V typical); average current 3.75 A, peak 12.5 A |
 | Typical power | off 1 W, on 12 W, with arm power up to 30 W |
 
@@ -164,7 +162,7 @@ From the Lumi manual 6.5, the quick manual, web doc 3.2 and the chassis ports do
 
 Power button: hold → two short beeps (LED purple) → release after the third, long beep (LED flashes green while booting). Off: hold → seven short beeps → release on the eighth, long beep.
 
-**E-stop (red button on the column):** cuts arm power and stops the lift column; the base becomes free to push by hand. After releasing the E-stop the base cannot be pushed any more. (Web doc 3.3.3.4, `private/images/setup-01-wifi-wired-control-estop.png`.)
+**E-stop (red button on the column):** cuts arm power and stops the lift column; the base becomes free to push by hand. After releasing the E-stop the base cannot be pushed any more. (Web doc 3.3.3.4.)
 
 ---
 
@@ -178,7 +176,7 @@ Power button: hold → two short beeps (LED purple) → release after the third,
 | Depth resolution | 1280 × 800 @ 30 fps, 640 × 400 @ 60 fps |
 | Colour FoV | H 94° / V 68° / D 104° ± 3° |
 | Colour resolution | 1280 × 800 @ 30 fps, 1280 × 720 @ 60 fps |
-| Other streams | IR, IMU (accelerometer + gyroscope, ~200 Hz in OrbbecViewer) |
+| Other streams | IR, IMU (accelerometer + gyroscope, ~200 Hz) |
 | Interface | USB 3.0 (required; USB 2.0 is not enough) |
 
 Calibrated intrinsics, mount poses and software: [06_CAMERAS_AND_VISION.md](06_CAMERAS_AND_VISION.md).
@@ -202,7 +200,7 @@ Use: [07_VOICE_AND_AUDIO.md](07_VOICE_AND_AUDIO.md).
 
 ## 6. Main AI computer options
 
-JAKA's recommendation (web doc 3.0, `private/images/web-03-main-controller-comparison.png`):
+JAKA's recommendation (web doc 3.0):
 
 | | No extra controller | Jetson Orin NX | Jetson AGX Orin | Jetson AGX Thor |
 |---|---|---|---|---|
@@ -215,9 +213,9 @@ JAKA's recommendation (web doc 3.0, `private/images/web-03-main-controller-compa
 | Memory | — | 8 / 16 GB LPDDR5 | 32 / 64 GB LPDDR5 | up to 128 GB |
 | Power | — | 10–25 W | 15–60 W | 30–120 W |
 
-Our robot setup uses a **Jetson AGX Thor**: [08_NVIDIA_THOR.md](08_NVIDIA_THOR.md).
+Lumi uses a **Jetson AGX Thor**: [08_NVIDIA_THOR.md](08_NVIDIA_THOR.md).
 
-The vendor's education kit (`private/images/gripper-01-vendor-hardware-list.png`) lists: JAKA Mini2 arm, lift + voice module, **DH-PGEA-50** gripper with 3D-printed fingers, lidar base, 3D camera, optional 16" monitor, **Jetson AGX Orin** main controller.
+The vendor's education kit lists: JAKA Mini2 arm, lift + voice module, **DH-PGEA-50** gripper with 3D-printed fingers, lidar base, 3D camera, optional 16" monitor, **Jetson AGX Orin** main controller.
 
 ---
 
@@ -225,7 +223,7 @@ The vendor's education kit (`private/images/gripper-01-vendor-hardware-list.png`
 
 | File | Where |
 |---|---|
-| URDF (same kinematics in all copies) | this repo `lumi_description/urdf/jaka_lumi.urdf`; JAKA_Lumi `feat_ros` branch `jaka_lumi_ros/src/jaka_lumi_description/urdf/jaka_lumi.urdf` (checked: identical joints, origins and limits) |
+| URDF | JAKA_Lumi `feat_ros` branch: `jaka_lumi_ros/src/jaka_lumi_description/urdf/jaka_lumi.urdf` |
 | URDF with cameras, lidar and casters | JAKA_Lumi `main`: `02. .../JAKA-Lumi-sensors-v3/urdf/JAKA-Lumi-sensors-v3.urdf` |
 | USD for Isaac Sim | `feat_ros`: `jaka_lumi_description/urdf/jaka_lumi/*.usd` |
 | MoveIt 2 config | `feat_ros`: `jaka_lumi_moveit_config/` |

@@ -1,6 +1,6 @@
 # 07. Voice and audio
 
-The microphone array, speakers, the vendor voice demos, the company's Lumi voice assistant, and the plan for turning the head toward a person who speaks. The assistant's server side runs on the Jetson Thor: [08_NVIDIA_THOR.md](08_NVIDIA_THOR.md).
+The microphone array, the speaker, Lumi's speech pipeline, sound direction, and the vendor voice demo. The pipeline runs on the Jetson Thor: [08_NVIDIA_THOR.md](08_NVIDIA_THOR.md).
 
 ---
 
@@ -8,15 +8,62 @@ The microphone array, speakers, the vendor voice demos, the company's Lumi voice
 
 | Item | Value |
 |---|---|
-| Module | iFlytek AIUI XF-USB-MC, 6-mic ring array in the head |
-| How it appears on the computer | USB audio device named **`AIUI-USB-MC`** ("AIUI-USB-MC: USB Audio"); an older name in vendor code: `XFM-DP-V0.0.18` |
+| Microphone module | iFlytek AIUI XF-USB-MC, 6-mic ring array in the head |
+| Device name | USB audio device **`AIUI-USB-MC`** ("AIUI-USB-MC: USB Audio"), ALSA `hw:CARD=AIUIUSBMC`; older name in vendor code: `XFM-DP-V0.0.18` |
+| Channels | 8 at 16 kHz: channels 0–5 are the six ring mics, 6–7 are silent |
 | Connection | USB, through the base's USB 3.0 port shared with the cameras |
 | SNR | > 70 dB |
-| Wake / recognition distance | 3–5 m (spec); an external mic can extend the range |
-| Sound source localisation | 6 mics: 360°, ±15° (spec); 4 mics: 180° |
-| Speaker output | vendor demo uses an output device named "USB Audio Device" |
+| Wake / recognition distance | 3–5 m (spec); an external mic extends the range |
+| Sound source localisation (spec) | 6 mics: 360°, ±15°; 4 mics: 180° |
+| Speaker | USB device "USB Audio Device", ALSA `plughw:CARD=Device,DEV=0` |
+| Clip microphone (optional) | wireless DJI Mic Mini; its receiver appears as a sound card |
 
-## 2. Recording audio
+List devices: `arecord -l` / `aplay -l`. In Docker pass `/dev/snd` and add the `audio` group.
+
+---
+
+## 2. Lumi's speech pipeline
+
+| Stage | Module | Implementation |
+|---|---|---|
+| Recording | `audio/mic.py` | One always-on recording; an ALSA device opens only once, so everything that listens goes through it. An energy detector cuts utterances. Source chosen in `data/mic_source.txt`: `auto` / `head` / `clip` |
+| Voice activity | `audio/ears.py` | Silero VAD 5.1.2 (ONNX Runtime): sounds without enough speech frames (music, noise) never reach speech-to-text |
+| Speech-to-text | `audio/ears.py` | whisper.cpp 1.9.5 (CUDA) server with `large-v3-turbo` (f16) on `127.0.0.1:8096`, started when needed; English, Korean and mixed speech |
+| Sound direction | `audio/doa.py` | SRP-PHAT over the six ring mics (§3) |
+| Text-to-speech | `audio/mouth.py`, `audio/tts_gpu.py` | Supertonic 3 (English and Korean, voice `F1`), vector estimator and vocoder as TensorRT engines on the GPU; CPU (ONNX Runtime) when the engines are not loaded |
+
+Behaviour:
+
+- With a clip mic connected, utterances and their text come from the clip mic; the head array keeps recording in parallel for the sound direction.
+- While Lumi speaks the head array records nothing. The clip mic keeps listening, so the visitor can interrupt ("stop", a new question); Lumi's own voice in the clip mic is recognised by comparing it with what the speaker played (`mouth.own_voice`) and dropped.
+- Long answers are split into sentences; the next sentence is synthesised while the current one plays. Fixed phrases (greetings) are synthesised once and cached.
+- Volume and speaking speed are kept in `data/volume.txt` and `data/speech_speed.txt` (voice commands and the dashboard).
+
+Commands:
+
+```bash
+.venv/bin/python audio/mic.py                       # print every utterance: source, length, level, direction
+.venv/bin/python audio/ears.py                      # listen once, print the text
+.venv/bin/python audio/mouth.py "Hello, I am Lumi."  # speak
+.venv/bin/python audio/tts_gpu.py build             # build the TTS engines (after a JetPack / TensorRT change), then: check
+```
+
+Tunable values: [TUNING.md](TUNING.md#voice).
+
+---
+
+## 3. Sound direction
+
+The vendor code only records audio; it does not read a direction-of-arrival angle from the module. Lumi computes the direction itself from the six ring channels (`audio/doa.py`):
+
+- SRP-PHAT: for each candidate direction (2° grid, −180…180°) the expected time differences between the mic pairs are compared with the PHAT-weighted cross-spectra (300–3500 Hz); the direction with the most energy wins.
+- Angles are in the head frame: 0 = where the head looks, + = to the robot's left (same sign as head yaw). Robot (waist) angle = head yaw + this angle.
+- Geometry: six mics on a ring of `radius`, mic k at `offset + sign · k · 60°`, kept in `data/doa_calib.json`.
+- Calibration needs a speaker at known angles. `assistant/lumi.py` collects samples on its own while it talks with a person the head camera sees (camera angle = truth) and fits sign / offset / radius after 6 samples spread over at least 30°. By hand: `python audio/doa.py --calibrate` (stand in front of the head camera, talk, move left and right, Ctrl+C to fit).
+
+---
+
+## 4. Recording audio (vendor method)
 
 The vendor demo (LUMI_DEMO-v3 `services/voice_recognition_service.py`, `audio_tool/audio_tools.py`) uses the module as a normal microphone: PyAudio, **16 kHz, mono, 16-bit, chunks of 1024**, device chosen by name.
 
@@ -40,37 +87,22 @@ with wave.open("test.wav", "wb") as wf:
     wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(16000); wf.writeframes(b"".join(frames))
 ```
 
-List devices: `python3 audio_tool/test_audio_devices.py` (vendor), or `arecord -l` / `aplay -l` on Linux. In Docker pass `/dev/snd` and add the `audio` group.
+Vendor device list: `python3 audio_tool/test_audio_devices.py`. On Lumi the recording belongs to `audio/mic.py`; stop the assistant before opening the device from another program.
 
-## 3. Sound direction (for "look at the speaker")
+---
 
-**No document or vendor code reads the direction-of-arrival angle from this module.** All vendor code only records audio. Public iFlytek material on its 6-mic ring arrays says: 6 beams of 60°, angle from time differences (TDOA), audio over USB audio (UAC) while control commands and the localisation result go over a serial channel, angle reported after a wake-word event. To do on the robot:
-
-1. With the module plugged in: `lsusb`, `ls /dev/ttyUSB* /dev/ttyACM*`, `arecord -l`. Does a serial device appear next to the audio device?
-2. Check how many channels the audio device offers (`arecord --dump-hw-params -D hw:<card>`). If raw multi-channel audio is available, compute the direction ourselves (GCC-PHAT / SRP-PHAT, e.g. with `pyroomacoustics`), knowing the ring geometry.
-3. Ask JAKA / iFlytek for the XF-USB-MC serial protocol (wake-up angle message).
-4. Calibrate: where is 0° of the array relative to the head's forward direction, and which way is positive.
-
-Behaviour plan:
-
-```
-angle_robot = waist + head_yaw + doa_angle            # degrees, signs/zero to calibrate
-1. turn the head (body moveto, low vel) so head_yaw = angle_robot - waist
-   if outside ±180° or too far, turn the waist too
-2. once the person is in the head camera, centre the face/person box (±15° error of the DOA)
-3. second source: AGV human_detection (leg tracking) gives person positions around the base
-```
-
-## 4. Vendor voice demo (LUMI_DEMO-v3)
+## 5. Vendor voice demo (LUMI_DEMO-v3)
 
 | Part | Implementation |
 |---|---|
 | Wake word | "lumi" (config `voice_recognition.wakeup_word`), timeout 10 s, record 5 s |
 | Speech-to-text | OpenAI Whisper, local (`whisper_main`, model `base.pt`) |
-| Text-to-speech | iFlytek online TTS (WebSocket `wss://tts-api.xfyun.cn/v2/tts`, 16 kHz raw, voices `x4_yezi` / `aisjinger`; needs our own APPID / APIKey / APISecret) or MeloTTS offline (zh, en, ja, ko, …; CPU real-time) |
+| Text-to-speech | iFlytek online TTS (WebSocket `wss://tts-api.xfyun.cn/v2/tts`, 16 kHz raw, voices `x4_yezi` / `aisjinger`; needs an APPID / APIKey / APISecret) or MeloTTS offline (zh, en, ja, ko, …; CPU real-time) |
 | Tasks | QR scan, NanoOWL detection, AGV markers (`table`, `shelf`, `home`), arm picking |
 | Start | `python3 start_voice_wakeup_system.py --mode full` inside the Docker container |
 
-## 5. Company Lumi voice assistant
+---
 
-The company runs its own Lumi voice assistant (Qwen on the Jetson Thor). Its behaviour, architecture and endpoints are company-internal: see [private/COMPANY_VOICE_ASSISTANT.md](private/COMPANY_VOICE_ASSISTANT.md) (local only).
+## 6. Company voice assistant
+
+The company runs its own Lumi voice assistant on the Jetson Thor, separate from this project. Its behaviour, architecture and endpoints are company-internal and documented in `docs/private/` (not in git).

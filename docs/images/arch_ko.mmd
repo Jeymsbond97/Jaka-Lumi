@@ -1,0 +1,42 @@
+flowchart LR
+    MIC([마이크 어레이]) --> HEAR
+    CAM([RGB-D 카메라]) --> VIS
+    WEB([브라우저]) --> API
+
+    subgraph THOR[NVIDIA Jetson AGX Thor]
+        direction LR
+        subgraph IN[인식]
+            direction TB
+            HEAR[듣기<br/>VAD · 음원 방향 · whisper.cpp]
+            VIS[비전 서비스<br/>YOLO · 자세 · 얼굴 · 깊이]
+        end
+        subgraph UND[언어 이해]
+            direction TB
+            U1[1 결정적 처리<br/>정지, 취소]
+            U2[2 의미 기반 매칭<br/>bge-m3 임베딩]
+            U3[3 검증된 답변<br/>지식 베이스]
+            U4[4 언어 모델<br/>Gemma 4 · 대화 맥락]
+            U1 --> U2 --> U3 --> U4
+        end
+        GATE{Lumi에게 한<br/>직접 요청인가?}
+        subgraph ACT[실행]
+            direction TB
+            TASK[작업<br/>가져오기 · 미션 · 따라가기]
+            SKILL[동작 기술<br/>주행 · 집기 · 건네기]
+            DRV[장치 드라이버<br/>검증된 동작]
+            TASK --> SKILL --> DRV
+        end
+        VOICE[목소리<br/>Supertonic · TensorRT]
+        API[로봇 API · 대시보드<br/>FastAPI · 프로세스 관리]
+    end
+
+    HEAR -- 텍스트 --> UND
+    VIS -- 보이는 것 --> UND
+    UND --> GATE
+    GATE -- 예 --> TASK
+    GATE -- 아니요: 답변만 --> VOICE
+    TASK -- 결과 --> VOICE
+    VOICE --> SPK([스피커])
+    API -. 시작 및 감시 .-> UND
+    API -.-> VIS
+    DRV -- TCP / HTTP --> HW[[베이스 · 바디 · 팔 · 그리퍼]]

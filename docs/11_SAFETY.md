@@ -25,12 +25,12 @@ Stop categories (IEC 60204-1): Cat. 0 = power cut at once; Cat. 1 = controlled s
 - First tests at low speed.
 - Hot surfaces: keep flammable or heat-sensitive things away from the controller and motors.
 
-## 3. Rules for our tests
+## 3. Operating rules
 
-1. One person watches the robot with a hand near the E-stop; the code has a stop key ready (`motion_abort()`, body `stop`, AGV `estop`).
+1. One person watches the robot with a hand near the E-stop; the code has a stop ready (`motion_abort()`, body `stop`, AGV `estop`).
 2. Low speeds first: arm 0.2–0.5 rad/s (joint) or ≤ 50 mm/s (linear); body `vel` 10–20; base ≤ 0.2 m/s and ≤ 0.3 rad/s.
 3. Collision sensitivity: level 1 (25 N) near people (`robot.set_collision_level(1)`).
-4. **App safety zones do not work in SDK mode**: our code checks reach, workspace and joint limits before every move, and keeps a margin from the joint limits (the controller stops with a soft-limit error at the limit).
+4. **App safety zones do not work in SDK mode**: the code checks reach, workspace and joint limits before every move, and keeps a margin from the joint limits (the controller stops with a soft-limit error at the limit).
 5. Set the payload and mounting in Cobo π before arm motion; wrong payload causes false collisions or drift.
 6. `set_network_exception_handle(100, 2)`: the arm aborts if our SDK connection drops.
 7. Prefer joint moves near wrist singularities; avoid large orientation changes with linear moves.

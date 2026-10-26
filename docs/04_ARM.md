@@ -1,6 +1,6 @@
 # 04. Arm: JAKA Mini 2
 
-How to control the 6-joint arm: the web/app UIs, the Python SDK (`jkrc`), units, joint space, trajectories, safety settings and the tool connector. Hardware specs are in [01_HARDWARE.md](01_HARDWARE.md#2-arm-jaka-mini-2).
+How to control the 6-joint arm: the web/app UIs, the Python SDK (`jkrc`), the JSON command port, units, joint space, trajectories, safety settings and the tool connector. Hardware specs are in [01_HARDWARE.md](01_HARDWARE.md#2-arm-jaka-mini-2).
 
 ---
 
@@ -8,16 +8,17 @@ How to control the 6-joint arm: the web/app UIs, the Python SDK (`jkrc`), units,
 
 | Tool | Use it for | How |
 |---|---|---|
-| **Cobo π** (web) | Power on/off, enable, jog, check joint/TCP values, safety settings, external axes, programs | Browser → `https://192.168.10.90` → English → select robot → Administrator login ([private/ACCESS.md](private/ACCESS.md)) |
+| **Cobo π** (web) | Power on/off, enable, jog, joint/TCP values, safety settings, external axes, programs | Browser → `https://192.168.10.90` → English → select robot → Administrator login |
 | **JAKA App 1.7.2** (Zu App) | Same, older UI; required for some settings on 1.7 controllers | https://www.jaka.com/download, join the robot Wi-Fi, connect |
-| **Python SDK `jkrc`** | Our code: moves, trajectories, state | Section 3 |
+| **Python SDK `jkrc`** | Moves, trajectories, state | Section 3 |
+| **JSON command port** (TCP 10001) | Moves, kinematics, tool I/O without the SDK (used by `robot/arm.py`, `robot/gripper.py`) | Section 10 |
 | **ROS 2** (`jaka_lumi_minicobo_arm_server`) | MoveIt 2 trajectories | [09_ROS2_TELEOP_AND_SIM.md](09_ROS2_TELEOP_AND_SIM.md) |
 
-Cobo π top bar (from `private/images/arm-02-cobopi-manual-extaxis-jog-notes.png`): Home (首页), Programming (编程), Manual (手动), I/O panel, Settings (设置), Apps (应用); "Real robot" (真机) / simulation switch; checksum; **Power** (电源) and **Enable** (使能) switches on the right; 3PE indicator. The Manual page shows the 3D model, TCP X/Y/Z (mm) and RX/RY/RZ (deg) in the chosen frame ("World frame", "flange centre"), joint dials J1…J6 with a step selector and speed %.
+Cobo π top bar: Home (首页), Programming (编程), Manual (手动), I/O panel, Settings (设置), Apps (应用); "Real robot" (真机) / simulation switch; checksum; **Power** (电源) and **Enable** (使能) switches on the right; 3PE indicator. The Manual page shows the 3D model, TCP X/Y/Z (mm) and RX/RY/RZ (deg) in the chosen frame ("World frame", "flange centre"), joint dials J1…J6 with a step selector and speed %.
 
 ### Power-on order
 
-1. Base main switch on, base power button (see [00_START_HERE.md](00_START_HERE.md)). The robot controller and the arm need about **5 minutes** to be ready after power-on (company voice-assistant notes).
+1. Base main switch on, base power button (see [00_START_HERE.md](00_START_HERE.md)). The robot controller and the arm need about **5 minutes** to be ready after power-on.
 2. In Cobo π or the App: **Power** on → ring light blue → **Enable** → ring light green.
 3. Power off in the reverse order: disable → power off. Never cut cabinet power while the arm is powered or enabled; wait 5–10 s after the cabinet shuts down before cutting power.
 
@@ -25,7 +26,7 @@ Cobo π top bar (from `private/images/arm-02-cobopi-manual-extaxis-jog-notes.png
 
 ## 2. Controller versions: 1.7 vs 3.2
 
-The JAKA web doc (3.3.5.3, `arm-02-…`) lists differences that change how code must be written:
+Differences that change how code must be written (JAKA web doc 3.3.5.3):
 
 | | Controller 1.7 (e.g. 1.7.1-46-X64-minicab) | Controller 3.2 |
 |---|---|---|
@@ -36,7 +37,7 @@ The JAKA web doc (3.3.5.3, `arm-02-…`) lists differences that change how code 
 | Cobo π | from 1.7.1 | yes |
 | SDK v2.2.7 | needs controller ≥ 1_7_2_28 | — |
 
-**First thing to check on our robot:** the controller version (Cobo π → About / settings, or JAKA App → About). The vendor code itself is mixed: the BMW demo calls `login(1)`, the ROS arm server calls `login_in(ip, true)` (gRPC) and then uses `servo_j`, the pick demo calls `login()`. Try `login()` first; if it fails, `login(1)`.
+The controller version is shown in Cobo π (About / settings) or the JAKA App (About). Vendor code uses both logins (`login(1)` in the BMW demo, `login_in(ip, true)` in the ROS arm server, `login()` in the pick demo): try `login()` first, then `login(1)`.
 
 SDK compatibility (SDK 2.2.7 release notes): SDK 2.2.7 for controllers **1_7_2_28 and newer**; for 1_7_0_x and 1_5_x use SDK 2.1.11 or older.
 
@@ -63,9 +64,7 @@ export LD_LIBRARY_PATH=/work/jaka_sdk/aarch64:$LD_LIBRARY_PATH   # folder with j
 python3 -c "import sys; sys.path.insert(0,'/work/jaka_sdk/aarch64'); import jkrc; print(jkrc)"
 ```
 
-(Docker Desktop's `--network host` needs Docker Desktop 4.34+ with host networking enabled; otherwise the container still reaches `192.168.10.90` through NAT, which is enough for the SDK client.) On the Jetson (aarch64 Ubuntu) and on Linux PCs it runs natively.
-
-On Linux:
+(Docker Desktop's `--network host` needs Docker Desktop 4.34+ with host networking enabled; otherwise the container still reaches `192.168.10.90` through NAT, which is enough for the SDK client.) On aarch64 and x86-64 Linux it runs natively:
 
 ```bash
 export LD_LIBRARY_PATH=/path/to/JAKA_SDK_LINUX:$LD_LIBRARY_PATH
@@ -177,15 +176,18 @@ robot.power_off()
 robot.logout()
 ```
 
-Vendor speed habits: `joint_move(..., speed=vel/180*3.14)` with `vel=90` (deg/s) in the pick demo; ROS uses 1.0 rad/s for the teleop home. One vendor wrapper (`jaka_integrated.py rob_moveto`) passes "45" straight into a rad/s argument; do not copy that. Start at 0.2–0.5 rad/s.
+Speeds are in rad/s (convert from deg/s with `deg / 180 * pi`); start at 0.2–0.5 rad/s.
 
 ---
 
 ## 4. Joint space: URDF = SDK (high confidence)
 
-1. The vendor's ROS arm server (`feat_ros/jaka_lumi_minicobo_arm_server`) takes MoveIt trajectories for `l_a1…l_a6` from the URDF and sends the positions to `servo_j` **unchanged**; it publishes `get_joint_position()` as `l_a1…l_a6` unchanged. So the vendor treats URDF joint angles and SDK joint angles as the same numbers.
-2. Check with real data: Cobo π on a real Lumi showed joints `[165.559, -35.513, -81.900, -13.096, -30.818, -58.021]°` with the flange at `(121.985, -126.405, 377.039) mm` (`private/images/arm-02-…`). Forward kinematics of the official URDF (`jaka_lumi.urdf`, identical in JAKA_Lumi `feat_ros`) with these angles puts the flange **415.1 mm** from the arm base; the real distance is **416.0 mm**. The angle between the TCP vector and the flange axis agrees within about 4° (Cobo π's "World" frame includes the mounting angle, so the xyz components themselves are not comparable).
-3. Still do the +5° per joint test (section 9) before sending URDF-computed angles (e.g. from MoveIt or our own IK) to the robot.
+URDF joint angles and SDK joint angles are the same numbers:
+
+- The vendor's ROS arm server (`feat_ros/jaka_lumi_minicobo_arm_server`) sends MoveIt trajectories for `l_a1…l_a6` to `servo_j` unchanged and publishes `get_joint_position()` as `l_a1…l_a6` unchanged.
+- Forward kinematics of the official URDF (`jaka_lumi.urdf`, identical in JAKA_Lumi `feat_ros`) matches the controller's flange distance from the arm base within about 1 mm. Cobo π's "World" frame includes the mounting angle, so its xyz components are not directly comparable with the URDF base frame.
+
+Before sending URDF-computed angles (MoveIt or own IK) to the robot, run the per-joint direction check in section 9.
 
 Known poses (degrees, SDK = URDF joint space):
 
@@ -195,7 +197,6 @@ Known poses (degrees, SDK = URDF joint space):
 | Pick demo home / pick / place | `[0, 110, -100, 0, -80, -50]`, `[0, 110, -100, 0, 0, -50]`, `[0, 110, -100, 0, -10, -50]` | JAKA_Lumi `feat_demo/body_head/2_moveto.py` |
 | Teleop "E demo vertical" default | `[18.24, -80.54, -49.54, -16.99, -78.43, 0]` (rad `[0.3183, -1.4058, -0.8646, -0.2966, -1.3689, 0]`) | LumiCode `teleoperation_control_lumi.py` |
 | Vision demo start pose | rad `[1.780, -0.532, -1.075, -0.554, -1.192, 1.244]` | LUMI_DEMO-v1 config |
-| Seen in Cobo π | `[165.559, -35.513, -81.900, -13.096, -30.818, -58.021]` | Notion screenshot |
 | MoveIt SRDF `pose_1` | `[0, 0, -90, 0, -90, 0]` | `jaka_lumi.srdf` |
 
 ---
@@ -207,7 +208,7 @@ Known poses (degrees, SDK = URDF joint space):
 | `joint_move` (blocking) | Point-to-point, safest | Controller plans the profile. `set_motion_planner(0)` T-curve (speed first) or `1` S-curve (smooth first) |
 | `linear_move` | Straight TCP line (approach/retreat) | Avoid near wrist singularities; prefer joint moves when orientation changes a lot |
 | `circular_move` | Arcs | |
-| `servo_j` streaming | Our own trajectories (sampled at 8 ms × n), tracking, MoveIt | Needs servo mode (controller 1.7; **3.2 not yet**). Send the next point immediately; set a filter first |
+| `servo_j` streaming | Own trajectories (sampled at 8 ms × n), tracking, MoveIt | Needs servo mode (controller 1.7; **3.2 not yet**). Send the next point immediately; set a filter first |
 | ROS 2 `FollowJointTrajectory` | Plan in MoveIt, execute on the robot | Arm server: servo_j with `step_num = dt / 0.008`, filter `servo_move_use_joint_LPF(0.5)` |
 
 Servo-mode recipe (as in the vendor ROS server and teleop):
@@ -262,19 +263,20 @@ Full list: https://www.jaka.com/docs/en/guide/errinfo.html
 
 ---
 
-## 7. Settings in Cobo π / JAKA App that matter
+## 7. Settings in Cobo π / JAKA App
 
-- **Mounting** (Settings → Operation → Mounting): the arm is mounted on the side of the column. Check the 3D model in the UI matches the real arm before moving. The "World" frame shown in the UI includes this mounting angle.
-- **Payload** (Settings → Operation → Payload): mass and centre of mass of whatever is on the flange. Wrong values cause false collisions or drift in drag mode.
+- **Mounting** (Settings → Operation → Mounting): the arm is mounted on the side of the column (Mounting Orientation Y 90°; do not change it). The 3D model in the UI must match the real arm before moving. The "World" frame shown in the UI includes this mounting angle.
+- **Payload** (Settings → Operation → Payload): mass and centre of mass of whatever is on the flange. Wrong values cause false collisions or drift in drag mode. Gripper payload: [10_GRIPPER.md §4](10_GRIPPER.md#4-payload-and-tcp).
 - **TCP** (Settings → Operation → TCP, 15 slots): default tool = flange centre (+Z out of the flange, −Y toward the TIO connector).
 - **Collision**: force / momentum / TCP speed / power limits; rebound 0–3°. While a program runs, ~1° joint deviation stops the robot, ~3.6° stops and disables it.
 - **Joint limits** (Safety → Joint Limit): soft limits and speed limit per joint, within the factory range.
-- **Safety zones are NOT active in SDK control mode** (only while a UI program runs). Our code must check its own workspace.
+- **Safety zones are NOT active in SDK control mode** (only while a UI program runs). Control code must check its own workspace.
 - **Real / Simulation** switch: hardware-in-the-loop simulation on the real controller (arm must be off and disabled to switch). Useful for dry runs.
 - **Freedrive limit**: TCP speed in drag mode 50–1500 mm/s.
 - **Initial orientation**: user-defined safe pose (Home button).
 - **Brake voltage**: required with an external power supply (MiniCab).
-- Monitoring page: per-joint current, voltage, temperature, torque as % of alarm thresholds.
+- **Monitoring** page: per-joint current, voltage, temperature, torque as % of alarm thresholds.
+- **Stored programs** (`.jks`) run from wherever the arm stands: start one only from a known pose with a checked route.
 
 ---
 
@@ -291,32 +293,44 @@ Full list: https://www.jaka.com/docs/en/guide/errinfo.html
 | 7 | AIN2 / RS485-2 B− | white | 0–10 V |
 | 8 | GND | gray | |
 
-RS485 channel 1 (on the DO pins, high speed): Modbus RTU grippers, JAKA torque sensor; baud up to 230400, 8/9 data bits, 1/2 stop bits, odd/even/none parity. Channel 2 (on the AI pins): low speed. Gripper wiring and commands: [10_GRIPPER.md](10_GRIPPER.md).
+RS485 channel 1 (on the DO pins, high speed): Modbus RTU grippers, JAKA torque sensor; baud up to 230400, 8/9 data bits, 1/2 stop bits, odd/even/none parity. Channel 2 (on the AI pins): low speed. Gripper wiring and signals: [10_GRIPPER.md](10_GRIPPER.md).
 
 ---
 
 ## 9. First-session arm tests
+
+Commissioning checks before running own motions:
 
 1. Cobo π: note controller version, arm model, joint limits and joint speed limits, mounting, payload.
 2. SDK: `login` (or `login(1)`), `get_sdk_version`, `get_robot_status_simple`, `get_joint_position`, `get_dh_param` (compare with the URDF).
 3. Collision level 1, payload = no tool.
 4. For each joint: `joint_move` INCR +5° at 0.2 rad/s, read `get_joint_position`, check that the joint turned in the positive direction of its URDF axis (and as Cobo π's 3D view shows); move back −5°.
 5. Go to the factory pose `[0, 120, -120, 0, -90, 0]°` slowly; compare the arm shape with Cobo π's 3D view and with the URDF at the same angles (e.g. in RViz: `ros2 launch jaka_lumi_description lumi_description.launch.py`).
-6. Only then run your own poses and short trajectories; servo mode only if the controller supports it.
+6. Only then run own poses and short trajectories; servo mode only if the controller supports it.
 
 ---
 
-## 10. Motion over TCP 10001: measured
+## 10. JSON command port (TCP 10001)
 
-| Fact | Detail |
+Protocol: [JAKA TCP/IP protocol 1.7.2](https://www.jaka.com/docs/legacy172/en/guide/1.7.2/tcpip.html). Commands are JSON objects with `cmdName`.
+
+| Command / topic | Behaviour |
 |---|---|
-| `kine_forward`, `kine_inverse` | work (`jointPosition` deg, `cartPosition` mm / deg); `kine_inverse` answers `errorCode` −4 when there is no solution |
-| `moveL` | works: `relFlag` 0, `cartPosition`, `speed` mm/s, `accel`; 30 mm up and down from `ready` ended within 0.1 mm, orientation unchanged |
-| Stop | `stop_program` stops a `joint_move` / `moveL` sent over TCP (J6 at 10 "deg/s" stopped ~8° after 0.7 s). Once the controller stopped the arm and closed the connection without a reply. `motion_abort`, `get_motion_status`, `is_in_pos` do not exist on this port ("function call failed") |
-| Speed | `joint_move` with `speed` 10 moved 157° of J6 in ~37 s (~4.3°/s): large moves run well below the given speed. Short moves (20°) run at about the given speed |
-| `get_data` | now and then answers with no state fields: a poll must be retried, not trusted |
-| Motion queue (vendor, [JAKA TCP/IP protocol 1.7.2](https://www.jaka.com/docs/legacy172/en/guide/1.7.2/tcpip.html)) | `joint_move` and `moveL` answer at once; the controller runs each motion command after the one before has ended. Optional `tol`: "the transition radius between motion paths", default 0 (no unit given for `joint_move`; mm in the `moveL` example). `accel` in °/s², "recommended to be less than 720". `get_motion_state` answers on our controller (2026-10-21: `queue`, `active_queue`, `queue_full`, `inpos`, `motion_line`, ...). Seen on our arm 2026-10-21: `stop_program` during a queue stopped the arm, `queue` 0 after, the next move did not run; moves run back to back from the queue (accel 200 °/s²) shook the whole robot at each via-point and reversal, so we send one move at a time |
-| Motion planner (vendor, same protocol) | `set_motion_planner` with `type` −1 (planner off), 0 (T-planning, trapezoid) or 1 (S-planning, smooth start and stop). No jerk or smoothing field on `joint_move` itself (`relFlag`, `jointPosition`, `speed`, `accel`, `tol`, `executing_line_id`, `end_cond`). Which planner our controller uses is not known; it is a controller setting, not changed by our code |
-| Wrapped joints | J1 / J4 / J6 can stand a full turn away from a stored value (`ready` has J1 −284°, `tuck` 179°); `motion.py` picks target ± 360 nearest to the current angle |
-| Reach | from `tuck`, IK has no solution for any move up; straight moves start from `ready` |
-| Poses | `tuck` `[179.3, -88.6, -13.9, -15.8, -14.5, -121.3]`; `ready` `[-284.35, -75.43, -52.45, -136.99, 26.46, -278.46]` (flange (−19, 447, −70) mm, gripper level, pointing forward-left over the table) |
+| `get_data` | Full state, including `actual_position` = [x, y, z mm, rx, ry, rz deg] of the flange in the arm base frame (fixed X-Y-Z roll-pitch-yaw, R = Rz·Ry·Rx) and tool I/O (`tio_dout`, `tio_din`, `tio_ain`). Some replies arrive without the state or tool I/O fields, or as the reply to another command: poll again |
+| `kine_forward`, `kine_inverse` | `jointPosition` deg, `cartPosition` mm / deg; `kine_inverse` answers `errorCode` −4 when there is no solution. `kine_inverse` may answer with 7 joint values (use the first 6); `kine_forward` may answer without `cartPosition` (ask again) |
+| `joint_move` | `relFlag`, `jointPosition`, `speed`, `accel` (°/s², vendor: keep below 720), `tol`, `executing_line_id`, `end_cond`. No jerk or smoothing field |
+| `moveL` | `relFlag` 0, `cartPosition`, `speed` mm/s, `accel`, `tol` |
+| `set_motion_planner` | `type` −1 (planner off), 0 (T-planning, trapezoid), 1 (S-planning, smooth start and stop). A controller setting |
+| `get_motion_state` | `queue`, `active_queue`, `queue_full`, `inpos`, `motion_line`, ... |
+| `stop_program` | Stops a running `joint_move` / `moveL` and empties the motion queue. The controller may also stop the arm and close the connection without a reply |
+| `motion_abort`, `get_motion_status`, `is_in_pos` | Not available on this port ("function call failed") |
+
+**Motion queue.** `joint_move` and `moveL` answer at once; the controller runs each motion after the previous one has ended. `tol` is "the transition radius between motion paths", default 0 (mm in the `moveL` example). Moves queued back to back shake the whole robot at each via-point and reversal: send one move at a time and wait for it to settle.
+
+**Speed.** Large joint moves run well below the commanded speed (for example J1 60° at 25–40 °/s takes 7–8 s); short moves (about 20°) run at about the commanded speed.
+
+**Wrapped joints.** J1 / J4 / J6 can stand a full turn away from a stored value; `robot/motion.py` picks target ± 360° nearest to the current angle.
+
+**Wrist.** Near J5 ≈ 0 a straight move can turn J4 and J6 about 110° against each other in small steps; `motion.move_linear(path_checked=True)` lets such a move through when the caller has checked the line in 20 steps.
+
+Taught poses are in `data/arm_poses.json`.

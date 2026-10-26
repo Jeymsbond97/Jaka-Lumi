@@ -1,0 +1,42 @@
+flowchart LR
+    MIC([Microphone array]) --> HEAR
+    CAM([RGB-D cameras]) --> VIS
+    WEB([Browser]) --> API
+
+    subgraph THOR[NVIDIA Jetson AGX Thor]
+        direction LR
+        subgraph IN[Perception]
+            direction TB
+            HEAR[Hearing<br/>VAD · sound direction · whisper.cpp]
+            VIS[Vision service<br/>YOLO · pose · faces · depth]
+        end
+        subgraph UND[Language understanding]
+            direction TB
+            U1[1 Deterministic handling<br/>stop, cancel]
+            U2[2 Semantic matching<br/>bge-m3 embeddings]
+            U3[3 Verified answers<br/>knowledge base]
+            U4[4 Language model<br/>Gemma 4 · conversation context]
+            U1 --> U2 --> U3 --> U4
+        end
+        GATE{Direct request<br/>to Lumi?}
+        subgraph ACT[Execution]
+            direction TB
+            TASK[Tasks<br/>fetch · missions · follow]
+            SKILL[Skills<br/>navigation · grasp · hand-over]
+            DRV[Device drivers<br/>verified motion]
+            TASK --> SKILL --> DRV
+        end
+        VOICE[Voice<br/>Supertonic · TensorRT]
+        API[Robot API · dashboard<br/>FastAPI · supervisor]
+    end
+
+    HEAR -- text --> UND
+    VIS -- what is seen --> UND
+    UND --> GATE
+    GATE -- yes --> TASK
+    GATE -- no: answer only --> VOICE
+    TASK -- result --> VOICE
+    VOICE --> SPK([Speaker])
+    API -. starts and monitors .-> UND
+    API -.-> VIS
+    DRV -- TCP / HTTP --> HW[[Base · body · arm · gripper]]

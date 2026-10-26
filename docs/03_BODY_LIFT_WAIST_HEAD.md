@@ -15,11 +15,11 @@ Units everywhere: **mm** for the lift, **degrees** for the others.
 | 2 / joint 3 | Head yaw (neck) | −180…+180° | ±180° | `l_3` ±3.1415 rad |
 | 3 / joint 4 | Head pitch | −5…+35° | −5…35° | `l_4` −0.0872…0.6108 rad |
 
-Observation: the vendor's web-UI screenshot (`private/images/body-01-extaxis-web-ui.png`) shows joint 0 at **355** (mm), above the documented 300, with the waist at −140, head yaw 175 and pitch 34. So the API may accept more than 300 mm on some firmware. Stay within 0–300 mm until we have read the robot's own limit. The vendor demo config limits the lift to 0–200 mm.
+The vendor web UI can show the lift above 300 mm (355 mm in a vendor screenshot), so some firmware accepts more; use 0–300 mm. The vendor demo config limits the lift to 0–200 mm.
 
-**Temporary lift limit:** the head camera's cable is too short; a lift above ~105 mm pulls it out. All our code keeps the lift at 0–105 mm (`robot/head.py` `LIFT_MAX_MM`, used by `moveto()`'s clamp, `tasks/fetch.py` `LIFT_RANGE` / `LIFT_TRIES` and the dashboard jog). Back to 250 mm when the longer cable is in. The dashboard turns the head yaw over the full ±180°; the assistant's head tracking keeps `head.YAW_LIMIT` (±60°).
+**Lift limit on this robot: 0–105 mm.** The head camera's cable is too short for a higher lift. One constant sets it: `robot/head.py` `LIFT_MAX_MM` (the `moveto()` clamp, `tasks/fetch.py` `LIFT_RANGE` / `LIFT_TRIES` and the dashboard jog follow it).
 
-Head pitch sign: not documented. **Verify** on the robot with a +10° move (which way does the head tilt?).
+Head yaw: the dashboard uses the full ±180°; the assistant's head tracking stays within `head.YAW_LIMIT` (±60°). The head pitch sign is not documented by the vendor.
 
 ---
 
@@ -61,16 +61,15 @@ Base URL: `http://192.168.10.90:5000/api/extaxis` (old documents: `http://10.5.5
 
 Rules: enable first; every call sends all four values, so read `/status` and keep the joints you don't want to move at their current value.
 
-Seen on our robot:
+Behaviour of the axes:
 
-- After a full power cycle of the controller all four joints read `"enable": false`; every dashboard jog of the head then timed out. `robot/head.py` `moveto()` enables them first when any is off.
-- At its bottom stop the head pitch reads −5.003°, just outside −5…35°; a `moveto` that sends it back is dropped (the colleagues' `lumi_voice_app` found the same for the lift at −0.003 mm). `moveto()` clamps every value into the API ranges.
-- Lift moves 75 → 150, 193, 250, 0 mm at `vel` 20 ran without a problem (a 75 mm move takes about 5–9 s).
-- The torso camera sits on the same link as the arm base: lift 75 → 150 mm moved a cup in the arm frame by x +2, y −2, z −76 mm (table −71 mm). The camera calibration holds at any lift.
+- After a power cycle of the controller all four joints are disabled (`"enable": false`) and every `moveto` times out until they are enabled. `robot/head.py` `moveto()` enables them first when any is off.
+- At its bottom stop the head pitch reads −5.003° (the lift can read −0.003 mm), just outside the API range; a `moveto` that sends such a value back is rejected. `moveto()` clamps every value into the API ranges.
+- The torso camera sits on the same link as the arm base, so the camera-to-arm calibration holds at any lift.
 
 `/status` returns one object per joint: `id`, `pos` (mm or deg), `vel`, `toq` (torque), `enable`, `error`, `ecode`.
 
-Responses seen (web doc 3.3.4, `private/images/body-02-curl-enable-moveto.png`):
+Responses (web doc 3.3.4):
 
 ```json
 {"message": "Axis enabled successfully", "status": 0}
@@ -140,13 +139,13 @@ Notes from the vendor code:
 
 ### Speeds
 
-Not documented. Measure them at `vel=100` and `vel=20` (time a full lift stroke and a 90° waist turn) and record them in [00_START_HERE.md §9](00_START_HERE.md#9-robot-facts-fill-in-on-the-robot).
+Not documented by the vendor. At `vel` 20 a 75 mm lift move takes about 5–9 s.
 
 ---
 
 ## 3. Cobo π external axes
 
-On controllers with Cobo π the body joints are also registered as external axes of the arm controller (`private/images/arm-01-specs-cobopi-extaxis-settings.png`, `arm-02-cobopi-manual-extaxis-jog-notes.png`):
+On controllers with Cobo π the body joints are also registered as external axes of the arm controller:
 
 1. `https://192.168.10.90` → log in.
 2. **Settings (设置) → Hardware & communication → External axis settings (外部轴设置)**: four axes of type "positioner" (变位机): 汇川升降 (Inovance lift), 腰 (waist), 脖子 (neck = head yaw), 头 (head = pitch), each with an enable switch.
@@ -175,10 +174,9 @@ From the JAKA_Lumi `feat_ros` branch (`jaka_lumi_ros`, ROS 2 Humble, C++ with li
 
 ---
 
-## 5. Test sequence for the first session
+## 5. Bring-up sequence
 
-1. Read only: `GET /sysinfo`, `GET /status`. Write down firmware version and positions.
+1. Read only: `GET /sysinfo`, `GET /status` (firmware version, positions).
 2. `reset`, `enable`, then `status` until all `enable` are true.
-3. `moveto` with `vel=10`: head pitch 0 → 20 → 0; head yaw 0 → 30 → −30 → 0; waist 0 → 20 → −20 → 0; lift 0 → 50 → 0. Time each move.
-4. Write down the positive direction of each joint (lift up/down, waist and head yaw left/right, pitch up/down) and the measured times.
-5. `enable 0` at the end.
+3. Slow moves with `vel=10`: head pitch 0 → 20 → 0; head yaw 0 → 30 → −30 → 0; waist 0 → 20 → −20 → 0; lift 0 → 50 → 0.
+4. `enable 0` at the end.

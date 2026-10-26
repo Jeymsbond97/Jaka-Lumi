@@ -1,6 +1,6 @@
 # 02. Network and access
 
-How to get a computer onto the Lumi network, which addresses and ports exist, and which web pages and apps to use. **Passwords are not in this file**: they are in [private/ACCESS.md](private/ACCESS.md) (local only, not on GitHub).
+How to get a computer onto the Lumi network, which addresses and ports exist, and which web pages and apps to use. Passwords are not in these docs; ask the project owner.
 
 ---
 
@@ -10,7 +10,7 @@ How to get a computer onto the Lumi network, which addresses and ports exist, an
                          Lumi internal network 192.168.10.0/24
    ┌──────────────────────────────────────────────────────────────────────────┐
    │  192.168.10.90   robot controller (MiniCab):                              │
-   │                  - arm SDK (jkrc)                                         │
+   │                  - arm SDK (jkrc), JSON commands on :10001                │
    │                  - Cobo π web UI          https://192.168.10.90           │
    │                  - body API + web UI      http://192.168.10.90:5000       │
    │  192.168.10.10   AGV base computer:                                       │
@@ -29,17 +29,18 @@ How to get a computer onto the Lumi network, which addresses and ports exist, an
 | Service | Address | Login | Notes |
 |---|---|---|---|
 | Arm SDK (`jkrc`) | `192.168.10.90` | — | Used by every vendor demo and the ROS arm server |
-| Cobo π (arm web app) | `https://192.168.10.90` (also `http://`) | Administrator, see ACCESS.md | Accept the self-signed certificate. Settings, manual jog, external axes, programs |
+| Arm JSON command port | `192.168.10.90:10001` | — | TCP, JSON commands without the SDK ([04_ARM.md](04_ARM.md)) |
+| Cobo π (arm web app) | `https://192.168.10.90` (also `http://`) | Administrator | Accept the self-signed certificate. Settings, manual jog, external axes, programs |
 | Body (lift/waist/head) web UI | `http://192.168.10.90:5000` | none | ExtAxis page: Enable / Disable / Reset / Stop, joint table, chart, Upgrade page |
 | Body HTTP API | `http://192.168.10.90:5000/api/extaxis/...` | none | [03_BODY_LIFT_WAIST_HEAD.md](03_BODY_LIFT_WAIST_HEAD.md) |
 | AGV TCP API | `192.168.10.10:31001` | none | [05_AGV_BASE.md](05_AGV_BASE.md) |
 | AGV monitor and mapping | `http://192.168.10.10:9001` | none | Chrome recommended. Map builder pops up on port 8809 |
-| Robot Wi-Fi router admin | `http://192.168.10.79` | see ACCESS.md | Cudy WR1200E in access-point mode |
+| Robot Wi-Fi router admin | `http://192.168.10.79` | password | Cudy WR1200E in access-point mode |
 | MiniCab LAN1 (fixed) | `10.5.5.x` (controller at `10.5.5.100` in old docs) | — | Old LumiAPI doc and the VR-teleop defaults use `10.5.5.100` |
-| AGV chassis Wi-Fi (alternative) | SSID `admin_xxxxxx` | see ACCESS.md | From the chassis manual; may not exist on Lumi, which has its own router |
+| AGV chassis Wi-Fi (alternative) | SSID `admin_xxxxxx` | password | From the chassis manual; Lumi uses its own router instead |
 | VR teleop receiver (vendor) | PC port 8018 (docs) / 9852 (launch file) | — | [09_ROS2_TELEOP_AND_SIM.md](09_ROS2_TELEOP_AND_SIM.md) |
 
-Ports summary: `5000` body HTTP, `443/80` Cobo π, `31001` AGV TCP, `9001` AGV web, `8809` AGV map builder, `22` SSH on the Jetson, `8000`/`8080`/`5173` voice-assistant services on the Jetson ([08](08_NVIDIA_THOR.md)).
+Ports summary: `5000` body HTTP, `443/80` Cobo π, `10001` arm JSON commands, `31001` AGV TCP, `9001` AGV web, `8809` AGV map builder, `22` SSH on the Jetson, `8000`/`8080`/`5173` voice-assistant services on the Jetson ([08](08_NVIDIA_THOR.md)).
 
 ---
 
@@ -48,7 +49,7 @@ Ports summary: `5000` body HTTP, `443/80` Cobo π, `31001` AGV TCP, `9001` AGV w
 ### Option A: Wi-Fi
 
 1. Read the serial on the robot's name plate.
-2. Join the Wi-Fi `Lumi<serial>` (our robot: see ACCESS.md; there is a 2.4 GHz and a `-5G` network). Password: factory default in ACCESS.md.
+2. Join the Wi-Fi `Lumi<serial>` (a 2.4 GHz and a `-5G` network) with the factory-default password.
 3. Check your IP address. It must be `192.168.10.x`. If it is `10.5.5.x`, follow "Fix a 10.5.5.x address" below.
 4. Test: `ping 192.168.10.90` and `ping 192.168.10.10`, then open `http://192.168.10.90:5000` in a browser.
 
@@ -62,7 +63,7 @@ For cameras and the microphone, also plug a USB 3.0 cable from the computer into
 
 ### Fix a 10.5.5.x address
 
-When the laptop receives `10.5.5.xxx` (gateway `10.5.5.1`) from the robot Wi-Fi, the robot services do not answer (company Notion "Lumi service access info", `private/images/access-01-wifi-10-5-5-problem.png`). Set the address by hand:
+When the laptop receives `10.5.5.xxx` (gateway `10.5.5.1`) from the robot Wi-Fi, the robot services do not answer. Set the address by hand:
 
 | Field | Value |
 |---|---|
@@ -81,7 +82,7 @@ Before choosing an address, check it is free: `ping 192.168.10.150` should not a
 
 ### Keep internet while on the robot network
 
-The vendor demo PC used the cable for the robot and Wi-Fi for the internet (needed for cloud LLM APIs). On Linux:
+Use the cable for the robot and Wi-Fi for the internet (for cloud APIs). On Linux:
 
 ```bash
 # 192.168.10.* over the wired port, everything else over Wi-Fi
@@ -108,7 +109,7 @@ On macOS: System Settings → Network → "…" → Set Service Order, put Wi-Fi
 | VS Code / Cursor + Docker extension | Develop inside the Jetson containers | — | any |
 | PICO Developer Center | Install the VR teleop app | https://developer-cn.picoxr.com/resources/#pdc | Windows / macOS |
 
-The JAKA App manual's recommended tablet note: Android 10–13, Snapdragon 835-class; disable battery saving for the app so the robot does not disconnect when the screen locks.
+JAKA App tablet requirements (JAKA App manual): Android 10–13, Snapdragon 835-class; disable battery saving for the app so the robot does not disconnect when the screen locks.
 
 Cobo π browser requirements: Windows 10 64-bit + Chrome ≥ 110, or Android 13 tablet; Cobo π service package needs controller ≥ 1.7.1 (otherwise upload it through the Zu App: Settings → Version upgrade).
 

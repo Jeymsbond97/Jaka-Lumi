@@ -1,6 +1,6 @@
 # 09. ROS 2, teleoperation, learning and simulators
 
-Vendor software beyond the plain APIs: the ROS 2 workspace with MoveIt 2 and Isaac Sim, VR teleoperation, ACT imitation learning. Our own MuJoCo simulation is documented separately in [SIMULATION.md](SIMULATION.md).
+Vendor software beyond the plain APIs: the ROS 2 workspace with MoveIt 2 and Isaac Sim, VR teleoperation, ACT imitation learning.
 
 ---
 
@@ -60,7 +60,7 @@ Servo mode note: the arm server needs servo mode, which controller 3.2 does not 
 
 ## 2. VR teleoperation (PICO 4)
 
-Sources: JAKA web doc 3.2.3 (`private/images/teleop-*.png`), teleop quick-start docx, JAKA_Lumi branch **`LumiCode`** (`Lumi_Teleoperation/`), Google Drive links in `03. JAKA Lumi Related Software/Teleoperation and training code.md`.
+Sources: JAKA web doc 3.2.3, teleop quick-start docx, JAKA_Lumi branch **`LumiCode`** (`Lumi_Teleoperation/`).
 
 **Only controller 1.7 (1.7.1-46-X64-minicab) is supported; controller 3.2 is not.**
 
@@ -77,7 +77,7 @@ Network: VR headset and PC on the same Wi-Fi (Lumi's own Wi-Fi recommended, 5 GH
 1. On the headset: Control Center → Settings → About → tap the software version several times → Developer options → **USB debugging** on.
 2. On the PC: install PICO Developer Center (https://developer-cn.picoxr.com/resources/#pdc). PICO docs: https://developer-cn.picoxr.com/document/unity/set-up-the-development-environment/
 3. USB-cable the headset to the PC, unzip `controlData_*.zip`, copy the APK to *PICO 4 Ultra → internal shared storage → Download*.
-4. In the headset: File manager → Installation packages → install. It appears under Library → **Unknown sources** (apps seen: `controllers_data_250220`, `robotB612`, `imgVR_250220`; use the one with the yellow smiley icon).
+4. In the headset: File manager → Installation packages → install. It appears under Library → **Unknown sources** (apps `controllers_data_250220`, `robotB612`, `imgVR_250220`; use the one with the yellow smiley icon).
 5. Open it, enter: **PC IP** (`ifconfig` on the PC, e.g. `192.168.10.35`), **PC port** (doc default 8018; the Lumi launch file uses **9852**; they must match), **send period** 0.01 s (60 Hz) → **LOGIN**. Move the controllers and check the virtual hands follow; if laggy, check both are on the same Wi-Fi.
 
 ### PC setup
