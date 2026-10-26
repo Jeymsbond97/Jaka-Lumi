@@ -115,7 +115,7 @@ HEAD_LOW_PITCH = -5.0        # head pitch for those checks and the search: its l
 HEAD_READS = 4               # head camera frames read per view (10 a second) ...
 HEAD_SAME_MM = 120.0         # ... an object counts when seen at least twice within this distance
 WAIST_VEL = 20               # % of the waist's speed: the arm sweeps sideways
-HEAD_AHEAD = (0.0, 0.0)      # head (yaw, pitch) deg before a drive to a place and after every task: looking ahead
+HEAD_AHEAD = (0.0, head.HEAD_REST_PITCH)   # head (yaw, pitch) deg before a drive to a place and after every task: ahead, at rest
                              # (search turns and short moves keep the head where the search turned it)
 OFFSET_TURN_DEG = 15.0       # a move that turned the base at least this much tells where the arm base is (arm_offset)
 WIDTH_NEAR_MM = 250.0        # mm from PICK_ZONE_CENTRE; a width measured further away is not trusted (the same tumbler:
@@ -1875,15 +1875,20 @@ def _busy():
 def _in_hand():
     """Is something in the hand, whatever the state file says? The torso depth camera first (skills.hand_sees: it
     sees the place between the fingers); when it can't tell, the gripper's AI_1. AI_1 alone was wrong once: a cup
-    pulled out of the closed fingers left it reading "open" (2026-10-16)."""
+    pulled out of the closed fingers left it reading "open" (2026-10-16). Fingers fully shut (AI_1 above
+    gripper.EMPTY_AI) hold nothing, whatever the camera sees: with the arm held out it saw the person's hand there and
+    "closed on nothing" became "holding" (2026-10-23 17:40)."""
+    try:
+        g = gripper.state()
+        ai = bool(g["holding"])
+        if g.get("ai", [0.0])[0] > gripper.EMPTY_AI:
+            return False
+    except (ConnectionError, OSError, KeyError):
+        ai = None
     try:
         seen = skills.hand_sees()
     except (skills.SkillError, ConnectionError, OSError, KeyError):
         seen = "unknown"
-    try:
-        ai = bool(gripper.state()["holding"])
-    except (ConnectionError, OSError, KeyError):
-        ai = None
     if seen == "unknown":
         return bool(ai)
     if ai is not None and ai != (seen == "object"):
@@ -2411,8 +2416,8 @@ def _person_point():
 
 def reach(angle=0.0, say=None):
     """Hold the hand out to the person ("reach out to me", "손 내밀어"): first, when `angle` (deg, + left, waist
-    frame: the person tracker's) is not 0, a base turn on the spot to face them (_turn: Patrol only, the waist to the
-    front, its arm sweep checked), then the arm along the pose graph to give
+    frame: the person tracker's) is not 0, the waist turns to face them (_waist_to: Patrol only, its arm sweep
+    checked; past the waist's limits they are asked to stand in front), then the arm along the pose graph to give
     (arm_route, every move checked), then at most RECEIVE_REACH_MM straight towards their hand or body
     (_person_point, _reach_to_hand). The arm stays out; "fold" brings it back to look."""
     if "give" not in motion.poses():
@@ -2426,8 +2431,10 @@ def reach(angle=0.0, say=None):
 
     def run():
         try:
-            if angle and not _turn(angle + _waist_turn(), why="to the person"):
-                raise FetchError(*TURN_TO_PERSON)
+            if angle:                                 # the waist, not the base: the person stays where they are
+                lo, hi = head.AXIS_LIMITS[1]
+                if not lo <= head.status()[1] + angle <= hi or not _waist_to(angle + _waist_turn()):
+                    raise FetchError(*TURN_TO_PERSON)
             _pose("give")
             _reach_to_hand(*_person_point())
             _set(status="done", step="")

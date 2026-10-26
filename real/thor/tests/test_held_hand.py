@@ -25,7 +25,14 @@ PUT_BACK = ["put it back", "put it back where you found it", "return it to where
             "put back 해 줘", "제자리에 놔 줘", "제자리에 갖다 놓으시게", "원래 자리에 놓으십시오", "원위치에 놔 줘"]
 REACH = ["extend your arm toward me", "hold your hand out", "reach out", "reach for my hand", "arm forward please",
          "팔 뻗어 줘", "손 내밀어 줘", "손 쭉 내밀어 봐", "루미야 arm 뻗어 줘", "나한테 reach 해 볼래?"]
-FOLD = ["fold your arm", "tuck your arm in", "arm back home", "go back to your look pose", "팔 접어", "팔 원래대로 해 줘"]
+FOLD = ["fold your arm", "tuck your arm in", "arm back home", "go back to your look pose", "팔 접어", "팔 원래대로 해 줘",
+        "take your hand back", "put your arm down", "arm back", "Lumi, arm back please", "back to look position",
+        "go back to look position", "go back to look pose", "Your look position.", "return to the look position",
+        "pull your hand back", "bring your arm back", "put your hand down", "lower your arm", "can you put your arm down?",
+        "손 내려", "손 내려 줘", "손 좀 내려 주세요", "손 거둬", "팔 거둬", "팔 내려 주실래요?", "팔 원위치", "루미야 팔 접어 줘",
+        "okay, 팔 내려", "take your arm back 해 줘"]
+NOT_FOLD = ["don't take your hand back", "팔 내리지 마", "why did you put your arm down?", "hand back", "give it back",
+            "give me your hand", "손 내밀어"]
 NOT_GIVE = ["don't give it to me yet", "give it to me after the talk", "when my mom comes, give it to her", "give me a break",
             "give it a try", "give up", "she gave me that cup this morning", "I gave it to the guy at the booth",
             "can you give me directions to the subway?", "who will you give that to?", "give it to me, cancel",
@@ -51,6 +58,9 @@ def main():
     for words, want in [(w, "reach") for w in REACH] + [(w, "fold") for w in FOLD]:
         if brain.intent(words, MARKERS) != ("arm", want):
             bad.append((words, want, brain.intent(words, MARKERS)))
+    for words in NOT_FOLD:
+        if brain.intent(words, MARKERS) == ("arm", "fold"):
+            bad.append((words, "not fold", brain.intent(words, MARKERS)))
     for words in NOT_GIVE:
         if brain.held_give(words, MARKERS) or brain.held_place(words, MARKERS):
             bad.append((words, "no hand", brain.hand_request(words, True, None, MARKERS)))
@@ -65,7 +75,7 @@ def main():
             bad.append((words, "look center", brain.intent(words, MARKERS)))
     assert not bad, "\n".join(f"{t!r}: want {w}, got {g}" for t, w, g in bad)
     n = len(CALLS) * len(TAILS) * len(GIVE_EN + GIVE_KO) + len(CALLS) * (len(PUT_DOWN) + len(PUT_BACK)) + \
-        len(REACH) + len(FOLD) + len(NOT_GIVE) + 6
+        len(REACH) + len(FOLD) + len(NOT_FOLD) + len(NOT_GIVE) + 6
     print(f"held hand ok ({n} cases)")
 
 

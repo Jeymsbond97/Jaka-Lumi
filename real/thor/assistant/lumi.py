@@ -120,7 +120,7 @@ OCCLUSION_DROP = 0.3               # m; while the arm moves, a sudden drop in di
                                    # the person, not the person moving: ignore it
 CLOSE_BOX = 0.85                   # a person is really closer than TOO_CLOSE only if the box is this tall (frame part)
 HEAD_SIGN = 1.0                    # +image angle -> +head yaw (checked: + = robot's left)
-LOOK = {"left": (40, None), "right": (-40, None), "center": (0, 0), "up": (None, 20), "down": (None, -5)}
+LOOK = {"left": (40, None), "right": (-40, None), "center": (0, head.HEAD_REST_PITCH), "up": (None, 20), "down": (None, -5)}
 # ^ yaw/pitch in degrees for "look" commands: +yaw = left, +pitch = up (checked on the dashboard 2026-10-12)
 WAKE = re.compile(r"\b(hi|hey|hello|okay|ok|hai|high)?[\s,.!]*(lumi|lumia|loomi|loomy|lumie|lumee|lumy|lummy|lummi|looney|lu-mi|rumi|rumy|roomie)\b"
                   r"|루미|누미", re.I)
@@ -172,7 +172,7 @@ def needs_arm(action, target=""):
 
 
 def reach_turn(angle, patrol):
-    """Base turn (deg, + left) before "reach out to me" to a person at the waist-frame `angle` (None: nobody seen or
+    """Waist turn (deg, + left) before "reach out to me" to a person at the waist-frame `angle` (None: nobody seen or
     heard): 0 within REACH_FRONT_DEG of the front, the angle with Patrol on, else None (they are asked to stand in
     front: Greeter never turns the base or the waist)."""
     if angle is None:
@@ -193,7 +193,8 @@ DONE_TALK = re.compile(r"\b(bye+|goodbye|see you|never ?mind|nothing|that'?s (al
 TALK_RECENT_S = 20.0                # s; someone spoke with Lumi this recently: what they say next is to Lumi too
 ENOUGH = re.compile(r"\b(enough|no more)\b|그만해|됐어 ?그만", re.I)   # with stop_order: ends a mission at once
 ASK_NOT_ORDER = re.compile(r"\b(can|could|would|will) you\b|\bplease\b|줄래|줄 ?수|해 ?줘|주세요|(?<!뭐 )줘", re.I)   # a request
-LOOK_KEEP_S = 60.0                  # s after a "look left" (and after the last word or command since) the head stays there
+LOOK_HOLD_S = 35.0                  # s; a head direction asked for ("look up / left") is held this long after the last
+                                    # word, or until the conversation ends or a stop word (estimate)
 COMPANY_Q = re.compile(r"\b(cutshion|barista robot|drawing robot|your (maker|makers|company|ceo|price)|(this|the|that|what|which) company|"
                        r"ceo of (it|this|the company)|founder of (it|this)|mega ?coffee|"
                        r"sonovictus|omron|borgwarner|bogate|cnt tech|seed round|target market|business model|(your|cutshion'?s?) awards?|how much (do|does) (you|it|this|lumi) cost)\b|"
@@ -319,6 +320,15 @@ REACH_FRONT_DEG = 20.0             # deg; "reach out to me": a person further to
                                    # (Patrol) or asked to stand in front (Greeter). Estimate: the reach after give
                                    # moves at most fetch.RECEIVE_REACH_MM sideways
 STAND_IN_FRONT_SAY = ("Please stand in front of me.", "제 앞에 서 주세요.")
+GREETER_FRONT_SAY = ("I stay in place now, so I can't turn to you. Please stand in front of me.",   # Greeter: the person
+                     "지금은 제자리에 있어야 해서 돌 수 없어요. 제 앞에 서 주세요.")                       # is seen to the side
+REACH_HOLD_S = 30.0                # s the hand stays held out after a reach, then the arm folds back to look (estimate)
+REACH_DONE = re.compile(r"\b(?:thanks?|thank you|thx|ok(?:ay)?|got it|done|that'?s (?:it|all|enough)|enough|good|great|"
+                        r"nice|cool|alright|all right)\b|고마워|고맙|감사|됐어|됐습니다|됐다|좋아|오케이|그만", re.I)
+HAND_EMPTY_SAID = re.compile(   # the person says Lumi's hand is empty: checked again (fetch.check_hand), not just agreed
+    r"\b(?:nothing|not anything) (?:is )?in (?:your|ur) hand\b|\b(?:your|ur) hand(?:'s| is) empty\b|"
+    r"\byou(?:'re| are) not holding (?:anything|something)\b|\byou have nothing in (?:your|ur) hand\b|"
+    r"손에 ?(?:아무것도|아무 ?것도|뭐 ?없|없)|손 ?비었|빈 ?손이", re.I)
 STUCK_DRIVE_S = 20.0               # s "running" without moving -> the drive is cancelled and Lumi says so
 MODES_FILE = "/dev/shm/lumi_modes.json"   # written by api/server.py: {"greeter", "patrol", "wave", "drive"}
 CMD_FILE = "/dev/shm/lumi_cmd.json"       # written by api/server.py: {"id", "cmd": go | go_point | cancel | calibrate
@@ -735,6 +745,7 @@ class Lumi:
         self.closing_pending = None      # time of a weak closing word ("okay", "got it"): silence after it ends the talk
         self.lang = "en"
         self.skill_thread = None         # pick / put / move_object running in the background
+        self.reached_at = 0.0            # time the hand was held out by "give me your hand" (0: not out; reach_done)
         self.busy_now = ""               # last written to BUSY_FILE ("" = nothing written yet)
         self.last_song = None            # the song sung last ("another song" is a different one)
         self.mic = mic.get()
@@ -763,11 +774,17 @@ class Lumi:
 
     # ---------- actions ----------
     def look_held(self):
-        """After a "look left / behind" the head stays there until LOOK_KEEP_S pass with nothing said or asked."""
-        return time.time() - max(getattr(self, "looked_at", 0.0), getattr(self, "last_activity", 0.0)) < LOOK_KEEP_S \
+        """After a "look up / left / behind" the head stays there until LOOK_HOLD_S pass with nothing said or asked,
+        the conversation ends (head_rest) or a stop word."""
+        return time.time() - max(getattr(self, "looked_at", 0.0), getattr(self, "last_activity", 0.0)) < LOOK_HOLD_S \
             if getattr(self, "looked_at", 0.0) else False
 
-    def turn_head(self, yaw=None, pitch=None):
+    def turn_head(self, yaw=None, pitch=None, force=False):
+        """Automatic head moves (toward a speaker, a greeting, back to rest) wait while a look is held; force: an
+        order or a task."""
+        if not force and self.look_held():
+            return
+
         def run():
             try:
                 cur = head.status()
@@ -775,6 +792,11 @@ class Lumi:
             except Exception as e:
                 log(f"head error: {e}")
         threading.Thread(target=run, daemon=True).start()
+
+    def head_rest(self):
+        """End a held look and send the head to rest: ahead, looking down."""
+        self.looked_at = 0.0
+        self.turn_head(0, head.HEAD_REST_PITCH)
 
     def wave(self, ok=None, quiet=False):
         """Wave because someone asked or said "bye bye" in view (never on a greeting): manipulation/wave.py checks the
@@ -785,7 +807,7 @@ class Lumi:
             log("  waving is switched off (dashboard)")
             return False
         st = self.fetch_status()
-        why = (wave_mod.HOLDING if st == "holding" else
+        why = (wave_mod.HOLDING if st == "holding" and self.held_now() else   # a stale "holding": checked again
                wave_mod.BUSY if self.skill_busy() or self.mission_running() else
                wave_mod.DRIVING if follow.running() else None)
         try:
@@ -840,6 +862,8 @@ class Lumi:
 
     def act(self, action, target):
         log(f"action: {action} {target}")
+        if action in ARM_TASKS or action == "stop":
+            self.reached_at = 0.0                               # another arm job: the reach's auto fold is off
         if self.base_off(action, target, say=False):            # answer() has said why
             return
         if action in MOVING_ACTIONS and self.mission_running():
@@ -853,7 +877,9 @@ class Lumi:
             else:
                 track = track or (self.vision.only_person() if self.vision else None)
                 angle = track.angle if track else None      # no idea where they are: the head stays
-            self.turn_head(None if angle is None else HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), 10)
+            self.looked_at = time.time()                    # held like any look
+            self.turn_head(None if angle is None else HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), 10,
+                           force=True)
         elif action == "look" and target.split()[0:1] and (target.split()[0] in LOOK or target == "away"):
             self.look(target)
         elif action == "lift":
@@ -1110,6 +1136,7 @@ class Lumi:
         if self.patrol:
             self.patrol.pause()
             self.patrol = None
+        self.head_rest()                                   # a stop word ends a held look
         self.fetch_say("Okay, I stopped.", "네, 멈췄어요.")
         self.keep_listening()
 
@@ -1572,7 +1599,7 @@ class Lumi:
         if not (brain_mod.hand_request(text, False, self.brain, self.markers) or
                 brain_mod.hand_request(text, True, self.brain, self.markers)):
             return False
-        held = self.fetch_status() == "holding" or bool(safe(fetch.check_hand))
+        held = self.held_now()
         kind, what = brain_mod.hand_request(text, held, self.brain, self.markers) or (None, None)
         if kind is None:
             return False
@@ -1720,7 +1747,7 @@ class Lumi:
         first, moved in the background); 'open' / 'close': the gripper, never opened on something held. True when
         started, False when not learned, None when refused (the reason is said)."""
         from tasks import fetch
-        held = target in ("reach", "open") and (self.fetch_status() == "holding" or bool(safe(fetch.check_hand)))
+        held = target in ("reach", "open") and self.held_now()
         if target == "open" and held:                      # the model's "let go" while holding: it would fall
             log("  open refused: holding something")
             self.fetch_say(*brain_mod.REFUSE_OPEN)
@@ -1731,6 +1758,7 @@ class Lumi:
             return st is not None
         if target == "reach":
             return self.reach_out(held)
+        self.reached_at = 0.0                              # folding: no auto fold after it
         try:
             holding = self.fetch_status() == "holding"
             seq = arm_route.plan(arm_route.HOME, holding=holding)
@@ -1747,8 +1775,9 @@ class Lumi:
     def reach_out(self, held):
         """"Reach out to me", "give me your hand", "손 내밀어": something in the hand = hand it over. Else toward the
         person (the tracked one, else the one the voice came from, else the voice's direction): the head turns to
-        them; further to the side than REACH_FRONT_DEG the base turns first with Patrol on, Greeter asks them to stand
-        in front (reach_turn); then fetch.reach (give pose along the graph, a short checked move toward their hand).
+        them; further to the side than REACH_FRONT_DEG the waist turns first with Patrol on, Greeter says it stays in
+        place and asks them to stand in front (reach_turn); then fetch.reach (give pose along the graph, a short checked
+        move toward their hand). The arm folds back on "thanks" / "okay" or after REACH_HOLD_S (reach_done).
         True when started, None when refused or handed over (said)."""
         from tasks import fetch
         if held:
@@ -1763,11 +1792,11 @@ class Lumi:
                 self.vision.near_angle(self.voice_angle) if self.voice_trusted else self.vision.only_person()
         angle = track.angle if track else self.voice_angle if self.voice_trusted else None
         turn = reach_turn(angle, self.modes.patrol)
-        log(f"  reach: person at {'?' if angle is None else f'{angle:+.0f}'} deg, base turn {turn}")
+        log(f"  reach: person at {'?' if angle is None else f'{angle:+.0f}'} deg, waist turn {turn}")
         if turn is None:
-            self.fetch_say(*STAND_IN_FRONT_SAY)
+            self.fetch_say(*(STAND_IN_FRONT_SAY if angle is None else GREETER_FRONT_SAY))
             return None
-        self.turn_head(0 if turn else HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)))
+        self.turn_head(0 if turn else HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), force=True)
         self.stay()
         try:
             fetch.reach(turn, say=self.fetch_say)
@@ -1775,7 +1804,28 @@ class Lumi:
             log(f"  reach refused: {e}")
             self.fetch_say(e.args[0], e.args[1] if len(e.args) > 1 else "죄송해요, 지금은 할 수 없어요.")
             return None
+        self.reached_at = time.time()
         return True
+
+    def reach_done(self, text=None):
+        """The hand is held out (reach_out) and the reach has ended: "thanks" / "okay" / "고마워" / "됐어" (`text`) or
+        REACH_HOLD_S without one folds the arm back to look. True when it folded."""
+        if not getattr(self, "reached_at", 0.0) or self.fetch_status() == "running":
+            return False
+        if text is None and time.time() - self.reached_at < REACH_HOLD_S or text is not None and not REACH_DONE.search(text):
+            return False
+        if self.fetch_status() != "done":                  # the reach failed or was stopped: the arm stays as it is
+            self.reached_at = 0.0
+            return False
+        log(f"  reach over ({'said ' + repr(text) if text else 'timeout'}): the arm back to look")
+        return bool(self.arm_pose("fold"))
+
+    def held_now(self):
+        """Something in the hand now: the hand is checked (fetch.check_hand, which also forgets a stale "holding");
+        the state when it can't be. The stale state alone refused open / wave on an empty hand (2026-10-23 17:41)."""
+        from tasks import fetch
+        h = safe(fetch.check_hand)
+        return self.fetch_status() == "holding" if h is None else bool(h)
 
     # ---------- dashboard commands, trips ----------
     def poll_commands(self):
@@ -2336,8 +2386,9 @@ class Lumi:
             mouth.say(bye, abort=self.speak_abort)
         self.current, self.voice_until, self.closing_pending = None, 0.0, None
         self.brain.reset()
-        if not self.look_held():                     # "look behind": the head stays there a while (LOOK_KEEP_S)
-            self.turn_head(0, 0)
+        if not quiet:                                # a goodbye ends a held look; silence keeps it (LOOK_HOLD_S)
+            self.looked_at = 0.0
+        self.turn_head(0, head.HEAD_REST_PITCH)      # waits while a look is held
         if self.traveling():
             log("  conversation over - driving on")
             self.patrol.wait_until = time.time() + 0.5
@@ -2390,7 +2441,7 @@ class Lumi:
             mouth.say("Okay, I'll be quiet." if en else "네, 조용히 할게요.")
             self.quiet_until = time.time() + QUIET_S
             self.current, self.voice_until = None, 0.0
-            self.turn_head(0, 0)
+            self.head_rest()
             return True
         if action in ("pick", "put", "move_object"):
             self.object_task(action, target)
@@ -2513,9 +2564,8 @@ class Lumi:
             self.keep_listening()
             return
         from tasks import fetch                            # the way it goes: route(), as the dashboard's Command box
-        kind, data = route(text, self.markers, self.brain, lambda: self.fetch_status() == "holding" or
-                           bool(safe(fetch.check_hand)), seen=lambda x: seeing.answer(x, self.lang, slow_line=mouth.say),
-                           last=last, chain_ok=not part and not self.mission_running() and not self.chain_busy())
+        kind, data = route(text, self.markers, self.brain, self.held_now,
+                           seen=lambda x: seeing.answer(x, self.lang, slow_line=mouth.say), last=last, chain_ok=not part and not self.mission_running() and not self.chain_busy())
         if kind == "stop":
             self.stop_all()                                # "stop", "stop, where are you going?": stop first, always
             return
@@ -2531,6 +2581,14 @@ class Lumi:
             mouth.say(data)
             self.keep_listening()
             return
+        if HAND_EMPTY_SAID.search(text) and self.fetch_status() != "running":   # "there is nothing in your hand"
+            held = self.held_now()                         # checked again (AI_1, the torso camera), never just agreed
+            log(f"  told my hand is empty: checked, holding {held}")
+            self.brain.history.append((text, "ACTION: none -"))
+            self.fetch_say(*(("I still feel something in my hand.", "아직 손에 뭔가 있는 것 같아요.") if held else
+                             ("You're right, my hand is empty.", "맞아요, 손이 비어 있어요.")))
+            self.keep_listening()
+            return
         if kind == "status":                               # what am I doing / where am I going
             en, ko = self.now_doing()
             log(f"  status: {en}")
@@ -2543,6 +2601,8 @@ class Lumi:
             return
         if self.fetch_voice(text):                         # before the closing words: "thank you" while giving
             return
+        if not (kind == "quick" and data and data[0] == "arm"):
+            self.reach_done(text)                          # "okay, thanks" with the hand held out: the arm back to look
         place = consent_place(text, self.brain, self.markers)
         if place:                                          # "p3로 갈 수 있어요?" ... "그럼 가 보세요."
             self.go_offered(place)
@@ -2623,12 +2683,12 @@ class Lumi:
             log(f"  quiet for {QUIET_S / 60:.0f} min (no greetings; \"Hi Lumi\" still works)")
             self.quiet_until = time.time() + QUIET_S
             self.current, self.voice_until = None, 0.0
-            self.turn_head(0, 0)
+            self.head_rest()
             return
         if head_["action"] in ("receive", "give", "place"):  # the model read a hand request the rules missed
             gen.close()
             from tasks import fetch
-            held = self.fetch_status() == "holding" or bool(safe(fetch.check_hand))
+            held = self.held_now()
             self.brain.history.append((text, f"ACTION: {head_['action']} -"))
             if head_["action"] == "receive":
                 self.receive_from_hand(brain_mod._mentions(text, self.markers).get("object"), held)
@@ -2942,6 +3002,7 @@ class Lumi:
         """One pass of the camera behaviour (see the module docstring)."""
         self.modes.refresh()
         self.poll_commands()
+        self.reach_done()                                  # the hand held out REACH_HOLD_S: back to look
         self.publish_busy(self.doing())
         if self.patrol and self.patrol.mode == "done" and not self.a.patrol:
             self.patrol = None                             # a dashboard / voice trip has arrived
@@ -2979,7 +3040,7 @@ class Lumi:
                 # often still there, out of the frame (beside the arm): keep listening without the wake word
                 # for a while, like a conversation started by voice. After "look left" the head stays there
                 if not self.look_held():
-                    self.turn_head(0, 0)
+                    self.turn_head(0, head.HEAD_REST_PITCH)
                 self.voice_until = time.time() + VOICE_SESSION_S
             self.last_activity, self.prompts = time.time(), 0
             return
@@ -2998,9 +3059,8 @@ class Lumi:
                     self.voice_until = max(self.voice_until, time.time() + VOICE_SESSION_S)
                 return
             if getattr(self, "looked_at", 0.0) and not self.look_held():
-                log(f"  nothing said for {LOOK_KEEP_S:.0f} s after a look: head ahead")
-                self.looked_at = 0.0
-                self.turn_head(0, 0)
+                log(f"  nothing said for {LOOK_HOLD_S:.0f} s after a look: head to rest")
+                self.head_rest()
             if self.voice_until:
                 log("voice conversation over (silence): the wake word or a wave again")
                 self.end_conversation(None, quiet=True)    # Lumi never speaks unasked: no goodbye into a silence

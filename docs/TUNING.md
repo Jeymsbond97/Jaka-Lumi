@@ -108,7 +108,8 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `assistant/steps.py` | `WAIT_ORDER_S` | 5 min | "do what they tell you": no instruction by then, the mission goes on with its rest |
 | `tasks/fetch.py` | `RECEIVE_REACH_MM`, `RECEIVE_SHORT_MM`, `RECEIVE_MIN_MM` | 150, 100, 20 mm | "Take this from my hand" and "reach out to me": the hand moves at most this far from `give` towards the thing in the hand (or their hand), stops this far before it, leaves out a shorter move. Estimates |
 | `tasks/fetch.py` | `REACH_BODY_MM` | 300 mm | "Reach out to me" with no hand of theirs seen: the hand stops this far before the person's body. Estimate |
-| `assistant/lumi.py` | `REACH_FRONT_DEG` | 20° | "Reach out to me": a person further to the side is turned to first (Patrol) or asked to stand in front (Greeter). Estimate |
+| `assistant/lumi.py` | `REACH_FRONT_DEG` | 20° | "Reach out to me": a person further to the side is turned to first with the waist (Patrol) or asked to stand in front (Greeter). Estimate |
+| `assistant/lumi.py` | `REACH_HOLD_S` | 30 s | The hand stays held out this long after a reach without "thanks" / "okay", then the arm folds back to `look`. Estimate |
 | `tasks/fetch.py` | `POINT_STEPS_MM` | 0, ±50, ±100 mm | "Put it here" with pointing: spot grid around the pointed point |
 | `tasks/fetch.py` | `RECEIVE_DI_S` | 0.5 s | `receive`: the finger sensor (DI_1) must see something this long before Lumi asks the person to let go (the hand closes on their "okay") |
 | `tasks/fetch.py` | `MOVE_SEGMENT_M` | 0.25 m | A mission `move` is driven in pieces this long; the way of the base and the arm is checked again before each (also what the base rolls on meanwhile, `JOY_HOLD_S` 0.5 s); the base does not stop between pieces |

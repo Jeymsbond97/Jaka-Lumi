@@ -177,6 +177,7 @@ for th in threading.enumerate():                                    # a wave sta
         th.join(10)
 assert track.greeted and said == [lumi.GREETING] and calls == [], calls
 fetch.STATE_FILE.write_text('{"status": "idle", "holding": true}')
+hand["holding"] = True                                              # the hand checked again: really held
 said.clear()
 assert L.wave(("Okay!", "네!")) is False and said == [wave.HOLDING[0]]
 L.lang = "ko"
@@ -184,6 +185,11 @@ said.clear()
 assert L.wave() is False and said == [wave.HOLDING[1]]
 said.clear()
 assert L.wave(quiet=True) is False and said == []                    # a goodbye wave refused: no words about it
+hand["holding"] = False                                             # a stale "holding", the hand empty (2026-10-23
+real_wave, wave.wave = wave.wave, lambda on_start=None: None        # 17:43): checked again, not refused for holding
+said.clear()
+assert L.wave() is True and said == [] and not fetch.state()["holding"], said
+wave.wave = real_wave
 fetch.STATE_FILE.unlink()
 
 # ---------- "bye bye" to the person in view: a (quiet) wave beside the goodbye; else only the goodbye ----------

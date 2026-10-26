@@ -517,7 +517,7 @@ def head_goal(target, yaw, pitch, look=None, yaw_max=HEAD_YAW[1], pitch_range=HE
     """A look target and the head's yaw / pitch now -> (yaw, pitch, limited): limited is "yaw" / "pitch" when a
     number asked for was past the head's range and was cut to it. look: {direction: (yaw, pitch)} for the plain
     words (lumi.LOOK); +yaw = left, +pitch = up."""
-    look = look or {"left": (40, None), "right": (-40, None), "center": (0, 0), "up": (None, 20), "down": (None, -5)}
+    look = look or {"left": (40, None), "right": (-40, None), "center": (0, head_hw.HEAD_REST_PITCH), "up": (None, 20), "down": (None, -5)}
     d, _, n = target.partition(" ")
     if d == "away":                                     # aside from where it looks now (at the person)
         return (yaw - HEAD_AWAY_DEG if yaw >= 0 else yaw + HEAD_AWAY_DEG), pitch, None
@@ -976,6 +976,16 @@ def _other_order(t, m, markers):
                intent(p, markers) is None for p in parts)
 
 
+ARM_BACK = re.compile(        # the arm back to look (fold), said after a reach; the owner's words of 2026-10-23 17:42
+    r"\b(?:take|pull|bring|draw|put|get) (?:your |the |ur )?(?:hand|arm) (?:back|in|down|away)\b|"
+    r"\b(?:put|get|lower) (?:your |the )?(?:hand|arm) down\b|\blower (?:your |the )?(?:hand|arm)\b|"
+    r"^\W*(?:(?:okay|ok|lumi|now|please)\W+)*(?:your |the )?arm (?:back|down|in)(?: home| now| please)*\W*$|"
+    r"\b(?:back )?to (?:your |the )?look (?:pose|position)\b|^\W*(?:your |the )?look (?:pose|position)\W*$|"
+    r"\bfold (?:your |the )?(?:arm|hand)\b|"
+    r"손 ?(?:을 )?(?:좀 )?(?:내려|거둬|접어|넣어|치워)|팔 ?(?:을 )?(?:좀 )?(?:내려|거둬|접어|넣어|치워|원위치)", re.I)
+ARM_BACK_NOT = re.compile(r"(?<!why )\b(?:don'?t|do not|never|no need to)\b|[가-힣]지 ?마(?:세요|요|라)?(?![가-힣])")
+
+
 def intent(text, markers=()):
     """(action, target) for clear requests, or None. Backs up the LLM's ACTION line."""
     held = not_an_order(text, asked=False)                  # "민수야 이리 와 봐": to a friend; "she said follow me"
@@ -990,6 +1000,8 @@ def intent(text, markers=()):
                      re.sub(_LEAD, "", CALLING.sub("", t), flags=re.I)) or LATER.search(CALLING.sub("", t))   # "Lumi, is it
                                                             # hard to ...?", "Lumi Lumi, are you still following me?"
     visitor = re.search(r"^\W*(?:can|may|could|should|shall) (?:i|we)\b", CALLING.sub("", t))   # "can I come closer?"
+    if ARM_BACK.search(t) and not (held or asks or visitor or ARM_BACK_NOT.search(t)):
+        return ("arm", "fold")                              # "take your hand back", "back to look position": never the base
     for action, pat in INTENTS:
         m = re.search(pat, t, re.I)
         if not m:

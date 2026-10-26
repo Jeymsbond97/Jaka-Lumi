@@ -115,6 +115,9 @@ def numbers(t):
     t = re.sub(r"\bone and a half\b", "1.5", t)
     t = re.sub(rf"\b({'|'.join(TENS)})(?:[ -]({'|'.join(list(EN_NUM)[:9])}))?\b",
                lambda m: str(TENS[m.group(1)] + EN_NUM.get(m.group(2), 0)), t)
+    if re.search(r"\b(?:turn|rotat\w*|spin|swivel|pivot|degrees?)\b|돌|회전", t):     # "turn left one eighty": 180
+        t = re.sub(r"\b(one|two|three) ([2-9]0)\b(?!\s*(?:m|cm|mm|meters?|metres?|centimet\w*)\b)",
+                   lambda m: str(100 * _num(m.group(1)) + int(m.group(2))), t)
     t = re.sub(rf"\b(?:a|one|1) thousand\b|\b(\d+|{'|'.join(EN_NUM)}) thousand\b",
                lambda m: str(1000 * _num(m.group(1)) if m.group(1) else 1000), t)     # "a thousand", "five thousand"
     t = re.sub(rf"\b([2-9]|{'|'.join(list(EN_NUM)[1:9])}) hundred(?: and)?(?: (\d+))?\b",
@@ -160,6 +163,10 @@ def numbers(t):
     t = re.sub(r"(?<![\d.])(\d+)(?: m)? and (?:a )?(?:half|0\.5)(?: m)?", lambda m: f"{int(m.group(1)) + 0.5:g} m", t)
     t = re.sub(r"(?<![\d.])(\d+) ?m 반", lambda m: f"{int(m.group(1)) + 0.5:g} m", t)
     t = re.sub(r"\ba 0\.5 m", "0.5 m", t)
+    t = re.sub(rf"(?<![\d.])(\d+) ?m ?({_SINO}|\d{{2}})(?![\d.가-힣]|\s*(?:m|도|°|degrees?|cm|센|초|분|seconds?|minutes?)\b)",
+               lambda m: f"{int(m.group(1)) + (int(m.group(2)) if m.group(2).isdigit() else sino(m.group(2))) / 100:g} m"
+               if 10 <= (int(m.group(2)) if m.group(2).isdigit() else sino(m.group(2)) or 0) < 100 else m.group(0), t)
+    # "1미터50", "one meter fifty", "일 미터 오십": the centimetres after the metres
     return re.sub(r"(\d)\s*m(?![a-z])", r"\1 m", t)
 
 
@@ -330,6 +337,152 @@ MOVE_SAID = re.compile(rf"\b(?:go|move|drive|step|come|turn)\b|{_DIR}|가|와|�
 NOT_MOVE = re.compile(r"\b(?:come|look|turn|wave|give|bring|hand|show)\b[^.!?]*\bto me\W*$")
 
 
+NOT_LATER = re.compile(r"[\s,;]*\b(?:and |but |so )?(?:not|no) (?:later(?! than)|tomorrow|tonight|afterwards?|next time|"
+                       r"in a (?:bit|while|minute|moment|sec(?:ond)?))\b[\s.!]*|"
+                       r"[\s,]*(?:나중에?|이따가?|있다가|다음에) ?(?:말고|아니고)(?![가-힣])", re.I)
+    # "go to the stage, right now, not later", "지금 가, 나중 말고": said to mean now; the later-time guards must not see it
+
+
+def now_not_later(t):
+    """The words without "not later" / "나중 말고" (NOT_LATER)."""
+    return re.sub(r"\s{2,}", " ", NOT_LATER.sub(" ", t or "")).strip() or (t or "")
+
+
+def _jamo(c):
+    n = ord(c) - 0xAC00
+    return (n // 588, n // 28 % 21, n % 28) if 0 <= n < 11172 else None
+
+
+def _syl(l, v, t=0):
+    return chr(0xAC00 + (l * 21 + v) * 28 + t)
+
+
+def aform(stem):
+    """The 아/어 form of a Korean verb stem, the form a plain request ends in: 가 -> 가, 오 -> 와, 따라오 -> 따라와,
+    주 -> 줘, 기다리 -> 기다려, 하 -> 해, 집 -> 집어, 잡 -> 잡아, 놓 -> 놔, 누르 -> 눌러, 끄 -> 꺼."""
+    if not stem or not _jamo(stem[-1]):
+        return stem
+    if stem.endswith("하"):
+        return stem[:-1] + "해"
+    if stem.endswith("놓"):
+        return stem[:-1] + "놔"
+    l, v, t = _jamo(stem[-1])
+    if t:
+        return stem + ("아" if v in (0, 8) else "어")
+    if stem[-1] == "르" and len(stem) > 1 and _jamo(stem[-2]) and not _jamo(stem[-2])[2]:
+        pl, pv, _ = _jamo(stem[-2])
+        return stem[:-2] + _syl(pl, pv, 8) + ("라" if pv in (0, 8) else "러")
+    v = {8: 9, 13: 14, 20: 6, 18: 4, 11: 10}.get(v, v)          # 오 -> 와, 주 -> 줘, 리 -> 려, 끄 -> 꺼, 되 -> 돼
+    return stem[:-1] + _syl(l, v) + ("어" if v == 16 else "")
+
+
+KO_SOCIAL = {"안녕하", "수고하", "고생하", "감사하", "축하하", "조심하", "계", "드", "주무", "잡수", "들어가", "쉬", "반갑", "알",
+             "맞", "아니", "뭐", "그", "이", "누구", "어디", "왜", "마", "말"}   # "안녕하세요", "들어가세요", "뭐라고?": kept as said
+KO_SOCIAL_BEFORE = re.compile(r"(?:안녕히|조심히|살펴|잘|편히|어서)\s*$")   # "안녕히 가세요", "어서 오세요": greetings
+KO_L_DROP = {"도": "돌", "흔드": "흔들", "여": "열", "내미": "내밀", "미": "밀", "도시": "돌"}   # 도세요 is 돌다's
+_END = r"(?=(?:\s+(?:빨리|얼른|어서|좀|제발|당장|지금|please|now|루미야?|로봇아?))*\s*(?:[,.!?~…]|$))"   # a clause's end
+_END_NOT_ASKED = r"(?=(?:\s+(?:빨리|얼른|어서|좀|제발|당장|지금|please|now|루미야?|로봇아?))*\s*(?:[,.!~…]|$))"
+_HON = r"(?:세요|세용|세여|십시오|시오|셔요|시죠|실래요|실래|시겠어요|시겠습니까|시겠어|시게|이소(?:마|예)?|거라|너라|렴|라고요?|랑께요?|래이|이라|쇼|시라|시지요|실래예|씨요|세예)"
+_LOOK_AT = r"(왼쪽|오른쪽|위|위쪽|아래|아래쪽|뒤|뒤쪽|앞|하늘|천장|바닥|여기|이쪽|저쪽|나|날|저|정면|좌측|우측)"
+KO_PLAIN = [
+    (re.compile(r"(?<=아니 )(\S+?)(?:이요|요)(?=\s*(?:[,.!?~…]|$))"), r"\1"),          # "아 아니 정면이요": the noun
+    (re.compile(r"오른쭉|오른족"), "오른쪽"), (re.compile(r"(?<![가-힣])외쪽"), "왼쪽"), (re.compile(r"고게(?= )"), "고개"),
+    (re.compile(r"(루미야|루미씨|루미 씨)(?=[가-힣])"), r"\1 "),                       # "루미야오른쪽 봐"
+    (re.compile(r"(?<![가-힣])쫌(?![가-힣])"), "좀"), (re.compile(r"(?<![가-힣])놉여"), "높여"),
+    (re.compile(r"(?<= )주드라(?:고|구)|(?<= )주드랑께"), "줘"),                       # 전라: "와 주드라고"
+    (re.compile(r"(?<![가-힣])(\S*(?:돌아오|따라오|다가오|가져오|이리 오|일로 오))게" + _END), lambda m: aform(m.group(1))),
+                                                                                   # 하게체: "돌아오게", "이리 오게"
+    (re.compile(r"(\S+) ?주셨으면 (?:해요|합니다|좋겠(?:어요|습니다|네요))" + _END), r"\1 줘"),   # "내려가 주셨으면 해요"
+    (re.compile(r"(?<= )조(?:잉)?(?=\s*(?:[,.!?~…]|$))"), "줘"),                       # "흔들어 조잉", "손 한번 조"
+    (re.compile(r"악수 ?(?:한 ?번)? ?(?:할까요?|하실래요?|합시다|하십시다|하자잉|허자잉?|하입시더)"), "악수하자"),   # shake hands = wave
+    (re.compile(r"(?<=[가-힣](?:라|자)) 마(?=\s*(?:[,.!?~…]|$))"), ""),                 # 경상: "팔 접어 봐라 마"
+    (re.compile(_LOOK_AT + r" ?(?:한번 )?(?:바|보게)(?= 주|\s*(?:[,.!?~]|$))"), r"\1 봐"),   # whisper "왼쪽바", 하게체 "하늘보게"
+    (re.compile(r"(\S+) ?주면 안 (?:돼|될까|되나|되겠니|되겠어|되겠습니까)(?:요)?\s*\??" + r"(?=\s*(?:[,.!~…]|$))"), r"\1 줘?"),
+                                                                                   # "봐 주면 안 돼?": please look
+    (re.compile(r"(?<=\S) 주게(?=\s*(?:[,.!?~…]|$))"), " 줘"),                        # 하게체: "봐 주게"
+    (re.compile(r"(?<![가-힣])볼래(?:요)?\s*\?*(?=\s*(?:[,.!~…]|$))"), "봐 줘?"),      # "나 볼래요?", "천장 봐 볼래요?"
+    (re.compile(r"(?<![가-힣])(\S*(?:려|어|아|와|봐|해|줘)) 도(?=\s*(?:[,.!?~…]|$))"), r"\1 줘"),   # 경상: "돌려 도"
+    (re.compile(r"(?<![가-힣])아프로(?=\s|$)"), "앞으로"),                            # "아프로 가": 앞으로 as said
+    (re.compile(r"(?<=[\d일이삼사오육칠팔구십 ])(?:메타|미타|메다)(?![가-힣])"), "미터"),   # "삼메타"
+    (re.compile(r"(\S+) ?줬으면 (?:좋겠(?:어요?|습니다|다|네요)|해요?|싶어요?)" + _END), r"\1 줘"),   # "가 줬으면 좋겠어"
+    (re.compile(r"(?<=[가-힣]) ?줘 ?봐(?:요)?" + _END), " 줘"),                      # "출발해 줘 봐"
+    (re.compile(r"(?<![가-힣])(\S*(?:가|와|봐|해|어|아|려|워))조" + _END), r"\1 줘"),   # whisper: "가조", "따라와조"
+    (re.compile(r"(?<![가-힣])(\S*(?:가|와|해|어|아|려|워|봐)) 볼래(?:요)?" + _END), r"\1 봐"),   # "나와 볼래?"
+    (re.compile(r"(?<![가-힣])(\S*하)게" + _END), lambda m: aform(m.group(1))),   # 하게체: "이동하게" -> 이동해
+    (re.compile(r"(\S+) ?주(?:시|)면 (?:돼요?|됩니다|돼|좋겠(?:어요?|습니다|다|네요)|고맙겠(?:어요?|습니다)|감사하겠(?:어요?|습니다)|"
+                r"감사(?:하겠습니다|드리겠습니다|해요)?)" + _END), r"\1 줘"),          # "가 주면 돼", "주시면 감사하겠습니다"
+    (re.compile(r"(?<![가-힣])(\S*?[가-힣])(?:으)?면 (?:돼요?|됩니다)" + _END_NOT_ASKED), "STEM"),   # "날 따라오면 돼"
+    (re.compile(r"(?<![가-힣])(\S*[가-힣])\s?(?:줄래요?|줄 수 (?:있어요?|있니|있나요|있습니까)|주실 수 (?:있어요|있나요|있습니까|있으세요)|"
+                r"주시겠어요|주시겠습니까|주실래요)" + _END), r"\1 줘"),
+    (re.compile(r"(?<![가-힣])(\S*?[가-힣])(?:으)?" + _HON + _END), "STEM"),          # 가세요, 따라오십시오, 보이소, 집으세요
+    (re.compile(r"(?<![가-힣])(\S*[가-힣])(?: 수 (?:있을까요?|있겠(?:어요|니|습니까)|있으실까요|있으시겠어요))\s*\??" + _END),
+     "CAN_L"),                                                                       # "갈 수 있을까요?": please go
+    (re.compile(r"(?<![가-힣])(\S*[가-힣]) 거 (?:돼요|되나요|될까요|가능해요|가능할까요|가능합니까|가능하세요)\s*\??" + _END),
+     "CAN_N"),                                                                       # "가는 거 돼요?"
+    (re.compile(r"(?<![가-힣])(\S*(?:해|가|와|봐|줘|돌아|어|아|려|워|쳐|져|켜|꺼|둬|놔|펴|서|내))(?:요|라|유|부러|불어|뿌러|뿌라|삐라|잉|용)" + _END),
+     r"\1"),                                                                      # 해요, 가라, 해유, 해부러, 줘잉
+    (re.compile(r"(?<![가-힣])혀" + _END), "해"),                                   # 전라: "빨리 혀"
+    (re.compile(r"(?<![가-힣])가 ?온나" + _END), "가져와"),                           # 경상: "컵 가온나" is 가져와
+    (re.compile(r"(\S*)온나" + _END), r"\1와"),                                     # 경상: "따라온나", "이리 온나"
+    (re.compile(r"((?:고개|머리|얼굴|손|팔)\s?(?:좀\s)?)드(?:세요|십시오|시오|이소|셔요)" + _END), r"\1들어"),   # "고개 드세요": 들다
+    (re.compile(r"((?:그거|이거|저거|그것|이것|저것|그 컵|이 컵|좀|빨리|퍼뜩|언능|얼른) )도" + _END), r"\1줘"),   # 경상: "그거 도"
+]
+
+
+def _stem_l(word):
+    """The verb stem of a 관형형 before 수: 갈 -> 가, 숙일 -> 숙이, 집을 -> 집, 들 -> 들, 돌 -> 돌; None when it is none."""
+    if word.endswith("을") and len(word) > 1:
+        return word[:-1]
+    j = _jamo(word[-1])
+    if not j or j[2] != 8:
+        return None
+    stem = word[:-1] + _syl(j[0], j[1])
+    return {"드": "들", "도": "돌", "여": "열", "미": "밀", "내미": "내밀", "흔드": "흔들"}.get(stem, stem)
+
+
+def _can_you(m, kind):
+    """"홈으로 갈 수 있을까요?", "고개 숙일 수 있겠어요?", "가는 거 돼요?": a polite request -> "가 줘?"."""
+    w = m.group(1)
+    if w in ("그럴", "이럴", "저럴", "알", "될", "있을", "없을", "믿을", "잘", "그렇게", "어떻게", "그러는", "이러는"):
+        return m.group(0)                                  # "그럴 수 있을까요?", "알 수 있을까요?": no request
+    stem = _stem_l(w) if kind == "CAN_L" else (w[:-1] if w.endswith("는") and len(w) > 1 else None)
+    if kind != "CAN_L" and stem:
+        stem = {"도": "돌", "드": "들", "여": "열", "흔드": "흔들", "내미": "내밀"}.get(stem, stem)
+    if not stem or stem in KO_SOCIAL:
+        return m.group(0)
+    return aform(stem) + " 줘?"
+
+
+def _stem_aform(word):
+    """'따라오' -> '따라와', with KO_SOCIAL kept as they are and 도 -> 돌아 (KO_L_DROP); None when kept."""
+    if word in KO_SOCIAL or word.split()[-1] in KO_SOCIAL:
+        return None
+    return aform(KO_L_DROP.get(word, word))
+
+
+def ko_plain(t):
+    """Korean request endings of every speech level and dialect as one plain form, so the readers see one wording:
+    "가세요" / "가십시오" / "가요" / "가라" / "가이소" -> "가"; "따라오세요" / "따라온나" / "따라오라고" -> "따라와";
+    "가 주세요" / "가 주실래요?" / "가 주시겠습니까?" / "가 주면 돼" / "가 주시면 감사하겠습니다" -> "가 줘"; "도세요" -> "돌아";
+    "흔드세요" -> "흔들어"; "해부러" / "혀" -> "해". Greetings ("안녕하세요", "들어가세요") stay; questions keep their "?"."""
+    if not t or not re.search(r"[가-힣]", t):
+        return t
+    for rx, to in KO_PLAIN:
+        if to in ("CAN_L", "CAN_N"):
+            t = rx.sub(lambda m: _can_you(m, to), t)
+        elif to == "STEM":
+            def stem(m):
+                w = m.group(1)
+                if KO_SOCIAL_BEFORE.search(m.string[:m.start()]):
+                    return m.group(0)
+                got = _stem_aform(w[:-1] if w.endswith("으") and len(w) > 1 and _jamo(w[-2]) and _jamo(w[-2])[2] else w)
+                return got if got else m.group(0)
+            t = rx.sub(stem, t)
+        else:
+            t = rx.sub(to, t)
+    return t
+
+
 def number_slips(t):
     """Whisper's slips of a distance in a move command (NUMBER_SLIPS); text without a move is left as it is."""
     if not MOVE_SAID.search(t):
@@ -345,6 +498,8 @@ def norm(text, names=()):
     """Lower case, whisper's slips (ASR_SLIPS), Konglish directions (KONGLISH), numbers first ("point five meters" is
     a distance), then marker names (names: the map's)."""
     t = " " + (text or "").lower().replace("’", "'") + " "
+    t = re.sub(r"(\S+)[—–-]+\s*(?=\1)", "", t)                              # a stutter: "육십 센— 센티", "go ah— ahead"
+    t = re.sub(r"(?<=[가-힣])(?=\d+(?:\.\d+)?\s*(?:미터|센티|센치|cm|m\b|도))", " ", t)   # "오른쪽으로80센티미터"
     for slip, said in ASR_SLIPS + KONGLISH:
         t = re.sub(slip, said, t)
     t = number_slips(t)

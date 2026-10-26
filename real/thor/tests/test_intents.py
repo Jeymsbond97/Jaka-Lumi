@@ -130,6 +130,7 @@ assert brain.head_goal("right 200", 0, 0) == (-180.0, 0, "yaw")
 assert brain.head_goal("up 50", 0, 0) == (0, 35.0, "pitch")
 assert brain.head_goal("left small", 10, 0) == (25.0, 0, None)
 assert brain.head_goal("down", 20, 10) == (20, -5, None)
+assert brain.head_goal("center", 30, 20) == (0, brain.head_hw.HEAD_REST_PITCH, None) == (0, -5.0, None)   # rest: looking down
 assert brain.head_goal("left", 40, 0) == (55.0, 0, None) and brain.head_goal("right", -40, 0) == (-55.0, 0, None)   # "look left"
 assert brain.head_goal("up", 0, 20) == (0, 30.0, None) and brain.head_goal("left", -40, 0) == (40, 0, None)   # again: further
 for said, want in {"Look at the left side.": "left", "Look at the right side.": "right", "Lumi, look at the left side.": "left",

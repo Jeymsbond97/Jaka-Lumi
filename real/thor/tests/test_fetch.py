@@ -189,7 +189,7 @@ where = {"how": "unseen"}                                                 # what
 skills.locate = lambda xy, top, table, width, radius=None: \
     (where["how"], {"x": xy[0], "y": xy[1], "top_mm": top, "width_mm": width} if where["how"] == "here" else None)
 body = {"lift": 75.0}
-fetch.head.status = lambda: [body["lift"], -15.0, 0.0, 0.0]
+fetch.head.status = lambda: [body["lift"], -15.0, *fetch.HEAD_AHEAD]   # the head at rest
 fetch.head.moveto = lambda pos, **kw: (calls.append(("lift", pos[0])), body.update(lift=pos[0]))
 skills.arm.cmd = lambda *a, **kw: (_ for _ in ()).throw(AssertionError(f"real arm command in a test: {a}"))
 skills.ik_chain = lambda wp, j: [[n, p, [0] * 6, None] for n, p in wp]
@@ -700,7 +700,7 @@ fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2, "waist_deg
 waist = {"deg": -15.0}
 real_status, real_move = fetch.head.status, fetch.head.moveto
 real_blocked, real_find_any = fetch._sweep_blocked, fetch._find_any
-fetch.head.status = lambda: [75.0, waist["deg"], 0.0, 0.0]
+fetch.head.status = lambda: [75.0, waist["deg"], *fetch.HEAD_AHEAD]
 fetch.head.moveto = lambda pos, **kw: waist.update(deg=pos[1])
 fetch._sweep_blocked = lambda deg, what: round(fetch._waist_turn() + deg) in blocked          # by where it would end
 waist["deg"], blocked = 45.0, {0}
@@ -922,8 +922,8 @@ ahead = lambda mm, side=0.0: [g0[0] + mm, g0[1] + side, g0[2]]
 scene["person_in_front"] = {"position_mm": ahead(900.0), "hands": {"left": {"position_mm": ahead(600.0, 100.0),
                             "distance_m": 1.1}, "right": {"position_mm": ahead(400.0), "distance_m": 0.9}}}
 turns = []
-real_turn = fetch._turn
-fetch._turn = lambda deg, holding=False, why="": turns.append(deg) or deg < 90
+real_waist_to = fetch._waist_to
+fetch._waist_to = lambda deg: turns.append(deg) or deg < 90
 
 
 def reached(angle=0.0):
@@ -947,13 +947,16 @@ assert st["status"] == "done" and poses()[-1] == "give" and not moves, (st, move
 scene["person_in_front"] = None                                                   # nobody seen: the hand at give
 st, moves = reached()
 assert st["status"] == "done" and poses()[-1] == "give" and not moves, (st, moves)
-st, moves = reached(40.0)                                     # to the side (Patrol): the base turns first, by the
+st, moves = reached(40.0)                                     # to the side (Patrol): the waist turns first, by the
 assert turns == [40.0 + fetch._waist_turn()] and poses()[-1] == "give", (turns, poses())   # waist's offset too
 turns.clear()
 said.clear()
-st, moves = reached(120.0)                                    # the turn refused (charger, sweep): the arm stays
+st, moves = reached(120.0)                                    # the waist turn refused (sweep): the arm stays
 assert st["status"] == "failed" and not poses() and said[-1] == fetch.TURN_TO_PERSON[0], (st, said)
-fetch._turn = real_turn
+turns.clear()
+st, moves = reached(160.0)                                    # past the waist's limit (-15 + 160 > 140): stand in front
+assert st["status"] == "failed" and not turns and not poses() and said[-1] == fetch.TURN_TO_PERSON[0], (st, turns)
+fetch._waist_to = real_waist_to
 fetch._line_rows, fetch._scene = real_line_rows, real_scene
 hand["front"] = False
 # the cup is in the hand but nobody says okay: the hand never closes (their fingers may be in it)

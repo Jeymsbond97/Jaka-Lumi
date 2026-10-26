@@ -1,6 +1,8 @@
 """The live sequence of 2026-10-23 15:21-15:23, replayed with fakes: "give me a hand" / handshake words with an empty
 hand are arm reach (the rules, not the LLM's "I can't shake hands"), and a reach whose body move hangs ends at once on
-STOP, so the next "give me your hand" starts instead of "I'm busy with another task". No robot.
+STOP, so the next "give me your hand" starts instead of "I'm busy with another task". And 2026-10-23 17:40-17:43:
+"close your hand" on nothing is not holding (the camera saw the person's hand by the held-out arm), "there is nothing
+in your hand" checks the hand again, and "okay, thank you" / a timeout folds the held-out arm. No robot.
 
     .venv/bin/python tests/test_reach_live.py
 """
@@ -57,4 +59,42 @@ hung.set()                                        # the body answers again
 fetch.reach(0.0)                                  # the next "give me your hand": starts, not "busy"
 fetch._thread.join(2)
 assert moved == ["give", "hand"] and fetch.state()["status"] == "done", (moved, fetch.state()["status"])
-print(f"reach live ok ({len(REACH) + len(NOT_REACH)} wordings, stop during a hung body move)")
+# ---------- closed on nothing is empty, whatever the camera sees ----------
+grip = {"ai": [4153.0, 489.0], "holding": False}                 # the live close of 17:40:39
+fetch.gripper.state = lambda: dict(grip)
+fetch.skills.hand_sees = lambda: "object"                         # the person's hand by the held-out fingers
+assert fetch._in_hand() is False
+fetch._set(status="done", holding=True)                           # the stale "holding" of 17:41
+assert fetch.check_hand() is False and not fetch.state()["holding"]
+grip.update(ai=[3500.0, 489.0], holding=True)                     # closed on a cup: held
+fetch.skills.hand_sees = lambda: "unknown"
+assert fetch._in_hand() is True
+
+# ---------- the person says the hand is empty; "okay, thank you" / a timeout folds a held-out arm ----------
+from assistant import lumi
+for t in ["There is nothing in your hand.", "your hand is empty", "you're not holding anything", "손에 아무것도 없어",
+          "손에 아무것도 없잖아요", "손 비었어"]:
+    assert lumi.HAND_EMPTY_SAID.search(t), t
+for t in ["is there anything in your hand?", "what's in your hand", "give me your hand"]:
+    assert not lumi.HAND_EMPTY_SAID.search(t), t
+L = lumi.Lumi.__new__(lumi.Lumi)
+folds, status = [], {"now": "done"}
+L.fetch_status = lambda: status["now"]
+L.arm_pose = lambda target: folds.append(target) or True
+for text, want in [("Okay, thank you.", True), ("okay thanks", True), ("고마워", True), ("됐어", True),
+                   ("what's the weather?", False), (None, False)]:
+    folds.clear()
+    L.reached_at = time.time()
+    assert L.reach_done(text) == want and folds == (["fold"] if want else []), (text, folds)
+L.reached_at = time.time() - lumi.REACH_HOLD_S - 1                # nobody said anything: the timeout folds
+folds.clear()
+assert L.reach_done() and folds == ["fold"]
+status["now"] = "running"                                         # still reaching: not yet
+L.reached_at, folds[:] = time.time() - lumi.REACH_HOLD_S - 1, []
+assert not L.reach_done("thanks") and not folds
+status["now"] = "failed"                                          # the reach failed: the arm stays, no later fold
+assert not L.reach_done("thanks") and not folds and not L.reached_at
+L.reached_at = 0.0
+status["now"] = "done"
+assert not L.reach_done("thanks") and not folds                  # no reach out: "thanks" moves nothing
+print(f"reach live ok ({len(REACH) + len(NOT_REACH)} wordings, stop during a hung body move, held state, auto fold)")

@@ -27,7 +27,7 @@ lumi.arm.cmd = lambda name, **a: dict(arm_state) if name == "get_robot_state" el
 
 L = lumi.Lumi.__new__(lumi.Lumi)
 L.lang, L.markers, L.current, L.patrol, L.vision, L.voice_angle = "en", M, None, None, None, 0.0
-L.turn_head = lambda *a: moved.append("head")
+L.turn_head = lambda *a, **k: moved.append("head")
 L.brain = types.SimpleNamespace(history=[])
 L.keep_listening = lambda: None
 L.mission_running = lambda: False
@@ -190,7 +190,7 @@ for patrol, angle, want in ((False, 35.0, None), (True, 35.0, [35.0]), (False, -
     reached.clear(), said.clear(), moved.clear()
     got = L.reach_out(False)
     if want is None:                                     # nothing moves, not even the head
-        assert got is None and not reached and said == [lumi.STAND_IN_FRONT_SAY[0]] and not moved, (angle, said)
+        assert got is None and not reached and said == [lumi.GREETER_FRONT_SAY[0]] and not moved, (angle, said)
     else:
         assert got and reached == want and moved == ["head"], (patrol, angle, reached, moved)
 L.vision = None                                          # nobody seen, the voice's direction not trusted: ask
@@ -200,8 +200,14 @@ L.voice_trusted, L.voice_angle, L.modes.patrol = True, -50.0, True   # heard fro
 assert L.reach_out(False) and reached == [-50.0]
 moved.clear(), reached.clear(), said.clear()
 L.fetch_status = lambda: "holding"
+real_check, fetch.check_hand = fetch.check_hand, lambda: True     # the hand checked: something is in it
 assert lumi.Lumi.arm_pose(L, "reach") is None and moved == ["give"] and not reached   # holding: hand it over
 assert lumi.Lumi.arm_pose(L, "open") is None and said == [lumi.brain_mod.REFUSE_OPEN[0]]   # never dropped
+fetch.check_hand = lambda: False                         # a stale "holding", the hand empty: it opens
+real_open, lumi.gripper.open_ = lumi.gripper.open_, lambda: moved.append("open") or {}
+said.clear(), moved.clear()
+assert lumi.Lumi.arm_pose(L, "open") and moved == ["open"] and not said, (moved, said)
+lumi.gripper.open_, fetch.check_hand = real_open, real_check
 L.fetch_status = lambda: None
 fetch.reach = real_reach
 print(f"switches ok: {len(BASE)} base phrases refused with Greeter only, {len(IN_PLACE)} in place done; "
