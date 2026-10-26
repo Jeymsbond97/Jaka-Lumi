@@ -72,7 +72,7 @@ REPEAT = re.compile(r"^\W*(?:(?:\w+\W+){0,2})?(?:again|one more time|once more|d
                     # "again", "한 번만 더 해 줘": what again is the history's (driving.read, the LLM)
 SEVERAL = re.compile(r"\b(?<!hundred )and\b(?! a half\b)|\bwait\w*|\bcorrection\b|\binstead\b|"
                      r"\b(?:look|turn|go|move|wave|come|follow|pick|take|put|lift|raise|lower|reach|grab|bring)\b[^,]*,\s*(?:look|turn|go|move|wave|come|follow|pick|take|put|lift|raise|lower|reach|grab|bring)\b|\b(?:then|after that|also|plus|while|no|not|wait|stay|sleep|sorry|i mean|actually|rather)\b|;|"
-                     r"(?!갖고|고고|에서)(?<!가)[가-힣](?:서|고)(?:[\s,]|$)|하고|면서|다가|갔다|다녀|아니|기다|대기|(?:가|와) ?있어|계세요|"
+                     r"(?!갖고|고고|에서)(?<!가)[가-힣](?:서|고)(?:[\s,.…]|$)|하고|셔서|면서|다가|갔다|다녀|아니|기다|대기|(?:가|와) ?있어|계세요|"
                      r"계십시오", re.I)
                      # several requests or a stay ("go to p3 and wait", "가서 기다려", "p3에 가 있어"): steps.read's
 HAND_WORDS = re.compile(r"\byou(?:'re| are) holding\b|\b(?:in|from) my hand\b|\bhere'?s\b|\bhanding\b|\bi'?ll give\b|"
@@ -440,6 +440,215 @@ NO += [
     "lift my mood", "turn it off", "wave goodbye to your old life", "move on", "let it go", "back off from that topic",
     "저리 가", "가 버려", "꺼져", "됐어 가", "알아서 해", "마음대로 해", "좀 쉬어", "가만있어 봐",
 ]
+# round 5: more speakers (kids, elderly, non-native, Konglish, dialect endings 경상 / 전라 / 충청, whisper slips)
+GO += [
+    "kindly go to <place>", "please make your way over to <place>", "would you be so kind as to go to <place>",
+    "could you possibly head to <place>", "i'd appreciate it if you went to <place>", "you may go to <place> now",
+    "go on over to <place>", "zip over to <place>", "pop over to <place>", "nip over to <place>", "dash over to <place>",
+    "go to <place>, chop chop", "hop over to <place>", "<place>, now please",
+    "robot, go to <place>!", "go go go to <place>", "please go to <place> robot", "go to <place> pretty please",
+    "you go <place> now please", "please moving to <place>", "go for <place>", "you must go <place>",
+    "go to <place> place", "please go in <place>", "go at <place>", "please you moving <place>", "<place> go please",
+    "go to <place> asap", "head down to <place>", "make tracks to <place>",
+    "<place>로 가 주세요 루미", "<place>까지 가 보세요", "<place> 쪽으로 가 봐", "<place> 쪽으로 이동", "<place>로 이동",
+    "<place>로 가 보거라", "<place>로 가거라", "<place>로 가 보게", "<place>로 가 주게", "<place>로 가 주시오",
+    "<place>로 가 주이소", "<place>로 가 보이소", "<place>로 퍼뜩 가라", "<place>로 가 봐라", "<place>로 가라 마",
+    "<place>로 가 부러", "<place>로 가 보랑께", "<place>로 가 봐유", "<place>로 가유", "<place>로 가 줘유",
+    "<place>로 가 주셔유", "<place> 가 주라", "<place>로 가 봐용", "<place>로 가 줘용", "<place>로 가쟈",
+    "<place>로 출발하세요", "<place>로 출발해 주세요", "<place>로 향해", "<place>로 향해 주세요", "<place>로 이동하세요",
+    "<place>로 이동 부탁해", "<place>로 이동 부탁해요", "<place>로 좀 가 주실래요?", "<place>로 가 주실 수 있으세요?",
+    "<place> 가 주세요", "<place>에 가 주실래요?", "<place>까지 이동해 주세요", "<place>까지 가 주실래요?",
+    "<place>로 가 줘라", "<place>로 가 봐 얼른", "<place>로 ㄱ", "<place> ㄱㄱ", "<place>로 무브 해 줘",
+    "<place>로 go 해 주세요", "<place>로 고 해 줘", "go to <place> 해 주세요", "<place> 로 이동 please",
+    "<place>로 고우", "<place>로 가 쥬", "<place>로 가 즈", "<place>로 가 저", "<place>로 가 주새요",
+]
+COME += [
+    "come here, robot!", "come over here, little robot", "robot come here please", "come here come here",
+    "pwease come here", "come to me robot", "come here quickly please", "c'mon over here", "c'mere", "come 'ere",
+    "get over here, buddy", "come over this way", "come over here to me", "come here a sec", "come closer please",
+    "would you kindly come here", "please come over to me", "kindly come here", "could you come closer to me",
+    "you come to me please", "you come near me", "please coming here", "come to here", "come at me here",
+    "come to this side", "please you come here", "come in front of me", "come stand in front of me",
+    "이리 오너라", "이리 와 보거라", "이리 와 보게", "이리 오게", "이리 오시게", "이리 와 보시오", "이리 와 주시오",
+    "일로 와 봐라", "이리 온나", "퍼뜩 온나", "이리 와 보이소", "이리 오이소", "이리 와 부러", "이리 와 보랑께",
+    "이리 와 봐유", "이리 와유", "여기로 와유", "이리 와 줘유", "이리 와 봐용", "이리 와 줘용", "이리 와 주라",
+    "여기로 좀 와 봐", "여기까지 와 봐", "여기까지 와 주세요", "제 앞으로 와 주세요", "내 앞으로 와", "가까이 와 주실래요?",
+    "가까이 좀 와 봐", "가까이 오세요", "가까이 오십시오", "더 가까이 와 줘", "조금 더 가까이 와 주세요", "이쪽으로 오세요",
+    "here 와", "come 해", "come 해 줘", "come here 해 주세요", "이리 와 please", "여기 와 줘 please", "컴 히어",
+    "이리 화", "이리 와 바", "여기로 와 쥬", "가까이 와 쥬",
+]
+FOLLOW += [
+    "follow me, little robot", "robot follow me!", "follow me follow me", "come follow me", "follow me, okay?",
+    "kindly follow me", "please follow me this way", "would you kindly follow me", "please come along with me",
+    "follow me if you please", "you will follow me", "you follow behind me", "please you following me",
+    "following me", "follow to me", "follow me go", "you come with me together", "together with me go",
+    "stay close behind me", "walk along with me", "trail behind me", "shadow me", "stay on my tail", "keep on my heels",
+    "come along now", "this way, follow me", "follow me over here", "come with me, robot", "flolow me", "follow meee",
+    "나 따라오너라", "날 따라오게", "날 따라오시게", "나를 따라오시오", "따라오거라", "따라 온나", "퍼뜩 따라 온나",
+    "따라오이소", "날 따라와 부러", "따라와 잉", "따라와유", "따라와 줘유", "나 따라와 봐유", "따라와 줘용", "따라와 봐용",
+    "따라와 주라", "나 좀 따라와", "나 좀 따라와 줘", "저 좀 따라오세요", "저를 따라와 주세요", "저를 따라와 주십시오",
+    "제 뒤를 따라오세요", "내 뒤를 따라와", "내 뒤에 붙어", "나한테 붙어 와", "나랑 같이 가 줘", "나랑 같이 걸어",
+    "저랑 같이 가 주세요", "저와 같이 가 주실래요?", "함께 가 주세요", "follow 해 봐", "나 따라 come", "같이 go",
+    "with me 가자", "팔로우 미 해 줘", "따라와져", "따라 와 쥬", "따라오세여",
+]
+COME_BACK += [
+    "come back to me", "come back now", "come on back", "come back please robot", "please return", "return now",
+    "go back to where you were before", "back to your old spot please", "go back to your starting place",
+    "please go back to the place you started", "kindly return to your spot", "you come back please",
+    "come back to before place", "go back first place", "return back", "come back here robot",
+    "돌아오너라", "돌아오게", "돌아와 보이소", "돌아온나", "퍼뜩 돌아온나", "돌아와 부러", "돌아와유", "돌아와 줘용",
+    "다시 돌아와 주세요", "원래 자리로 와", "원래 자리로 돌아와 주세요", "제자리로 와",
+    "처음 있던 데로 가", "아까 그 자리로 돌아가", "아까 있던 데로 돌아와", "원위치로 돌아가", "원위치 해", "원위치해 주세요",
+    "돌아가 주십시오", "복귀하십시오", "복귀해 줘", "come back 해", "돌아 come", "comeback 해 줘", "돌아와 주라",
+]
+MOVE += [
+    "scooch forward", "scooch back", "budge up a bit", "move up a little forward", "inch back a bit", "nudge forward",
+    "nudge back a little", "shuffle left", "shuffle to the right", "back up some more space please",
+    "kindly move forward a little", "please step back a bit", "could you move back a little", "would you move left a bit",
+    "you go forward little", "you go back little", "go front little bit", "go little front", "move little left",
+    "move little bit right", "please moving back", "a little bit back please",
+    "forward forward", "back back", "move forward a tiny bit", "move a teeny bit to the left",
+    "move forward 50 centimeters", "move back 30 centimeters", "go left 1 meter", "go right 50 cm",
+    "앞으로 와", "앞으로 좀 와 봐", "앞으로 조금만 와", "조금 앞으로 와 줘", "뒤로 좀 가 봐", "뒤로 조금만", "뒤로 좀 물러나 봐",
+    "뒤로 빠져 줘", "뒤로 물러서", "뒤로 물러서 주세요", "옆으로 비켜", "왼쪽으로 좀 비켜 줘", "오른쪽으로 좀 비켜 주세요",
+    "왼쪽으로 살짝 가", "오른쪽으로 살짝 이동해", "앞으로 살짝", "뒤로 살짝", "앞으로 쪼끔 가", "뒤로 쪼끔만",
+    "앞으로 가 보거라", "뒤로 물러나게", "뒤로 물러나 보이소", "앞으로 가 보이소", "뒤로 쫌 가라", "앞으로 가 부러",
+    "뒤로 가 봐유", "앞으로 가유", "뒤로 가 줘용", "왼쪽으로 가 주이소", "오른쪽으로 가 봐유",
+    "앞으로 1미터만 가", "뒤로 30센티만 가 줘", "왼쪽으로 50센티 가 주세요", "오른쪽으로 1미터 이동하십시오",
+    "앞으로 이동하세요", "뒤로 이동하세요", "후진하세요", "후진해 주세요", "후진하십시오",
+    "앞으로 무브", "뒤로 무브", "back 좀 해 줘", "forward 해 줘", "레프트로 가", "라이트로 가", "백 해 줘",
+    "아프로 가", "뒤루 가", "뒤로 가조", "외쪽으로 가",
+]
+TURN += [
+    "turn left please", "please turn to your left", "kindly turn right", "could you turn to the right",
+    "would you turn around please", "spin right", "spin left", "turn around robot", "turn round",
+    "go turn left", "you turn left", "you turn right please", "please turning left", "turn to left side",
+    "turn to right side", "turn back side", "turn your body around", "rotate around", "rotate yourself around",
+    "do a 180", "turn 180", "flip around", "swing around", "turn left a bit", "turn right a little",
+    "turn left 30 degrees please", "rotate 90 degrees left", "spin around once",
+    "왼쪽으로 돌아 봐", "오른쪽으로 돌아 봐", "뒤로 돌아 봐", "뒤로 돌아 줘", "돌아서", "뒤돌아서 봐", "한 바퀴 돌아 봐",
+    "한 바퀴 돌아 주세요", "빙글 돌아", "빙그르르 돌아 봐", "왼쪽으로 몸 돌려 주세요", "오른쪽으로 몸 좀 돌려",
+    "왼쪽으로 돌아 보거라", "오른쪽으로 돌아 보이소", "뒤로 돌아 보이소", "왼쪽으로 돌아 부러", "오른쪽으로 돌아 봐유",
+    "뒤로 돌아유", "한 바퀴 돌아 봐용", "왼쪽으로 돌아 주라", "오른쪽으로 회전하세요", "왼쪽으로 회전하세요",
+    "왼쪽으로 30도 돌아 주세요", "오른쪽으로 90도 회전해", "좌로 돌아", "우로 돌아", "뒤로 돌아 실시",
+    "턴 해", "유턴", "left turn 해 줘", "right turn 해", "turn around 해 줘", "한 바퀴 spin", "오른쪽으로 도라",
+]
+LOOK += [
+    "look at me robot", "look at me, look at me", "look over here robot", "look here look here", "look look",
+    "kindly look at me", "would you look at me please", "please look this way", "could you look to the left",
+    "you look at me", "look to me", "look on me",
+    "please look up", "look up please", "look down please", "look left please", "look right please",
+    "peek to the left", "peek right", "glance over here", "look straight at me", "keep your eyes on me",
+    "eyes on me please", "turn your face to me", "face this way", "look the front", "look front",
+    "날 좀 보거라", "나를 보게", "여길 보게", "여기 보이소", "여 보이소", "이짝 봐", "이짝 보랑께", "날 봐 부러", "여기 봐유",
+    "나 좀 봐유", "여기 봐 줘용", "날 봐 주라", "저 좀 보세요", "여기 보세요", "이쪽 보세요", "앞에 보세요", "위에 보세요",
+    "아래 보세요", "왼쪽 보세요", "오른쪽 보세요", "위로 봐", "아래로 봐", "위쪽 좀 봐 줘", "아래쪽 좀 봐 주세요",
+    "고개 들어 보세요", "고개 숙여 봐", "고개 왼쪽으로 돌려 주세요", "고개 오른쪽으로 돌려 주세요", "고개 위로",
+    "고개 아래로", "고개 똑바로", "고개 똑바로 해", "앞 봐", "앞에 봐 줘", "정면 보세요", "저 쳐다봐 주세요", "날 쳐다봐 줘",
+    "날 봐 please", "look 나", "lookat me", "luk at me", "look et me", "날 바", "여기 바",
+]
+LIFT += [
+    "get taller please", "be taller", "be tall", "be shorter", "grow up tall", "make yourself bigger",
+    "make yourself higher please", "go up up", "up up up", "down down", "go down a little bit", "go up a little bit",
+    "lower yourself a bit please", "raise yourself a bit", "come down lower", "move your body up", "move your body down",
+    "you go up please", "you go down", "body up", "body down", "make body up", "make body down", "you more high",
+    "you more low", "lift yourself higher", "lower yourself down", "drop a little lower",
+    "올라가 봐", "조금 올라가 봐", "더 올라가", "더 내려가", "조금만 내려가", "조금만 올라가", "위로 올라가 봐",
+    "아래로 내려와", "내려와", "내려와 봐", "올라와", "키 높여 봐", "키 낮춰 봐", "키 좀 높여 줄래?", "키 좀 낮춰 줄래요?",
+    "몸 높여", "몸 낮춰 봐", "몸을 높여 주세요", "몸 좀 내려 주세요", "높이 높여", "높이 낮춰", "높이 좀 올려 주세요",
+    "높이 내려 주세요", "키 크게 해 줘", "키 작게 해 줘", "키 높이세요", "키를 낮추십시오",
+    "올라가 보거라", "내려가 보게", "올라가 보이소", "내려가 보이소", "올라가 부러", "내려가 봐유", "올라가유", "키 높여 줘용",
+    "키 up 해 줘", "몸 up", "높이 up", "높이 down", "업 해 줘", "다운 해 줘", "키 업", "키 다운", "오라가", "내려가조",
+]
+WAVE += [
+    "wave to me please", "wave at me robot", "wave wave wave", "robot wave!", "wave bye bye", "bye bye wave",
+    "wave hi to me", "wave hello to us", "give everyone a wave", "kindly wave to us", "would you wave to us please",
+    "please wave your hand to me", "you wave hand please", "hand wave please", "do hand wave",
+    "do wave hand", "hello with hand please", "say bye with your hand", "say goodbye with your hand",
+    "wave goodbye", "wave goodbye to me", "wave to the camera", "wave to my mom", "wave to my kid", "wave to the crowd",
+    "give a little wave", "do a little wave", "waive at me", "wave too me", "wave to us all",
+    "손 흔들어 보거라", "손 흔들어 보게", "손 좀 흔들어 보이소", "손 흔들어 부러", "손 흔들어 봐유", "손 흔들어 줘유",
+    "손 흔들어 줘용", "손 흔들어 주라", "손 흔들어 주시겠어요?", "손 흔들어 주실래요", "손 흔들어 주시오",
+    "손 흔들어 인사해 주세요", "손 흔들면서 인사해 주세요", "손 흔들어서 인사해 봐", "손 흔들어 인사해 봐",
+    "바이바이 해 줘", "빠이빠이 해 줘", "빠이빠이 해 봐", "안녕 손 흔들어 줘", "손으로 안녕 해 봐", "손으로 바이바이 해",
+    "우리 애한테 손 흔들어 주세요", "엄마한테 손 흔들어 줘", "할머니한테 손 흔들어 드려", "카메라 보고 손 흔들어",
+    "손 흔들어 봐 줘", "손 한번 흔들어 주세요", "팔 한번 흔들어 봐", "wave 해 주세요", "wave 좀 해 봐", "웨이브 해 봐",
+    "손 wave 해 줘", "hand wave 해 줘", "바이 해 손으로", "손 흔더러", "손 흔드러 줘", "손 흔들어 쥬",
+]
+ARM_REACH += [
+    "reach out please", "reach out to me please", "kindly reach out your arm", "would you reach out your hand",
+    "please stretch out your arm", "hold your arm out", "hold your hand out to me", "hand out please",
+    "put your hand forward", "push your arm out", "arm forward", "arm forward please", "your arm, stretch it out",
+    "you stretch arm please", "you put arm out", "arm long please", "make arm long", "arm straight please",
+    "reach reach", "gimme your hand", "give your hand to me", 
+    "팔 뻗어 보거라", "팔 뻗어 보게", "팔 좀 뻗어 보이소", "팔 뻗어 부러", "팔 뻗어 봐유", "팔 뻗어 줘용", "팔 뻗어 주라",
+    "팔 좀 뻗어 주세요", "팔 쭉 뻗어 주세요", "팔 앞으로 뻗어 주세요", "팔 앞으로 내밀어 주세요", "손 내밀어 주세요",
+    "손 좀 내밀어 줄래?", "손 앞으로 뻗어", "손 쭉 뻗어 봐", "팔 펴 봐", "팔 펴 주세요", "팔을 펴 주십시오",
+    "손 줘", "팔 쭉 펴 봐", "팔 길게 뻗어", "arm 펴 줘", "arm out 해 줘",
+    "팔 out", "손 reach", "팔 뻗어조", "팔 버더",
+]
+ARM_FOLD += [
+    "fold your arm please", "kindly fold your arm", "please put your arm away", "put the arm down please",
+    "arm down please", "bring your arm back in", "pull your arm back", "take back your arm",
+    "you fold arm", "arm close please", "arm fold please", "put arm back", "arm go back", "arm rest",
+    "relax your arm now", "you can put your arm down", "rest your arm now", "lower the arm",
+    "팔 접어 보거라", "팔 접어 보이소", "팔 접어 부러", "팔 접어 봐유", "팔 접어 줘용", "팔 접어 주라", "팔 좀 접어 주세요",
+    "팔 거둬 주세요", "팔 넣어 주세요", "팔 내려 주세요", "팔 내려 줘", "팔 내려 봐", "팔 원위치 해 줘", "팔 제자리에 놔",
+    "팔 다시 접어 주세요", "팔 쉬어", "팔 내려놓으세요", "팔 내리십시오", "팔 접으세요", "팔 접으십시오", "팔 fold 해 줘",
+    "arm 내려", "arm down 해", "팔 접어조", "팔 저버",
+]
+ARM_OPEN += [
+    "open hand", "open your hand please", "please open your fingers", "open the hand", "hand open", 
+    "open your grip", "release your grip", "let go of your grip", "you open hand", "fingers open",
+    "손 펴 봐 줘", "손 좀 펴", "손 벌려 봐", "손 좀 벌려 주세요", "손가락 좀 펴 봐", "손 펴 보거라", "손 펴 보이소",
+    "손 펴 봐유", "손 펴 줘용", "손 열어 주세요", "그리퍼 열어 줘", "그리퍼 좀 열어 봐", "집게 열어", "집게 벌려",
+    "손 펴세요", "손 펴십시오", "손 오픈", "그리퍼 오픈", "open 해 손", "손 펴조",
+]
+ARM_CLOSE += [
+    "close hand", "close your hand please", "please close your fingers", "close the hand", "hand close",
+    "close your grip", "tighten your grip", "make a fist please", "you close hand", "fingers close", 
+    "손 쥐어 봐", "손 꽉 쥐어 봐", "주먹 쥐어 줘", "주먹 꽉 쥐어", "손 오므려 봐", "손 오므려 주세요", "손가락 좀 오므려",
+    "손 쥐어 보거라", "주먹 쥐어 보이소", "손 쥐어 봐유", "주먹 쥐어 줘용", "손 닫아 주세요", "그리퍼 닫아 줘",
+    "그리퍼 좀 닫아 봐", "집게 닫아", "집게 오므려", "손 쥐세요", "주먹 쥐십시오", "손 클로즈", "그리퍼 클로즈", "주먹 쥐어조",
+]
+PICK += [
+    "pick up the <obj> please", "please pick up the <obj>", "kindly pick up the <obj>", "would you pick up the <obj>",
+    "could you take the <obj> please", "please grab the <obj>", "grab the <obj> please", "get the <obj> please",
+    "pick the <obj>", "pick <obj> up", "you pick up <obj>", "you take <obj> please", "please picking the <obj>",
+    "take up the <obj>", "grab hold of the <obj>", "seize the <obj>", "nab the <obj>", "pick up that <obj> there",
+    "grab the <obj> on the table", "take the <obj> off the table", "pick that <obj> up", "pick up the <obj> robot",
+    "pickup the <obj>", "pik up the <obj>", "pick up da <obj>", "grabb the <obj>",
+    "<obj> 집어 보거라", "<obj> 집어 보이소", "<obj> 집어 부러", "<obj> 집어 봐유", "<obj> 집어 줘용", "<obj> 집어 주라",
+    "<obj> 좀 집어", "<obj> 좀 집어 줘", "<obj> 좀 집어 주세요", "<obj> 집어 볼래?", "<obj> 잡아 봐", "<obj> 좀 잡아",
+    "<obj> 쥐어", "<obj> 집으십시오", "<obj> 들어 올려 주세요", "<obj> 집어 올려 주세요", "그 <obj> 집어 봐",
+    "저기 <obj> 집어", "<obj> 하나 집어 주세요", "<obj> 잡아 주실래요?", "<obj> 집어 주실 수 있어요?",
+    "<obj> 픽업", "<obj> 그랩 해", "<obj> grab", "<obj> 잡아조", "<obj> 지버",
+]
+FETCH += [
+    "bring me the <obj> please", "please bring me a <obj>", "kindly bring me the <obj>", "would you bring me the <obj>",
+    "could you fetch me the <obj>", "go and get me the <obj>", "get the <obj> for me", "fetch me the <obj> please",
+    "bring the <obj> over here", "bring the <obj> over to me", "bring a <obj> to me", "carry the <obj> to me",
+    "you bring me <obj>", "you bring <obj> please", "bring <obj> to me", "bring me <obj> please", "bring here the <obj>",
+    "go fetch the <obj>", "go grab me a <obj>", "grab me a <obj>", "grab me the <obj>", "fetch <obj>", "brung me the <obj>",
+    "bring mi the <obj>", "<obj> please bring",
+    "<obj> 가져와 봐", "<obj> 가져다 줄래?", "<obj> 갖다 줄래요?", "<obj> 좀 가져다 줘", "<obj> 좀 가져와 줘",
+    "<obj> 가져와 주세요", "<obj> 갖다 주실래요?", "<obj> 가져다 주시겠어요?", "<obj> 가져오십시오", "<obj> 갖다 주십시오",
+    "<obj> 가져오거라", "<obj> 갖다 주게", "<obj> 가 온나", "<obj> 퍼뜩 가 온나", "<obj> 가져와 보이소", "<obj> 갖다 주이소",
+    "<obj> 가져와 부러", "<obj> 갖다 줘 잉", "<obj> 가져와유", "<obj> 갖다 줘유", "<obj> 가져와 줘용", "<obj> 갖다 주라",
+    "<obj> 챙겨 와", "<obj> 챙겨 와 줘", "<obj> 좀 챙겨다 줘", "나한테 <obj> 갖다 줘", "저한테 <obj> 좀 가져다 주세요",
+    "<obj> 여기로 갖다 줘", "<obj> 이리 가져와", "<obj> 가지고 와 주세요", "<obj> 가져와 줄 수 있어?",
+    "<obj> 브링 해 줘", "<obj> 갖고 와 please", "<obj> fetch 해", "<obj> 가저다 줘", "<obj> 가져와조",
+]
+NO += [
+    "my robot at home follows me", "my dog follows me everywhere", "the kids waved at you", "you waved so nicely",
+    "i like how you turn", "your arm reaches far", "can you reach that high?", "do you pick things up often?",
+    "is your hand strong?", "how many cups can you hold?", "can it bring me coffee?", "does it come when called?",
+    "우리 집 강아지는 날 따라와", "애들이 손 흔들었어", "팔 진짜 길다", "손 힘 세?", "컵 몇 개 들 수 있어?",
+    "커피도 가져다 줄 수 있나?", "부르면 오나?", "로봇이 날 따라왔어", "손 흔드는 거 귀엽다", "고개 돌리는 거 신기해",
+    "bring your own cup", "bring it home", "come as you are", "come to think of it", "look at that", "look at this",
+    "look at them", "follow the money", "turn the page", "pick your battles", "fetch the ball, boy",
+    "그거 봐 봐", "다시 출발해", "다시 출발해 주세요", "can you see what's on your right?", "what do you see on your left?", "see anything up there?", "오른쪽에 뭐 보여?", "위에 뭐 있어?", "다시 가", "다시 가 봐", "저거 봐", "저것 좀 봐", "이것 좀 봐", "얘들아 저거 봐", "바이바이", "빠이빠이", "잘 가", "안녕히 가세요",
+]
 KINDS = {"go_to": GO, "come": COME, "follow": FOLLOW, "come_back": COME_BACK, "move": MOVE, "turn": TURN, "look": LOOK,
          "lift": LIFT, "wave": WAVE, "arm_reach": ARM_REACH, "arm_fold": ARM_FOLD, "arm_open": ARM_OPEN,
          "arm_close": ARM_CLOSE, "pick": PICK, "put": PUT, "fetch": FETCH, "receive": RECEIVE, "give": GIVE, "no": NO}
@@ -674,7 +883,8 @@ def _number(words):
 def said_amount(text):
     """(metres, degrees) said with a unit, numbers in digits or words ("a quarter of a meter", "eight centimetres",
     "오십 센티", "a hundred and eighty degrees", "삼십 도"); each None when not said."""
-    t = (text or "").lower()
+    from assistant import wording
+    t = wording.numbers(re.sub(r"\b(?:a )?quarter of an? (?:meter|metre)\b", "0.25 m", " " + (text or "").lower() + " "))   # "사 십오 도", "마흔다섯 도", "일 점 오 미터" as digits
     metres = degrees = None
     if re.search(r"\bquarter of an? (?:meter|metre)\b", t):
         metres = 0.25
