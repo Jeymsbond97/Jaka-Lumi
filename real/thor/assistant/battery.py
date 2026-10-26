@@ -8,8 +8,9 @@ from robot import agv
 
 HOW_LONG_CHARGE = re.compile(
     r"\bhow (long|much time)\b.*\b(charg\w*|recharg\w*)\b|\bcharg(e|ing) time\b|\bhow fast\b.*\bcharg|"
-    r"충전(?:하는 ?데|에|하는데|하려면|이 다 되려면|시간)?.{0,6}(?:얼마나|몇 ?시간|시간이 ?얼마).{0,4}(?:걸려|걸리|걸릴|돼|되|이야|예요|인가)|"
-    r"충전 ?시간", re.I)
+    r"\bhow long\b.*\bfull(?:y)? charg|\bto (?:fully )?charge (?:fully|completely|all the way)\b|"
+    r"(?:충전|완충)(?:하는 ?데|에|하는데|하려면|이 다 되려면|까지|되려면|시간)?.{0,6}(?:얼마나|몇 ?시간|시간이 ?얼마).{0,4}(?:걸려|걸리|걸릴|돼|되|이야|예요|이에요|인가)|"
+    r"충전 ?시간|완충 ?시간", re.I)
 ON_CHARGE = re.compile(r"\b(on|per|with) (a |one |the )?(full |single )?charge\b|\ba full charge last|\bneed (a |to )?(re)?charg|"
                        r"\bgo (back )?(to )?(re)?charg|한 ?번 충전(?:으로|하면)|완충(?:으로|하면|되면)|충전하면 ?(?:얼마나|몇)|"
                        r"충전하러", re.I)   # how long it lasts (10 hours), when it goes to charge: the LLM

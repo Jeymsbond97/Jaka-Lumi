@@ -128,16 +128,19 @@ NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, 
 DAY_AFTER = re.compile(r"\bthe (?:day after|next day|following day)\b(?! tomorrow)|그 ?다음 ?날|다음 ?날|그 ?담 ?날", re.I)
 DAY_BEFORE = re.compile(r"\bthe day before\b(?! yesterday)|그 ?전 ?날", re.I)
 FIXED_DAY = re.compile(r"\bday after tomorrow\b|\bday before yesterday\b|내일 ?모레|글피|그저께|그제|모레|"
-                       r"\btoday\b|\btonight\b|\bthis (?:morning|afternoon|evening)\b|\bright now\b|\bnow\b|오늘|지금|"
-                       r"\btomorrow\b|내일|\byesterday\b|어제", re.I)
+                       r"(?<![a-z])(?:today|tonight)(?![a-z])|\b(?:this |in the )?(?:morning|afternoon|evening)(?![a-z])|"
+                       r"\bright now\b|\bnow\b|오늘|지금|(?<![a-z])tomorrow(?![a-z])|내일|(?<![a-z])yesterday(?![a-z])|어제|"
+                       r"아침|오전|오후|저녁|(?<![가-힣])밤(?:에는|에|은|엔|이)?(?![가-힣])", re.I)   # "tomorrow는?", "저녁에는?": English
+                       # words next to Korean ones have no \b; a part of the day alone is today's
 FIXED_OFFSET = {"day after tomorrow": 2, "day before yesterday": -2, "내일모레": 2, "내일 모레": 2, "글피": 3,
                 "그저께": -2, "그제": -2, "모레": 2, "tomorrow": 1, "내일": 1, "yesterday": -1, "어제": -1}
 IN_DAYS = re.compile(r"\bin (\d+|one|two|three|four|five|six|seven) days?\b|(\d+|이틀|사흘|나흘) ?(?:일)? ?(?:후|뒤)", re.I)
-WEEKDAY = re.compile(r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b|([월화수목금토일])요일", re.I)
-WEEKEND = re.compile(r"\bweekend\b|주말", re.I)
+WEEKDAY = re.compile(r"(?<![a-z])(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?(?![a-z])|([월화수목금토일])요일", re.I)
+WEEKEND = re.compile(r"(?<![a-z])weekend(?![a-z])|주말", re.I)
 NEXT_WEEK = re.compile(r"\bnext\b|다음 ?주|담 ?주", re.I)        # "next Monday", "다음 주 월요일", "next weekend"
 WEEK = re.compile(r"\b(?:this|next) week\b|이번 ?주|다음 ?주|담 ?주", re.I)
-DAY_PHRASE = re.compile("|".join(r.pattern for r in (DAY_AFTER, DAY_BEFORE, IN_DAYS, WEEKDAY, WEEKEND, WEEK, NEXT_WEEK, FIXED_DAY)) +
+DAY_PHRASE = re.compile(r"(?:이번|다음|담|this|next|coming) ?(?:주말|weekend)|" +     # before "이번 주", "다음 주"
+                        "|".join(r.pattern for r in (DAY_AFTER, DAY_BEFORE, IN_DAYS, WEEKDAY, WEEKEND, WEEK, NEXT_WEEK, FIXED_DAY)) +
                         r"|\b(?:this|coming|on)\b", re.I)          # all the words that name a day, for lumi's follow-ups
 
 
@@ -301,7 +304,7 @@ CURRENCIES = {"USD": ("US dollar", r"dollars?|usd|달러"), "EUR": ("euro", r"eu
               "GBP": ("British pound", r"pounds? sterling|british pounds?|gbp|파운드"),
               "VND": ("Vietnamese dong", r"vietnamese dong|vnd|동화"), "THB": ("Thai baht", r"baht|thb|바트"),
               "KRW": ("Korean won", r"\bwons?\b|krw|원화")}
-COINS = {"bitcoin": r"bitcoin|btc|비트코인", "ethereum": r"ethereum|\beth\b|이더리움", "ripple": r"\bxrp\b|ripple|리플",
+COINS = {"bitcoin": r"bitcoin|btc|비트 ?코인|빗코인", "ethereum": r"ethereum|\beth\b|이더리움", "ripple": r"\bxrp\b|ripple|리플",
          "solana": r"solana|솔라나", "dogecoin": r"doge|도지"}
 RATE_WORDS = re.compile(r"exchange|\brates?\b|convert|환율|환전|in (korean )?wons?\b|\bto (krw|wons?|usd|dollars?)\b|"
                         r"\bkrw\b|원으로|얼마", re.I)

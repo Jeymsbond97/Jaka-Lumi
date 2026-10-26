@@ -14,7 +14,9 @@ ASKED = re.compile(r"\bwhat (?:else |all |things |kinds? of things )?(?:can|coul
                    r"\bwhat are you (?:able to do|capable of|good at)\b|\bwhat do you do\b(?!\s+(?:with|when|if|for fun))|"
                    r"\bwhat can you help (?:me |us )?with\b|\btell me (?:about )?(?:what you can do|your (?:abilities|skills))\b|"
                    r"\b(?:list|show me) (?:your|what you can) (?:abilities|skills|do)\b|^\W*(?:your )?(?:abilities|skills)\W*$|"
-                   r"(?<![가-힣]로 )(?<![가-힣]으로 )(?:뭐|뭘|무엇|무엇을|뭐를)\s*(?:또\s*)?할\s*(?:수|줄)\s*(?:있|알)|"
+                   r"\bwhat can (?:i|we) (?:ask|get|have) you (?:to )?do\b|\bwhat (?:are your|is your) (?:special )?(?:talents?|specialty|speciality)\b|"
+                   r"(?<![가-힣]로 )(?<![가-힣]으로 )(?:뭐|뭘|머|멀|무엇|무엇을|뭐를)\s*(?:또\s*)?할\s*(?:수|줄)\s*(?:있|알|아|이써|이싸)|"
+                   r"(?:뭐|뭘|무엇을?)\s*시킬\s*수|특기가?\s*(?:뭐|뭔|있)|무슨\s*function|"
                    r"무슨\s*일을?\s*(?:해|하|할)|어떤\s*(?:일|것|거|걸)을?\s*(?:할\s*수|해|하)|할\s*수\s*있는\s*(?:게|것|거|일)|"
                    r"뭐\s*하는\s*로봇|무슨\s*기능|어떤\s*기능|기능\S*\s*(?:뭐|뭔|있|알려)|(?:능력|기능)\S*\s*(?:뭐|뭔|알려|소개)", re.I)
 MORE = re.compile(r"^\W*(?:(?:yes|yeah|yep|sure|ok|okay|please|lumi|and)\W*)*(?:tell me more|more|go on|what else|and\?|"
@@ -24,10 +26,10 @@ MORE = re.compile(r"^\W*(?:(?:yes|yeah|yep|sure|ok|okay|please|lumi|and)\W*)*(?:
                   r"^\W*(?:네|예|응|그래요?|좋아요?|좋아|그리고요?|또요?|또\s*뭐\S*|그\s*외에는?\S*|더\s*있어요?|더요)\W*$|또\s*뭐\s*할\s*수", re.I)
 
 SHORT_MARK = "ACTION: none abilities"   # the history line of the short overview (lumi.fixed_answer)
-SHORT = {"en": "I can talk with you and answer your questions, also from the internet, and I can look at what's "
+SHORT = {"en": "I'm a robot assistant: I can talk with you and answer your questions, also from the internet, and I can look at what's "
                "around me and understand it. I can pick things up and bring them to you, go to places, follow you, "
                "wave and even sing. Shall I tell you more?",
-         "ko": "저는 대화하면서 궁금한 걸 답해 드리고, 인터넷에서 찾아볼 수도 있어요. 주변을 보고 무엇이 있는지 이해할 수 있고, "
+         "ko": "저는 로봇 어시스턴트라서 대화하면서 궁금한 걸 답해 드리고, 인터넷에서 찾아볼 수도 있어요. 주변을 보고 무엇이 있는지 이해할 수 있고, "
                "물건을 집어서 가져다드리거나, 여러 곳에 가고, 따라가고, 손을 흔들고 노래도 불러요. 더 알려 드릴까요?"}
 LONG = {"en": "I talk with you in English and Korean, and when I don't know something I look it up on the internet. "
               "I can look at what's around me and understand it: objects, people, what you're wearing or holding. "
@@ -41,9 +43,12 @@ LONG = {"en": "I talk with you in English and Korean, and when I don't know some
               "따라가요. 그리고 손을 흔들거나 판타스틱 베이비, 러브 어택 같은 제 노래도 불러 드려요."}
 
 
+NOT_LUMI = re.compile(r"\b(?:cutshion|company|jaka)\b|쿳션|회사|자카|안전", re.I)   # "쿳션은 무슨 일 해?", "안전 기능 뭐 있어?"
+
+
 def asked(text):
     """Do these words ask what Lumi can do? ("what can you do?", "what are your abilities", "넌 무슨 일을 해?")"""
-    return bool(ASKED.search(text or ""))
+    return bool(ASKED.search(text or "")) and not NOT_LUMI.search(text or "")
 
 
 def more_asked(text, last=""):

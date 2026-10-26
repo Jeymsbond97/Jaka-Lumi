@@ -8,7 +8,8 @@ NOW = ["And charging?", "charging?", "battery?", "Battery", "what's your battery
        "배터리 몇 프로야?", "충전 중이야?", "배터리 얼마나 남았어?", "배터리 상태 어때?", "지금 충전하고 있어?", "배터리는?",
        "배터리 충분해?", "충전 중이에요?", "그럼 충전은?", "충전은요?", "배터리 몇 퍼센트예요?"]
 HOW_LONG = ["how long does charging take?", "How long does it take to charge?", "how long to recharge",
-            "what's the charging time", "충전 시간 얼마나 걸려?", "충전하는 데 얼마나 걸려요?", "충전 몇 시간 걸려?"]
+            "what's the charging time", "충전 시간 얼마나 걸려?", "충전하는 데 얼마나 걸려요?", "충전 몇 시간 걸려?",
+            "완충하는 데 얼마나 걸려?", "완충까지 몇 시간이에요?", "how long does a full charge take?", "완충 시간이 얼마예요?"]
 OTHER = ["How long does your battery last?", "how long on a charge?", "How long does the battery last on a full charge?",
          "what kind of battery do you have", "배터리 얼마나 가요?", "한 번 충전하면 몇 시간 가요?", "배터리 용량이 얼마야?",
          "go charge", "충전하러 가", "How long until you need a charge?", "at what battery level do you go back to charge",

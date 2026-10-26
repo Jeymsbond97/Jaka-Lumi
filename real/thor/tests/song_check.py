@@ -15,6 +15,7 @@ missed (no song where one was asked); odd (no song, but the wrong kind of answer
 import collections
 import json
 import pathlib
+import re
 import sys
 import time
 
@@ -31,7 +32,9 @@ TITLES = [n for s in sing.songs().values() for n in (s["title"].lower(), s["titl
 
 
 def sung(text, lang, before, whole=False):
-    song = sing.choose(text, lang, SANG_SONG if before == SANG else None, whole)
+    sang = re.match(r"ACTION: sing (\w+)", before[1]) if before else None   # lumi.last_song: the song sung just before
+    song = sing.picked(text, before[1] if before else "") or \
+        sing.choose(text, lang, sang.group(1) if sang else None, whole)   # as lumi.sing_now: after the list, its order
     return "unknown" if song is None else "sing:" + song
 
 
@@ -69,9 +72,10 @@ def from_llm(raw, first, text, lang, before, marks):
 
 def verdict(expect, got, before):
     kind = got.split(":")[0]
+    sang = re.match(r"ACTION: sing (\w+)", before[1]) if before else None
     for alt in expect.split(" | "):
         if alt == got or alt == "sing" and kind == "sing" or \
-                alt == "sing_other" and kind == "sing" and got != "sing:" + SANG_SONG or \
+                alt == "sing_other" and kind == "sing" and got != "sing:" + (sang.group(1) if sang else SANG_SONG) or \
                 alt == "list" and got in ("list", "talk_titles") or \
                 alt == "unknown" and got in ("talk", "talk_titles") or \
                 alt in ("no", "stop") and got in ("talk", "talk_titles", "stop", "list"):

@@ -11,6 +11,8 @@
     ask_vlm(question, lang="en") -> one spoken sentence from gemma4 on the picture of the person, or None (slow: 3-20 s)
     ask_vlm_hand(evidence, lang="en") -> the same about what the person holds, from the picture around the hands and
                           the measured facts; "UNSURE" when it can't tell (slow: 1-30 s)
+    ask_vlm_person(frames) -> {top, bottom, feet, hair, glasses, hat, mask, bag, left_hand, right_hand, posture,
+                          action} of the person in front from one VLM pass on their picture, or None (slow: 2-15 s)
 
     python vision/scene.py                       # print all of it for the cameras now
     python vision/scene.py --save tests/data/x   # save the frames now as a test fixture (x_head.jpg/.npz/.json, ...)
@@ -117,6 +119,23 @@ VLM_HAND_PROMPT = ("You are the eyes of a friendly service robot. The picture sh
                    "shape if that helps, beginning \"It looks like\" unless it is plain to see. Trust the picture over the "
                    "measurements. If the hand is clearly empty, say so. If you can't tell what it is, answer exactly "
                    "UNSURE.")
+VLM_PERSON_MODEL = VLM_HAND_MODEL   # one look at the whole person: e4b 7-8 s, gemma4:26b 17 s, qwen2.5vl:7b 10 s on the
+                                 # same picture with the GPU busy (measured 2026-10-23 23:00); e4b is kept loaded anyway
+VLM_PERSON_WIDTH = 320           # px; the person picture sent (448 was not better, only slower)
+VLM_PERSON_TIMEOUT_S = 15.0
+VLM_PERSON_PROMPT = (
+    "You are the eyes of a service robot. Describe the person nearest the camera as JSON with exactly these keys: "
+    '"top": {"type": "t-shirt" / "shirt" / "jacket" / "hoodie" / "sweater" / "coat" / "blouse" / "dress" / "vest", '
+    '"colour": one colour word, "pattern": "plain" / "striped" / "checked" / "printed" / "dotted"}, '
+    '"bottom": {"type": "trousers" / "jeans" / "shorts" / "skirt", "colour": one colour word}, '
+    '"feet": {"type": "sneakers" / "shoes" / "boots" / "sandals" / "slippers", "colour": one colour word}, '
+    '"hair": {"colour": "black" / "brown" / "blond" / "grey" / "white" / "red" / "dyed", "length": "short" / "medium" / '
+    '"long" / "bald"}, "glasses": "none" or "glasses" or "sunglasses", "hat": "none" or what it is with its colour '
+    '("black cap"), "mask": "none" or the mask with its colour, "bag": "none" or the bag with its colour ("brown '
+    'backpack"); for these four use null only when that part of the person is not in the picture, '
+    '"left_hand": null or the thing in their own left hand with its colour, "right_hand": the same for their right '
+    'hand, "posture": "standing" / "sitting" / "crouching", "action": what they are doing in a few words ("looking at '
+    'a phone", "waving", "carrying a jacket"), "action_ko": the same in polite Korean ("휴대폰을 보고 계세요"). Use null for a part that is not visible. Only what is clearly visible.')
 
 _det_lock = threading.RLock()
 _det = {"net": None}
@@ -668,13 +687,17 @@ def _front(frames):
 def other_person(frames=None):
     """The nearest person in view other than the one in front (another bearing), described as person_in_front, or
     None: "what is my friend wearing?"."""
-    frames = snapshot() if frames is None else frames
+    p = _other(snapshot() if frames is None else frames)
+    return _public(p) if p else None
+
+
+def _other(frames):
     me = _front(frames)
     if me is None:
         return None
     for p in _persons(frames):
         if abs(p["bearing_deg"] - me["bearing_deg"]) > _same_deg(me["distance_m"]):
-            return _public(p)
+            return p
     return None
 
 
@@ -694,7 +717,7 @@ def object_in_hand(frames=None):
         if h and h["object"]:
             o = h["object"]
             return {"name": o["name"], "colour": o["colour"], "hand": s, "position_mm": o["position_mm"],
-                    "distance_m": o["distance_m"], "width_mm": o["width_mm"], "score": o["score"]}
+                    "distance_m": o["distance_m"], "width_mm": o["width_mm"], "score": o.get("score")}
     return None
 
 
@@ -749,23 +772,48 @@ def ask_vlm(question, lang="en", frames=None):
     frames = snapshot() if frames is None else frames
     if not frames:
         return None
-    p = _front(frames)
+    return _vlm(_person_img(frames), VLM_PROMPT.format(lang="Korean" if lang == "ko" else "English", q=question))
+
+
+def _person_img(frames, p=None):
+    """The picture of person p (default: the one in front) with a margin, or the whole head view when nobody is there."""
+    p = p or _front(frames)
     if p is not None:
         f, (x1, y1, x2, y2) = p["_f"], p["box"]
         mx, my = (x2 - x1) // 6, (y2 - y1) // 10
-        img = f["color"][max(0, y1 - my):y2 + my, max(0, x1 - mx):x2 + mx]
-    else:
-        img = next((f for f in frames if f["camera"] == "head"), frames[0])["color"]
-    return _vlm(img, VLM_PROMPT.format(lang="Korean" if lang == "ko" else "English", q=question))
+        return f["color"][max(0, y1 - my):y2 + my, max(0, x1 - mx):x2 + mx]
+    return next((f for f in frames if f["camera"] == "head"), frames[0])["color"]
 
 
-def _vlm(img, content, width=VLM_WIDTH, timeout=VLM_TIMEOUT_S, model=VLM_MODEL):
-    """gemma4's words about a picture, or None on a timeout / error."""
+def ask_vlm_person(frames=None, other=False, bearing=None):
+    """What the person in front (other: the nearest one besides them; bearing: the one seen nearest that bearing) looks
+    like, from one VLM pass on their picture (VLM_PERSON_PROMPT's keys; None for what it can't see), or None: nobody
+    there, a timeout or no JSON. Slow: 2-15 s."""
+    frames = snapshot() if frames is None else frames
+    p = (_other if other else _front)(frames) if frames else None
+    if p is not None and bearing is not None:
+        p = min(_persons(frames), key=lambda q: abs(q["bearing_deg"] - bearing))
+    if p is None:
+        return None
+    said = _vlm(_person_img(frames, p), VLM_PERSON_PROMPT, width=VLM_PERSON_WIDTH, timeout=VLM_PERSON_TIMEOUT_S,
+                model=VLM_PERSON_MODEL, fmt="json", tokens=200)
+    try:
+        got = json.loads(said or "")
+    except ValueError:
+        print(f"scene: VLM person look gave no JSON ({said!r})", flush=True)
+        return None
+    return got if isinstance(got, dict) else None
+
+
+def _vlm(img, content, width=VLM_WIDTH, timeout=VLM_TIMEOUT_S, model=VLM_MODEL, fmt=None, tokens=60):
+    """gemma4's words about a picture, or None on a timeout / error. fmt "json": the model must answer JSON."""
     img = cv2.resize(img, (width, max(1, int(img.shape[0] * width / img.shape[1]))))
     b64 = base64.b64encode(cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1]).decode()
     body = {"model": model, "stream": False, "think": False, "keep_alive": -1,
-            "options": {"temperature": 0, "num_predict": 60},
+            "options": {"temperature": 0, "num_predict": tokens},
             "messages": [{"role": "user", "images": [b64], "content": content}]}
+    if fmt:
+        body["format"] = fmt
     try:
         req = urllib.request.Request(VLM_URL, json.dumps(body).encode(), {"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as r:

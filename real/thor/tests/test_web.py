@@ -113,7 +113,8 @@ fri = datetime.date(2026, 10, 23)
 for q, days in {"오늘 날씨": [0], "and tomorrow?": [1], "모레는요?": [2], "내일모레": [2], "next Monday?": [3],
                 "다음 주 월요일 어때요?": [3], "this weekend": [1, 2], "이번 주말": [1, 2], "and Friday?": [0],
                 "next Friday": [7], "yesterday": [-1], "어제": [-1], "in 2 days": [2], "사흘 뒤": [3], "what about Busan?": None,
-                "the day after": [2]}.items():
+                "the day after": [2], "tomorrow는?": [1], "weekend는?": [1, 2], "다음 주말은?": [8, 9], "저녁에는?": [0],
+                "in the evening?": [0], "밤에는?": [0]}.items():
     assert web.asked_day(q, [1], fri) == days, (q, web.asked_day(q, [1], fri))
 week = "Weather in Seoul now: clear sky, 15 degrees.\n" + "\n".join(
     f"{(fri + datetime.timedelta(days=i)).strftime('%A %d %B')}: rain." for i in range(7))
@@ -229,4 +230,7 @@ assert events[1][1] == "내일 비 와? (the weather)", events
 web.search, events[:] = (lambda target: None), []
 L.look_up("Who won?", "search", "winner")
 assert [e[1] for e in events][1].startswith("Sorry, I'm not connected"), events
+# the weather follow-up after a weather question: the day or the place moves
+for q, place in {"이번 주말은 어때요?": "", "tomorrow는?": "", "부산은?": None, "and Tokyo tomorrow?": "Tokyo"}.items():
+    assert brain.weather_follow(q) == place, (q, brain.weather_follow(q))
 print("web ok")

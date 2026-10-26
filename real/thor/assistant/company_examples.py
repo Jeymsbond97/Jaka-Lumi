@@ -324,6 +324,82 @@ _BANK = {
     },
 }
 
+# more question forms (buying, specs, unknowns, mixed Korean / English), same facts
+_MORE = {
+    "contact": {
+        "en": [
+            ("Where can I buy one of these robots?", "Please contact Cutshion: 070-8959-2960, cutshion@cutshion.com, or the contact form on cutshion.com. A staff member here can help too."),
+            ("How do I purchase a Cutshion robot?", "The way to buy is to contact Cutshion directly, at 070-8959-2960 or cutshion@cutshion.com."),
+            ("Who should I talk to about buying?", "A staff member here, or Cutshion itself at 070-8959-2960 or cutshion@cutshion.com."),
+            ("Can I rent a robot for my event?", "I don't have information about rentals. Please ask Cutshion at 070-8959-2960 or cutshion@cutshion.com."),
+            ("Give me Cutshion's email.", "It's cutshion@cutshion.com."),
+            ("How do I reach your company?", "By phone at 070-8959-2960, by email at cutshion@cutshion.com, or through cutshion.com."),
+        ],
+        "ko": [
+            ("이 로봇 어디서 살 수 있어요?", "쿳션에 직접 문의해 주세요. 전화 070-8959-2960, 이메일 cutshion@cutshion.com이에요. 여기 직원에게 물어보셔도 돼요."),
+            ("구매 문의는 어디로 해?", "070-8959-2960이나 cutshion@cutshion.com으로 문의하시면 돼요."),
+            ("로봇 구입하려면 누구한테 말해야 됩니까?", "여기 직원에게 말씀하시거나, 쿳션에 070-8959-2960으로 연락하시면 됩니다."),
+            ("행사용으로 렌탈 돼요?", "렌탈은 제가 정확한 정보가 없어요. 쿳션에 070-8959-2960으로 문의해 주세요."),
+            ("쿳션 메일 주소 뭐야?", "cutshion@cutshion.com이에요."),
+            ("쿳션 contact 어떻게 해요?", "전화 070-8959-2960, 이메일 cutshion@cutshion.com, 아니면 홈페이지 cutshion.com의 문의하기로 하시면 돼요."),
+        ],
+    },
+    "products": {
+        "en": [
+            ("How fast is the ice cream robot?", "About 30 seconds for one ice cream, and it holds 40 cones."),
+            ("How big is the ice cream robot?", "The SOFTICE001 is 140 by 140 by 165 cm and weighs 500 kg."),
+            ("How long does the candy ball robot take?", "About 20 seconds for one candy ball."),
+            ("How much can the palletizing robot lift?", "Up to 20 kg, with one cycle taking about 15 seconds."),
+            ("What's special about the barista robot?", "It runs a real espresso machine and does the barista's main steps itself: grinding, dosing, tamping and extracting, with the same taste every time."),
+            ("Who uses the barista robot?", "Mega Coffee signed a yearly supply agreement in December 2025, and a deal for 200 robots to Sonovictus in the USA was reported in September 2026."),
+            ("What is Pionoid?", "Cutshion's robot development platform: one robot API for robots from any maker, with an app store for robot apps."),
+            ("What's GOMCOOK?", "Cutshion's cooking robot platform for personalised cooking; it links to ordering and delivery apps and won the RoboWorld Award 2023."),
+            ("Cutshion's drawing robot, how does it work?", "It takes your photo, AI turns it into a line drawing, and the robot arm draws it on a canvas."),
+            ("Does Cutshion make welding robots?", "Yes, a lightweight collaborative welding robot that follows the weld seam; the mobile version won the RoboWorld Award 2024."),
+        ],
+        "ko": [
+            ("아이스크림 로봇은 하나 만드는 데 얼마나 걸려요?", "한 개에 약 30초 걸리고, 콘을 40개 넣을 수 있어요."),
+            ("캔디볼 로봇 몇 초 걸려?", "캔디볼 하나에 약 20초 걸려요."),
+            ("팔레타이징 로봇은 몇 킬로까지 들 수 있습니까?", "20kg까지 다룰 수 있고, 한 사이클에 약 15초 걸립니다."),
+            ("바리스타 로봇 뭐가 좋아요?", "에스프레소 머신을 직접 써서 원두 분쇄, 도징, 탬핑, 추출까지 해요. 언제나 같은 맛을 내요."),
+            ("메가커피랑 무슨 계약 했어?", "2025년 12월에 메가커피와 바리스타 로봇 연간 공급 계약을 맺었어요."),
+            ("피오노이드가 뭐예요?", "제조사와 상관없이 하나의 로봇 API로 로봇 앱을 만들고 공유하는 쿳션의 로봇 개발 플랫폼이에요."),
+            ("곰쿡이 뭐야?", "쿳션의 조리 로봇 플랫폼이에요. 주문, 배달 앱과 연동되고 로보월드 어워드 2023을 받았어요."),
+            ("쿳션 drawing robot 어떻게 그려요?", "사진을 찍으면 AI가 선 그림으로 바꾸고, 로봇 팔이 그걸 캔버스에 그려 줘요."),
+        ],
+    },
+    "unknown": {
+        "en": [
+            ("What's Cutshion's revenue?", "I don't have exact information about that. Cutshion's website doesn't give its sales."),
+            ("Is Cutshion hiring?", "I don't have exact information about that. You could ask at cutshion@cutshion.com."),
+            ("How many robots has Cutshion sold?", "I don't have exact information about that; the total number sold isn't published."),
+            ("Where's Cutshion's next exhibition?", "I don't have exact information about that. I only know its past shows, like CES 2026 and VivaTech."),
+            ("What are the office hours?", "I don't have exact information about that. Please call 070-8959-2960 to check."),
+            ("Is Cutshion on the stock market?", "I don't have exact information about that."),
+        ],
+        "ko": [
+            ("쿳션 매출이 얼마야?", "그건 정확한 정보가 없어요. 매출은 홈페이지에 나와 있지 않아요."),
+            ("쿳션 지금 채용해요?", "채용은 제가 정확한 정보가 없어요. cutshion@cutshion.com으로 문의해 보세요."),
+            ("로봇 몇 대 팔았습니까?", "총 판매 대수는 제가 정확한 정보가 없습니다."),
+            ("다음 전시회 어디예요?", "다음 전시회는 잘 몰라요. 지난번에는 CES 2026이나 비바테크에 참가했어요."),
+            ("쿳션 상장했어?", "그건 정확한 정보가 없어요."),
+        ],
+    },
+    "achievements": {
+        "en": [
+            ("Has Cutshion got any investment?", "Yes, a seed investment of 500 million won from CNT Tech and Evergreen Investment Partners in August 2025."),
+            ("What is TIPS for Cutshion?", "Cutshion was selected for the TIPS Global Track program in December 2025."),
+        ],
+        "ko": [
+            ("쿳션 투자 받았어요?", "네, 2025년 8월에 씨엔티테크와 에버그린투자파트너스에서 시드 투자 5억 원을 받았어요."),
+            ("쿳션 상 받은 거 있어?", "로보월드 어워드 2023과 2024, 2026 비바테크 Tech for Change Award를 받았어요."),
+        ],
+    },
+}
+for _cat, _langs in _MORE.items():
+    for _lang, _pairs in _langs.items():
+        _BANK[_cat][_lang].extend(_pairs)
+
 EXAMPLES = [(cat, lang, said, reply)
             for cat, langs in _BANK.items() for lang, pairs in langs.items() for said, reply in pairs]
 

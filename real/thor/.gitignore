@@ -47,3 +47,12 @@ data/intent_bank.npz
 data/quick_answers.npz
 docs/gripper/
 docs/history/
+docs/HANDOFF.md
+docs/night2/
+# Lumi's 48 h memory of visitors' words: never commit
+data/memory/
+
+# big blind rounds (generated, regenerable from logs/w2_gen); local session state
+tests/blind/r6/
+tests/blind/r8/
+.claude/
