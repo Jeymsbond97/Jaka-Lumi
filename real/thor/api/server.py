@@ -1226,7 +1226,7 @@ def _held_parse(body, markers):
     bring it, else the dialog's To; then put it on a table, hand it over or keep holding it."""
     from assistant import brain
     from tasks import fetch
-    held, text = fetch.held_name(), body.text
+    held, text = fetch.held_name(), brain.give_clause(body.text)   # not where the person it is for goes
     m, t = brain._mentions(text, markers), brain._norm(text)
     if isinstance(m.get("source"), dict) and not brain.held_command(text):     # "take the bottle from p2": a new fetch
         return {"action": None, "task": None, "sentence": "–", "problems": [

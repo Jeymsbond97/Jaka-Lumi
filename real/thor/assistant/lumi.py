@@ -2504,6 +2504,14 @@ class Lumi:
             mouth.say(say, abort=self.speak_abort)
             self.keep_listening()
             return
+        from assistant import quick_answers                # "who made you?", "몇 살이에요?": a fact at once
+        say = quick_answers.answer(text, self.lang, self.brain.history) if kind is None else None
+        if say:
+            self.brain.history.append((text, f"ACTION: none -\n{say}"))   # "why?" / "really?" next: the LLM has it
+            log(f"  quick answer ({time.time() - t:.2f} s): {say}")
+            mouth.say(say, abort=self.speak_abort)
+            self.keep_listening()
+            return
         if self.brain.is_lookup_follow_up(text):           # "tell me more" about something looked up just now
             self.look_up(text, "search", self.brain.search_query(text), t)
             return
@@ -3044,7 +3052,7 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
         return "seeing", got
     if status_question(text):
         return "status", None
-    if hold:
+    if hold and not (brain_mod.held_give(text, markers) and (holding() if callable(holding) else holding)):
         rule = brain_mod.intent(text, markers)   # weather / search are no motion: "Weather outside?"
         return (("end", None) if talk_fate(text) == "end" else ("sing", None) if sing.asked(text, last) else
                 ("quick", rule) if rule and rule[0] in ("weather", "search") else
@@ -3079,11 +3087,17 @@ QUICK_RULES = {"go_to", "come", "follow", "quiet", "weather", "search", "move", 
                "fetch", "look", "lift", "wave", "come_back"}   # what quick_command does at once
 
 
+FILLER_PART = re.compile(r"\W*(?:(?:hey|yo|hi|okay|ok|excuse me|um+|uh+|so|now|please|thanks|thank you|real quick|quick|"
+                         r"right now|lumi|robot|buddy|mister robot|bro|dude|어이|야|저기요?|루미야?|로봇아?|당장|지금|빨리|"
+                         r"얼른|어서|끝까지|이제|좀|제발)\W*)+", re.I)   # a part of the words that is no step: a call, "now"
+
+
 def read_mission(text, markers):
     """(steps, unread, by) when the words are a command of several steps (unread: parts not understood), else None.
     A single move / turn / arm / go, or words that are only partly a plain command, stay with the other paths."""
     from assistant import steps
     got, unread, by = steps.read(text, markers, llm=False)
+    unread = [u for u in unread if not FILLER_PART.fullmatch(u)]   # "팔 접어, 당장", "hey robot, fold your arm"
     rule = brain_mod.intent(text, markers) or ("", "")
     if unread and rule[0] == "look" and rule[1].endswith(f" {brain_mod.HEAD_YAW[1]:g}"):
         return None                                # "turn around and look": the head looks behind (brain.BEHIND_WORDS)

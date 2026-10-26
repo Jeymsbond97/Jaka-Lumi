@@ -188,4 +188,23 @@ from assistant import lumi                                 # a venue question on
 assert lumi.not_online("여기 몇 시까지 해요?") and lumi.not_online("입장료 얼마예요?") and lumi.not_online("what time is the keynote?")
 assert not lumi.not_online("루브르 몇 시까지 해?") and not lumi.not_online("How much are tickets for the Louvre?")
 assert not lumi.not_online("롯데월드 입장료 얼마야?")
+# the model's motion runs only on a direct order (or "yes" to Lumi's own offer, "do it again"); else talk only
+for text, line in (("우리 커피 들렀다가 p3 가자", "go_to p3"), ("let's grab coffee then go to p3", "go_to p3"),
+                   ("Don't look up.", "look down"), ("흔들지 마", "wave -"), ("고개 돌리지 마세요", "turn left"),
+                   ("점심 먹고 나서 p3로 가", "go_to p3"), ("after lunch go to p3", "go_to p3"),
+                   ("회의 끝나고 p3 가 줘", "go_to p3"), ("머리 360도 돌지?", "turn around"), ("can you grow taller?", "lift up"),
+                   ("can you turn your head 360?", "look left"), ("민수야 이리 와", "come -"), ("Jake, follow me", "follow -"),
+                   ("we should go to p3 after this", "go_to p3"), ("우리 점심 먹으러 가자", "go_to p3"),
+                   ("Lumi, 우리 meeting 끝나고 p3 가자", "go_to p3"), ("my friend wants to see p3", "go_to p3")):
+    assert brain.Brain._action("ACTION: " + line, text, ["p3"])["action"] == "none", text
+for text, line in (("go to p3", "go_to p3"), ("p3로 가 줘", "go_to p3"), ("could you wave?", "wave -"),
+                   ("I'd like you to follow me", "follow -"), ("고개 좀 들어봐", "lift up"), ("don't wave, just look at me", "look me"),
+                   ("Lumi, p3 쪽으로 가 줄래?", "go_to p3"), ("turn around please", "turn around")):
+    assert brain.Brain._action("ACTION: " + line, text, ["p3"])["action"] != "none", text
+b = brain.Brain()
+b.history = [("what is over there?", "ACTION: none -\nThe stage. Shall I look at it?")]
+assert b._after(brain.Brain._action("ACTION: look left", "yes", []), "yes")["action"] == "look"
+assert b._after(brain.Brain._action("ACTION: look left", "네", []), "네")["action"] == "look"
+b.history = [("what is over there?", "ACTION: none -\nThe stage.")]
+assert b._after(brain.Brain._action("ACTION: look left", "yes", []), "yes").get("held")   # no offer: talk only
 print("intents ok")
