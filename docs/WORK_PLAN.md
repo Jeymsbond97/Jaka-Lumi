@@ -7,6 +7,177 @@ replies always polite); Lumi is presented as developed by Cutshion Company (쿳�
 
 Update this file when a part is done. A new session: read this, then docs/17_MISSIONS.md, then ROADMAP.
 
+## Big night test 5 (2026-10-26 19:00 →) — PLANNED
+
+Asked by the owner 2026-10-26 11:05. Starts 19:00 from a new lead session: read this section, docs/night4/COMMON.md
+and every docs/night4/<id>.md "Left" / "In progress" / "For others".
+- Work not finished by the day agents at 13:30 (C, A3, A4, A5, A7, W5, B1, F1, R1): listed here by the lead at 14:00,
+  each agent restarted from its own "Left".
+- Faults from today's live test: the owner tells them before 19:00; the lead writes them here and gives each to the
+  owning agent (EN + KO, every level, new cases for each).
+- Measure on r10 (W5, half English) as well as r6 / r8 / r9; English must score as well as Korean.
+
+Unfinished at 13:30:
+- (filled at 14:00)
+
+Faults from the live test:
+- (owner, before 19:00)
+
+## Big night test 4 (2026-10-26 00:15 → 10:00) — RUNNING
+
+Night 3 stopped 2026-10-24 22:51 (weekly usage limit; reset 2026-10-25 20:00, nobody restarted it): its work stayed
+uncommitted, and night 2's five commits were never pushed (logs/gitea_night3.sh waited on the old hashes). Started
+again by the owner 2026-10-25 23:45 ("boshla") in the night-2 lead session.
+
+- Pushes: logs/gitea_night4.sh (setsid, no Claude needed) pushes 9f43b70 … dce2587 at 00:37, 01:52, 03:14, 04:29,
+  05:43, each tree's tests run first in a worktree (PYTHONPATH = the worktree); log logs/gitea_night4.log.
+- Night 3's work: committed 23:58 as 67bbe90 (quick answers, Cutshion, weather / news), 1f35aee (seeing, memory),
+  f101455 (Korean levels, long talks, the rest); all 58 tests pass (test_quick_answers updated for the company kinds).
+  Pushed after night 2's by logs/gitea_night4b.sh at 06:27, 06:58, 07:36 (log logs/gitea_night4b.log).
+- Team (5 agents, fewer than nights 2–3 so the weekly usage lasts to 10:00): C (commands: A1 + A2 + A6's left —
+  arm / hand, head / body / base, chain, seeing-vs-command order), A3 (Korean, engine, checkers), A5 (knowledge,
+  quick answers, weather / news), A7 (memory), W4 (finish r9 parity round, then r10). Brief docs/night4/COMMON.md,
+  status docs/night4/<id>.md. r7 final exam: a fresh writer ~05:00 if usage allows, scored ~08:00.
+- Morning: 2–3 commits of tonight's work (~08:15, ~09:05, ~09:50), pushed spaced after 07:36; report at 10:00.
+- **If the limit runs out again:** the push script goes on by itself. On reset: `date`, read logs/gitea_night4.log,
+  run all tests, commit what passes, start one agent per docs/night4/<id>.md "Left" with docs/night4/COMMON.md.
+
+Progress (lead):
+- 23:50 tests of the uncommitted night-3 tree; push script started. 23:58 night 3 committed (3 pieces).
+- 00:05 five agents started (C, A3, A5, A7, W4); 00:20 A4 (LLM, talk, speed) added at the owner's LLM request.
+- 00:15 owner: keep the agents going round after round until 10:00 (new commands / questions / dialogues each round,
+  EN = KO, banks + quick answers + rules + LLM examples). Lead: when an agent ends, re-brief it with a new round;
+  when W4 ends, a fresh writer makes r10 (other method), r7 final at ~05:00.
+- 00:15 wake words added by the lead (assistant/lumi.py WAKE / CALL_REST, tests/test_wake.py): "wake up", "wake up
+  Lumi", "Lumi, wake up", "Hey Lumi", "헤이 루미", "루미야 일어나", "일어나세요", "깨어나 루미야"; a bare "wake up" /
+  "일어나" only as the whole utterance. test_wake passes. Not live (lumi-api not restarted).
+- ~00:20 session usage limit (5-hour window): all six agents stopped; reset 04:50. Pushes went on by themselves:
+  9f43b70 00:37, fbcc5ca 01:52, 6922f39 03:14, fa5ac04 04:29 pushed; dce2587 at 05:43, night 3 at 06:27 / 06:58 / 07:36.
+- 04:52 resumed C, A3, A4 (until 09:15) and W4 (finish r9 only); A5 and A7 kept stopped so the window lasts to the
+  10:00 commits and report (their state: docs/night4/A5.md, A7.md — resume them first in the next window).
+- 05:20 W4 finished r9: 37345 train / 33581 held cases, 1888 / 1861 dialogues, 11 levels at 8–10 % each, near misses
+  19–26 % per level, new set lookup_dialogues; check_r9 0 problems (README "## r9", docs/night4/W4.md). Its full test
+  run saw test_detour / test_driving / test_korean_numbers fail mid-edit (agents working): re-check before commits.
+- ~06:45 session usage limit again (agents stopped mid-run). 09:40 new session: all 60 tests pass; night 4 committed
+  as b3604af (talk, quick answers, weather, songs), b547f61 (memory), ac4211c (commands, Korean levels, checkers).
+  Spaced pushes by logs/gitea_night4c.sh at 10:15, 10:55, 11:35 (log logs/gitea_night4c.log).
+- 09:50 resumed C, A3, A4, A5, A7 from their docs/night4/<id>.md (A5 with levels.py from its old scratchpad).
+- ~10:15 the lead session closed (agents stopped mid-round, edits uncommitted). 10:20 new lead session resumed C, A3,
+  A4, A5, A7 from their docs/night4/<id>.md (In progress, Left, the "For others" items addressed to each).
+- 10:45 owner: English must be understood as well as Korean (r9 is 17 % English), many more wordings for every
+  command (+177 is too few), cup tasks in every form (pick / put / bring / give / take from a hand / search / wait /
+  deliver, orders on the way), and the arm must reach a visible reachable cup from any direction. Four more agents:
+  W5 (r10 sets, half English, cup tasks), B1 (bank growth, bank_words/english.py), F1 (cup-task language: parse_fetch,
+  steps.py, fetch_dialog.py, bank_words/fetch.py; taken over from C), R1 (reach from any direction: manipulation/skills.py,
+  tasks/fetch.py reach parts, offline tests only).
+- 11:00 owner: all agents stop by 13:30, report at 14:00; this work goes to Gitea as 5 pushes spaced until 17:00
+  (e.g. 14:15, 14:55, 15:35, 16:15, 16:55), by a push script like logs/gitea_night4c.sh.
+
+## Big night test 3 (2026-10-24 18:30 → 2026-10-25 10:00) — stopped 2026-10-24 22:51 (weekly limit)
+
+Night 2 stopped at ~01:45 (the lead's account ran out of usage): nothing was committed then. On 2026-10-24 ~18:00 a new
+session (lead 3) took over: fixed the 6 tests the night-2 work broke (chain fake, come back "return the cup" = put
+back, "뒤에 뭐 있는지 봐 줘" answered by the cameras, switches fake, arm self-correction, "the jeans, what colour are
+they?" = the jeans, clothes out of view said again), all 58 tests pass, and committed night 2 in five pieces
+(9f43b70, fbcc5ca, 6922f39, fa5ac04, dce2587; rebuilt at 22:45 so voice_words.py goes with the brain changes it needs in the
+last one). Their Gitea pushes run at irregular times (owner: never on the hour, never evenly spaced), script
+logs/gitea_night3.sh, log logs/gitea_night3.log.
+tests/blind/r6/ and r8/ (181 MB) stay local (git-ignored); their generators are in logs/w2_gen/ and the W3 folder.
+
+**A new session / account taking over: read this section, docs/night3/COMMON.md, then each docs/night3/<agent>.md
+(Done / In progress / Left) and re-brief the unfinished agents from "Left" with the same rules.**
+
+Owner's goal tonight (on top of night 2's): Korean as good as English at every speech level (반말, 해요체, 하십시오체,
+friendly, honorific, dialect, Konglish), tested at the same depth in both languages; banks, quick answers, dialogues and
+LLM examples keep growing; new test rounds again and again until 10:00; fix night 2's "For others" faults; then a
+report to the owner at 10:00. HANDOFF §16.1 (body pose drop) is put off.
+
+Team: the night-2 roles (A1–A7, W2; files as in "Big night test 2" below), plus W4 (new writer: r9, the Korean /
+English parity round: every capability and question kind in both languages and every Korean level), and at ~05:00 a
+fresh writer for the final exam r7 (held only, scored by the lead ~08:00).
+
+Commits: night 2 = five pieces above (pushed by 23:00). Tonight's work = four commits 07:00–10:00 (~07:00, ~08:00,
+~09:00, ~09:50), each pushed on its own (tools/gitea_push.sh), titles short and plain ("Add …", "Fix …",
+"Improve …", "… tested").
+
+**When the usage limit runs out (owner 2026-10-24 22:45: write this into the plan):** the limit hit at ~19:30 and
+reset at 22:40; every agent stopped mid-round. The work so far stays in the files. On reset (this lead or any new
+session / account): (1) `date`; read logs/gitea_night3.log (pushes go on by themselves: a setsid script, no Claude);
+(2) resume each stopped agent with a message "continue from where you stopped" (same session) or, in a new session,
+start a new agent per docs/night3/<id>.md "Left" with docs/night3/COMMON.md; (3) run all tests/test_*.py before any
+commit; (4) shift the morning schedule if needed (4 commits between 07:00 and 10:00, report at 10:00); (5) add a
+Progress line below. Agents keep their status file current every hour for this.
+Note: tests run in a git worktree fail test_fetch, test_fetch_place, test_followup, test_scene for reasons of the
+worktree (local test data / state); the main tree is the reference (58 / 58 at dce2587).
+
+Progress (lead):
+- 18:30 r6 / r8 held scored with the rules at the start (logs/blind_held_lead0.*, logs/lead_held0.log).
+- ~19:30 usage limit: all agents stopped (A1–A7, W2, W4 mid-round). 22:40 reset: lead rebuilt the 5 commits, all 9
+  agents resumed with "continue from where you stopped" and write their docs/night3/<id>.md first.
+
+## Big night test 2 (2026-10-23 22:40 → 2026-10-24 01:45) — stopped (account limit), committed 2026-10-24
+
+Started by the owner ("barchasini boshla"). Lead = the session that wrote this. **A new session / account taking over:
+read this section, then each `docs/night2/<agent>.md` (done / in progress / left), then re-brief the unfinished
+agents from "left" with the same rules.** Body pose drop (HANDOFF §16.1) is put off by the owner.
+
+Owner's goal: Lumi understands **everything it can do**, said in any way with the same meaning, English, Korean
+(반말 / 해요체 / 하십시오체, dialect, Konglish, whisper slips) and mixed, at once and exactly: every arm / hand,
+head, body, base command, missions, music, voice settings, status; questions (Lumi, Cutshion / JAKA, weather,
+news, any internet lookup); long dialogues on any world topic with nested why / when / what follow-ups; context
+("thanks" = closing or not, by the talk); people seen (clothes, colours, hair, glasses, posture, actions, held
+things) answered at once, not "I can't tell"; memory of the talk (HANDOFF §16.3, 48 h); faster replies; the Command
+box does whatever voice does. Banks (intent bank, quick answers) grow far past thousands of wordings; aim 100 %.
+
+Owner's meanings: "shake hand / shake hands / let's shake hands / shake / wave / wave your hand / 악수하자" = **wave**;
+"give me (your / a) hand / 손 줘 / 손 내밀어" = **reach**; "give me it" while holding = **give**.
+
+Team (each owns its files; shared big files only by small Edit hunks in its own functions; status in docs/night2/):
+
+| id | role | owns |
+|---|---|---|
+| W1 | blind test writer: commands (never reads code) | tests/blind/r6/{train,held}/commands_*.py, speed_short, chain, detour, missions, sing |
+| W2 | blind test writer: dialogues and questions (never reads code) | tests/blind/r6/{train,held}/ dialogues_*, followup, seeing, unknowns, questions_* |
+| A1 | arm and hand language | assistant/bank_words/arm.py, brain hand reader (hand_request …), fetch_dialog.py |
+| A2 | head, body, base, missions, Command box | assistant/bank_words/motion.py, driving.py, steps.py, chain.py, detour.py, api/server.py command paths |
+| A3 | Korean language + fast-lane engine + checkers | assistant/bank_words/korean.py, intent_bank.py / quick_answers.py code, wording.py, voice_words.py, brain.direct_order, tests/*_check.py |
+| A4 | conversation, context, reply speed | brain.py prompt / closing / follow-ups, talk_examples.py, interrupt_examples.py, action_examples.py, llm_direct.py |
+| A5 | knowledge: Lumi, Cutshion, JAKA, internet, news, weather, music | assistant/bank_words/questions.py, quick answers kinds, company_examples.py, web.py, knowledge/, song_bank.py |
+| A6 | seeing people and things | assistant/seeing.py, vision/scene.py ask_vlm parts |
+| A7 | memory (talk, seen things, self state, 48 h) | assistant/memory.py (new), tests/test_memory.py, small hooks in lumi.py / brain.py |
+
+Rules: no robot motion, no service restart, no git commit / stash / reset / checkout (the lead commits); never read
+`tests/blind/*/held/`, `r5/`, `r7/`; EN + KO + mixed together; never guess a word into a place / object; a wrong
+motion is the worst error. Measure: `tests/blind_check.py train --round r6 [sets] [--rules|--cached] [--limit N]`,
+`tests/bank_check.py`; one LLM run at a time per agent (the GPU is shared). `tests/test_mission_stop.py` segfaults at
+exit after "mission stop ok" also on the committed code (known, not a failure of tonight's work).
+
+Schedule: 5 commits, pushed at different times (tools/gitea_push.sh): ~01:00, ~03:30, ~06:00, ~08:00, ~09:50.
+r6 train / held from W1 / W2 by ~00:30; held scored by the lead only. ~05:00 a fresh writer makes the final exam r7
+(held only); scored ~08:00 on commit 4. Results here and in HANDOFF.
+
+**Standing order (owner, 23:10): nobody stops before 10:00.** When an agent finishes, the lead re-briefs it at once
+with the next round; writers keep making NEW rounds with new methods (r8, r9, r10 … each by a fresh writer, other
+crowds / scenarios / styles, never reusing earlier generators), fixers keep filling the banks, quick answers, rules
+and LLM examples and fixing what each new round shows, again and again until the morning. r7 stays the final exam
+(written ~05:00, scored ~08:00).
+
+Progress (lead, updated as agents finish):
+- 22:40 bank_words hook (assistant/bank_words/, per-wording embedding cache) added; banks 4013 / 495 wordings.
+- 22:45 all nine agents started (wave 1, until 03:00), common brief docs/night2/COMMON.md. Battery log:
+  logs/battery_night2.log (55 % charging at 21:30). Next for the lead: commit 1 at ~01:00, score r6 held when the
+  writers and A3's checker are ready (~01:30), re-brief wave 2 at ~03:00 (until 10:00), r7 writer at ~05:00.
+- 22:55 W2 delivered r6 dialogue / question sets (counts in tests/blind/README "## r6 dialogues"); re-briefed to grow
+  until 03:00 (variety, Korean ≥55 %, 250+ topics). Owner: Lumi's price is not needed — it stays "unknown".
+- 23:05 W1 finished: r6 commands 29263 train / 29244 held cases, 80 files per split (README "## r6 commands", new
+  tokens waist / arm look / point / limit / more). W1 is done (its generators would leak into r7: r7 = a new writer).
+- 23:50 W3 finished r8 (scene-driven, 225 visitor types × 3 maps): 34754 / 34196 cases + 1923 / 1965 dialogues
+  (train / held), 96.8 % unique, ~79 % Korean, no new tokens (README "## r8"). Fixers told to use r8/train too.
+  Next writer: r9 at ~02:00, adversarial, aimed at the weak classes of the r6 / r8 held scores (classes only).
+- 00:00 A2 interim: NEW capability waist by voice (Lumi.waist via fetch._waist_to, sweep-checked, Patrol only;
+  before, waist words drove the base turn) — **first live run slow, owner at the STOP**. Relayed A2's findings: voice
+  guards (A3), point / missions scoring (A3), lift words read as put down (A1), seeing vs peek (A6).
+
 **Where we stopped (2026-10-16, ~19:50, owner left):** every agent finished; nothing is half-done except what is
 listed under "Next". `lumi-api` was NOT restarted: the robot still runs the old code. A background re-check of
 conversation / company / dialogues with all fixes was started at 19:45 (`logs/recheck_all.log`; it ends with
