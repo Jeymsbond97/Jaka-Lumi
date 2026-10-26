@@ -1,5 +1,5 @@
-"""The live sequence of 2026-10-23 15:21-15:23, replayed with fakes: "give me a hand" / handshake words with an empty
-hand are arm reach (the rules, not the LLM's "I can't shake hands"), and a reach whose body move hangs ends at once on
+"""The live sequence of 2026-10-23 15:21-15:23, replayed with fakes: "give me a hand" / "손 줘" with an empty hand
+are arm reach (handshake words are a wave) (the rules, not the LLM's "I can't shake hands"), and a reach whose body move hangs ends at once on
 STOP, so the next "give me your hand" starts instead of "I'm busy with another task". And 2026-10-23 17:40-17:43:
 "close your hand" on nothing is not holding (the camera saw the person's hand by the held-out arm), "there is nothing
 in your hand" checks the hand again, and "okay, thank you" / a timeout folds the held-out arm. No robot.
@@ -16,13 +16,16 @@ from tasks import fetch
 
 MARKERS = ["home", "p1"]
 REACH = ["Let's give me a hand.", "Let's give me your hand.", "Give me your hand.", "give me a hand", "손 줘",
-         "손 내밀어", "루미야 손 줘", "Lumi, 손 줘", "hand 줘", "손 좀 줘", "shake hands with me", "let's shake hands",
-         "shake my hand", "give me a handshake", "악수하자", "악수해 줘", "나랑 악수할래?"]
+         "손 내밀어", "루미야 손 줘", "Lumi, 손 줘", "hand 줘", "손 좀 줘"]
+WAVE = ["shake hands with me", "let's shake hands", "shake my hand", "shake hand", "can you shake hand", "shake",
+        "give me a handshake", "악수하자", "악수해 줘", "악수해요", "악수 한번 해요", "나랑 악수할래?"]   # owner 2026-10-23: a wave
 NOT_REACH = ["give me a hand with this", "can you lend me a hand?", "give me a hand to lift this", "I shook hands with him",
              "don't shake hands", "악수하지 마", "어제 악수했어", "the handshake was nice", "give me a break"]
 
 bad = [(t, brain.intent(t, MARKERS)) for t in REACH if brain.intent(t, MARKERS) != ("arm", "reach")]
 bad += [(t, brain.intent(t, MARKERS)) for t in NOT_REACH if brain.intent(t, MARKERS) == ("arm", "reach")]
+bad += [(t, brain.intent(t, MARKERS)) for t in WAVE if brain.intent(t, MARKERS) != ("wave", "")]
+bad += [(t, brain.intent(t, MARKERS)) for t in NOT_REACH if brain.intent(t, MARKERS) == ("wave", "")]
 bad += [(t, "held rule") for t in REACH if brain.hand_request(t, False, None, MARKERS)]   # empty hand: never a give
 assert not bad, bad
 

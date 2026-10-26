@@ -35,9 +35,11 @@ NEAR_THING = re.compile(r"(?:테이블|책상|탁자|의자|소파|문|벽|창�
                         r"(?<![가-힣])(?!(?:루미야?|조금만?|살짝|다시|그냥|이제|저기요?|여기|거기|약간|천천히|빨리|얼른|어서|그럼|근데|"
                         r"그리고|좀|더|한|두|세|반|쭉|바로|똑바로|계속|한번|한 번|일단|먼저|자|아주|많이|쪼끔|쬐끔|요만큼|뼘|걸음|발짝|발자국|미터|센티|센치|밀리)만?(?:\s|$))(?:[가-힣][가-힣_]{0,9}|(?<![a-z0-9_.])(?!(?:m|cm|mm|lumi|loomi|rumi|hey|ok|okay|please)\b)[a-z][a-z0-9_]*)\s*"
                         r"(?:앞|옆|뒤)(?:으?로|쪽|에)")   # "테이블 앞으로", "무대 앞으로 가": to that thing or place, not forward
-OTHER = re.compile(r"\b(?:look|head|turn|spin|rotate|face|arm|hand|lift|raise|lower|it|this|that|them|those|these|here|there|"
+OTHER = re.compile(r"(?<![a-z])(?:look|head|turn|spin|rotate|pivot|swing|swivel|twist|waist|torso|clockwise|counterclockwise|face|arm|"
+                   r"hand|lift|raise|허리|상체|몸통|윗몸|"
+                   r"lower|it|this|that|them|those|these|here|there|"
                    r"home|me|us)\b|\bthe (?!left\b|right\b)|\bgo (?:right )?ahead\b|\bback to (?![\d.])|\b[a-z]+\d+\b|\b[a-z]+(?:_[a-z0-9]+)+\b|고개|머리|팔|손|돌아|돌려|봐|보(?:세요|십시오|시오|실래요|자|라|아|여)|볼래|쳐다|들어|올려|내려|"
-                   r"여기|저기|이리|집|\S(?:을|를)(?=\s)|도십시오|도세요|회전|\d+(?:\.\d+)? ?도(?:만|쯤|정도|가량)?(?=\s|$)|" + NEAR_THING.pattern)
+                   r"여기|저기|이리|집|\S(?:을|를)(?=\s)|도십시오|도세요|회전|틀어|(?:^|\s)바(?=\s|$|요)|\d+\s*(?:°|degs?\b|degrees?\b|derees?\b)|\d+(?:\.\d+)? ?도(?:만|쯤|정도|가량)?(?=\s|$)|" + NEAR_THING.pattern)
                                                     # the head, an object, a place
                                                     # (p3, dock2, booth_9: a marker as written): not a short drive
 SAYER = re.compile(r"\b(?:i|i'm|im|i'll|i've|we|we're|he|she|they|there|it's|it is|my|our|his|her|their|was|were|"
@@ -45,7 +47,7 @@ SAYER = re.compile(r"\b(?:i|i'm|im|i'll|i've|we|we're|he|she|they|there|it's|it 
 _NATIVE = {"한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5, "여섯": 6, "일곱": 7, "여덟": 8, "아홉": 9, "열": 10,
            "a": 1, "an": 1, "half": 0.5, "반": 0.5}
 _COUNT = rf"(\d+(?:\.\d+)?|{'|'.join(_NATIVE)})\s*(?:a\s+)?"
-STEPS = re.compile(rf"(?:(?<![\w.]){_COUNT}\s*)?(?:steps?|paces?|걸음|발짝|발자국)(?![a-z])")
+STEPS = re.compile(rf"(?:(?<![\w.]){_COUNT}\s*)?(?<![a-z])(?:steps?|paces?|걸음|발짝|발자국)(?![a-z])")   # not "sidestep"
 SPANS = re.compile(rf"(?:(?<![\w.]){_COUNT}\s*)?뼘")
 TINY = re.compile(r"\b(?:tiny|teeny|wee|hair|hairs?breadth|smidge|smidgen|tad|touch|nudge|slightly|little tiny)\b|"
                   r"\bfew (?:centimet(?:er|re)s|cm)\b|\binch (?:forward|back|left|right|ahead)|"
@@ -59,11 +61,12 @@ NUM_WORD = re.compile(r"\b(?:eleven|twelve|thirteen|fourteen|fifteen|sixteen|sev
 KO_NUM_WORD = re.compile(r"(?<![가-힣])(?:하나|둘|셋|넷|다섯|여섯|일곱|여덟|아홉|열|스물|서른|마흔|쉰)(?:만|쯤|정도)?(?![가-힣])")
                                                     # "앞으로 다섯만 가": a count with no unit, asked
 KO_COUNT = re.compile(KO_NUM_WORD.pattern + r"|(?<![가-힣])[이삼사오육칠팔구]?[십백][일이삼사오육칠팔구]?(?:만|쯤|정도)?(?![가-힣])|"
-                      r"(?<![\w.])\d+(?:\.\d+)?(?![\d.])(?!\s?(?:m|도|degrees?|°)(?![a-z]))")   # a number with no unit
+                      r"(?<![\w.])\d+(?:\.\d+)?(?![\d.])(?!\s?(?:m|도|degrees?|degs?|derees?|°)(?![a-z]))")   # a number with no unit
 WRONG_UNIT = (re.compile(r"(?<![\w.])\d+(?:\.\d+)? ?(?:도|degrees?)(?:만|쯤|정도|가량)?(?![가-힣a-z])"),       # degrees for a drive
               re.compile(r"(?<![\w.])\d+(?:\.\d+)? m(?![a-z])"))                        # metres for a turn
 TURN_WORD = re.compile(r"\b(?:turn|spin|rotate|pivot)\b|돌아|돌려|돌(?:까|래|면)|회전|도세요|도십시오")
-NOT_BASE = re.compile(r"\b(?:look|head|face|lift|arm)\b|고개|머리|얼굴|봐|보세요|리프트|팔|손")
+NOT_BASE = re.compile(r"\b(?:look|head|face|lift|arm|waist|torso|torrso|upper body|hips?|twist)\b|고개|머리|얼굴|봐|보세요|리프트|팔|손|"
+                      r"허리|상체|몸통|윗몸")   # the head, the arm, the waist: not the base
 
 FASTER = re.compile(r"\b(?:faster|quicker|speed (?:it )?up|pick up (?:the )?(?:pace|speed)|step on it|hurry(?: up)?|"
                     r"get a move on|more speed|full speed|go quick(?:ly)?|too slow(?:ly)?|so slow(?:ly)?|"
@@ -71,7 +74,7 @@ FASTER = re.compile(r"\b(?:faster|quicker|speed (?:it )?up|pick up (?:the )?(?:p
 SLOWER = re.compile(r"\b(?:slower|slow (?:it )?down|slow|ease (?:off|up)|not so fast|too fast|"
                     r"so fast|less speed|gently|more slowly|slowly)\b|"
                     r"천천히|느리게|(?:속도|speed)\s*(?:를|좀)?\s*(?:좀\s*)?(?:줄|낮|늦)\S*|빨라|빠르다|살살")
-_FILLER = (r"please|pls|lumi|hey|hi|okay|ok|so|um+|uh+|well|now|then|just|can|could|would|will|you|you're|youre|"
+_FILLER = (r"please|pls|lumi|robot|yo|hey|hi|okay|ok|so|um+|uh+|well|now|then|just|can|could|would|will|you|you're|youre|"
            r"are|is|going|moving|driving|go|drive|move|"
            r"keep|going|get|it|the|a|an|bit|little|tiny|notch|touch|tad|lot|much|way|even|bit|slightly|somewhat|"
            r"more|than|that|this|let's|lets|try|be|bit\.|maybe|yeah|yes|alright|right|bro|man|too|really|"
@@ -79,16 +82,23 @@ _FILLER = (r"please|pls|lumi|hey|hi|okay|ok|so|um+|uh+|well|now|then|just|can|co
            r"줄래\?|주실래요|주시겠어요|해|해줘|해요|해 ?줘|움직여|요|좀더|조금더|자|볼래|봐|볼까|좀만|해봐")
 FILL = re.compile(rf"(?:^|\s)(?:{_FILLER})(?=\s|$)")
 AGAIN = re.compile(r"^(?:(?:just|a|an|bit|little|tiny|some|even|one|1|once|the|same|do|it|that|go|please|lumi|ok|"
-                   r"okay|yeah|yes|and|then|now)\s+)*(?:more|again|once more|one more time|same again|"
-                   r"the same again|more please|again please|1 more time)(?:\s+(?:please|lumi|then))?$|"
-                   r"^(?:루미야\s+)?(?:조금만?|좀|살짝|약간|한 ?번|1 ?번|아까처럼|똑같이)?\s*더"
-                   r"(?:\s*(?:가|해|가 ?줘|해 ?줘|가요|해요|가 ?주세요|해 ?주세요))?$|^한 ?번 ?더|^똑같이(?: 해| 한 ?번)?")
+                   r"okay|yeah|yes|and|then|now|robot|yo|hey)\s+)*(?:more|again|once more|one more time|same again|"
+                   r"the same again|more please|again please|1 more time)(?:\s+(?:please|lumi|then|again|more))*$|"
+                   r"^(?:(?:루미야?|루미 ?씨|로봇아?|야)\s+)?(?:조금만?|좀|살짝|약간|한 ?번만?|1 ?번|아까처럼|똑같이)?\s*더"
+                   r"(?:\s*(?:가|해|가 ?줘|해 ?줘|가요|해요|가 ?주세요|해 ?주세요))?$|"
+                   r"^(?:(?:루미야?|루미 ?씨|로봇아?|야)\s+)?(?:한 ?번만? ?더|똑같이(?: 해| 한 ?번)?|또 ?(?:해|해 ?줘|해 ?봐)|"
+                   r"다시(?: ?(?:해|가|해 ?줘|가 ?줘|해 ?봐|해요|가요|한 ?번)){0,2})(?:\s+(?:해|해 ?줘|가|요))?$")
+# ^ "again again", "또 해!", "루미, 한번 더!", "한 번만 더", "다시 가": the command just before once more
+DIR_ONLY = re.compile(r"^(?:(?:lumi|robot|루미야?|now|ok|okay|and|then|please|이번엔|이제|이번에는|now)\s+)*"
+                      r"(?:(?:a )?(?:little|bit|tad)\s+)?(left|right|up|down|왼쪽|오른쪽|위|아래|위쪽|아래쪽|밑)"
+                      r"(?:으로|로|쪽|쪽으로|에)?(?:\s+(?:a little|a bit|now|please|more|again|더|좀|요|lumi))*$")
+# right after a look, only a way said ("왼쪽", "위로", "Lumi, left now"): the head that way
 LOOK_MORE = re.compile(r"^(?:(?:look|at|to|the|your|side|a|bit|little|tiny|more|again|further|please|lumi|and|then|now|"
                        r"once|one|time|okay|ok|left|right|up|down|루미야|좀|조금|조금만|더|약간|살짝|한|번|한번|다시|봐|봐요|봐줘|"
                        r"줘|주세요|요|(?:왼쪽|오른쪽|위|아래)(?:으로|로|쪽|쪽으로|을|를)?)(?:\s+|$))+$")
 # right after a look, only these words with a "more" / "again" in them: the head a step further that way
 LESS = re.compile(r"^(?:(?:a|bit|little|just|a little|a bit)\s+)*less(?: please)?$|^(?:좀|조금)?\s*덜$")
-JOINED = re.compile(r"\b(?:and|then|after that|and then)\b|그리고|하고|해서|가서|다음에|집어|가져")
+JOINED = re.compile(r"\b(?:and|then|after that|and then)\b|그리고|하고|해서|가서|가고|보고|돌고|다음에|집어|가져")
 
 
 def clean(t):
@@ -96,7 +106,10 @@ def clean(t):
 
 
 def direction(t):
-    """The way said; "not left. right." is right (a direction said with "not" is not meant)."""
+    """The way said; "not left. right." is right (a direction said with "not" is not meant); "uh, so, right, come
+    to where I am": "right" as "okay" is no way."""
+    t = re.sub(r"(?:^|\b(?:so|okay|ok|uh|um|yeah|well|and|oh|alright)\s+)right\s+(?=(?:come|go|look|turn|so|now|then|i|you|we|"
+               r"let'?s|lumi)\b)", " ", t)
     t = re.sub(r"\bnot (?:to the |to your )?(?:left|right|forward|back(?:wards?)?)\b|(?:왼쪽|오른쪽|앞|뒤)(?:으로|쪽)? ?말고", " ", t)
     found = [(m.start(), d) for d, rx in DIRS for m in [re.search(rx, t)] if m]
     return min(found)[1] if found else None
@@ -115,12 +128,16 @@ def amount(t):
     if TINY.search(t):
         return TINY_M, False
     for rx, unit in ((STEPS, STEP_M), (SPANS, SPAN_M)):
-        m = rx.search(t)
+        ms = list(rx.finditer(t))
+        m = next((x for x in ms if x.group(1)), ms[0] if ms else None)   # "step back two steps": the counted one
+        if m and not m.group(1) and re.search(r"(?<![a-z\d.])\d", t):
+            return "?", False                                # "step to the right 5": the number has no unit
         if m and not re.search(r"\b(?:few|couple|several|some)\b", t):
             n = m.group(1)
             return (float(n) if n and n[0].isdigit() else _NATIVE.get(n, 1)) * unit, False
-    if re.search(r"(?<![\w.])\d", t) or NUM_WORD.search(t) or KO_NUM_WORD.search(t):
-        return "?", False                                    # "move back 20", "two feet", "a couple of metres"
+    if re.search(r"(?<![a-z\d.])\d", t) or NUM_WORD.search(t) or KO_NUM_WORD.search(t):
+        return "?", False                                    # "move back 20", "two feet", "a couple of metres",
+                                                             # "오른쪽으로30가게"
     if LITTLE.search(t):
         return LITTLE_M, False
     return None, False
@@ -144,6 +161,10 @@ def move(t, verb_needed=True):
 def speed(t):
     """+1 (faster) / -1 (slower) when the whole sentence asks for a speed change, else 0."""
     t = clean(t)
+    for m in re.finditer(r"(?:^|(?<=[\s,.!?]))(?:줘|주세요|줘요|내놔)(?=[\s,.!?~]|$)", t):
+        before = re.findall(r"[^\s,.!?~]+", t[:m.start()])
+        if not before or before[-1] in ("이리", "여기", "나", "저", "나한테", "저한테", "그거", "이거", "빨리", "얼른", "어서", "좀"):
+            return 0                                         # "줘. 빨리.", "빨리 줘": give it, quickly (the hand's)
     too = re.search(r"\b(?:too|so|way too) (fast|slow)\b|(?:너무|넘) ?(빨라|느려)", t)
     if too:
         sign = -1 if too.group(1) == "fast" or too.group(2) == "빨라" else 1
@@ -168,15 +189,27 @@ def read(t, last=None, talking=False):
     s = 0 if asked else speed(t)                             # "really? that slow?": a reaction, not an order
     if s:
         return ("speed", s)
+    way = re.fullmatch(r"(?:(?:음|뭐더라|음 뭐더라|좀|조금|살짝|a bit|a little|now|please|lumi|루미야)\s+)*(?:더\s*)?"
+                       r"(lower|higher|내려|숙여|올려|들어|낮춰|높여)(?:\s*(?:줘|주세요|봐|더|please|more))*", t)
+    if last and last[0] in ("look", "lift") and way:      # "lower", "더 내려" right after a look / lift: further that way
+        d = "down" if way.group(1) in ("lower", "내려", "숙여", "낮춰") else "up"
+        return (last[0], f"{d} small")
+    if last and last[0] == "look" and DIR_ONLY.match(t) and not re.search(r"\b(?:more|again)\b|더", t):
+        d = DIR_ONLY.match(t).group(1)
+        d = {"왼쪽": "left", "오른쪽": "right", "위": "up", "위쪽": "up", "아래": "down", "아래쪽": "down", "밑": "down"}.get(d, d)
+        return ("look", d + (" small" if re.search(r"\b(?:little|bit|tad)\b|좀", t) else ""))
     if last and last[0] == "look" and LOOK_MORE.match(t) and re.search(r"\b(?:more|again|further)\b|더|다시|한 ?번", t):
         side = re.search(r"\b(left|right|up|down)\b|(왼쪽|오른쪽|위|아래)", t)   # "more again", "look at more", "왼쪽으로 더"
         d = {"왼쪽": "left", "오른쪽": "right", "위": "up", "아래": "down"}.get(side.group(2), side.group(1)) if side else None
-        return ("look", f"{d or last[1].split()[0]} small")
+        d = d or last[1].split()[0]
+        return ("look", f"{d} small") if d in ("left", "right", "up", "down") else None   # "more" after "look at me"
     if AGAIN.search(t) or LESS.search(t):
         if last is None:
             return None if talking else ("ask", "")          # "more" of what?
         if LESS.search(t):
             return ("speed", -1) if last[0] == "speed" else None
+        if last[0] == "look" and last[1] in ("me", "center", "away"):
+            return None                                      # "again" after "look at me": no step further that way
         if last[0] == "turn" and re.search(r"\b(?:more|bit|little)\b|조금|좀|살짝|약간", t) and \
                 not re.search(r"\bagain\b|한 ?번|똑같이|아까처럼|(?:one|1) more time|once more", t):
             side = last[1].split()[0]                        # "a bit more" after "turn left": a little further
@@ -219,6 +252,9 @@ def last_command(history):
     m = re.match(r"ACTION: (look|lift) (left|right|up|down)\b", history[-1][1] or "")
     if m:                                                    # "look left" then "one more": a little further that way
         return (m.group(1), f"{m.group(2)} small")
+    m = re.match(r"ACTION: look (me|center|away)\b", history[-1][1] or "")
+    if m:                                                    # "look at me" then "up": a way said after a look
+        return ("look", m.group(1))
     m = re.match(r"ACTION: (move|speed|turn) (\S+)(?: (\S+))?", history[-1][1] or "")
     if not m:
         return None
@@ -230,8 +266,9 @@ def last_command(history):
 
 
 def talking(history):
-    """The turn before was conversation (not a command): a bare "more" belongs to it."""
-    return bool(history) and bool(re.match(r"ACTION: none\b|(?!ACTION:)", history[-1][1] or ""))
+    """The turn before was conversation or another command (a song, a wave, a trip): a bare "more" / "again"
+    belongs to it, not to a drive."""
+    return bool(history) and not re.match(r"ACTION: (?:move|turn|speed|look|lift)\b", history[-1][1] or "")
 
 
 def spoken(m, lang="en"):

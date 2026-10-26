@@ -1007,6 +1007,12 @@ def _talk(sentence, problems=(), kind="talk"):
     return {"action": None, "task": None, "talk": kind, "sentence": sentence, "problems": list(problems), "read_by": "rules"}
 
 
+def _answer(text, sentence, kind="talk", read_by="rules"):
+    """What voice answers out loud (a question, seeing, the status, a song, a voice setting, "more" / "again" with
+    the assistant's own last command): Start hands the words to the assistant, as if heard (/tasks/command)."""
+    return {"action": "command", "text": text, "talk": kind, "sentence": sentence, "problems": [], "read_by": read_by}
+
+
 def _rule_steps(rule):
     """A keyword command that the mission runner does the same way as voice: its steps, else None (look, lift, wave,
     come, follow, quiet need the assistant: /tasks/command)."""
@@ -1035,7 +1041,7 @@ def _said(kind, words, what):
     a, t = what
     return {"look": f"look {t}", "lift": f"lift {t}", "wave": "wave", "come": "come to you", "come_back": "go back",
             "follow": "follow you", "go_to": f"go to {brain.place_said(t)}", "arm": f"arm {t}",
-            "quiet": "be quiet"}.get(a, f"{a} {t}".strip())
+            "quiet": "be quiet", "waist": f"turn my waist {t}"}.get(a, f"{a} {t}".strip())
 
 
 @app.post("/tasks/parse", tags=["tasks"], summary="A typed command (English or Korean) read exactly as by voice "
@@ -1052,11 +1058,19 @@ def task_parse(body: ParseBody):
         return _held_parse(body, markers) if held else _talk("–")
     if lumi.FOREIGN_SCRIPT.search(text):
         return _talk("–", ["Please write the command in English or Korean."])
+    from assistant import voice_words
+    voice = voice_words.read(text, "")                # Lumi.voice_setting comes first, as by voice
+    if voice:
+        return _answer(text, {("volume", 1): "Speak louder.", ("volume", -1): "Speak quieter.",
+                              ("speed", 1): "Speak faster.", ("speed", -1): "Speak slower."}.get(voice, "Voice setting."),
+                       "voice")
     fixed = brain.self_correct(text, markers)         # "go to start, no, end": as by voice (lumi.answer)
     if not fixed:
         return _talk("–", ["Which one did you mean? Please write it again." if fixed is None else "Taken back: nothing to do."])
     body = body.model_copy(update={"text": fixed})
     drive = driving.read(brain._norm(fixed), None, False)       # lumi.drive_words: speed, a distance asked or refused
+    if drive == ("ask", ""):                          # "more", "again", "한 번 더": the assistant's last command
+        return _answer(fixed, "Again.", "again")
     if drive and drive[0] in ("refuse", "ask"):
         d, _, n = drive[1].partition(" ")
         return _talk(driving.say_refused(d, float(n), "en") if drive[0] == "refuse" else driving.say_ask(drive[1], "en"))
@@ -1102,7 +1116,7 @@ def task_parse(body: ParseBody):
     if kind == "quick" and data[0] == "put":
         return _held_parse(body, markers) if held else _talk("–", ["My hand is empty, I'm not holding anything."])
     if kind == "quick" and data[0] in ("weather", "search"):
-        return _talk("–", kind="lookup")
+        return _answer(fixed, "Look it up and answer.", "lookup")
     if kind == "quick":
         if held and data[0] == "go_to":
             return _held_parse(body, markers)                 # holding: a carry there
@@ -1111,7 +1125,7 @@ def task_parse(body: ParseBody):
             return {"action": "steps", "steps": got, "lang": lang, "sender": None, "read_by": "rules",
                     **_steps_said(got, markers)}
         return {"action": "command", "text": fixed, "sentence": _said("quick", fixed, data).capitalize() + ".",
-                "problems": [], "read_by": "rules", "base": data[0] in lumi.BASE_ACTIONS}
+                "problems": [], "read_by": "rules", "base": data[0] in lumi.BASE_ACTIONS, "rule": list(data)}
     problem = brain.place_problem(fixed, markers)
     if problem:                                       # quick_command says it: "I don't have a place called p12"
         return _talk(problem[0], kind="refuse")
@@ -1132,8 +1146,9 @@ def task_parse(body: ParseBody):
         if rule[0] in ("look", "lift", "wave", "come", "follow", "come_back", "quiet"):
             return {"action": "command", "text": fixed, "sentence": first or "–", "problems": [], "read_by": "llm",
                     "base": rule[0] in lumi.BASE_ACTIONS}
-        return {**_talk(first or "–"), "read_by": "llm"}
-    return _talk("–", kind=kind or "talk")
+        return _answer(fixed, first or "Answer.", "talk", "llm")
+    return _answer(fixed, {"seeing": "Say what I see.", "status": "Say what I'm doing.", "end": "Say goodbye.",
+                           "sing": "Sing.", "correction": "Correct the last command."}.get(kind, "Answer."), kind or "talk")
 
 
 def _fetch_parse(body, markers):

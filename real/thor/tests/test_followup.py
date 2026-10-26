@@ -168,4 +168,39 @@ if __name__ == "__main__":
     assert b._after({"action": "none", "target": ""}, "Thanks, see you tomorrow!")["action"] == "none"
     b.history = [("다음 주 월요일 어때요?", "다음 주 월요일은 10월 26일이에요.")]
     assert b.weather_on("날씨 어때요?") == web.asked_day("다음 주 월요일")
+    # thanks / okay in context: a goodbye ends at once, a closing word is read with the talk (LLM), more words go on
+    for t in ("Okay, I gotta run. Thanks!", "catch you later", "그만 물어볼게요. 잘 있어요.", "잘 있어, 담에 봐",
+              "I'll let you go now", "고마워요, 또 뵐게요", "Thanks, I'm heading out."):
+        assert lumi.talk_fate(t) == "end", t
+    for t in ("Okay thanks.", "Thanks!", "고마워요.", "됐어요.", "Nah, I'm good.", "I'm all set, thanks.", "아뇨, 없어요.",
+              "That's plenty, thank you.", "이제 충분해요.", "오케이 땡큐"):
+        assert lumi.talk_fate(t) == "close", t
+    for t in ("Thanks. Wait, one more thing.", "Thanks! And where is p3?", "고마워요. 근데 몇 살이에요?", "Oh I see.",
+              "아 그렇구나.", "I'm good, how are you?", "하나만 더 물어볼게요", "물 없어요?", "Okay cool, thanks. Can you turn around?"):
+        assert lumi.talk_fate(t) == "talk", t
+    assert lumi.kept_goodbye("You're welcome! Have a great night.") and not lumi.kept_goodbye("You're welcome!")
+    # the model's motion only for a direct order now: never for a remark, a plan, a report or a condition
+    for t in ("우리 회의실 들렀다가 p3 가자", "Don't look up.", "점심 먹고 나서 p3로 가", "Let's go to the cafe after this.",
+              "아까 뒤로 가더라", "엄마가 오른쪽으로 가래", "I should turn around and leave.", "Turn left and you'll see the toilet.",
+              "Look, it's moving!", "Go on, tell me more.", "Go to gate one? nah, stay here", "give me a sec", "내 말 따라 해",
+              "나 이제 무대 쪽으로 가려고.", "If I wave, follow me.", "회의 끝나면 여기로 와"):
+        assert not brain.llm_ordered(t), t
+    for t in ("look up", "come here please", "follow me", "따라와", "give me your hand", "손 줘", "lift up 3 cm if you don't mind",
+              "왼쪽으로 돌아", "wave at me", "p1로 가 줘"):
+        assert brain.llm_ordered(t), t
+    # "ACTION: none -" then "ACTION: sing -" (or a sentence first): the second line is the action, never said aloud
+    from unittest import mock
+    from assistant import llm_direct
+    for out in ("ACTION: none -\nACTION: sing -\nOkay!", "Okay!\nACTION: sing -\nHere it comes."):
+        with mock.patch.object(llm_direct, "stream", lambda m, *a, o=out, **k: (o[i:i + 3] for i in range(0, len(o), 3))):
+            b = brain.Brain()
+            b.history = [("Can you sing?", "ACTION: none -\nYes! Shall I sing one for you?")]
+            got = list(b.respond_stream("Sure, go ahead.", ["home"], now="You are not doing any task."))
+        assert got[0]["action"] == "sing" and not any("ACTION" in s for s in got[1:]), (out, got)
+    # a short follow-up gets follow-up examples; a new question does not
+    h = [("How fast are you?", "ACTION: none -\nNormally 0.6 metres a second.")]
+    for t in ("why?", "왜요?", "and then?", "진짜?", "그게 무슨 말이야?", "그럼 그건?", "언제?", "Who was he?"):
+        assert brain._follow_examples(t, h), t
+    for t in ("Where is p3?", "세종대왕이 누구예요?", "oh cool", "What's your name?", "Tell me about the Korean War."):
+        assert not brain._follow_examples(t, h), t
     print("followup ok")

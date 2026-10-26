@@ -125,7 +125,9 @@ def weather(place=DEFAULT_PLACE):
 WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6,
             "월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
 NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "이틀": 2, "사흘": 3, "나흘": 4}
-DAY_AFTER = re.compile(r"\bthe (?:day after|next day|following day)\b(?! tomorrow)|그 ?다음 ?날|다음 ?날|그 ?담 ?날", re.I)
+DAY_AFTER = re.compile(r"\bthe (?:day after|next day|following day)\b(?! tomorrow)|그 ?다음 ?날|다음 ?날|그 ?담 ?날|"
+                       r"^\W*(?:and then|then|after that|and after that|그 ?다음(?:은|에는?)?|그 ?담(?:엔|은)?|그리고(?:는)?)\W*(?:요)?\W*$", re.I)
+                       # a bare "and then?" / "그 다음은?" after a day's weather: the day after it
 DAY_BEFORE = re.compile(r"\bthe day before\b(?! yesterday)|그 ?전 ?날", re.I)
 FIXED_DAY = re.compile(r"\bday after tomorrow\b|\bday before yesterday\b|내일 ?모레|글피|그저께|그제|모레|"
                        r"(?<![a-z])(?:today|tonight)(?![a-z])|\b(?:this |in the )?(?:morning|afternoon|evening)(?![a-z])|"

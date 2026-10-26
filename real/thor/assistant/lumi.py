@@ -96,6 +96,7 @@ from manipulation import wave as wave_mod
 from assistant import web
 from assistant import fetch_dialog
 from assistant import seeing
+from assistant import memory
 from assistant.brain import Brain
 
 NEAR_MIN, NEAR_MAX = 0.5, 1.2      # m, greeting zone
@@ -155,8 +156,9 @@ ELSEWHERE = re.compile(r"(으로|로)\s*(가져|갖다)|\b(to the|instead|over t
 GIVE_ME = re.compile(r"\b(give|hand|mine|for me|to me|i'?ll take it|i will take it|i can take it)\b|주세요|줘|내 거|"
                      r"제 거|제가 받을게|받을게", re.I)
 MOVING_ACTIONS = {"go_to", "come", "come_back", "follow", "move", "turn", "arm", "pick", "put", "move_object", "fetch", "give", "place", "wave",
-                  "lift"}
-BASE_ACTIONS = {"go_to", "come", "come_back", "follow", "move", "turn"}   # need the base: Patrol on
+                  "lift", "waist"}
+BASE_ACTIONS = {"go_to", "come", "come_back", "follow", "move", "turn", "waist"}   # need Patrol on (the base, the waist)
+WAIST_STEP_DEG = 30.0               # deg; "turn your waist left" with no amount: this far from where it is (estimate)
 DRIVE_STEPS = {"go", "move", "turn"}                                     # mission steps that drive
 FIX_SAY = (("Okay.", "네."),                                        # a command taken back in the same sentence
            ("Sorry, which one did you mean? Please say it again.", "죄송해요, 어느 쪽 말씀이세요? 다시 한 번 말씀해 주세요."))
@@ -186,7 +188,16 @@ LIMIT_SAY = {"yaw": (f"I can turn my head up to {head.AXIS_LIMITS[2][1]:g} degre
              "pitch": (f"I can tilt my head from {-head.PITCH_RANGE[0]:g} degrees down to {head.PITCH_RANGE[1]:g} degrees up.",
                        f"고개는 아래로 {-head.PITCH_RANGE[0]:g}도, 위로 {head.PITCH_RANGE[1]:g}도까지 움직여요."),
              "lift": (f"For now I can raise my body only up to {head.LIFT_MAX_MM:g} millimetres.",
-                      f"지금은 몸을 {head.LIFT_MAX_MM:g}밀리미터까지만 올릴 수 있어요.")}   # a number asked for was past the range
+                      f"지금은 몸을 {head.LIFT_MAX_MM:g}밀리미터까지만 올릴 수 있어요."),   # a number asked for was past the range
+             "left": ("I'm already turned as far left as I can go.", "고개를 더 이상 왼쪽으로 돌릴 수 없어요."),
+             "right": ("I'm already turned as far right as I can go.", "고개를 더 이상 오른쪽으로 돌릴 수 없어요."),
+             "up": ("I'm already looking as far up as I can.", "고개를 더 이상 들 수 없어요."),
+             "down": ("I'm already looking as far down as I can.", "고개를 더 이상 숙일 수 없어요."),
+             "lift_up": ("I'm already as tall as I can go.", "더 이상 올라갈 수 없어요."),
+             "lift_down": ("I'm already as low as I can go.", "더 이상 내려갈 수 없어요."),
+             "waist_left": ("My waist is already turned as far left as it goes.", "허리를 더 이상 왼쪽으로 돌릴 수 없어요."),
+             "waist_right": ("My waist is already turned as far right as it goes.", "허리를 더 이상 오른쪽으로 돌릴 수 없어요.")}
+             # the head or the lift already at that end ("more" / "again" too): nothing moved, said plainly
 DONE_TALK = re.compile(r"\b(bye+|goodbye|see you|never ?mind|nothing|that'?s (all|it)|no thanks|thanks|thank you|"
                        r"okay|ok|fine|alright|cool|whatever)\b|안녕히|잘 ?가|됐어|괜찮아|아니야|고마워|감사|그래|네|수고|알았어|"
                        r"그게 ?다|빠이|바이|나중에|안녕\s*[.!]?$", re.I)
@@ -218,12 +229,12 @@ EMPTY_HAND = re.compile(r"\b(give|hand|pass) (it|that|this)( (over|back|here))?(
                         r"\bcan i have (it|that|this)\b|(그거|이거|그것|그걸|이걸)\s*(이제|이리|좀|빨리)?\s*(나|저)?(한테|에게)?\s*"
                         r"(줘|주세요|건네)|"
                         r"\b(put|place|set) (it|that|this) (down|on the table)\b|(그거|그것|이거|그걸|이걸)\s*(나한테|저한테|나|저)?\s*"
-                        r"(줘|주세요|건네)|들고 ?있는 ?(거|것)을?\s*(나|저)?(한테|에게)?\s*(줘|주세요)|^\s*건네\s*(줘|주세요)|테이블에\s*(놔|놓아|둬)|내려\s*(놔|놓아)", re.I)
+                        r"(줘|주세요|건네)|(?:들고 ?있는|손에 ?(?:든|있는)|쥐고 ?있는|잡고 ?있는) ?(?:거|것|\S+)(?:을|를)?\s*(?:좀\s*)?(?:나|저)?(?:한테|에게)?\s*(?:좀\s*)?(?:줘|주|줄|도(?=\W*$)|건네|넘겨|내놔)|^\s*건네\s*(줘|주세요)|테이블에\s*(놔|놓아|둬)|내려\s*(놔|놓아)", re.I)
 EMPTY_HAND_SAY = {"en": "I'm not holding anything right now.", "ko": "지금은 손에 아무것도 들고 있지 않아요."}
 ASK_PREFIX = re.compile(r"\b(do|did) you (know|happen to know)\b|\b(can|could) you (tell|find out|look up|check)( me)?\b|"
                         r"아세요|알아요|알아\?", re.I)          # "do you know who won?" is not about Lumi
 ASKS_MORE = re.compile(r"\?|\b(but|can|could|what|how|where|why|when|who|one more)\b|근데|그런데|뭐|어떻게|어디|언제|누구|하나만 더|"
-                       r"물어볼게|물어봐도", re.I)
+                       r"(?<!그만 )물어볼게|물어봐도", re.I)
 THANKS_REST = re.compile(r"\b(?:a bunch|a lot|so much|very much|lovely|great|nice|cool|good to know|again|that was \w+|"
                          r"for (?:the|that|this|telling|your) \w+)\b|감사요|잘 들었어요|잘 알겠어요|[~!.,\s요]", re.I)
                          # left of "Lovely, thanks!", "고마워요~" after the thanks: nothing, so only thanks (talk_fate waits)
@@ -247,15 +258,21 @@ TALK_ASK_S = 15.0                   # s of silence while halted for someone -> "
 RELEASE = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright|lumi|루미야?)[\s,.!]+)?(?:you can go(?: now)?|take care|가 ?보세요|가세요|가도 ?돼요?)"
                      r"[\s.!~]*$", re.I)   # said alone: the visitor lets Lumi go
 THANKS = re.compile(r"\bthank(?:s| you)\b|\bthanx\b|\bcheers\b|고마워|고맙|감사|땡큐", re.I)
-DONE_WORDS = re.compile(r"\bthat'?s (?:it|all|enough|everything)\b|\bno,? thanks?\b|\bnothing(?: else)?\b|\benough\b|됐어|됐습니다|"
+DONE_WORDS = re.compile(r"\bthat'?s (?:it|all|enough|everything|plenty)\b|\bno,? thanks?\b|\bnothing(?: else)?\b|\benough\b|됐어|됐습니다|"
+                        r"\bi'?m (?:good|all set|fine|done)\W*(?:thanks?\W*)?(?:robot|lumi)?\W*$|^\W*(?:nah|nope),? (?:i'?m )?(?:good|fine)\W*$|"
+                        r"충분해|충분합니다|^\W*(?:아뇨|아니요|아니)?\W*없어요?\W*$|(?:^|[\s,.])(?:더 )?없(?:어|어요|습니다)(?=[\s,.!~]|$|고마|감사)|"
+                        r"괜찮(?:아|아요|습니다)(?=[\s,.!~]|$)|그거면 (?:돼|됐|충분)|\ball good\b|\bi'?m good\b|\bthat helped\b|"
                         r"그만", re.I)            # "that's it", "됐어요": maybe done; the LLM decides with the talk before
 HI_ANNYEONG = re.compile(r"(?<!히)안녕(?!히)[\s.!~]*$")   # 안녕 is hello or bye: before anything is said, hello
-CLEAR_BYE = re.compile(r"\b(?:bye|bay bay|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )see you|see ya|good night|"
+CLEAR_BYE = re.compile(r"\b(?:bye|bay bay|goodbye|(?<!can't )(?<!cant )(?<!cannot )(?<!not )(?<!to )(?<!let's )(?<!lets )see you|see ya|good night|"
                        r"take care|i (?:have|need) to go|gotta (?:go|run)|i'?m leaving|i'?m off|have a (?:good|nice|great) (?:one|day)|"
+                       r"catch you later|later,? (?:robot|lumi)|i'?m heading (?:out|off)|i'?ll let you (?:get back|go)|"
+                       r"i'?ll (?:go|head off|be going|get going|be off)(?: now)?(?=\W*$|\W+(?:thanks|bye))|thanks? for everything|"
                        r"nice (?:talking|meeting|chatting)(?: (?:to|with))? you|(?:was|been) nice to meet you)\b|"
                        r"(?<=\S)[\s.,!]+안녕[\s.!~]*$|안녕히|잘 ?가|잘 ?있어|잘 ?있게|수고하세요|들어가세요|바이바이|빠이|"
                        r"(?<![가-힣])바이(?![가-힣])|(?<![가-힣])간다[\s.!~]*$|가 ?볼게요|갈게요|(?:나|저|이제) (?:이제 )?가야 ?(?:돼|해|겠|할)|"
-                       r"다음에 (?:또 )?(?:봐|봬|만나|올게)|또 (?:봐|봬|올게)|나중에 봐|좋은 하루|"
+                       r"(?:다음에|담에) (?:또 )?(?:봐|봬|뵐게|만나|올게)|또 (?:봐|봬|뵐게|올게)|나중에 (?:봐|봬|뵐게)|좋은 하루|가야겠|"
+                       r"(?:^|[,.~!]\s*|(?:이제|그럼|먼저|나 이제|저 이제)\s+)갈게[~!.\s]*$|가 ?봐야 ?(?:돼|해|겠|할|됩)|그럼 이만|이만 (?:갈게|가 ?볼게|가겠|실례)|수고하십시오|수고하셔요|수고해(?:요)?[~!.\s]*$|"
                        r"(^|\s)(나|저|우리|저희) (이제 )?(집에 )?(가|간다|가요|갑니다)[\s.!]*$", re.I)
                        # a goodbye in any talk: "okay, bye", "I have to go", "수고하세요" (thanks, okay, 됐어: the LLM reads them)
 RECEIVE_OK = re.compile(r"\b(ok(ay)?|done|here you go|there you go|go ahead|thank|thanks|yes)\b|됐어|됐습니다|놨어|여기요|"
@@ -881,9 +898,9 @@ class Lumi:
             self.turn_head(None if angle is None else HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), 10,
                            force=True)
         elif action == "look" and target.split()[0:1] and (target.split()[0] in LOOK or target == "away"):
-            self.look(target)
+            return self.look(target)                        # a LIMIT_SAY key when the head is at its end
         elif action == "lift":
-            self.lift(target)
+            return self.lift(target)
         elif action == "wave":
             threading.Thread(target=self.wave, daemon=True).start()   # while the reply is spoken
         elif action == "stop":
@@ -917,27 +934,65 @@ class Lumi:
 
     def look(self, target):
         """'left', 'left 30', 'down small' (brain.head_goal): the head, cut to its range. Returns "yaw" / "pitch"
-        when a number asked for was past the range, else None."""
+        when a number asked for was past the range, the direction ("down") when the head already stands at that end
+        (nothing moves; LIMIT_SAY says so), else None."""
         cur = safe(head.status)
         if cur is None:
             return None
         self.looked_at = time.time()
         yaw, pitch, limited = brain_mod.head_goal(target, cur[2], cur[3], LOOK)   # the body's full range (AXIS_LIMITS):
+        if limited in ("left", "right", "up", "down"):
+            log(f"  look {target}: already at the end (yaw {cur[2]:.0f}, pitch {cur[3]:.0f})")
+            return limited
         threading.Thread(target=lambda: safe(head.moveto, [cur[0], cur[1], yaw, pitch]),   # head.turn() keeps
                          daemon=True).start()                                              # to YAW_LIMIT
         return limited
 
     def lift(self, target):
         """'up', 'down', 'up small', 'up 50' (mm; brain.lift_goal): the lift, slowly, cut to 0..head.LIFT_MAX_MM.
-        Returns True when a number asked for was cut."""
+        Returns the LIMIT_SAY key: "lift" when a number asked for was cut, "lift_up" / "lift_down" when the lift
+        already stands at that end (nothing moves), else None."""
         cur = safe(head.status)
         if cur is None:
-            return False
+            return None
         mm, limited = brain_mod.lift_goal(target, cur[0], head.LIFT_MAX_MM)
+        if limited in ("up", "down"):
+            log(f"  lift {target}: already at {cur[0]:.0f} mm, the end")
+            return f"lift_{limited}"
+        limited = "lift" if limited else None
         log(f"  lift {cur[0]:.0f} -> {mm:.0f} mm")
         threading.Thread(target=lambda: safe(lambda: head.moveto([mm, cur[1], cur[2], cur[3]], LIFT_VEL)),
                          daemon=True).start()
         return limited
+
+    def waist(self, target):
+        """'left', 'right 45', 'center': the waist (upper body: the arm and both cameras turn with it, the base stays),
+        from where it is, the front being where measure-axis was run (fetch._waist_turn); +deg = left. The move is
+        fetch._waist_to (cut to the waist's range, refused when the arm's sweep is not clear), in a thread. Returns
+        "waist_left" / "waist_right" when the waist already stands at that end (nothing moves), else None."""
+        from tasks import fetch
+        cur = safe(head.status)
+        if cur is None:
+            return None
+        lo, hi = head.AXIS_LIMITS[1]
+        front = cur[1] - (safe(fetch._waist_turn, default=0.0) or 0.0)    # the waist angle at the front
+        d, _, n = target.partition(" ")
+        if d == "center":
+            goal = front
+        else:
+            goal = max(lo, min(hi, cur[1] + (1 if d == "left" else -1) * (float(n) if n else WAIST_STEP_DEG)))
+            if abs(goal - cur[1]) < 1.0:
+                log(f"  waist {target}: already at {cur[1]:.0f} deg, the end")
+                return f"waist_{d}"
+        self.stay()
+
+        def run():
+            if safe(fetch._waist_to, goal - front, default=False) is False:
+                self.fetch_say("Sorry, something is in my arm's way, so I didn't turn.",
+                               "죄송해요, 팔 쪽에 뭔가 있어서 돌지 않았어요.")
+        log(f"  waist {cur[1]:.0f} -> {goal:.0f} deg")
+        threading.Thread(target=run, daemon=True).start()
+        return None
 
     def move_by(self, action, target):
         """'move forward 1' / 'move left 0.5' / 'turn around 180' / 'turn left 90', relative to where Lumi stands.
@@ -1031,7 +1086,7 @@ class Lumi:
         elif got[0] in ("look", "lift"):                    # "one more" / "더" after a look or a lift: further that way
             hist.append((text, f"ACTION: {got[0]} {got[1]}"))
             log(f"  action {got[0]} {got[1]} (again)")
-            limited = self.look(got[1]) if got[0] == "look" else "lift" if self.lift(got[1]) else None
+            limited = self.look(got[1]) if got[0] == "look" else self.lift(got[1])
             say = LIMIT_SAY[limited][lang != "en"] if limited else "Okay." if lang == "en" else "네."
         elif got[0] == "refuse":
             d, n = got[1].split()
@@ -1494,7 +1549,7 @@ class Lumi:
             if kind == "talk":
                 self.answer(words, part=True)
             elif kind == "quick":
-                self.quick_command(words)
+                self.quick_command(words, what)                 # chain.plan's reading ("나 보고", the bank's)
             else:
                 if {st["do"] for st in what} & DRIVE_STEPS and (self.base_off("go_to") or not self.modes.drive):
                     failed = True
@@ -2113,7 +2168,8 @@ class Lumi:
 
     def warm_llm(self):
         """brain.warm in the background (markers and the task state are read there, listening starts at once)."""
-        threading.Thread(target=lambda: safe(lambda: self.brain.warm(self.markers, self.now_doing()[0])), daemon=True).start()
+        threading.Thread(target=lambda: safe(lambda: self.brain.warm(self.markers, self.now_doing()[0] + memory.arm_line())),
+                         daemon=True).start()
 
     def talk_turn(self):
         """Listen once; answer if something was said. Returns True if the visitor spoke."""
@@ -2407,9 +2463,10 @@ class Lumi:
         mouth.say(f"Okay, I'm going to {name}." if en else f"네, {name}로 갈게요.")
         self.keep_listening()
 
-    def quick_command(self, text):
-        """A command the keyword rules recognise for sure: confirm with a ready phrase and act, no LLM wait."""
-        rule = brain_mod.intent(text, self.markers)
+    def quick_command(self, text, rule=None):
+        """A command the keyword rules recognise for sure: confirm with a ready phrase and act, no LLM wait. rule:
+        route's / chain.plan's reading when it has one (the intent bank's, a Korean -고 part), else brain.intent."""
+        rule = tuple(rule) if rule else brain_mod.intent(text, self.markers)
         if not rule and brain_mod.place_problem(text, self.markers):
             agv.known_markers(fresh=True)               # not on the list: the map may have just changed
             rule = brain_mod.intent(text, self.markers)
@@ -2455,10 +2512,14 @@ class Lumi:
             return True
         if action == "lift":
             limited = self.lift(target)
-            mouth.say(LIMIT_SAY["lift"][0 if en else 1] if limited else ("Okay." if en else "네."))
+            mouth.say(LIMIT_SAY[limited][0 if en else 1] if limited else ("Okay." if en else "네."))
             return True
         if action == "fetch":
             self.fetch_request(target)
+            return True
+        if action == "waist":
+            limited = self.waist(target)
+            mouth.say(LIMIT_SAY[limited][0 if en else 1] if limited else ("Okay." if en else "네."))
             return True
         if not self.modes.drive:
             mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
@@ -2543,6 +2604,14 @@ class Lumi:
             mouth.say("Sorry, I only understand English and Korean." if self.lang == "en" else "죄송해요, 영어와 한국어만 이해해요.")
             self.keep_listening()
             return
+        memory.heard(claimed_name(text), self.current)    # who this talk is with (assistant/memory.py)
+        mem = None if self.mission_running() else memory.reply(text, self.lang, history=self.brain.history)   # "do you remember ...?"
+        if mem:                                            # before self_correct: "no" answers "Do you mean ...?"
+            log(f"  memory: {mem}")
+            self.brain.history.append((text, f"ACTION: none -\n{mem}"))
+            mouth.say(mem, abort=self.speak_abort)
+            self.keep_listening()
+            return
         fixed = text if self.mission_running() else brain_mod.self_correct(text, self.markers)   # "go to start, no, end"
         if fixed != text:
             log(f"  corrected in the sentence: {fixed!r}")
@@ -2578,6 +2647,7 @@ class Lumi:
         if kind == "seeing":                               # "do you see a cup?", "what am I holding?"
             log(f"  seeing: {data}")
             self.brain.history.append((text, f"ACTION: none -\n{data}"))   # "and you?" / "why?" next has the turn
+            memory.note_seen()                             # what is in view now is kept (48 h), in the background
             mouth.say(data)
             self.keep_listening()
             return
@@ -2620,7 +2690,8 @@ class Lumi:
         if kind == "sing":                                 # "sing a song", "노래 불러 줘", after a song "another one"
             self.sing_song(text)
             return
-        if kind in ("quick", None) and self.quick_command(text):   # None: an unknown place is still said here
+        if kind in ("quick", None) and self.quick_command(text, data if kind == "quick" else None):   # None: an
+            # unknown place is still said here
             log(f"  done at once ({time.time() - t:.1f} s)")
             return
         bank = sing.bank_read(text, last) if kind is None else None   # a song or the songs by meaning (song_bank.py)
@@ -2647,7 +2718,10 @@ class Lumi:
             self.look_up(text, "search", self.brain.search_query(text), t)
             return
         about, repeating = self.brain.topic(text), self.brain.again(text)
-        gen = self.brain.respond_stream(text, self.markers, now=self.now_doing()[0] + seeing.facts_for(text) +
+        view = seeing.facts_for(text)
+        if view:
+            memory.note_seen()                             # a camera summary for the LLM: kept too
+        gen = self.brain.respond_stream(text, self.markers, now=self.now_doing()[0] + memory.arm_line() + view +
                                          battery.fact_for(text))
         head_ = next(gen)
         log(f"  action {head_['action']} {head_['target']} ({time.time() - t:.1f} s)")
@@ -2699,7 +2773,14 @@ class Lumi:
             self.keep_listening()
             return
         if head_["action"] not in ("none", "end"):
-            self.act(head_["action"], head_["target"])
+            limited = self.act(head_["action"], head_["target"])
+            if head_["action"] in ("look", "lift") and limited in LIMIT_SAY:   # at its end: said so, not the model's
+                gen.close()                                                       # "okay"
+                said = LIMIT_SAY[limited][self.lang != "en"]
+                mouth.say(said)
+                keep_said(self.brain, text, said)
+                self.keep_listening()
+                return
         first = next(gen, None)
         log(f"  first sentence after {time.time() - t:.1f} s")
         promise = brain_mod.promised(first) if head_["action"] == "none" and \
@@ -2729,6 +2810,8 @@ class Lumi:
         log(f"lumi ({time.time() - t:.1f} s, voice after {mouth.last_voice - t:.1f} s): {said}")
         if head_["action"] == "end" and fate == "close" and not kept_goodbye(said):
             head_["action"] = "none"                       # "Okay, thanks." -> "You're welcome.": no goodbye said
+        elif head_["action"] == "none" and fate == "close" and kept_goodbye(said):
+            head_["action"] = "end"                        # "thanks, that's all" -> "Have a great day!": it took leave
         if head_["action"] in ("end", "go_to"):
             self.current, self.voice_until = None, 0.0     # stay quiet with this person until a new visit
         elif self.current is None:
@@ -3130,6 +3213,10 @@ class Lumi:
                                   "talking with one person in view"))
         if self.vision:
             self.vision.start()
+        memory.start(idle=lambda: self.current is None and time.time() - getattr(self, "last_activity", 0.0) > 20,
+                     after=self.warm_llm)          # talks kept from now on; summed up while nobody talks
+        memory.watch(arm_ok=lambda: not getattr(self, "busy_now", "") and self.doing() is None and
+                     self.fetch_status() != "running", look_held=self.look_held)
         self.warm_llm()
         log("ready")
         self.run_camera() if self.vision else self.run_desk()
@@ -3144,7 +3231,28 @@ NOT_STOP = re.compile(   # a stop word that orders no stop: negated, about someo
     r"\b(?:freezes|froze|frozen|freezing)\b|"
     r"(?:다리|손|심장|시계|컴퓨터|노트북|버스|차|폰|핸드폰|화면|숨|시간|엘리베이터|에스컬레이터)(?:이|가|도|는|은)?\s*(?:\S+\s+){0,2}"
     r"(?:멈췄|멈춰(?:요|서|버렸|있)|멈춰\.?$|멈추)|(?:멈췄|멈추더라|멈추던데|멈춘다)|"
-    r"(?:엄마|아빠|선생님|걔|쟤|친구|사람|그 ?분|형|누나|언니|오빠)\S*\s.*라고 ?했", re.I)
+    r"(?:엄마|아빠|선생님|걔|쟤|친구|사람|그 ?분|형|누나|언니|오빠)\S*\s.*라고 ?했|"
+    r"\bstop-motion\b|\bone-stop\b|\bwhy(?:'d| did| do| does)? (?:you|it|lumi) (?:freeze|stop|halt)|\b(?:would|should|could|might|will) stop\b|\blet'?s stop (?:at|for|by)\b|"
+    r"\bstop (?:for|at the|at a) (?:coffee|lunch|a (?:bit|while|break)|the \w+ (?:place|shop|store|cafe))|"
+    r"\b(?:when|if|once|whenever|after) [^,]{1,40},?\s*(?:you )?stop\b|"
+    r"그만(?:두|뒀|둘)|그만 ?(?:먹|마시|자|놀|울|웃|싸우|뛰)|"
+    r"(?<![가-힣])(?!루미|로봇|누미)(?:엄마|아빠|얘들아|[가-힣]{1,3}야|[가-힣]{1,3}아)\s+(?:좀\s+)?그만|"
+    r"(?-i:\b(?!(?:Lumi|Loomi|Rumi|Robot|Hey|Hi|Okay|Ok|No|Please|Now|Wait|Hello|So|Oh|Yo)\b)[A-Z][a-z]+), stop \w+ing\b", re.I)
+    # also: another meaning, someone else told off ("엄마 그만 찍어", "Jake, stop touching the robot!"), a condition
+
+
+STOP_PAD = re.compile(r"^(?:\W*(?:hey|hi|yo|oh|okay|ok|so|um+|uh+|listen|right|alright|all right|excuse me|mister robot|"
+                      r"robot|lumi|loomi|루미 ?씨|루미 ?선생|루미야?|로봇아?|로봇 양반|어+|아+|야|저기요?)\b)+|"
+                      r"(?:\W*\b(?:please|plz|pls|bro|now|right now|real quick|thanks|thank you|okay|ok|would you|will you|"
+                      r"right|already|빨리|좀|제발|당장|루미야?)\b)+\W*$", re.I)
+STOP_ONLY = re.compile(   # a whole sentence that only says stop / enough / stay (after calls and fillers): stop at once
+    r"(?:(?:sto+p|stahp|stob|top it|enough|that'?s enough|that is enough|no more|quit it|cut it out|kill it|abort|"
+    r"stop (?:everything|driving|moving|it|that|the robot|right there|right now)|enough (?:music|of that)|"
+    r"hold it|stop 해|그만|그만해|그만해요|그만하세요|그만하십시오|그만해 ?줄래요?|"
+    r"그만해 ?주세요|그마내|그만둬|멈춰|멈쳐|멈처|멈추라고|멈춰 ?봐|거기까지|고마 ?(?:서라|해라|해|하이소)|서|don'?t go|가지 ?마|그마+안|"
+    r"얼음|cut it|노래 ?꺼|음악 ?꺼|stop the (?:music|song)|music off|stay|stay (?:here|there|put|right there)|"
+    r"(?:just )?wait there|stop following(?: me)?|finish follow|(?:여기|거기)(?:서)? ?(?:그대로 ?)?(?:있어|있어요|계세요|stay|서|서세요|"
+    r"기다려)|그대로 있어|가만히 있어|stay 해|wait 해)\W*){1,3}", re.I)
 
 
 def stop_order(text, markers):
@@ -3155,6 +3263,10 @@ def stop_order(text, markers):
     if NOT_STOP.search(text) and not re.fullmatch(r"\W*(?:(?:no|ok|okay|lumi|루미야?|hey)\W+)*(?:sto+pp?|stob|stopped|halt|freeze|멈춰|머+엄*춰|"
                                                   r"그만|정지|스톱|스탑|stop it|stop now)\W*", text, re.I):
         return False
+    bare = STOP_PAD.sub("", text.strip()).strip(" ,.!?~")
+    if bare and STOP_ONLY.fullmatch(bare):
+        return True                                       # "hi Lumi, stop, okay?", "enough already", "Lumi, wait"
+        # (watch out / 위험해 / "Lumi, wait" / hold on: on a mission these halt it (mission_talk), never end it)
     asked = bool(brain_mod.STOP_ASK.match(brain_mod.CALLING.sub("", text)) or
                  re.match(r"^\W*(?:stop|halt|freeze|멈춰|정지|스톱)\W*[,.!]", text, re.I))
     return bool(FETCH_STOP.search(text) or asked) and (brain_mod.intent(text, markers) or ("",))[0] not in ("quiet", "look") \
@@ -3213,9 +3325,14 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     from assistant import chain
     if stop_order(text, markers):
         return "stop", None
+    text = brain_mod.strip_asides(text)        # "hi Lumi, it's my birthday, put it down!": the command (A1)
     if sing.picked(text, last):                # after the list of songs: "the first one", "Fantastic Baby"
         return "sing", None
-    hold = brain_mod.not_an_order(text) or not brain_mod.direct_order(text)   # only a direct order to Lumi acts
+    arm_last = re.match(r"ACTION: (wave|arm (?:reach|fold))\b", last or "")
+    if arm_last and ARM_AGAIN.match(text or ""):
+        return "quick", tuple((arm_last.group(1).split() + [""])[:2])   # "again!", "한 번 더" right after a wave
+    hold = brain_mod.not_an_order(text) or not brain_mod.direct_order(text) or brain_mod.held_back(text)   # only a direct
+    # order to Lumi now acts (held_back: "don't ..., then ...", "yeah right, like you could ...", "..., forget it")
     stuck = detour.recent()                    # right after a blocked drive: "try again", "go around it", "go back";
     how = stuck and detour.read(text, markers, stuck["goal"])   # only a direct order (detour.read), else the LLM
     if how:
@@ -3232,7 +3349,14 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
         return "seeing", got
     if status_question(text):
         return "status", None
-    if hold and not (brain_mod.held_give(text, markers) and (holding() if callable(holding) else holding)):
+    if (holding() if callable(holding) else holding) and brain_mod.held_put_back(text, markers):
+        return "quick", ("put", "back")        # "it's my birthday, put that back where you found it!"
+    if hold:                                   # a wave / arm rule may act on a question-form request ("악수 한번 할까요?",
+        arm_rule = brain_mod.intent(text, markers)   # "would it be possible to wave at me?"); intent() itself refuses
+        if arm_rule and arm_rule[0] in ("wave", "arm"):   # negations, later times, remarks, ability questions (A1)
+            return "quick", arm_rule
+    if hold and not ((brain_mod.held_give(text, markers) or brain_mod.held_place(text, markers)) and
+                     (holding() if callable(holding) else holding)):   # "테이블에 놔 줄래? 영상 찍고 있어": the hand's
         rule = brain_mod.intent(text, markers)   # weather / search are no motion: "Weather outside?"
         return (("end", None) if talk_fate(text) == "end" else ("sing", None) if sing.asked(text, last) else
                 ("quick", rule) if rule and rule[0] in ("weather", "search") else
@@ -3248,6 +3372,9 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     read = read_mission(text, markers)
     if read:
         return "mission", read
+    arm_rule = brain_mod.intent(text, markers)
+    if arm_rule and arm_rule[0] in ("wave", "arm"):
+        return "quick", arm_rule               # "빠빠이 해 줘", "let's see you reach your arm out": the arm, not a goodbye
     if talk_fate(text) == "end" and (b.history or not HI_ANNYEONG.search(text)):   # "루미 안녕!" first: hello
         return "end", None
     if sing.asked(text, last):
@@ -3264,7 +3391,11 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
 
 
 QUICK_RULES = {"go_to", "come", "follow", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put", "move_object",
-               "fetch", "look", "lift", "wave", "come_back"}   # what quick_command does at once
+               "fetch", "look", "lift", "wave", "come_back", "waist"}   # what quick_command does at once
+ARM_AGAIN = re.compile(r"^\W*(?:(?:okay|ok|yes|yeah|lumi|please|robot|루미야?|응|네)\W+)*(?:again|one more time|once more|"
+                       r"do it again|(?:do it )?one more|more|again,? please|one more time,? please|한 ?번(?:만)? ?더(?: 해(?: ?줘| ?주세요)?)?|"
+                       r"다시(?: 해(?: ?줘| ?주세요)?)?|또(?: 해(?: ?줘| ?봐)?)?)(?:\W+(?:please|again|lumi))*\W*$", re.I)
+                       # the wave or reach just done, again ("again!", "one more time please", "한 번 더")
 
 
 FILLER_PART = re.compile(r"\W*(?:(?:hey|yo|hi|okay|ok|excuse me|um+|uh+|so|now|please|thanks|thank you|real quick|quick|"
@@ -3306,7 +3437,8 @@ def not_online(text):
                                                                                             OUTSIDE_NAME.search(text)))
 
 
-SAID_BYE = re.compile(r"\b(?:bye|goodbye|see you|take care|have a (?:good|nice|great|lovely) (?:day|one|time|visit)|enjoy (?:the|your)|"
+SAID_BYE = re.compile(r"\b(?:bye|goodbye|see you|take care|have a (?:good|nice|great|lovely|wonderful) (?:day|one|time|visit|night|evening|"
+                      r"weekend|rest)|enjoy (?:the|your)|"
                       r"next time|come again|good luck)\b|안녕히|다음에|또 (?:봐|봬|만나|오세요|뵙)|좋은 하루|즐거운|조심히|들어가세요",
                       re.I)   # Lumi's own words take leave
 

@@ -32,7 +32,7 @@ CASES = {
     # talk
     "I'll come back later": None, "come back tomorrow": None, "she will come back": None, "I'll be right back": None,
     "when will you come back?": None, "don't come back": None, "나중에 돌아올게": None, "내일 돌아와": None,
-    "언니가 돌아와": None, "my friend will return soon": None, "return the cup": None,
+    "언니가 돌아와": None, "my friend will return soon": None, "return the cup": ("put", "back"),
     # bare "go back" stays a short drive back (docs/17 reads it as unclear in a mission)
     "go back": ("move", "back 1"),
 }

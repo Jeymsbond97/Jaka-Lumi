@@ -46,7 +46,7 @@ print("chain plan ok")
 done, said = [], []
 fake = types.SimpleNamespace(
     chain_stop=threading.Event(), markers=M, modes=types.SimpleNamespace(patrol=True, drive=True),
-    quick_command=lambda w: done.append(("quick", w)), answer=lambda w, part=False: done.append(("talk", w)),
+    quick_command=lambda w, rule=None: done.append(("quick", w)), answer=lambda w, part=False: done.append(("talk", w)),
     fetch_say=lambda en, ko: said.append(en), chain_wait=lambda: None, base_off=lambda *a, **k: False,
     stay=lambda: None)
 fetch.check_hand = lambda: False

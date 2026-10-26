@@ -49,6 +49,30 @@ AT_LIMIT = {("volume", 1): ("This is as loud as I can speak.", "이게 제일 �
             ("speed", 1): ("I can't speak any faster than this.", "이보다 더 빨리는 말할 수 없어요.")}
 
 
+NOT_NOW = re.compile(r"(?:^|\s)(?:쟤|걔|저 사람|그 사람|저분|그분)(?:는|가|도|은)?\s|\b(?:he|she|they|his|her|their)\b|"
+                     r"(?:할|될|볼)걸\W*$|겠지\W*$|\bwhenever\b|끝나(?:고|면)|고 ?나서|(?:다음|후|뒤)에\s", re.I)
+    # someone else ("쟤 좀 작게 얘기하는 거 못 할걸"), a guess, a rule for later ("whenever I whistle, speed up")
+
+
+def _not_now(t):
+    """Words that name a voice change but ask none now: a later time / condition, someone else, a take-back."""
+    from assistant import brain, intent_bank
+    if NOT_NOW.search(t) or intent_bank.told_ko(t) or brain.held_back(t) or re.search(r"[\"“”]|라고|래서|하래", t):
+        return True                                        # a quote: "게임에서 자꾸 말 천천히 하라고 나와"
+    if intent_bank.NEGATION.search(t) and not re.search(r"\bso (?:fast|loud|quiet|slow)|\btoo\b|너무", t, re.I):
+        return True                                        # "don't talk louder" (not "don't speak so fast")
+    if re.search(r"\b(?:are you able|able to|know how to|how (?:do|can|could) you|is it possible|can you even|capable of|"
+                 r"built to|made to|designed to)\b|할 ?줄|줄 ?알|가능(?:해|한|하)|어떻게", t, re.I) or \
+            intent_bank.SELF_TALK.search(t) or intent_bank.PAST_EN.search(t) or intent_bank.past_ko(t):
+        return True                                        # "were you built to ...", "you were too loud yesterday"
+    name = intent_bank.NAME_CALL.match(t)
+    if name and name.group(1).lower() not in intent_bank.NOT_A_NAME or brain.to_someone_else(t):
+        return True                                        # "Jake, talk quieter"
+    if intent_bank.LATER.search(t) and not re.search(r"\bif you (?:can|could|don'?t mind|please|would)\b|\bso i can\b", t, re.I):
+        return True                                        # "쉬는 시간 끝나고 목소리 좀 크게 해"
+    return brain.self_correct(t) == ""                     # "볼륨 up 해 줄 수 있어, 아 cancel"
+
+
 def read(text, last=""):
     """("volume" | "speed", +1 | -1) when the words ask Lumi to speak louder / quieter / faster / slower, else None.
     `last` is the assistant's answer just before (brain history): after "ACTION: voice volume +1" a bare "more" /
@@ -57,8 +81,12 @@ def read(text, last=""):
     again = re.match(r"ACTION: voice (volume|speed) ([+-]1)\b", last or "")
     if again and driving.AGAIN.search(driving.clean(t)):
         return again.group(1), int(again.group(2))
+    if re.search(r"(?:^|\s)(?:키|몸|리프트)(?:를|좀|\s)*(?:크게|작게|높게|낮게)", t):
+        return None                                        # "키 크게 해 줘": the lift, not the voice
     if DRIVE.search(t) and not VOICE.search(t) or driving.move(t):
         return None                                        # "go faster", "천천히 가", "turn it up 30 degrees"
+    if (LOUDER.search(t) or QUIETER.search(t) or SLOW.search(t) or FAST.search(t)) and _not_now(t):
+        return None
     up, down = bool(LOUDER.search(t)), bool(QUIETER.search(t))
     if up != down:
         return "volume", 1 if up else -1

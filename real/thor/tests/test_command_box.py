@@ -23,6 +23,9 @@ SENTENCES = [
     # talk, questions, refusals
     "what time is it?", "오늘 날씨 어때?", "hello", "what's your name?", "go to p12", "dance", "go to p5 and dance",
     "루미야 너 월급 받아?",
+    # read by the intent bank or the chain's per-part reading (no keyword rule), answered out loud
+    "왼쪽 쳐다봐", "오른쪽을 보십시오", "시선 좀 돌려 줘", "고개 숙이고 몸 좀 내려", "so glance to your right and then look up",
+    "나 쳐다보고 follow me", "speak louder", "목소리 좀 줄여 줘", "더", "one more time", "what do you see?", "what are you doing?",
 ]
 
 # ---------- voice: Lumi.answer with every handler recorded, nothing moves, no LLM ----------
@@ -49,8 +52,8 @@ def steps_of(rule):                                   # what the mission runner 
             }.get(a, lambda: None)()
 
 
-def quick(text):
-    rule = brain.intent(text, M)
+def quick(text, rule=None):
+    rule = rule or brain.intent(text, M)
     if not rule or rule[0] not in lumi.QUICK_RULES:
         return False
     if rule[0] == "fetch":
@@ -114,9 +117,11 @@ def box(text):
     a = r["action"]
     if a == "steps":
         return ("steps", r["steps"])
+    if a == "command" and r.get("talk"):
+        return ("talk",)                              # answered out loud by the assistant, as by voice
     if a == "command":
         return ("chain", r["parts"]) if "parts" in r else ("stop",) if r["sentence"] == "Stop." else \
-            ("command", brain.intent(r["text"], M)[0])
+            ("command", r["rule"][0]) if "rule" in r else ("command", None)
     if a == "fetch":
         return ("fetch",)
     return ("talk",)

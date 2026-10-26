@@ -356,6 +356,15 @@ EXAMPLES = [
     (J_SAFE, "stranger", "okay", "safety_stop", "I'll wait until someone says go on."),
     (KJ_SAFE, "stranger", "알았어", "safety_stop", "가도 된다고 하실 때까지 기다릴게요."),
     (J_STOP, "stranger", "go to p6", "answer", "I'm going to p6 already, to bring this cup to James." + GO),
+    # ---- thanks in the middle: an end only when nothing else is asked ----
+    (J_STOP, "stranger", "thanks! and where are you going?", "answer", J_TASK + GO),
+    (J_STOP, "stranger", "thank you, what's that you're holding?", "answer", "It's a cup for James at p6." + GO),
+    (J_STOP, "stranger", "thanks, that's all", "resume", BYE),
+    (J_STOP, "stranger", "okay thanks", "resume", BYE),
+    (KJ_STOP, "stranger", "고마워요, 근데 어디 가요?", "answer", KJ_TASK + KGO),
+    (KJ_STOP, "stranger", "감사합니다. 그 컵은 누구 겁니까?", "answer", "제임스 님 컵입니다." + KGO),
+    (KJ_STOP, "stranger", "고마워, 이제 됐어", "resume", KBYE),
+    (KJ_STOP, "stranger", "알겠어요, 고마워요", "resume", KBYE),
 ]
 
 

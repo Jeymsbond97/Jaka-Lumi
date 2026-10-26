@@ -77,7 +77,7 @@ NOT_ASKED = re.compile(r"\b(?:don'?t|do not|never)\s+(?:\w+\s+)?(?:sing|play)\b|
                        r"when (?:the|they|i|we|guests?|everyone|people)|at the end)\b|"
                        r"\bif (?:the|they|i|we|you|he|she|guests?|kids?|someone|people|it)\b|"
                        r"\b(?:never ?mind|forget it|cancel that|actually,? no|on second thought)\b|아니다\s*(?:됐|그만|말자)|됐(?:어|다|습니다)\W*$|"
-                       r"(?:끝나|오|되|돌아오|도착하|시작하)면\s|(?:부르는|하는|불렀던|부른) ?거 ?(?:봤|들었)|"
+                       r"(?:끝나|오|되|돌아오|도착하|시작하)면\s|(?:제가|내가|우리가|저희가|애들이|아이들이|손님이|사람들이)\s+(?:\S+\s+){0,2}\S*[^안않]면\s|(?:부르는|하는|불렀던|부른) ?거 ?(?:봤|들었)|"
                        r"(?:부르|하|틀|불르)지\s*(?:마|말)|노래방|나중에|이따가?|있다가|끝나고|면\s*그때|(?:내가|제가)\s*(?:노래\s*)?"
                        r"(?:불러|부를|부르|할)|"
                        r"^\W*(?:\w+\W+){0,3}?(?:why|how come|how (?:do|does|did|can|could) you)\b|왜|어째서|어떻게", re.I)

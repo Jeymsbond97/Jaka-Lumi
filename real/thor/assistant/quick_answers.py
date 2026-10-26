@@ -12,11 +12,12 @@ two meanings (understood / goodbye) and stays with the LLM.
 
     .venv/bin/python assistant/quick_answers.py "who made you?"     # the kind, the answer and the closest wordings
 """
-import hashlib
+import datetime
 import pathlib
 import random
 import re
 import sys
+import time
 
 import numpy as np
 
@@ -25,6 +26,9 @@ CACHE = ROOT / "data" / "quick_answers.npz"
 SIM_MIN = 0.86          # the closest wording must be at least this similar (bge-m3 cosine) ...
 MARGIN = 0.05           # ... and this much closer than the closest wording of any other kind (the "no" kind too)
 MAX_WORDS = 12          # a longer sentence is a story or several questions: the LLM
+SIM_AGREE = 0.80        # or: the AGREE_K closest wordings all of one kind, the closest at least this similar ...
+MARGIN_AGREE = 0.06     # ... and this much closer than any other kind ("지금 몃 시야?": every near wording is the time)
+AGREE_K = 3
 
 # kind: (wordings, {"en": [answers], "ko": [answers]})
 KINDS = {
@@ -165,7 +169,53 @@ KINDS = {
                "All good here: as a robot I don't feel things, but my systems are running well."],
         "ko": ["저는 로봇이라 감정은 없지만, 다 잘 돌아가고 있어요. 물어봐 주셔서 고마워요!",
                "로봇이라 기분은 없지만, 아주 잘 돌아가고 있어요."]}),
+    # the clock: {time} / {date} / {day} are filled in when said (answer)
+    "time_now": ([
+        "what time is it", "what's the time", "what is the time now", "do you know the time", "what time is it now",
+        "could you tell me the time", "have you got the time", "time please", "what time've we got", "wat time is it",
+        "what's the time right now", "tell me the time", "the time?", "what o'clock is it", "is it noon yet",
+        "몇 시야", "지금 몇 시야", "몇 시예요", "지금 몇 시예요", "지금 몇 시입니까", "몇 시인지 알려 줘", "시간 좀 알려 줘",
+        "지금 시간 몇 시야", "현재 시각이 어떻게 돼요", "몇 시고", "지금 몇 시고", "몇 시여", "멫 시야", "몃 시야", "시간이 몇 시예요",
+        "타임 좀 알려 줘", "what time 이야", "지금 몇 시쯤 됐어", "벌써 몇 시야",
+    ], {"en": ["It's {time}.", "It's {time} now."], "ko": ["지금 {time}이에요.", "{time}이에요."]}),
+    "date_today": ([
+        "what's the date today", "what is today's date", "what's the date", "what date is it", "what date is it today",
+        "which date is today", "today's date please", "do you know the date", "what's today's date", "what day of the month is it",
+        "what's the date today robot", "date please",
+        "오늘 며칠이야", "오늘 며칠이에요", "오늘 날짜가 뭐야", "오늘 날짜 알려 줘", "오늘이 며칠입니까", "오늘 날짜가 어떻게 돼요",
+        "며칠이야 오늘", "오늘 몇 월 며칠이야", "오늘 몇 월 며칠이에요", "날짜 좀 알려 주세요", "오늘 며칠이고", "오늘 메칠이여",
+        "today 며칠이야", "오늘 date가 뭐야", "날짜 알려 줘", "오늘이 며칠이죠",
+        "what month is it", "which month is it", "what month are we in", "몇 월이야", "지금 몇 월이에요", "이번 달이 몇 월이야",
+        # the day of the week: the same answer (the date says the day)
+        "what day is it", "what day is it today", "which day of the week is it", "what day of the week is it",
+        "what's today", "is it friday today", "what weekday is it", "do you know what day it is", "today is what day",
+        "오늘 무슨 요일이야", "오늘 무슨 요일이에요", "무슨 요일이야", "오늘 요일이 뭐야", "오늘이 무슨 요일입니까", "요일 알려 줘",
+        "오늘 뭔 요일이고", "오늘 무슨 요일이여", "today 무슨 요일이야", "오늘 금요일 맞아",
+    ], {"en": ["Today is {date}.", "It's {date} today."], "ko": ["오늘은 {date}이에요.", "{date}이에요."]}),
+    "days_to_christmas": ([
+        "how many days until christmas", "how many days are left before christmas", "how long until christmas",
+        "days left to christmas", "when is christmas from now", "is christmas soon", "christmas how many days left",
+        "how many sleeps till christmas", "크리스마스까지 며칠 남았어", "크리스마스까지 며칠 남았어요", "크리스마스 얼마나 남았어",
+        "크리스마스 언제 와", "성탄절까지 며칠이야", "크리스마스 디데이 알려 줘", "크리스마스까지 몇 일 남았어요", "산타 언제 와",
+    ], {"en": ["Christmas is in {xmas} days.", "{xmas} days until Christmas."],
+        "ko": ["크리스마스까지 {xmas}일 남았어요.", "{xmas}일 뒤가 크리스마스예요."]}),
 }
+KO_DAYS = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
+
+
+def clock_words(line, lang, now=None):
+    """The answer line with {time} / {date} / {day} filled from the clock (this machine's local time)."""
+    lt = time.localtime(now)
+    h, m = lt.tm_hour, lt.tm_min
+    if lang == "ko":
+        words = {"time": f"{'오전' if h < 12 else '오후'} {h % 12 or 12}시" + (f" {m}분" if m else ""),
+                 "date": f"{lt.tm_mon}월 {lt.tm_mday}일 {KO_DAYS[lt.tm_wday]}", "day": KO_DAYS[lt.tm_wday]}
+    else:
+        words = {"time": f"{h % 12 or 12}:{m:02d} {'am' if h < 12 else 'pm'}",
+                 "date": time.strftime("%A, %B ", lt) + str(lt.tm_mday), "day": time.strftime("%A", lt)}
+    y = lt.tm_year + (1 if (lt.tm_mon, lt.tm_mday) > (12, 25) else 0)
+    words["xmas"] = (datetime.date(y, 12, 25) - datetime.date(lt.tm_year, lt.tm_mon, lt.tm_mday)).days
+    return line.format(**words) if "{" in line else line
 
 NO = [
     # the cameras: assistant/seeing.py's or the LLM's
@@ -201,23 +251,40 @@ NO = [
     "you're cool", "you look cute", "you're so tall", "nice robot", "what a cool robot", "you're amazing", "i like you",
     "로봇 정말 멋있어요", "귀엽다", "멋있다", "키 크다", "로봇 신기하네요", "너 좋아", "대단하다",
     # the weather, the time, closings
-    "what's the weather", "what time is it", "what day is it", "thanks", "thank you", "bye", "okay", "i see",
-    "날씨 어때", "지금 몇 시야", "고마워", "감사합니다", "잘 가", "알겠어요", "그렇구나",
+    "what's the weather", "thanks", "thank you", "bye", "okay", "i see",
+    "날씨 어때", "고마워", "감사합니다", "잘 가", "알겠어요", "그렇구나",
 ]
 
 # never by meaning: the cameras, the visitor about themselves, a doubt or a fragment of the talk before
+
+from assistant import bank_words                                   # more wordings / kinds: assistant/bank_words/*.py
+for _m in bank_words.modules():
+    for _k, (_t, _a) in getattr(_m, "QUICK_KINDS", {}).items():
+        KINDS.setdefault(_k, ([], _a))[0].extend(_t)
+for _k, _t in bank_words.merged("QUICK").items():
+    (NO if _k == "no" else KINDS[_k][0]).extend(_t)
+_said = {t for texts, _ in KINDS.values() for t in texts}
+NO = [t for t in NO if t not in _said]                              # a wording listed for a kind is that kind's
+
 CAMERA = re.compile(r"\b(?:see|seeing|saw|look(?:s|ing)?|watch|camera|wearing|holding|in front of|behind|colou?r|"
-                    r"recogni[sz]e|remember)\b|보여|보이|보니|봐|봤|입었|들고|색|카메라|앞에|뒤에|알아봐|기억", re.I)
-ABOUT_ME = re.compile(r"\b(?:i|i'm|am i|my|me|mine)\b|(?:^|\s)(?:나|내|제|저|난|전)(?:는|가|를|의)?\s", re.I)
+                    r"recogni[sz]e|remember)\b|보여|보이|보니|(?<!해 )(?<!해)봐|봤|입었|들고|색|카메라|앞에|뒤에|알아봐|기억", re.I)
+ABOUT_ME = re.compile(r"\b(?:i(?! (?:call|address) you\b)|i'm|am i|my|me|mine)\b|(?:^|\s)(?:나|내|제|저|난|전)(?:는|가|를|의)?\s", re.I)
 FRAGMENT = re.compile(r"^\W*(?:and|so|but|then|or|also|why|really|seriously|wait|what about|how about|how come|are you sure)\b|"
                       r"^\W*(?:그럼|그러면|그리고|근데|그런데|그래서|아니|왜|진짜|정말|확실|설마|또)|"
-                      r"\b(?:that|it|they|them|there|this one|the arm|your arm)\b|그거|그건|거기|그분|그 회사|걔", re.I)
-OTHER = re.compile(r"\b(?:lift|carry|hold|items?|things?|stuff|price|cost)\b|들 ?수|들어|물건|얼마야|얼마예요|"
+                      r"\b(?:that|(?<!is )(?<!was )(?<!is it )(?<!how's )(?<!how is )it(?! is (?:now|today))|they|them|"
+                      r"(?<!hello )(?<!hi )(?<!hey )there|this one|the arm|your arm)\b|"
+                      r"그거|그건|거기|그분|그 회사|걔", re.I)   # not the clock's "it": "what day is it?"
+OTHER = re.compile(r"\b(?:lift|carry|hold|items?|(?<!this )things?|stuff|price|cost)\b|들 ?수|(?<!만)들어|물건|"
+                   r"^(?!.*(?:키|무게|체중|신장|속도|시간|나이)).*얼마(?:야|예요)|"
                    r"맞(?:아|지|죠|나|습니까)|아니(?:야|에요|죠)", re.I)   # what it can hold, the price, a check: the LLM
 SEVERAL = re.compile(r"\band\b|그리고|[?？].+\S|하고\s|랑\s", re.I)
+EVENT_TIME = re.compile(r"\b(?:what time|what day|which day|what date) (?:does|do|did|will|is|are|was|were|should|can)\b"
+                        r"(?!\s+(?:it|today)\b)|몇 ?시(?:에|부터|까지|쯤에)|며칠(?:에|까지|부터)|무슨 요일(?:에|까지|부터)|"
+                        r"\b(?:open|close|start|end|begin|finish)\b|열어요|닫아요|시작|끝나", re.I)   # an event's time: the LLM
 NAMES_LUMI = re.compile(r"\b(?:you|your|yourself|u|ur|lumi)\b|(?:^|\s)(?:너|넌|니|네|당신|루미|본인|자기)", re.I)
 
 _bank = None
+_named = None        # (kind names, int code per bank row) for intent_bank._top
 
 
 def examples():
@@ -226,36 +293,39 @@ def examples():
 
 
 def _load():
-    """(vectors, kinds): from data/quick_answers.npz when it holds these very wordings, else embedded now."""
+    """(vectors, kinds) of the bank; embeddings kept per wording in the cache (bank_words.vectors)."""
     global _bank
     if _bank is None:
-        from assistant import knowledge
+        from assistant import bank_words
         ex = examples()
-        key = hashlib.sha1("\n".join(f"{t}\t{k}" for t, k in ex).encode()).hexdigest()
-        if CACHE.exists():
-            z = np.load(CACHE)
-            if str(z["key"]) == key:
-                _bank = (z["vecs"], z["kinds"])
-                return _bank
-        vecs = knowledge.embed([t for t, _ in ex])
-        kinds = np.array([k for _, k in ex])
-        np.savez(CACHE, vecs=vecs, kinds=kinds, key=key)
-        _bank = (vecs, kinds)
+        _bank = (bank_words.vectors([t for t, _ in ex], CACHE), np.array([k for _, k in ex]))
     return _bank
+
+
+ASKING = re.compile(r"^\W*(?:(?:hang on|wait|okay|ok|so|um+|uh+|hey|excuse me|sorry|just out of curiosity|out of curiosity|"
+                    r"i(?:'m| am) curious|quick question|one question|let me ask(?: (?:it|you|him|her))?|i bet (?:it'?s|you'?re) \w+|"
+                    r"(?:may|can|could|might) i (?:ask|know)(?: you)?|i(?:'d| would) like to know|i want(?:ed)? to (?:ask|know)|"
+                    r"i wonder|do you mind (?:telling me|if i ask)|(?:(?:can|could|would|will) you )?tell me|might i trouble you for|could i trouble you for|잠깐(?:만)?|저기요?|궁금한데(?:요)?|궁금해서(?:요)?|"
+                    r"하나 물어봐도 (?:돼|될까)요?|여쭤봐도 될까요|물어볼게(?:요)?|질문(?: 하나)?(?: 있어요| 있는데요?)?)"
+                    r"\b[\s,.!?~:-]*)+", re.I)
+    # "May I ask your age?", "Hang on, let me ask it. What's your name?", "궁금한데, 몇 살이에요?": the question after
 
 
 def _core(text):
     from assistant import brain
-    t = brain.CALLING.sub("", text or "").strip()
+    t = ASKING.sub("", brain.CALLING.sub("", brain.unfill(text or "")).strip()).strip() or text or ""
     t = re.sub(r"[\s,]*(?:lumi|루미야|루미)?[\s,.!?~]*$", "", t, flags=re.I).strip()
     return t or (text or "").strip(" ,.!?~")
 
 
 def guarded(text, history=()):
     """Why these words are not a quick answer's (the LLM's or another reader's), or None."""
-    t = (text or "").strip()
+    from assistant import brain
+    t = ASKING.sub("", brain.unfill((text or "").strip())).strip() or (text or "").strip()   # "what time is, uh, it?"
     if not t or len(t.split()) > MAX_WORDS:
         return "length"
+    if re.search(r"\b(?:good ?bye|bye|see you|farewell)\b|잘 ?가|안녕히|다음에 봐", t, re.I):
+        return "closing"                               # "goodbye" is never a hello
     if CAMERA.search(t):
         return "camera"
     if ABOUT_ME.search(t):
@@ -266,6 +336,8 @@ def guarded(text, history=()):
         return "several"
     if OTHER.search(t):
         return "other"
+    if EVENT_TIME.search(t):
+        return "event time"
     if history and not NAMES_LUMI.search(t):
         return "in a talk, not naming Lumi"            # "how old?" / "몇 살이에요?" after the company: about that
     return None
@@ -282,10 +354,14 @@ def kind_of(text, history=()):
     except OSError as e:                               # no embedding server: the LLM answers
         print(f"quick answers: {e}")
         return None
-    sims = vecs @ q
-    top = int(np.argmax(sims))
-    best = str(kinds[top])
-    if best == "no" or sims[top] < SIM_MIN or sims[top] - sims[kinds != best].max() < MARGIN:
+    from assistant import intent_bank
+    global _named
+    if _named is None:
+        names, codes = np.unique(kinds, return_inverse=True)
+        _named = ([str(n) for n in names], codes)
+    best, top, margin, agree, _ = intent_bank._top(vecs @ q, _named, k=AGREE_K)
+    sure = top >= SIM_MIN and margin >= MARGIN or agree and top >= SIM_AGREE and margin >= MARGIN_AGREE
+    if best == "no" or not sure:
         return None
     if best == "hello" and history:
         return None                                    # hello in the middle of a talk: the LLM
@@ -304,7 +380,7 @@ def answer(text, lang="en", history=()):
     lines = KINDS[kind][1]["ko" if lang == "ko" else "en"]
     choices = [x for x in lines if x != _last.get(kind)] or lines
     _last[kind] = random.choice(choices)
-    return _last[kind]
+    return clock_words(_last[kind], lang)
 
 
 if __name__ == "__main__":

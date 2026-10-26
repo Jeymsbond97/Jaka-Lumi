@@ -111,6 +111,8 @@ def action_ok(expect, got):
     """expect: 'none', 'search', 'go_to p3', 'end', ... alternatives split by ' | '."""
     for alt in expect.split(" | "):
         alt = alt.strip()
+        if alt == got:
+            return True                                             # "forget", "point", "limit" ... as said
         if got == "none" and refused(alt):
             return True                                             # the reason the fingers can't take it
         if alt == "none" and got in ("none", "chat", "status"):

@@ -9,6 +9,8 @@ from assistant import quick_answers as qa
 TALK = [("what does cutshion make?", "Cutshion makes robot applications, such as barista and cooking robots.")]
 
 KIND = {   # words (no talk before) -> kind
+    "how many employees does Cutshion have?": "co_unknown", "직원이 몇 명이에요?": "co_unknown",
+    "how old is Cutshion?": "co_founded", "대표가 누구예요?": "co_ceo",                  # company kinds: bank_words/company.py
     "who made you?": "maker", "Lumi, who built you?": "maker", "누가 만들었어요?": "maker", "어느 회사 로봇이에요?": "maker",
     "what's your name?": "name", "이름이 뭐예요?": "name", "니 이름 머야": "name",
     "how old are you?": "age", "몇 살이에요?": "age", "너 몇 살이야?": "age",
@@ -20,6 +22,11 @@ KIND = {   # words (no talk before) -> kind
     "are you a robot?": "robot", "감정 있어요?": "robot",
     "hello": "hello", "안녕하세요": "hello", "hi lumi": "hello",
     "how much do you weigh?": "weight", "how fast can you go?": "speed",
+    "what time is it?": "time_now", "지금 몇 시야?": "time_now", "오늘 며칠이에요?": "date_today",
+    "what day is it today?": "date_today", "오늘 무슨 요일이야?": "date_today",
+    "are you a Korean robot?": "country", "어느 나라 로봇이에요?": "country", "what computer do you use?": "computer",
+    "관절이 몇 개예요?": "dof", "음성 인식 뭐 써요?": "stt", "how fast do you answer?": "reply_time",
+    "where are you used?": "used_where", "인터넷 써요?": "internet",
 }
 IN_TALK = {   # words after TALK -> kind or None
     "how old are you?": "age", "who made you?": "maker", "what's your name?": "name",
@@ -30,12 +37,15 @@ NEVER = [   # no talk before: never a quick answer
     "can you see me?", "what am I holding?", "what colour is my shirt?", "how old do I look?", "how tall am I?",
     "나 보여?", "내 옷 무슨 색이야?", "카메라로 뭐 보여요?",
     "come here", "follow me", "wave at me", "sing a song", "이리 와", "손 흔들어 줘", "노래 불러 줘",
-    "how many employees does Cutshion have?", "직원이 몇 명이에요?", "how much do you cost?", "가격이 얼마예요?",
-    "how long does charging take?", "충전 얼마나 걸려요?", "how old is Cutshion?", "who is the CEO?", "대표가 누구예요?",
-    "what's the weather?", "what time is it?", "thanks", "고마워요", "okay", "bye",
+    "how much do you cost?", "가격이 얼마예요?",
+    "how long does charging take?", "충전 얼마나 걸려요?", "who is the CEO?",
+    "what's the weather?", "what time does the show start?", "몇 시에 끝나요?", "thanks", "고마워요", "okay", "bye",
+    "goodbye", "May I ask you something?",
     "what's your name and how old are you?", "who made you? and why?", "how much can you lift?",
     "what can you do?", "how much battery is left?", "who made your arm?", "너 얼마야?", "얼마나 무거운 거 들 수 있어?",
     "로봇 미국 회사 맞아요?",
+    "when is your birthday?", "생일이 언제예요?", "완충까지 몇 시간이에요?", "how slow can you drive?", "what are you doing?",
+    "너 자카 로봇이야?", "can you hear me?", "키 줄여 줘", "Price of the ice cream robot?",
 ]
 FACT = {"chatgpt": r"\bno\b|아니", "name": r"lumi|루미", "who": r"lumi|루미", "age": r"\b2\b|two|두 살", "maker": r"cutshion|쿳션",
         "height": r"146", "battery_life": r"10", "languages": r"english|영어", "model": r"gemma|젬마",
@@ -106,7 +116,7 @@ def main():
         for lang, says in lines.items():
             for s in says:
                 if kind in FACT and not re.search(FACT[kind], s, re.I) or lang == "ko" and \
-                        (not re.search(r"(?:요|다)[.!]?$", s) or re.search(r"컷션|커션", s)):
+                        (not re.search(r"(?:요|다)[.!?]?$", s) or re.search(r"컷션|커션", s)):
                     bad += 1
                     print(f"FAIL answer {kind}/{lang}: {s}")
     a, b = qa.answer("how old are you?", "en"), qa.answer("how old are you?", "en")

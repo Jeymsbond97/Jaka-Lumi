@@ -12,7 +12,6 @@ with two meanings, a question word. A wrong motion is the worst error, so motion
     .venv/bin/python assistant/intent_bank.py build             # embed the bank -> data/intent_bank.npz
     .venv/bin/python assistant/intent_bank.py "say hi with your arm"   # what the bank reads, with the closest wordings
 """
-import hashlib
 import pathlib
 import random
 import re
@@ -25,8 +24,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 CACHE = ROOT / "data" / "intent_bank.npz"
 SIM_MIN = 0.84          # the closest wording must be at least this similar (bge-m3 cosine) ...
 MARGIN = 0.04           # ... and this much closer than the closest wording of any other kind (the "no" kind too)
+MARGIN_WORDS = 0.015    # ... or this much, when the other kind is another motion whose words are not there ("턴 left
+                        # 해 줘": turn, a move's slot finds no drive in it) and the closest kind's words are
 AGREE_K = 2             # ... and the K closest wordings all of that kind
-MIN_CHARS = 4           # shorter words ("go", "가") are the rules' or the LLM's
+MIN_CHARS = 4           # shorter words ("go", "가") are the rules' or the LLM's (a Hangul syllable counts as 2)
 MAX_WORDS = 16          # a longer sentence is a story or several requests: the LLM reads it
 FILLS = 3               # place / object fills made of each template (the same every run)
 
@@ -50,7 +51,7 @@ WONDER = re.compile(r"\bi wonder\b|\bwonder(?:ing)? (?:if|whether|how)\b|\bi bet
                     # "can it wave? I wonder", "does it follow people?", "이거 손 흔들 수 있나?", "얘 따라오나 봐"
 NOT_TO_LUMI = re.compile(
     r"\bshall we\b|\bwe(?:'re| are) (?:heading|going|off|gonna)\b|\bwe (?:should|could|can|will|might|must|need to)\b|\bwe'll\b|"
-    r"\byou and (?:i|me)\b|\bmy plan\b|\bour plan\b|우리.*(?:자|까|래|기로)\s*[?？.!~]*$|"          # plans between people
+    r"\byou and (?:i|me)\b|\bmy plan\b|\bour plan\b|우리(?!.*악수).*(?:자|까|래|기로)\s*[?？.!~]*$|"          # plans between people
     r"\bimagine\b|\bsuppose\b|\bwhat if\b|\bwould you ever\b|\bif you were\b|\bpretend\b|\bhypothetical|"
     r"만약|[가-힣](?:라면|다면)|어떨까|겠다\s*[!.~]*$|"                                                  # hypotheticals
     r"\battention\b|\bladies and gentlemen\b|\b(?:visitors|guests|attendees|passengers)(?: are)? (?:please|should|must|may|"
@@ -62,7 +63,9 @@ NOT_TO_LUMI = re.compile(
 QUESTION = re.compile(r"^\W*(?:(?:hey|so|um+|uh+|lumi|okay|ok)\W+)*(?:what|where|why|how|when|who|whose|which|is|are|was|"
                       r"were|do(?=\s+(?:you|i|we|they|robots?)\b)|does|did|have|has|had|should|shall i|may i|can i|could i)\b(?! about\b)|"
                       r"어디|뭐|무엇|왜|언제|누구|어떻게|몇|어느|무슨|어떤|얼마|[가-힣]까\s*[?？]+\s*$|봤(?:어|니|나|냐|어요|습니까)|본 ?적|"
-                      r"\bhave you (?:been|gone|ever)\b|(?:어|아|해|여)도 ?(?:돼|되|될까|괜찮)", re.I)
+                      r"\bhave you (?:been|gone|ever)\b|(?:어|아|해|여)도 ?(?:돼|되|될까|괜찮)|"
+                      r"알려 ?(?:줘|주|줄)|설명해|가르쳐|말해 ?(?:줘|봐|주)|\btell me\b|\bexplain\b|\bdescribe\b|"
+                      r"정확도|얼마나|을매나|속도", re.I)   # "팔 정확도 알려 줘": a question, no motion
 OTHER_SENSE = re.compile(r"instagram|insta\b|\bsns\b|\baccount\b|\bsubscribe\b|인스타|계정|채널|구독|팔로우 ?해 ?주세요|"
                          r"따라 ?(?:해|하|말|불러)|\brepeat after\b|\bcopy me\b|\bdo what i do\b|\b(?:lend|give) me a hand\b|"
                          r"\bneed a hand\b|\bhand it to\b|가는 ?길|길 ?(?:좀 )?알려|\bhow (?:do i|to) get\b|\bdirections?\b|\bthe way to\b|"
@@ -71,8 +74,8 @@ REPEAT = re.compile(r"^\W*(?:(?:\w+\W+){0,2})?(?:again|one more time|once more|d
                     r"^\W*(?:[가-힣]+\s+)?(?:한 ?번(?:만)? 더|다시|또)\s*(?:해|해 ?줘|해 ?봐|해 ?주세요|하자)?\W*$", re.I)
                     # "again", "한 번만 더 해 줘": what again is the history's (driving.read, the LLM)
 SEVERAL = re.compile(r"\b(?<!hundred )and\b(?! a half\b)|\bwait\w*|\bcorrection\b|\binstead\b|"
-                     r"\b(?:look|turn|go|move|wave|come|follow|pick|take|put|lift|raise|lower|reach|grab|bring)\b[^,]*,\s*(?:look|turn|go|move|wave|come|follow|pick|take|put|lift|raise|lower|reach|grab|bring)\b|\b(?:then|after that|also|plus|while|no|not|wait|stay|sleep|sorry|i mean|actually|rather)\b|;|"
-                     r"(?!갖고|고고|에서)(?<!가)[가-힣](?:서|고)(?:[\s,.…]|$)|하고|셔서|면서|다가|갔다|다녀|아니|기다|대기|(?:가|와) ?있어|계세요|"
+                     r"\b(?:look|turn|go|move|wave|come|follow|pick|take|put|lift|raise|lower|reach|grab|bring)\b[^,]*,\s*(?:(?:\w+\W+){0,2})?(?:look|turn|go|move|wave|come|follow|pick|take|put|lift|raise|lower|reach|grab|bring|tell|say|sing|show|ask|answer|check)\b|\b(?:then|after that|also|plus|while|no|not|wait|stay|sleep|sorry|i mean|actually|rather)\b|;|"
+                     r"(?!갖고|고고|에서)(?<!가)[가-힣](?:서|고)(?:[\s,.…]|$)|하고|셔서|면서|다가(?![와오])|갔다|다녀|아니|기다|대기|(?:가|와) ?있어|계세요|"
                      r"계십시오", re.I)
                      # several requests or a stay ("go to p3 and wait", "가서 기다려", "p3에 가 있어"): steps.read's
 HAND_WORDS = re.compile(r"\byou(?:'re| are) holding\b|\b(?:in|from) my hand\b|\bhere'?s\b|\bhanding\b|\bi'?ll give\b|"
@@ -93,6 +96,13 @@ TAG = re.compile(r",\s*(?:right|correct|huh|true)\s*[?!.]*\s*$|\b(?:isn'?t|aren'
                  r"won'?t|can'?t|haven'?t|hasn'?t) (?:it|you|they|we|i|he|she|there|that)\s*[?!.]*\s*$|"
                  r"(?:지|죠|쥬|지요|잖아|잖아요|맞지|맞죠|맞아요?|그렇지|그렇죠|그쵸|그치)\s*[?？!.~]*\s*$|"
                  r"(?:^|\s)(?:맞지|맞죠|그치)\s*\?+\s*$", re.I)   # "..., right?", "the next stop is p3, isn't it?", "끝에 갔지?"
+
+
+def told_ko(t):
+    """Korean reported speech at the end: "루미가 p4로 간대", "온다고", "간다더라", "한대요" (said about, not to Lumi)."""
+    m = re.search(r"([가-힣])(?:대|대요|답니다|다고|다고요|다더라|다던데|다네|단다)\s*[.!?~]*\s*$", t)
+    return bool(m and ((ord(m.group(1)) - 0xAC00) % 28 == 4 or m.group(0).lstrip(m.group(1))[:1] == "다" and
+                       m.group(1) in "한간온된준친운는있없했갔왔"))
 
 
 def past_ko(t):
@@ -580,7 +590,7 @@ ARM_REACH += [
     "please stretch out your arm", "hold your arm out", "hold your hand out to me", "hand out please",
     "put your hand forward", "push your arm out", "arm forward", "arm forward please", "your arm, stretch it out",
     "you stretch arm please", "you put arm out", "arm long please", "make arm long", "arm straight please",
-    "reach reach", "gimme your hand", "give your hand to me", "shake hands with me", "let's shake hands", "shake my hand", "give me a hand", "악수하자", "악수할래?", "루미야 손 줘", 
+    "reach reach", "gimme your hand", "give your hand to me", "give me a hand", "루미야 손 줘",
     "팔 뻗어 보거라", "팔 뻗어 보게", "팔 좀 뻗어 보이소", "팔 뻗어 부러", "팔 뻗어 봐유", "팔 뻗어 줘용", "팔 뻗어 주라",
     "팔 좀 뻗어 주세요", "팔 쭉 뻗어 주세요", "팔 앞으로 뻗어 주세요", "팔 앞으로 내밀어 주세요", "손 내밀어 주세요",
     "손 좀 내밀어 줄래?", "손 앞으로 뻗어", "손 쭉 뻗어 봐", "팔 펴 봐", "팔 펴 주세요", "팔을 펴 주십시오",
@@ -652,6 +662,8 @@ NO += [
 KINDS = {"go_to": GO, "come": COME, "follow": FOLLOW, "come_back": COME_BACK, "move": MOVE, "turn": TURN, "look": LOOK,
          "lift": LIFT, "wave": WAVE, "arm_reach": ARM_REACH, "arm_fold": ARM_FOLD, "arm_open": ARM_OPEN,
          "arm_close": ARM_CLOSE, "pick": PICK, "put": PUT, "fetch": FETCH, "receive": RECEIVE, "give": GIVE, "no": NO}
+for _k, _t in __import__("assistant.bank_words", fromlist=["merged"]).merged("INTENT").items():
+    KINDS[_k] = KINDS.get(_k, []) + [t for t in _t if t not in KINDS.get(_k, [])]   # assistant/bank_words/*.py
 ACTS = set(KINDS) - {"put", "receive", "give", "no"}   # the kinds the bank acts on; the hand's (put down, take, hand
                                                        # over) are brain.hand_request's or the LLM's
 
@@ -668,35 +680,27 @@ def _fill(t, slot, en, ko):
 
 
 def examples():
-    """[(text, kind)]: the bank with its <place> / <obj> slots filled (FILLS each, a fixed seed)."""
+    """[(text, kind)]: the bank with its <place> / <obj> slots filled (FILLS each, a fixed seed), Korean endings as
+    plain() reads them (wording.ko_plain: "가 주세요" is stored as "가 줘"), each once."""
+    from assistant import wording
     out = []
     for kind, texts in KINDS.items():
         for t in texts:
             for a in _fill(t, "<place>", PLACE_EN, PLACE_KO):
-                out += [(b, kind) for b in _fill(a, "<obj>", OBJ_EN, OBJ_KO)]
-    return out
+                out += [(wording.ko_plain(b), kind) for b in _fill(a, "<obj>", OBJ_EN, OBJ_KO)]
+    return list(dict.fromkeys(out))
 
 
 _bank = None
 
 
 def _load():
-    """(vectors, kinds) of the bank: from data/intent_bank.npz when it holds these very wordings, else embedded now."""
+    """(vectors, kinds) of the bank; embeddings kept per wording in the cache (bank_words.vectors)."""
     global _bank
     if _bank is None:
-        from assistant import knowledge
+        from assistant import bank_words
         ex = examples()
-        texts = [t for t, _ in ex]
-        key = hashlib.sha1("\n".join(f"{t}\t{k}" for t, k in ex).encode()).hexdigest()
-        if CACHE.exists():
-            z = np.load(CACHE)
-            if str(z["key"]) == key:
-                _bank = (z["vecs"], z["kinds"])
-                return _bank
-        vecs = knowledge.embed(texts)
-        kinds = np.array([k for _, k in ex])
-        np.savez(CACHE, vecs=vecs, kinds=kinds, key=key)
-        _bank = (vecs, kinds)
+        _bank = (bank_words.vectors([t for t, _ in ex], CACHE), np.array([k for _, k in ex]))
     return _bank
 
 
@@ -711,7 +715,8 @@ SLANG = [(re.compile(rf"(?<![\w가-힣]){a}(?![\w가-힣])", re.I), b) for a, b 
     ("얘(?= ?,? ?(?:로봇|루미))", ""), ("로봇아|로봇 양반|로봇씨", ""), ("어이|ㅋ+", ""))]
     # slang, whisper's spellings, dialect endings and calls: read as the plain word (the bank and the slots)
 LEAD = re.compile(r"^\W*(?:(?:excuse me|okay so|ok so|so|uh+|um+|yo|hi|hey|hello|alright|all right|okay|ok|well|listen|"
-                  r"ah+|oh+|wow|hmm+|buddy|lumi|robot|hey robot|루미 ?군|루미 ?선생|루미 ?씨|루미야|루미씨|루미|저기요|저기|자|야(?=\s*,?\s*(?:루미|로봇))|음|어|좋아|이제|그럼|근데|그런데|아|like)\b[\s,.!~]*)+", re.I)
+                  r"ah+|oh+|wow|hmm+|buddy|lumi|robot|hey robot|로봇(?=\s)|로봇 ?(?:씨|님|친구야?)|로봇아|로봇야|이봐요?|이보게|이보세요|"
+                  r"실례지만|실례합니다|아가|얘야|있잖아요?|여보세요|루미 ?군|루미 ?선생|루미 ?씨|루미야|루미씨|루미|저기요|저기|자|야(?=\s*,?\s*(?:루미|로봇))|음|어|좋아|이제|그럼|근데|그런데|아|like)\b[\s,.!~]*)+", re.I)
 AMOUNT = [(re.compile(r"\b\d+(?:\.\d+)?\s*(?:degrees?|도)(?![a-z])|\b\d+(?:\.\d+)?도", re.I), "90 degrees"),
           (re.compile(r"\b\d+(?:\.\d+)?\s*(?:m|meters?|metres?|cm|centimet(?:er|re)s?|mm|millimet(?:er|re)s?|"
                       r"미터|센티(?:미터)?|센치|밀리)(?![a-z])", re.I), "1 meter")]   # embedded as one amount
@@ -719,7 +724,8 @@ AMOUNT = [(re.compile(r"\b\d+(?:\.\d+)?\s*(?:degrees?|도)(?![a-z])|\b\d+(?:\.\d
 
 def plain(text):
     """The words without polite frames ("if you don't mind", "it'd be great if you could") and calls before."""
-    t = POLITE.sub(" ", text or "")
+    from assistant import wording
+    t = POLITE.sub(" ", wording.ko_plain(wording.now_not_later(text)))
     for rx, word in SLANG:
         t = rx.sub(word, t)
     t = re.sub(r"\s+([,.!?])", r"\1", re.sub(r"^[\s,.!?~]+", "", t))
@@ -731,7 +737,7 @@ def guarded(text):
     """Why the bank does not read these words, or None."""
     from assistant import brain
     t = text.strip()
-    if len(t) < MIN_CHARS or len(t.split()) > MAX_WORDS:
+    if len(t) + len(re.findall(r"[가-힣]", t)) < MIN_CHARS or len(t.split()) > MAX_WORDS:   # a Hangul syllable counts twice
         return "length"
     for name, rx in (("negation", NEGATION), ("later", LATER), ("ability", ABILITY), ("question", QUESTION),
                      ("self", SELF_TALK), ("several", SEVERAL), ("hand", HAND_WORDS), ("other sense", OTHER_SENSE),
@@ -742,6 +748,8 @@ def guarded(text):
         return "later"
     if past_ko(t):
         return "past"
+    if told_ko(t):
+        return "told"
     if re.match(r"^\W*야\s", t):
         return "someone else"                          # "야 커피코너에서 컵 좀 가져와": a friend called (야 루미 is cut before)
     name = NAME_CALL.match(t)
@@ -765,7 +773,7 @@ def nearest(text, k=5):
 
 TAIL = re.compile(r"(?:[\s,.!?~]+(?:please|thanks|thank you|for me|now|right now|real quick|real fast|if you can|lumi|okay|"
                   r"yo|my friend|you|thank|"
-                  r"고마워|고마워요|감사합니다|감사해요|부탁해|부탁해요|부탁합니다|루미야|제발))+[\s,.!?~]*$", re.I)
+                  r"고마워|고마워요|감사합니다|감사해요|부탁해|부탁해요|부탁합니다|루미야|제발|허허|하하|헤헤|호호|ㅎㅎ+|ㅋㅋ+))+[\s,.!?~]*$", re.I)
 CANON_PLACE = "p3"      # a named marker is embedded as this one: the bank's wordings know it, any map's names work
 
 
@@ -798,21 +806,42 @@ def kind_of(text, markers=()):
     except OSError as e:                               # no embedding server: the LLM decides
         print(f"intent bank: {e}")
         return None
-    sims = vecs @ q
-    kinds = np.where(kinds == "fetch", "pick", kinds)   # pick or fetch: one kind here, the words decide (_slot)
-    order = np.argsort(-sims)[:AGREE_K]
-    best = kinds[order[0]]
-    if best not in ACTS or sims[order[0]] < SIM_MIN or any(kinds[i] != best for i in order):
+    best, top, margin, agree, second = _top(vecs @ q, _codes())
+    if best not in ACTS or top < SIM_MIN or not agree or margin < MARGIN_WORDS:
         return None
-    if sims[order[0]] - sims[kinds != best].max() < MARGIN:
-        return None
-    return str(best)
+    return best if margin >= MARGIN else (best, second)   # close to another motion: the words decide (read)
+
+
+_kind_codes = None
+
+
+def _codes():
+    """(names, int code per bank row): kinds compared as numbers, fetch read as pick (the words decide, _slot)."""
+    global _kind_codes
+    if _kind_codes is None:
+        kinds = np.where(_load()[1] == "fetch", "pick", _load()[1])
+        names, codes = np.unique(kinds, return_inverse=True)
+        _kind_codes = ([str(n) for n in names], codes)
+    return _kind_codes
+
+
+def _top(sims, named, k=AGREE_K):
+    """(kind of the closest row, its similarity, its lead over the closest row of any other kind, whether the k
+    closest rows are all of that kind, that other kind): one pass over the bank, no sort of it."""
+    names, codes = named
+    top = np.argpartition(sims, -k)[-k:]
+    top = top[np.argsort(-sims[top])]
+    best = codes[top[0]]
+    others = np.where(codes != best, sims, -1.0)
+    second = int(np.argmax(others))
+    return (names[best], float(sims[top[0]]), float(sims[top[0]] - others[second]), bool((codes[top] == best).all()),
+            names[codes[second]])
 
 
 # ---------- slots: what the words themselves say ----------
 DIR = {"forward": r"\b(?:forward|forwards|forword|ahead|straight)\b|\bto the front\b|앞으로|앞쪽|^\s*앞|forward로",
        "back": r"\b(?:back|backward|backwards|reverse|bak)\b|뒤로|후진|뒤쪽|물러",
-       "left": r"\bleft|\blef\b|왼쪽|왼편|좌측", "right": r"\bright\b|\brite\b|오른쪽|오른편|우측"}
+       "left": r"\bleft|\blef\b|왼쪽|왼편|좌측|좌회전|(?:^|\s)좌로|좌향", "right": r"\bright\b|\brite\b|오른쪽|오른편|우측|우회전|(?:^|\s)우로|우향"}
 
 
 CARRY = (r"\b(?:bring(?! yourself)|fetch|deliver|carry)\b|\bget me\b|\b(?:to|for) me\b(?=.*\b(?:bring|get|fetch|hand|pass)\b)|"
@@ -823,14 +852,14 @@ LIFT_SAID_MAX_M = 0.3   # m; a longer lift amount said is no lift request ("grow
 LIFT_BODY = (r"\b(?:yourself|your (?:body|torso|upper body)|body|make you|taller|shorter|smaller|small|tall|high|lift|rise|grow|"
              r"shrink|come down|go up|go down|move up|move down|raise up|lower down|come up|sink down|elevate|squat|height|"
              r"stretch up|drop down|going down|going up)\b|위로|아래로|낮아|높아|"
-             r"키|몸|리프트|상체|높게|낮게|높이|커져|작아져|올라|내려가|업\b|다운")
+             r"키|몸|리프트|상체|높게|낮게|높이|커져|작아져|올라|내려가|업\b|다운|늘려")
 
 
 MOVE_VERB = (r"\b(?:move|go|step|back up|backup|scoot|slide|shift|drive|roll|reverse|inch|come|forward|backward|ahead|"
              r"moov|moove|bak)|가|이동|물러|비켜|후진|와|빠져|걸음|발짝|move|back|go")   # a bare "왼쪽으로" may be a look
 
 
-LOOK_DIR = {"left": r"\bleft|왼|레프트", "right": r"\bright|\brite\b|오른|라이트",
+LOOK_DIR = {"left": r"\bleft|왼|레프트|(?:^|\s)좌로|좌측", "right": r"\bright|\brite\b|오른|라이트|(?:^|\s)우로|우측",
             "up": r"\bup|\bupward|\bceiling|\bsky\b|\bhigher\b|천장|하늘|(?<!원)위", "down": r"\bdown|\bfloor|\bground|\bfeet\b|바닥|땅|아래|밑"}
 LOOK_ME = (r"\b(?:at|on|to|toward|towards) (?:me|us|나)\b|\bthis way\b|\bover here\b|\bmy way\b|\bhere\b|\bwatch me\b|"
            r"\bme in the eye|\bmy face\b|나한테|저한테|쳐다봐|(?:^|\s)(?:여기|이쪽|저|나|날)(?:를|을)?\s*(?:좀\s*)?(?:봐|보세요|look)")
@@ -965,7 +994,8 @@ def _slot(kind, text, markers, holding):
     from assistant import brain, driving
     t = brain._norm(text, markers)
     if kind == "go_to":
-        if brain._mentions(text, markers).get("object") or re.search(r"\bfrom\b|에서|에 있는|\bface\b|\blook|\bpoint|봐|"
+        if brain._mentions(text, markers).get("object") or re.search(r"\bfrom\b|에서|에 있는|\bface\b|\blook|\bpoint|"
+                                                                     r"(?<![가와해] )(?<![가와해])봐|"   # "가 봐": try going
                                                                      r"\bwith (?:me|us)\b|같이|함께|따라|"
                                                                      + CARRY + r"|\btake (?:it|this|that|them)\b", t):
             return None                                # "get the bottle from booth two": a fetch, the rules' / LLM's
@@ -979,6 +1009,9 @@ def _slot(kind, text, markers, holding):
         return None                                    # "나한테 가져와", "이리 줘": not a trip to the person
     if kind == "come" and re.search(r"\bwith (?:me|us)\b|함께|같이", t):
         return ("follow", "")                          # "just come with me": walk along
+    if kind == "come" and (driving.amount(t)[1] or driving.amount(t)[0] == "?"):   # "come 20 cm closer": a short
+        n, exact = driving.amount(t)                                                  # drive (A2)
+        return ("move", f"forward {n:g}") if exact and driving.MOVE_MIN_M <= n <= brain.MOVE_MAX_M else None
     if kind == "come_back" and (re.search(r"\bpose\b|\barm\b|\bhead\b|팔|고개|\bpick|\bput\b|\bit\b|그거|놓|놔", t) or
                                 any(brain.named_place(text, m, markers) for m in markers)):
         return None                                    # "go back to your dock", "go back to your look pose": not here
@@ -1009,8 +1042,11 @@ def _slot(kind, text, markers, holding):
             return None
         return ("move", f"{d[0]} {n:g}")
     if kind == "turn":
-        if re.search(r"\blook|봐|\bhead\b|고개|\beyes\b", t):
-            return None                                # "look the other way": the head, not the base
+        if re.search(r"\blook|봐|\bhead\b|고개|\beyes\b|\btorso\b|\bwaist\b|\bupper body\b|\bhips?\b|허리|상체|몸통|윗몸|"
+                     r"\btrunk\b|\bwithout driving\b", t):
+            return None                                # "look the other way", "twist your torso": not the base
+        if re.search(r"\bquarter\b|\bhalf\b|반 ?바퀴", t) and not re.search(r"\d", t):
+            return None                                # "spin left a bit, like a quarter": not a full turn (A2)
         if re.search(r"\bspin\b|\ball the way (?:a)?round\b|\b360\b|한 ?바퀴", t) and \
                 not re.search(r"\bface\b|\bother (?:side|way)\b|\d+\s*(?:degrees?|도)", t.replace("360", "")) and \
                 said_amount(text)[1] in (None, 360):
@@ -1026,13 +1062,13 @@ def _slot(kind, text, markers, holding):
         words_deg = said_amount(text)[1]
         if not deg and words_deg:
             return ("turn", f"{d[0]} {words_deg:g}")
-        if not deg and re.search(r"\bdegrees?\b|[가-힣]\s*도(?:만)?\s", t + " ") and not re.search(r"(?:^|\s)(?:한|좀)\s", t):
+        if not deg and re.search(r"\bdegrees?\b|[가-힣]\s*도(?:만)?(?:\s|[.,!?~])", t + " ") and not re.search(r"(?:^|\s)(?:한|좀)\s", t):
             return None                                # "삼십 도": a number the words don't give as digits
         if not deg and re.search(r"\d", t):
             return None                                # "turn left 30.": a number with no unit, asked
         return ("turn", f"{d[0]} {deg.group(1) if deg else 90}")
     if kind == "look":
-        if re.search(r"\byour back\b|\bback to me\b|등 ?돌", t):
+        if re.search(r"\byour back\b|\bback to me\b|등 ?돌|놔|놓|\bput\b|\bdrop\b|\bplace\b", t):
             return None                                # "turn your back to me": the base turns away
         target = "center" if re.search(r"원위치|원래대로|\breset\b", t) else brain.head_target(t)
         if target is None:
@@ -1050,7 +1086,7 @@ def _slot(kind, text, markers, holding):
         if not re.search(LIFT_BODY, t):
             return None                                # "go upstairs": no word about Lumi's own height
         down = re.search(r"\b(?:down|lower|shorter|smaller|small|sink|shrink|squat)\b|낮|줄여|작게|작아|내려|아래|다운", t)
-        up = re.search(r"\b(?:up|higher|taller|tall|high|bigger|raise|rise|grow|elevate|stretch)\b|높(?:여|게|아|혀)|키워|올려|"
+        up = re.search(r"\b(?:up|higher|taller|tall|high|bigger|raise|rise|grow|elevate|stretch)\b|높(?:여|게|아|혀)|키워|올려|늘려|"
                        r"커|올라|업", t)
         if bool(down) == bool(up):
             return None                                # no direction, or both: asked
@@ -1066,6 +1102,11 @@ def _slot(kind, text, markers, holding):
         if pose == "reach" and re.search(r"줘|주세요|주십시오|\bgive\b|\bhand\b|\bover\b|\bpass\b", t) and \
                 (holding() if callable(holding) else holding):
             return None                                # "손 줘" with a cup held: hand it over, the hand reader's
+        if pose in ("open", "close") and not re.search(r"손|hand|grip|그리퍼|집게|finger|claw|주먹|fist|핸드|\bit\b", t):
+            return None                                # "문 열어 줘": a door, not the hand (A1)
+        if pose in ("open", "close") and re.search(r"(?:^|\s)(?:창)?문|창문|뚜껑|병|\bdoor|\bwindow|\blid\b|\bbottle\b|"
+                                                   r"\bbox\b|상자|박스|\beyes?\b|\bmouth\b|(?:^|\s)(?:눈|입)(?:을|\s|$)", t):
+            return None                                # "문 열어 줘", "close your eyes": not the gripper
         if pose in ("open", "close"):
             held = holding() if callable(holding) else holding
             if held:
@@ -1108,18 +1149,21 @@ def read(text, markers=(), holding=False):
     if guarded(text):
         return None
     kind = kind_of(text, markers)
+    if isinstance(kind, tuple):                        # two motions close: only when the words fit one of them
+        kind, other = kind
+        if other not in ACTS or _slot(other, text, markers, holding) is not None:
+            return None
     got = _slot(kind, text, markers, holding) if kind else None
     return ("fetch", said) if got and got[0] == "fetch" else got
 
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["build"]:
-        CACHE.unlink(missing_ok=True)
         n = len(_load()[1])
         print(f"{n} wordings -> {CACHE}")
     else:
         from tests.conversation_check import markers as _markers
         for said in sys.argv[1:]:
-            print(said, "| guard:", guarded(said), "| kind:", kind_of(said), "| read:", read(said, _markers()))
+            print(said, "| guard:", guarded(said), "| kind:", kind_of(plain(said)), "| read:", read(said, _markers()))
             for s, k, w in nearest(said)[0]:
                 print(f"   {s:.3f} {k:10} {w}")

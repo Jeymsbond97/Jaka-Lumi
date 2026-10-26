@@ -36,7 +36,7 @@ L.skill_busy = lambda: False
 FAKED = ("start_trip", "move_by", "come_to", "follow_me", "fetch_request", "object_task", "arm_pose", "lift", "look",
          "come_back", "receive_from_hand")
 for name in FAKED:
-    setattr(L, name, lambda *a, _n=name, **k: moved.append(_n) or _n != "look")   # look: True would be "past range"
+    setattr(L, name, lambda *a, _n=name, **k: moved.append(_n) or _n not in ("look", "lift"))   # look / lift: a LIMIT_SAY key
 L.wave = lambda *a, **k: None                          # quick_command starts it in a thread
 
 BASE = {"go to p3": "go_to", "p3로 가": "go_to", "follow me": "follow", "따라와": "follow", "come here": "come",

@@ -7,6 +7,7 @@ leaves to the LLM. Nothing moves; only the embedding server is asked.
                                                          # be wrong there either (its guards and margins, not the rules)
     .venv/bin/python tests/bank_check.py --blind         # tests/blind/train/*.py and tests/blind/r2/train/*.py too
     .venv/bin/python tests/bank_check.py -v              # print every hit too, not only the wrong ones
+    .venv/bin/python tests/bank_check.py --blind --rounds r4,r6 --out bank_check_a3.md   # some rounds, own report
 
 A case reaches the bank when command_check's rules (lumi.route without the bank) leave it to the LLM.
 -> logs/bank_check.md
@@ -70,6 +71,8 @@ def cases(blind):
         for f in sorted((ROOT / "tests" / "blind" / "train").glob("*.py")) + \
                 sorted((ROOT / "tests" / "blind").glob("r*/train/*.py")):   # round 1, then r2, r3 ... (never held/)
             rnd = f.parent.parent.name if f.parent.parent.name != "blind" else ""
+            if ROUNDS and (rnd or "r1") not in ROUNDS:
+                continue
             mod = importlib.import_module(f"tests.blind.{rnd + '.' if rnd else ''}train.{f.stem}")
             tag = f"blind/{rnd + '/' if rnd else ''}{f.stem}"
             got = getattr(mod, "CASES", [])
@@ -98,7 +101,15 @@ def judge(expect, got):
     return "right" if command_check.ok(expect.lower(), command_check.refused(got).lower()) == "right" else "wrong"
 
 
+ROUNDS = []                                         # --rounds r1,r2: only these blind rounds (r1 = tests/blind/train)
+
+
 def main(args):
+    global OUT
+    if "--rounds" in args:
+        ROUNDS[:] = args[args.index("--rounds") + 1].split(",")
+    if "--out" in args:
+        OUT = OUT.with_name(args[args.index("--out") + 1])
     marks = markers()
     stress, verbose = "--stress" in args, "-v" in args
     from assistant import steps

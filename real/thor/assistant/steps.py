@@ -850,7 +850,8 @@ def _pieces(c, markers, after):
 
 def rules(text, markers=()):
     """(steps, unread clauses). Steps are merged where two clauses mean one ("look for the table" + "put it there")."""
-    cut, says = _cut_says(text)
+    text = re.sub(r"(?<=[가-힣A-Za-z0-9])(으로|로|에)(가서|가고|가면)(?=[가-힣])", r"\1 \2 ", text or "")   # written without
+    cut, says = _cut_says(text)                                                                     # spaces: "부스A로가서저희"
     t = _protect_lists(_norm(cut, markers), markers)
     t = _INTERJECTION.sub("", t)
     steps, unread = [], []

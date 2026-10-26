@@ -62,10 +62,47 @@ _ASK = [(re.compile(_LEAD + _GO_EN + rf" (?:{w}){_END}", re.I), k) for w, k in (
         (re.compile(_LEAD + _GO_EN + rf"\s*(?:{_HERE_KO}){_END}", re.I), "here")]
 
 
+# the same request in many more wordings (A2, night 2): calls, polite frames and tags around it, "the spot I'm showing
+# you", "where my finger points", "내 손가락 방향으로", "저기 저 자리로", Konglish "저기로 go 해 줘", Korean without spaces
+_PAD_EN = (r"(?:(?:hey|hi|ok|okay|so|um+|uh+|er+|hmm+|oh|alright|listen|robot|lumi|buddy|bro|now|please|pls|you|young man|"
+           r"kindly|dear|command:|test one:|quick|excuse me|well|sorry|right|yo|my turn|you mind\?|you mind)[\s,.!:]*)*")
+_FRAME_EN = (r"(?:(?:(?:can|could|would|will) (?:you|u)(?: maybe| please| kindly)? |why don'?t you |how about you |i (?:want|need|order) "
+             r"you to |let'?s see (?:you|u) |be a dear and |would you be so kind as to |mind if i ask you to |try to |"
+             r"go ahead and |you think you could |maybe |i'?d like you to |would it be possible to |kindly |please |pls |you |"
+             r"(?:you|u) (?:must|will|can) |let'?s have you |could i ask you to |i'?d love it if you could |if you don'?t mind,? |"
+             r"i was hoping you could |can |next,? |attention lumi,? |oi |erm,? )*)")
+_VERB_EN = r"(?:go|come|move|moov|drive|driive|walk|head|get|roll)(?: over| on over)?(?: and)?(?: stand)?|go stand|stand"
+_THERE2_EN = (r"(?:over )?there(?:,? where i(?:'m| am) pointing(?: now)?)?|ovr there|that way|"
+              r"(?:to|too) (?:that|the|teh) (?:spot|spoot|place|lpace|point)(?: over there)?(?: i(?:'m| am) (?:showing|sowing) (?:you|u)| "
+              r"i(?:'m| am) pointing(?: at| to)?)?|(?:to |too )?where (?:i|my finger) points?|(?:to |too )?where i(?:'m| am) pointing(?: at| to)?")
+_END_EN = (r"(?:[\s,.]*(?:please|pretty p+lease|now|bro|thanks|for us|for me|if you would|will ya|okay|ok|dear|immediately|go|"
+           r"right now|yeah|there'?s a good robot))*[\s.!?…]*$")
+_THERE2_KO = (r"(?:(?:저기 ?)*(?:저기|저쪽|저곳|거기|그쪽|저리|저어기|저 ?자리|그 ?자리)|"
+              r"(?:제가|내가) ?가리키는 ?(?:곳|데|쪽)|(?:손가락으로 ?)?가리키는 ?(?:곳|데|쪽)|(?:내|제) ?(?:손가락|송가락) ?방향|"
+              r"point ?한 ?(?:데|곳)|where i point)")
+_GO2_KO = (r"(?:(?:좀|얼른|빨리|어서|제발|지금)\s*)*(?:가시죠|가시겠어요|가|이동해|이동|go|move)(?:\s*(?:빨리|얼른|좀))?(?:\s*(?:줘|주세요|주십시오|줘요|줄래요?|주실래요?|줄 ?수 ?있어요?|"
+           r"주실 ?수 ?있어요?|주시겠습니까|주시겠어요|주면 ?안 ?(?:돼|될까요?)|주셨으면 ?해요|주소|주게|주쇼|주이소|주라|좀|조|"
+           r"보이소|보랑께|봐|보세요|라|게|도|플리즈|please|요|세요|십시오|시오|해|해 ?줘|해 ?주라|해 ?봐|하세요|해라|좀 ?해 ?줄래|"
+           r"부탁해요?|가능|볼래|봐 ?봐|서 ?서 ?있(?:어|어라|어요|으세요|으십시오|어 ?줘|어 ?줄래|어 ?주실래요|어 ?주면 좋겠어|어 ?보이소|어 ?주소)|"
+           r"땡큐|고고|ㄱㄱ|해 ?주실래요|해 ?주면|해 ?주이소|줘잉|주거라|주시지요|도고|주이라|부탁드려요|줘요(?: 네\??)?|"
+           r"주면 ?좋겠어요?))*")
+_ASK += [(re.compile(rf"^{_PAD_EN}{_FRAME_EN}(?:{_VERB_EN}) (?:{_THERE2_EN}){_END_EN}", re.I), "there"),
+         (re.compile(rf"^{_PAD_EN}(?:that spot,? )?go there{_END_EN}", re.I), "there"),
+         (re.compile(r"^(?:(?:루미야?|루미 ?씨|루미님|로봇아?|로봇 ?친구야|어이 ?로봇|이봐|보소|얘야?|저기요|음|어+|아|그|저|"
+                     r"그러니까|야|있잖아|근데|에구|hey|lumi)[\s,.~!]*)*" + rf"{_THERE2_KO}\s*(?:으로|로|까지|에)?\s*(?:가서\s*)?{_GO2_KO}"
+                     r"[\s.!?~…]*(?:응\??)?$", re.I), "there"),
+         (re.compile(rf"^(?:(?:루미야?|루미 ?씨|로봇아?|hey|lumi)[\s,]*)*(?:{_THERE2_KO}|there)\s*(?:으로|로)?\s*go"
+                     r"(?:\s*(?:해|좀|해 ?줘|해 ?주라|해 ?봐|하세요|해라|좀 ?해 ?줄래|부탁해요?))?[\s.!?]*$", re.I), "there"),
+         (re.compile(rf"^(?:(?:루미야?|루미 ?씨|로봇아?|어\.*|hey|lumi)[\s,]*)*go there\s*(?:해|해 ?줘|해 ?봐|해라|부탁해요?)[\s.!?]*$", re.I),
+          "there")]
+
+
 def asked(text):
     """"there" for "go there" / "저기로 가" / "come to where I'm pointing", "here" for "come here" / "여기로 와",
     None for anything else (a longer sentence, a place by name, "put it there")."""
     t = re.sub(r"\s+", " ", text.strip().lower().replace("’", "'"))
+    t = re.sub(r"(?<![\w가-힣])[\w가-힣]{1,3}[—–]+\s*", "", t)          # a word cut short: "wh— where", "가— 가서"
+    t = re.sub(r"[,\s]*(?:응\??|땡큐)\s*[.!?]*$", "", t) or t
     return next((k for r, k in _ASK if r.match(t)), None)
 
 
