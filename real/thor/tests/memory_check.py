@@ -41,6 +41,41 @@ def _vec(text):
     return _vecs[text]
 
 
+KO_CACHE = ROOT / "logs" / "memory_check_ko.json"   # title -> Korean title / summary (local: made from the sets)
+_ko = {}
+
+
+def _korean(title, summary, facts=()):
+    """The Korean title, summary and facts a live talk carries (memory.summarise asks the LLM for them): made once per
+    talk by the LLM and kept in KO_CACHE, so the rules-only runs need no LLM after the first."""
+    key = f"{title}|{summary}"
+    if not _ko and KO_CACHE.exists():
+        _ko.update(json.loads(KO_CACHE.read_text()))
+    if key not in _ko or facts and "facts_ko" not in _ko[key]:
+        from assistant import brain
+        out = json.loads(brain._chat([{"role": "system", "content": "Translate this robot's memory of a talk into Korean "
+                                       "as JSON: {\"title_ko\": \"<the title, 1-4 Korean words>\", \"summary_ko\": \"<the "
+                                       "summary in polite Korean (-요)>\", \"facts_ko\": [\"<each fact in polite Korean (-요)>\"]}. "
+                                       "Names of people, robots and companies as they are said in Korean (JAKA = 자카)."},
+                                      {"role": "user", "content": f"title: {title}\nsummary: {summary}\nfacts: {json.dumps(list(facts))}"}],
+                                     {"type": "object", "properties": {"title_ko": {"type": "string"}, "summary_ko": {"type": "string"},
+                                                                       "facts_ko": {"type": "array", "items": {"type": "string"}}},
+                                      "required": ["title_ko", "summary_ko", "facts_ko"]}))
+        old = _ko.get(key, {})                         # a title already made stays (the embeddings are cached by it)
+        _ko[key] = {"title_ko": old.get("title_ko") or out["title_ko"].strip(),
+                    "summary_ko": old.get("summary_ko") or out["summary_ko"].strip(),
+                    "facts_ko": [f.strip() for f in out["facts_ko"]][:len(facts)]}
+        KO_CACHE.write_text(json.dumps(_ko, ensure_ascii=False, indent=0))
+    return _ko[key]
+
+
+def _talk(t):
+    ko = _korean(t["title"], t["summary"], t.get("facts", []))
+    return {"t": epoch(t["when"]), "title": t["title"], "summary": t["summary"], "facts": t.get("facts", []),
+            "commands": t.get("commands", []), "person": t.get("person"), **ko,
+            "vec": _vec(f"{t['title']}. {t['summary']}"), "vec_ko": _vec(f"{ko['title_ko']}. {ko['summary_ko']}")}
+
+
 def load(d):
     """The dialogue's memory into assistant/memory.py: a new temp folder, its clock, its self state."""
     mem, now = d["memory"], epoch(d["now"])
@@ -48,9 +83,7 @@ def load(d):
     memory.clock = lambda: now
     memory._recall.update(offered=[], left=[], talk=None, listed=[], at=0.0)
     memory._talk.update(name=None, track=mem.get("forget_person"), skip=False)   # who talks now (the forget's person)
-    memory._save("talks", [{"t": epoch(t["when"]), "title": t["title"], "summary": t["summary"],
-                            "facts": t.get("facts", []), "commands": t.get("commands", []), "person": t.get("person"),
-                            "vec": _vec(f"{t['title']}. {t['summary']}")} for t in mem.get("talks", [])])
+    memory._save("talks", [_talk(t) for t in mem.get("talks", [])])
     memory._save("seen", [{"t": epoch(s["when"]), "name": memory._object(s["object"]) or s["object"],
                            "colour": s.get("colour"), "where": s.get("where")} for s in mem.get("seen", [])])
     st = mem.get("self") or {}
@@ -90,7 +123,12 @@ def score_memory(d, old, use_llm):
     """One memory dialogue -> blind_check rows (the dialogue scorer with the memory loaded and asked first)."""
     load(d)
     with mock.patch.object(blind_check, "turn_route", _route(blind_check.turn_route, d)):
-        return blind_check.score_dialogue(d, old, use_llm)
+        rows = blind_check.score_dialogue(d, old, use_llm)
+    for r in rows:      # "what's my name?" wanting the name from a talk with another person: the check can't say who
+        if r["verdict"] == "wrong" and "(told in the talk about" in r["show"] and \
+                any(n[:20] in r["show"] for n in memory.NO_NAME.values()):
+            r["verdict"] = "who?"                          # the visitor is not known (re-id): not scored
+    return rows
 
 
 def main(args):
@@ -117,7 +155,8 @@ def main(args):
             by_tag[tag][r["verdict"]] += 1
     lines = [f"# memory_dialogues {rnd} {split} ({'LLM' if use_llm else 'rules only'}, {time.time() - t0:.0f} s)", "",
              f"right {kinds['right']} / {len(scored)}; wrong {kinds['wrong']}, motion {kinds['motion']}, "
-             f"llm? {kinds['llm?']}, error {kinds['error']}", "", "| case kind | right | wrong | llm? |", "|---|---|---|---|"]
+             f"llm? {kinds['llm?']}, error {kinds['error']}, who? {kinds['who?']} (the visitor's name from a talk the "
+             f"check can't tie to them)", "", "| case kind | right | wrong | llm? |", "|---|---|---|---|"]
     lines += [f"| {t} | {c['right']} | {c['wrong'] + c['motion'] + c['error']} | {c['llm?']} |" for t, c in sorted(by_tag.items())]
     lines += ["", "## Wrong", ""] + [f"- d{r['dialogue']} {r['show'][:400]}" for r in scored
                                      if r["verdict"] in ("wrong", "motion", "error")]

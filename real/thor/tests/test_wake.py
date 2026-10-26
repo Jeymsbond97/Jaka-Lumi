@@ -118,7 +118,8 @@ said = lambda: [d[1] for d in done if isinstance(d, tuple) and d[0] == "say"]   
 # ---- the calls that wake Lumi (EN + KO + whisper slips) and what does not ----
 for call in ("Lumi.", "Hi Lumi.", "Hi.", "Hello Lumi!", "Hello.", "Hey Lumi", "How are you?", "Hi, how are you?",
              "루미야.", "루미.", "안녕.", "안녕하세요.", "하이.", "하이 루미!", "Hi, Loomi.", "Hello, Rumi.", "Hai.",
-             "Lummy?", "누미야", "안녕하십니까."):
+             "Lummy?", "누미야", "안녕하십니까.", "Wake up.", "Wake up, Lumi!", "Hey Lumi.", "Lumi, wake up.",
+             "헤이 루미", "루미야 일어나", "루미 일어나세요.", "일어나세요.", "깨어나 루미야"):
     L = fresh()
     L.mic = Mic(U(call))
     assert L.check_wake(), call
@@ -128,6 +129,7 @@ for heard in ("Let's make music.", "What is that?", "We make it.", "Let's.", "It
     L.mic = Mic(U(heard))
     assert not L.check_wake(), heard                   # 16:57:00, 17:05:03 live: "(no wake word)"
 assert not lumi.call_only("Lumi, what time is it?") and not lumi.call_only("루미야 노래 불러줘")
+assert not lumi.WAKE.search("I wake up at 7 every day") and not lumi.WAKE.search("일어나서 밥 먹었어")   # no call
 L = fresh()                                            # "How are you?" is answered, not "Yes? How can I help?"
 L.mic = Mic(U("How are you?"))
 L.check_wake()

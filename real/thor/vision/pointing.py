@@ -67,12 +67,12 @@ _ASK = [(re.compile(_LEAD + _GO_EN + rf" (?:{w}){_END}", re.I), k) for w, k in (
 _PAD_EN = (r"(?:(?:hey|hi|ok|okay|so|um+|uh+|er+|hmm+|oh|alright|listen|robot|lumi|buddy|bro|now|please|pls|you|young man|"
            r"kindly|dear|command:|test one:|quick|excuse me|well|sorry|right|yo|my turn|you mind\?|you mind)[\s,.!:]*)*")
 _FRAME_EN = (r"(?:(?:(?:can|could|would|will) (?:you|u)(?: maybe| please| kindly)? |why don'?t you |how about you |i (?:want|need|order) "
-             r"you to |let'?s see (?:you|u) |be a dear and |would you be so kind as to |mind if i ask you to |try to |"
+             r"you to |let'?s see (?:you|u) |be a (?:dear|love|doll|sweetie) and |would you be so kind as to |mind if i ask you to |try to |"
              r"go ahead and |you think you could |maybe |i'?d like you to |would it be possible to |kindly |please |pls |you |"
              r"(?:you|u) (?:must|will|can) |let'?s have you |could i ask you to |i'?d love it if you could |if you don'?t mind,? |"
              r"i was hoping you could |can |next,? |attention lumi,? |oi |erm,? )*)")
 _VERB_EN = r"(?:go|come|move|moov|drive|driive|walk|head|get|roll)(?: over| on over)?(?: and)?(?: stand)?|go stand|stand"
-_THERE2_EN = (r"(?:over )?there(?:,? where i(?:'m| am) pointing(?: now)?)?|ovr there|that way|"
+_THERE2_EN = (r"(?:over )?(?:there|dare|dere)(?:,? where i(?:'m| am) pointing(?: now)?)?|ovr there|that way|"
               r"(?:to|too) (?:that|the|teh) (?:spot|spoot|place|lpace|point)(?: over there)?(?: i(?:'m| am) (?:showing|sowing) (?:you|u)| "
               r"i(?:'m| am) pointing(?: at| to)?)?|(?:to |too )?where (?:i|my finger) points?|(?:to |too )?where i(?:'m| am) pointing(?: at| to)?")
 _END_EN = (r"(?:[\s,.]*(?:please|pretty p+lease|now|bro|thanks|for us|for me|if you would|will ya|okay|ok|dear|immediately|go|"

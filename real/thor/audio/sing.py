@@ -59,7 +59,7 @@ SING = re.compile(r"\bsing\b|\bsay (?:a |some )?songs?\b|"                    # 
                   r"(?:노래|음악|곡)\s*(?:좀\s*)?바꿔|\b(?:want|like|love) to hear (?:a |some )?(?:song|music)\b|"
                   r"^\W*(?:lumi\W*)?(?:a |some )?(?:song|music)(?:\W+(?:please|lumi))*\W*$|"
                   r"(?:노래|음악|(?<![가-힣])곡)\s*(?:를|을|좀|하나|한\s*곡|한\s*번|한번|도|이나|나|이든|든|라도|\s)*"
-                  r"(?:불러|부르|들려|해|틀어|틀|뽑아|부탁|재생|플레이|(?:할|부를)\s*(?:수|줄)\s*(?:있|알))|"
+                  r"(?:불러|부르|들려|해|틀어|틀|뽑아|부탁|재생|플레이|(?:할|부를)\s*수\s*있)|"
                   r"노래\s*(?:좀|하나)?\s*(?:듣고\s*싶|들을래|듣자)|(?:다른|딴|다음)\s*(?:노래|곡)|(?:다른|딴)\s*(?:거|걸|걸로)\s*(?:불러|들려|틀어)|^\W*(?:노래|음악)\s*(?:좀|하나)?\W*$", re.I)
 SING_TITLE = re.compile(r"(불러|들려|틀어) ?(줘|주세요|줄래|봐|볼래)|\b(?:sing|play)\b")    # "러브 어택 불러 줘": a title said with it
 SONG_LIST = re.compile(r"\b(?:what|which) (?:kinds? of |sort of |other )?(?:songs?|music|tunes)\b|\bwhat (?:can|do|would|will) you sing\b|"
@@ -69,13 +69,17 @@ SONG_LIST = re.compile(r"\b(?:what|which) (?:kinds? of |sort of |other )?(?:song
                        r"아는\s*노래|부를\s*(?:수\s*있는|줄\s*아는)\s*노래|노래\s*목록", re.I)
 NOT_REQUEST = re.compile(r"\b(?:do|did) you (?:really )?(?:like|love|enjoy)\b|"
                          r"\bwho sings?\b|\bfavou?rite\b|좋아하는|좋아해|잘\s*(?:해|하|불러)|"
-                         r"^\W*(?:is|are|was|were|does|did|has|have)\b|\b(?:can|do|could) robots? (?:really |even )?sing\b|"
+                         r"^\W*(?:is|are|was|were|does|did|has|have)\b(?!\s+you\s+(?:able|willing)\s+to\s+sing\s+(?:a|some|me|us|for|something|one|another)\b)|\b(?:can|do|could) robots? (?:really |even )?sing\b|"
                          r"(?:노래|음악)\s*(?:하는|부르는)\s*로봇", re.I)   # "is Love Attack a new song?", "노래 부르는 로봇 신기하다"
 NOT_ASKED = re.compile(r"\b(?:don'?t|do not|never)\s+(?:\w+\s+)?(?:sing|play)\b|\b(?:i|we)(?:'ll| will|'m going to)? sing\b|"
                        r"\b(?:i|we) (?:can'?t|cannot|can|could|used to) sing\b|\b(?:can|may|could|should) (?:i|we) sing\b|"
                        r"\b(?:later|tomorrow|tonight|next time|after (?:lunch|dinner|the|this|that|we|i)|"
                        r"when (?:the|they|i|we|guests?|everyone|people)|at the end)\b|"
                        r"\bif (?:the|they|i|we|you|he|she|guests?|kids?|someone|people|it)\b|"
+                       r"\b(?:once|as soon as|whenever|until) (?:the|they|i|we|you|he|she|guests?|kids?|someone|people|it)\b|"
+                       r"(?:손|박수|손뼉|신호)\s*(?:을|를)?\s*\S*\s*(?:면|때)\s|"   # "제가 손 들면 노래 불러 주세요": later, on a sign
+                       r"(?:부를|할|하실|부르실)\s*줄\s*(?:알아|알아요|아세요|아시|아십|아니|아냐|아나|알지|알죠|압니까|알아유)"
+                       r"(?!.*(?:불러|들려|틀어)\s*(?:줘|주))|\bdo you know how to sing\b|\b(?:are|r) you able to sing\W*$|"   # "노래 부를 줄 알아요?": an ability (quick answers)
                        r"\b(?:never ?mind|forget it|cancel that|actually,? no|on second thought)\b|아니다\s*(?:됐|그만|말자)|됐(?:어|다|습니다)\W*$|"
                        r"(?:끝나|오|되|돌아오|도착하|시작하)면\s|(?:제가|내가|우리가|저희가|애들이|아이들이|손님이|사람들이)\s+(?:\S+\s+){0,2}\S*[^안않]면\s|(?:부르는|하는|불렀던|부른) ?거 ?(?:봤|들었)|"
                        r"(?:부르|하|틀|불르)지\s*(?:마|말)|노래방|나중에|이따가?|있다가|끝나고|면\s*그때|(?:내가|제가)\s*(?:노래\s*)?"
@@ -91,6 +95,9 @@ AFTER_SONG = re.compile(r"^\W*(?:(?:lumi|ok|okay|no|nah|um|please|then|now|and)\
                         r"^\W*(?:루미야?\W*)?(?:아니\W*)?(?:(?:그거|그\s*노래|이거|이\s*노래)\s*말고(?:\s*(?:다른|딴)\s*(?:거|걸로|노래))?|"
                         r"(?:다른|딴)\s*(?:거|걸|걸로|것)|다음\s*(?:거|곡|노래)?|한\s*번\s*더|하나\s*더|다시|또)"
                         r"\s*(?:요|줘|해\s*줘|해\s*봐|해|불러\s*줘|들려\s*줘|부탁해요?|해요|주세요)?\W*$", re.I)
+SONG_OFFER = re.compile(r"\bshall i sing\b|\bwant to hear one\b|불러 드릴까요|들어 보실래요", re.I)   # Lumi's offer of a song
+OFFER_YES = re.compile(r"^\W*(?:(?:yes|yeah|yep|sure|ok(?:ay)?|please|of course|go ahead|why not|응|어|네|예|좋아요?|그래요?|"
+                       r"불러\s*(?:줘|주세요|봐|주실래요)|듣고\s*싶어요?|부탁해요?|해\s*(?:줘|주세요)|sing(?: it| one)?)(?:\W+|$))+$", re.I)
 AGAIN = re.compile(r"\bagain\b|\bone more time\b|\bonce more\b|한 ?번 ?더|다시", re.I)
 ANOTHER = re.compile(r"\b(another|different|next|other|change|switch)\b|바꿔|\bsomething else\b|\bnot (this|that)\b|다른|딴|다음|말고", re.I)
 STOP = re.compile(r"\b(stop|enough|halt|quiet|shh+)\b|멈춰|그만|스톱|정지|조용", re.I)
@@ -146,6 +153,8 @@ def asked(text, last=""):
         return False
     if re.match(r"ACTION: (?:sing|none songs)\b", last or "") and AFTER_SONG.search(t):
         return True
+    if SONG_OFFER.search(last or "") and OFFER_YES.match(t):
+        return True                                    # "Shall I sing one for you?" (quick answers' can_sing) -> "yes"
     if picked(t, last):
         return True
     return bool(SING.search(t)) or bool(SING_TITLE.search(t) and (_title(t, songs()) or re.search(

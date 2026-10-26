@@ -253,9 +253,9 @@ QUICK_KINDS = {
         "ko": ["컵, 머그, 유리잔, 병, 사과, 오렌지, 바나나를 탁자 높이에서 집을 수 있어요. 바닥에 있는 건 못 집어요. 실제로 집어 본 건 컵이에요.",
                "탁자 높이에 있는 컵, 유리잔, 병, 그리고 사과, 오렌지, 바나나 같은 과일을 집어요. 바닥은 팔이 안 닿아서 못 집어요."]}),
     "operator": ([
-        "who operates you", "who's in charge of you", "who takes care of you", "who looks after you", "who controls you",
+        "who operates you", "who's in charge of you", "who takes care of you", "who looks after you",
         "who is responsible for you", "who runs you here", "is there a staff member",
-        "누가 관리해요", "관리자가 누구예요", "누가 운영해요", "누가 조종해요", "담당자가 누구예요", 
+        "누가 관리해요", "관리자가 누구예요", "누가 운영해요", "담당자가 누구예요",
         "책임자가 누구야", "관리는 누가 하십니까", "누가 관리하노", "manager 누구예요", "담당 staff 누구예요",
     ], {"en": ["Cutshion Company operates me here. If you need help with something I can't do, please ask a staff member."],
         "ko": ["여기서는 쿳션이 저를 운영해요. 제가 못 하는 일은 직원에게 물어봐 주세요."]}),
@@ -376,3 +376,19 @@ for _kind, (_ko_n, _en_n) in HAVES.items():
     QUICK_KINDS[_kind][0].extend(f.format(n) for f in EN_HAVE for n in _en_n)
 QUICK_KINDS["dance"][0].append("춤 출 수 있어")      # quick_answers.NO lists it for the LLM; it is this kind's now
 QUICK_KINDS["arm"][0].extend(["팔 길이가 얼마야", "how long is your arm"])
+
+# night 4: wordings the dev eval missed, at every level
+for _kind, _texts in {
+    "size": ["how wide is lumi", "how wide is the robot", "how wide is this robot", "how big is lumi", "루미 폭이 얼마예요", "로봇 폭이 몇이야"],
+    "stairs": [s + e for s in ["계단도 올라가", "계단 올라가", "계단도 올라가실 수 있"] for e in ["니", "나요", "요", "", "노", "습니까", "세요"]],
+    "grow": ["최대 몇 센티까지 커져", "최대 몇 센티까지 커져요", "제일 높이 몇 센티까지 올라가", "얼마나 높아질 수 있어요", "how tall can you get",
+             "what's your tallest height", "몇 센티까지 늘어나요", "최대 높이가 몇이에요"],
+    "navigation": ["are you self-driving", "are you autonomous", "is this robot autonomous", "do you drive yourself", "자율주행 로봇이에요",
+                   "혼자 다닐 수 있어", "혼자 다니세요", "스스로 운전해요"],
+    "software": ["is your code python", "are you programmed in python", "is lumi written in python", "파이썬으로 만들었어요", "코드 파이썬이야"],
+    "detector": ["do you run yolo", "is it yolo", "do you use yolo for detection", "욜로 써요", "YOLO 돌려요", "물체 인식 YOLO야"],
+    "touch": ["is it ok to touch the robot", "is it okay to touch lumi", "may people touch the robot", "are visitors allowed to touch you",
+              "로봇 만져도 돼요", "루미 만져도 되나요", "이 로봇 만져도 됩니까"],
+    "operator": ["who operates this robot", "who runs this robot", "who is in charge of this robot", "이 로봇 누가 운영해요", "이 로봇 관리자 누구예요"],
+}.items():
+    QUICK_KINDS[_kind][0].extend(_texts)

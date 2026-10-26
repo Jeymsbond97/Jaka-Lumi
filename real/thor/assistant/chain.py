@@ -29,18 +29,36 @@ FETCHING = re.compile(r"\b(?:bring|fetch|deliver|carry)\b|가져|갖다", re.I) 
 _FILL = re.compile(rf"(?:{steps._FILL}|루미야?|lumi|hey|do me a favou?r|부탁(?:해|해요|할게)?|dear|sir|ma'?am|madam|buddy|"
                    r"my friend|robot|로봇아?|선생님?|yo|bro|dude|okay lumi|ok lumi|robot please|루미 ?씨|로봇 양반|여보세요|"
                    r"go ahead|okay\?|ok\?|right\?|thanks|thank you|yes|yeah|yep|yes\?|네|응|그래|will ya|will you|won'?t you|"
-                   r"can\?|can|do it|do it now|just do it|alright\?|please\?|혹시|아 뭐라 그래야 되지|뭐라 그래야 되지|뭐더라|"
+                   r"can\?|can|do it|do it now|just do it|alright\?|please\?|over here\??|this way\??|어디 ?한번|어디 ?보자|얼마나 걸리나|(?:pls |please )?(?:eh|huh|da|see|ya|yah|innit)\??|혹시|아 뭐라 그래야 되지|뭐라 그래야 되지|뭐더라|"
                    r"(?:아\s*)?영어로 ?뭐더라|(?:아\s*)?뭐라고 ?하지|"
                    r"(?:거기서?\s*)?(?:서|가만히)\s*있(?:어|게|으세요|으십시오)\s*(?:줄래|줄 ?수 ?있어요?|주실래요|주세요|줘|줘잉|주라|"
                    r"주면 ?안 ?될까요?|주면 ?좋겠어요?|주실 ?수 ?있어요?|주십시오|주이소)?|"
                    r"(?:거기서?\s*)?기다려\s*(?:줄래|주세요|줘)?)", re.I)   # tags, hesitations, "...가서 서 있어 줄래?"
 RELATIVE = re.compile(r"^\W*(?:where|which|who|that|when)\s+(?:the|my|your|his|her|our|their|a|an|this|that|these|those|"
                       r"people|everyone|it|he|she|they|we|i)\b", re.I)   # "look right, where the door is": no question
+SPEED_Q = re.compile(r"속도|몇으로|얼마나 (?:빨리|빠르게|천천히)|\bhow (?:fast|quick(?:ly)?|slow(?:ly)?)\b|\bwhat speed\b", re.I)
+GREET = re.compile(r"인사|작별|\b(?:hello|hi|goodbye|bye)\b", re.I)   # a greeting made by waving
 PAST = re.compile(r"\byou (?:got|went|were|did|turned|looked|moved|came|said|told)\b|\b(?:earlier|before|yesterday)\b", re.I)
 BANK_KINDS = {"look", "lift", "turn", "move", "come", "come_back", "follow", "wave", "arm", "go_to"}   # a part the
                                                      # keyword rules miss, read by the intent bank (same slot rules)
 CHAIN_ONLY = {"look", "lift", "wave", "come", "come_back", "follow"}   # a part that is no mission step: with one in it,
                                                      # a sentence the mission reader reads whole is still a chain
+
+
+BACKGROUND = re.compile(r"[가-힣](?:는|은|인|던)(?:데|디)(?:요)?\W*$")   # "…말하는데," a clause that only sets the scene
+SELF_PROMISE = re.compile(r"(?:^|\W)(?:i'?ll|i will|let me|i'?m going to|i can) (?:hold|take|keep|get|catch|grab) (?:it|that|this|them)\W*$|"
+                          r"(?:^|\W)(?:내가|제가) (?:들|받|잡)(?:게|을게|을게요|게요|을께)\W*$", re.I)   # the speaker's part
+
+
+def _restated(words, before):
+    """A Korean part that says the order before it again in another level ("손 거둬!", "아 거두시겠어요?")."""
+    from assistant import wording
+    said = [w for w in re.findall(r"\w+", wording.ko_plain(words)) if not re.fullmatch(r"(?:줘|봐|주|좀|요)[가-힣]?|허허|하하|호호|헤헤|아|어", w)]
+    if not said or len(said) > 3 or not re.fullmatch(r"[가-힣]{2,}|[가와]", said[-1]):
+        return False
+    last = said[-1]
+    return any(last == w or len(w) > 1 and (w.startswith(last) or last.startswith(w))
+               for w in re.findall(r"\w+", wording.ko_plain(before)) if re.fullmatch(r"[가-힣]+", w))
 
 
 def _rule(words, markers):
@@ -57,6 +75,8 @@ def _rule(words, markers):
         from assistant import intent_bank                # "glance to your right", "고개 숙이고": the bank, by meaning
         got = intent_bank.read(ko, markers)
         rule = got if got and got[0] in BANK_KINDS else None
+        if rule and rule[0] == "come_back" and re.fullmatch(r"\W*(?:루미야?\s*)?(?:원래 ?자리|제자리)(?:에|로)?\W*", words):
+            rule = None                                  # "제자리에, 손 내밀어": "ready", no drive back
     return rule
 
 
@@ -69,6 +89,9 @@ def parts(text):
     for p in _SPLIT.split(cut):
         out += [q for q in steps._SPLIT_KO.split(p) if q.strip()]
     out = [re.sub(r"§(\d+)§", lambda m: f'"{says[int(m.group(1))]}"', p).strip(" ,.!") for p in out]
+    for i in range(len(out) - 1, 0, -1):                 # "뒤로 물러서 줘": 서 is the verb's, 줘 no part of its own
+        if re.fullmatch(r"(?:줘|줘요|주세요|주십시오|줄래요?\??|주실래요?\??|주라|주게|주이소|봐|봐요|보세요)\W*", out[i]):
+            out[i - 1] += " " + out.pop(i)
     return [p for p in out if p and not re.fullmatch(rf"(?:{_FILL.pattern}|\W)+", p, re.I)]
 
 
@@ -90,6 +113,8 @@ def plan(text, markers=(), cant=None):
         return None                                      # "turn around and look": the head looks behind
     out = []
     for p in ps:
+        if SELF_PROMISE.search(p) or out and _restated(p, out[-1][1]):
+            continue                                     # "흰색 머그컵 잡아!, 아 잡아 줄 수 있어요?": the order once
         got, unread = steps.rules(p, markers)
         rule = _rule(p, markers)
         if got and not unread and not (rule and rule[0] in ("look", "lift", "wave", "come", "come_back", "follow")):
@@ -100,6 +125,10 @@ def plan(text, markers=(), cant=None):
             out.append(["quick", p, rule])
         elif RELATIVE.search(p):
             return None                                  # a part that tells more about the one before
+        elif BACKGROUND.search(p):
+            continue                                     # "이장이 말하는디, 팔 제자리로 해", "I'll hold it, give it here"
+        elif out and out[-1][0] in ("quick", "steps") and _restated(p, out[-1][1]):
+            continue                                     # "손 거둬!, 아 거두시겠어요?": the same order again, politely
         elif ASK.search(p) or rule and rule[0] in ("weather", "search") or cant is not None and cant.match(p):
             out.append(["talk", p, None])
         else:
@@ -112,6 +141,12 @@ def plan(text, markers=(), cant=None):
                                                       said[i] and said[i] == said[i - 1]))]
     if len(out) < 2:
         return None                                      # "wave, wave, wave!": one wave, said with feeling
+    if any(k == "talk" and SPEED_Q.search(p) and i and re.search(r"고$|\b(?:holding|carrying|with)\b", out[i - 1][1], re.I)
+           for i, (k, p, _) in enumerate(out)):
+        return None                                      # "컵 들고 몇으로 가?": how fast it goes so, no order
+    if any(k == "quick" and w[0] == "wave" and re.search(r"(?<!가)서$", p) and i + 1 < len(out) and
+           GREET.search(out[i + 1][1]) for i, (k, p, w) in enumerate(out)):
+        return None                                      # "손 흔들어서 작별 인사 해 줘": the wave is the greeting
     kinds = [k for k, _, _ in out]
     if "talk" not in kinds and "quick" not in kinds or "steps" not in kinds and "quick" not in kinds:
         return None                                      # all steps: a mission (read back); all talk: the LLM

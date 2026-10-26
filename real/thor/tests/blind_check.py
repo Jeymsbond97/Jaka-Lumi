@@ -73,7 +73,7 @@ SETS = ["commands_go", "commands_move", "commands_turn", "commands_look", "comma
         "commands_stop", "commands_status", "commands_chain", "commands_detour", "speed_short", "commands_sing",
         "commands_missions", "seeing_dialogues", "followup_dialogues", "dialogues_mixed", "unknowns", "silence_noise",
         "hearing", "questions_world", "memory_dialogues", "commands_come", "commands_hand", "commands_point",
-        "commands_voice", "commands_waist", "commands_more", "closing_context"]
+        "commands_voice", "commands_waist", "commands_more", "closing_context", "lookup_dialogues"]
                                         # commands_chain, commands_detour, speed_short, dialogues_mixed: round r2 on;
                                         # questions_world, memory_dialogues: r6 on. Any other file in a round's folder
                                         # is scored too, by the set its name grows ("commands_go_b" as commands_go)
@@ -164,6 +164,7 @@ def _persons(frames=None):
 
 scene.snapshot = lambda cameras=None, since=None: [SCENE["now"]] if SCENE["now"] is not None else []
 scene.things, scene.people, scene._persons = _things, _people, _persons
+scene.speaker_key = lambda d, b: 0     # scene._front's stable sort keeps _persons' order: the speaker A first (A6)
 VLM_ASKED = [("glasses", r"glass|안경|선글"), ("hat", r"\bhat|\bcap\b|beanie|모자|캡"), ("hair", r"hair|머리"),
              ("bag", r"bag|backpack|가방|배낭"), ("top_pattern", r"pattern|stripe|check|dot|print|무늬|줄무늬|체크|땡땡이"),
              ("bottom_kind", r"jeans|trousers|pants|skirt|shorts|바지|청바지|치마|반바지"),
@@ -222,6 +223,8 @@ def turn_route(b, say, lang, mk, state="idle", use_llm=True):
     """One turn the way lumi.answer() goes: command_check.rules (drive words, then lumi.route) with seeing.answer on
     the fake scene; what the rules leave through dialogue_check.run_turn with the cameras' facts (and the hand) in
     the prompt. (route in dialogue_check's notation, reply, by). A rule's fixed line is "" (not judged)."""
+    if lang not in ("en", "ko"):                           # r9 "mix" turns: Lumi answers in Korean or English
+        lang = "ko" if brain.HANGUL.search(say) else "en"
     brain.FORCED_LANG["lang"] = lang
     said = {}
 
@@ -452,6 +455,7 @@ def score_missions(c, old, use_llm):
                got=json.loads(json.dumps(got)), unread=unread)
 
 
+LOOKUP = {"lookup:weather": "weather", "lookup:news": "search", "lookup:web": "search"}   # lookup_dialogues (r9)
 FORGOT = set(__import__("assistant.memory", fromlist=["FORGOT"]).FORGOT.values())
 
 
@@ -483,6 +487,8 @@ def score_dialogue(d, old, use_llm, judge=False):
                 r, reply, by = turn_route(b, turn["say"], lang, mk, state, use_llm)
             if r == "llm?":
                 rows.append(row(key, "llm?" if scored else "-", "-", "", route="", reply=""))
+                if turn.get("closing"):
+                    rows[-1]["closing"] = turn["closing"]
                 b.history.append((turn["say"], ""))
                 continue
             if r.startswith("action:give") or r.startswith("action:place"):
@@ -492,7 +498,7 @@ def score_dialogue(d, old, use_llm, judge=False):
             if not scored:
                 rows.append(row(key, "-", by, "", route=r, reply=reply))
                 continue
-            want = dict(turn, expect_action=" | ".join(a.strip().removeprefix("action:")
+            want = dict(turn, expect_action=" | ".join(LOOKUP.get(a.strip(), a.strip()).removeprefix("action:")
                                                        for a in turn.get("expect_action", "none").split(" | ")))
             looked_up = r in ("weather", "search", "search(unsure)") and \
                 not dialogue_check.action_ok(want["expect_action"], r)   # a lookup's answer is talk (not checked)
@@ -512,6 +518,8 @@ def score_dialogue(d, old, use_llm, judge=False):
             r, reply, by, probs, note, v = "error", repr(e), "-", [repr(e)], "", "error"
         rows.append(row(key, v, by, f"{d['topic']} t{j + 1} {turn['say']!r} -> [{r}] {reply[:120]!r} {probs}{note} "
                                     f"(check: {turn.get('check')})", route=r, reply=reply, judged=judged))
+        if turn.get("closing"):
+            rows[-1]["closing"] = turn["closing"]          # closing_context: "end" / "continue", counted apart
     return rows
 
 
@@ -743,6 +751,7 @@ def run_set(split, name, old_rows, use_llm, cached, limit, sample=None):
             rows.append(row(str(c)[:200], "error", "-", f"{str(c)[:150]} -> {e!r}"))
         for r in rows[n:]:
             r["lang"] = lang_of(c, r)
+            r["level"] = level_of(c, r)
             if r["verdict"] in ("wrong", "motion", "error") and "-v" in sys.argv:
                 print(f"  {r['verdict'].upper():6} {r['show'][:200]}", flush=True)
     return rows
@@ -762,6 +771,56 @@ def lang_of(c, r):
         return case["lang"]
     ko, en = bool(brain.HANGUL.search(text or "")), bool(re.search(r"[A-Za-z]{3,}", text or ""))
     return "mix" if ko and en else "ko" if ko else "en"
+
+
+LEVEL_NAME = {"banmal": "ko_banmal", "haeyo": "ko_haeyo", "hapsyo": "ko_hasipsio", "friendly": "ko_friendly",
+              "honorific": "ko_honorific", "dialect": "ko_dialect"}      # W2's names (r6 _i files) -> r9's
+LEVEL_GUESS = [("ko_dialect", r"(?:주이소|하이소|하입시더|하이소|데이|카이|라예|랑께|허자잉|줘유|해유|줍서|헙서|마씸|아이가|머꼬|와이라|"
+                              r"하모|맞제|그라제|했노|하노|하나\?|가\?)[.?!~]*$|잉[.?!~]*$|(?:주소|해 ?도)[.?!]*$"),
+               ("ko_hage", r"(?:하게|주게|하네|하세|보게|오게|가게나|하시게)[.?!~]*$|자네"),
+               ("ko_honorific", r"(?:시[어겠었]|으시|하시|주시|가시|보시|께서|드리|드릴|드려|여쭤|여쭙|계세|계십|잡수|주무|말씀)"),
+               ("ko_hasipsio", r"(?:습니다|습니까|[가-힣]니다|[가-힣]니까|십시오|시오|하십시다)[.?!~]*$"),
+               ("ko_friendly", r"ㅋ|ㅎㅎ|~|임\?|ㄱㄱ|ㅇㅇ|ㄹㅇ|당[.?!]*$|용[.?!]*$|쥬[.?!]*$"),
+               ("ko_haeyo", r"요[.?!~,]*(?:\s|$)")]
+
+
+def level_of(c, r):
+    """The speech level of a case or a scored turn: its "level" field (r9; W2's names in r6 _i files read as r9's),
+    else guessed from the Korean endings (marked "*"); English "en*", mixed "mixed*"."""
+    turn = {}
+    if isinstance(c, dict) and "turns" in c and r["key"][:1].isdigit():
+        j = int(r["key"].split("|", 1)[0]) - 1
+        turn = c["turns"][j] if 0 <= j < len(c["turns"]) else {}
+    case = c if isinstance(c, dict) else c[1] if isinstance(c, (list, tuple)) and len(c) > 1 and \
+        isinstance(c[1], dict) else {}
+    lv = turn.get("level") or (case.get("level") if not turn or "turns" not in case else None)
+    if lv:
+        return LEVEL_NAME.get(lv, lv)
+    if r.get("lang") == "en":
+        return "en*"
+    if r.get("lang") == "mix":
+        return "mixed*"
+    text = turn.get("say") or case.get("text") or case.get("heard") or (c[0] if isinstance(c, (list, tuple)) else "")
+    text = (text or "").strip()
+    return next((name + "*" for name, rx in LEVEL_GUESS if re.search(rx, text)), "ko_banmal*")
+
+
+def by_level(saved):
+    """right / cases per speech level over every set (r9 / r6 _i: as labelled; "*": guessed from the endings), and the
+    closing turns (closing_context) by kind."""
+    lv, cl = collections.defaultdict(collections.Counter), collections.defaultdict(collections.Counter)
+    for name in ordered(saved):
+        for r in saved[name]["rows"]:
+            if r["verdict"] != "-":
+                lv[r.get("level", "?")][r["verdict"]] += 1
+                if r.get("closing"):
+                    cl[r["closing"]][r["verdict"]] += 1
+    lines = ["", "By speech level (right / cases, motions in brackets; * = guessed from the endings):", "",
+             "| level | right | wrong | motion | llm? |", "|---|---|---|---|---|"]
+    lines += [f"| {k} | {cell(lv[k])} | {lv[k]['wrong']} | {lv[k]['motion']} | {lv[k]['llm?']} |" for k in sorted(lv)]
+    if cl:
+        lines += ["", "Closing turns: " + ", ".join(f"{k} {cell(cl[k])}" for k in sorted(cl))]
+    return lines
 
 
 def cell(k):
@@ -801,7 +860,7 @@ def report(split, saved, secs):
     n = sum(tot.values())
     lines.append(f"| ALL | | {n} | {tot['right']} | {100 * tot['right'] // max(1, n)} | {tot['wrong']} | "
                  f"{tot['motion']} | {tot['llm?']} | {tot['error']} | |")
-    lines += by_lang(saved)
+    lines += by_lang(saved) + by_level(saved)
     for name in ordered(saved):
         rows = saved[name]["rows"]
         dl = {}
@@ -814,7 +873,7 @@ def report(split, saved, secs):
                   r["show"].replace("\n", "\n  ") for r in bad] or ["- none"]
     out = ROOT / "logs" / f"blind_{split}.md"
     out.write_text("\n".join(lines) + "\n")
-    print("\n".join(lines[:len(saved) + 7] + by_lang(saved)))
+    print("\n".join(lines[:len(saved) + 7] + by_lang(saved) + by_level(saved)))
 
 
 def main(args):

@@ -132,10 +132,10 @@ DAY_BEFORE = re.compile(r"\bthe day before\b(?! yesterday)|그 ?전 ?날", re.I)
 FIXED_DAY = re.compile(r"\bday after tomorrow\b|\bday before yesterday\b|내일 ?모레|글피|그저께|그제|모레|"
                        r"(?<![a-z])(?:today|tonight)(?![a-z])|\b(?:this |in the )?(?:morning|afternoon|evening)(?![a-z])|"
                        r"\bright now\b|\bnow\b|오늘|지금|(?<![a-z])tomorrow(?![a-z])|내일|(?<![a-z])yesterday(?![a-z])|어제|"
-                       r"아침|오전|오후|저녁|(?<![가-힣])밤(?:에는|에|은|엔|이)?(?![가-힣])", re.I)   # "tomorrow는?", "저녁에는?": English
+                       r"아침|오전|오후|저녁|(?<![가-힣])밤(?:에는|에|은|엔|이)?(?![가-힣])|(?<![가-힣])낼(?=[은는도]|\s|\W|$)", re.I)   # "tomorrow는?", "저녁에는?": English
                        # words next to Korean ones have no \b; a part of the day alone is today's
 FIXED_OFFSET = {"day after tomorrow": 2, "day before yesterday": -2, "내일모레": 2, "내일 모레": 2, "글피": 3,
-                "그저께": -2, "그제": -2, "모레": 2, "tomorrow": 1, "내일": 1, "yesterday": -1, "어제": -1}
+                "그저께": -2, "그제": -2, "모레": 2, "tomorrow": 1, "내일": 1, "낼": 1, "yesterday": -1, "어제": -1}
 IN_DAYS = re.compile(r"\bin (\d+|one|two|three|four|five|six|seven) days?\b|(\d+|이틀|사흘|나흘) ?(?:일)? ?(?:후|뒤)", re.I)
 WEEKDAY = re.compile(r"(?<![a-z])(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?(?![a-z])|([월화수목금토일])요일", re.I)
 WEEKEND = re.compile(r"(?<![a-z])weekend(?![a-z])|주말", re.I)

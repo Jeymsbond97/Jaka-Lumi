@@ -66,7 +66,7 @@ p = scene.person_in_front(f)
 assert p and p["where"] == "on my right" and p["facing"] is False, p
 assert p["clothes"] == {"upper": "white", "lower": "blue", "feet": None}, p["clothes"]    # ankle below the frame
 assert say("What is it? Color my jeans.", f) == "Your jeans look blue."                    # 2026-10-21 live
-assert say("내가 뭐 입고 있어?", f, "ko") == "흰색 상의에 파란색 바지를 입고 계세요. 신발은 여기서 안 보여요."
+assert say("내가 뭐 입고 있어?", f, "ko") == "흰색 상의에 파란색 바지를 입고 계세요."
 assert scene.person_holds(None, f) is not True, "no detected thing in his hands: never claim one"
 
 # ---------- a man with his back to the torso camera, a clear plastic cup in his hand (not detectable) ----------
@@ -74,7 +74,7 @@ f = fx("holding_cup_back")
 p = scene.person_in_front(f)
 assert p and p["clothes"]["upper"] == "light blue" and p["pointing"] is None and p["facing"] is False, p
 assert scene.object_in_hand(f) is None and scene.person_holds("cup", f) is None    # depth stale: can't tell
-assert say("what am I wearing?", f) == "You're wearing a light blue top and black trousers. I can't see your shoes from here."
+assert say("what am I wearing?", f) == "You're wearing a light blue top and black trousers."
                                          # the trousers are near black (V ~48): no hue there (2026-10-22 live: "blue")
 assert say("is my shirt really white?", f).startswith("To my camera")   # light blue or white: says both may be true
 

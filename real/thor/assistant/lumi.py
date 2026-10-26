@@ -123,8 +123,14 @@ CLOSE_BOX = 0.85                   # a person is really closer than TOO_CLOSE on
 HEAD_SIGN = 1.0                    # +image angle -> +head yaw (checked: + = robot's left)
 LOOK = {"left": (40, None), "right": (-40, None), "center": (0, head.HEAD_REST_PITCH), "up": (None, 20), "down": (None, -5)}
 # ^ yaw/pitch in degrees for "look" commands: +yaw = left, +pitch = up (checked on the dashboard 2026-10-12)
-WAKE = re.compile(r"\b(hi|hey|hello|okay|ok|hai|high)?[\s,.!]*(lumi|lumia|loomi|loomy|lumie|lumee|lumy|lummy|lummi|looney|lu-mi|rumi|rumy|roomie)\b"
-                  r"|루미|누미", re.I)
+WAKE_UP_EN = r"wake up|wakey wakey|time to wake up"
+WAKE_UP_KO = r"(?:일어나|깨어나)(?:요|세요|십시오|라|봐|봐요)?|기상"
+WAKE = re.compile(rf"\b(hi|hey|hello|okay|ok|hai|high|{WAKE_UP_EN})?[\s,.!]*(lumi|lumia|loomi|loomy|lumie|lumee|lumy|lummy|lummi|looney|lu-mi|rumi|rumy|roomie)\b"
+                  rf"(?:[\s,.!]*(?:{WAKE_UP_EN})\b)?"
+                  rf"|(?:(?:{WAKE_UP_KO})[\s,.!~]*)?(?:헤이 ?|하이 ?)?(?:루미|누미)(?:야|아)?(?:[\s,.!~]*(?:{WAKE_UP_KO}))?"
+                  rf"|^\W*(?:(?:hey|ok|okay|come on)\W+)?(?:{WAKE_UP_EN})\W*$|^\W*(?:(?:자|이제|얼른)\s+)?(?:{WAKE_UP_KO})[\s.!~]*$", re.I)
+# ^ "Hey Lumi", "Lumi", "wake up (Lumi)", "Lumi, wake up", "루미야", "헤이 루미", "루미야 일어나", "일어나세요";
+#   a bare "wake up" / "일어나" only as the whole utterance ("I wake up at 7" is no call)
 WAKE_REPLY = {"en": "Yes? How can I help?", "ko": "네? 무엇을 도와드릴까요?"}
 NAME_ONLY = re.compile(r"^\s*(hi |hey |hello )?(lumi|loomi|rumi|루미)[\s,.!?]*$", re.I)
 FETCH_STOP = re.compile(r"\b(sto+pp?|stob|halt|freeze|don'?t move)\b|^\W*(?:lumi\W+)?stopped\W*$|스탑|스텁|멈추(?:세요|십시오)|^\W*abort\W*$|\babort (?:the |this |your )?(?:mission|task|trip)\b|\bcancel (?:the |this |your )?(?:mission|task|trip)\b|"
@@ -313,7 +319,7 @@ HELLO_ONLY = re.compile(r"^(?=\W*\w)\s*(?:(?:hi|hey|hello|hiya|hai|hallo|helo|hi
                         r"(?:how are you(?: doing)?(?: today)?[\s,.!?]*)?$|"                        # "how are you?"
                         r"^\s*(?:안녕|안녕하세요|안녕하십니까|하이)[\s.!~?]*$", re.I)               # "안녕하세요", "하이"
 CALL_REST = re.compile(r"^(?:[\W_]|\b(?:hi|hey|hello|hiya|hai|ok|okay|there|how are you(?: doing)?(?: today)?)\b|"
-                       r"안녕(?:하세요|하십니까)?|하이|야|아)*$", re.I)   # what is left of a call without the name
+                       r"안녕(?:하세요|하십니까)?|하이|헤이|야|아)*$", re.I)   # what is left of a call without the name
 CAMERA_HALF_FOV = 42.0             # deg; half the camera's view (+ the head's YAW_LIMIT for the head camera)
 WAKE_MAX_S = 6.0                   # s; longer utterances are not checked for the wake word
 BARGE_IN_LOGPROB = -0.6            # an interruption must be heard more clearly than a normal answer (-1.0)
@@ -3236,9 +3242,23 @@ NOT_STOP = re.compile(   # a stop word that orders no stop: negated, about someo
     r"\bstop (?:for|at the|at a) (?:coffee|lunch|a (?:bit|while|break)|the \w+ (?:place|shop|store|cafe))|"
     r"\b(?:when|if|once|whenever|after) [^,]{1,40},?\s*(?:you )?stop\b|"
     r"그만(?:두|뒀|둘)|그만 ?(?:먹|마시|자|놀|울|웃|싸우|뛰)|"
-    r"(?<![가-힣])(?!루미|로봇|누미)(?:엄마|아빠|얘들아|[가-힣]{1,3}야|[가-힣]{1,3}아)\s+(?:좀\s+)?그만|"
+    r"(?<![가-힣])(?!루미|로봇|누미|아야|말이야|얘야)(?:엄마|아빠|얘들아|형|언니|누나|오빠|[가-힣]{1,3}야|[가-힣]{1,3}아)\s+(?:좀\s+|거기\s+)?(?:그만|멈춰|정지)|"
     r"(?-i:\b(?!(?:Lumi|Loomi|Rumi|Robot|Hey|Hi|Okay|Ok|No|Please|Now|Wait|Hello|So|Oh|Yo)\b)[A-Z][a-z]+), stop \w+ing\b", re.I)
     # also: another meaning, someone else told off ("엄마 그만 찍어", "Jake, stop touching the robot!"), a condition
+
+
+_STOPW = r"(?:sto+p|halt|freeze|멈춰|멈춰요|정지|그만|스톱|스탑)"
+STOP_UNSAID = re.compile(   # a stop that is taken back, for later, said about the past, to someone else, or mocked
+    rf"{_STOPW}.*[,.…—–!]\s*(?:(?:oh|uh|um|hmm+|아|어|음|wait|no|actually)\W+)*(?:never ?mind|forget (?:it|that)|"
+    r"cancel(?: that| it)?|(?:아\s*)?(?:됐어|됐다|됐어요)(?: 마| 됐어)?|취소|아니다|(?:아\s*)?(?:그냥\s*)?하지 ?마(?:세요|요)?)\W*$|"
+    rf"[가-힣](?:면|나면|으면)\s+(?:\S+\s+){{0,3}}{_STOPW}|"                     # "사람 나오면 그때 멈춰", "음악 멈추면 멈춰요"
+    rf"\b{_STOPW}(?: \w+)? (?:when|once|after|until|as soon as|if) |\bwhen i give the signal\b|"   # "stop when you get there"
+    rf"\b(?:don'?t|do not|doesn'?t|didn'?t|won'?t) (?:\w+ ){{0,2}}{_STOPW}\b|{_STOPW}\s*하지 ?마|"   # "you don't have to stop"
+    rf"(?<!you )(?<!have )(?<!need )(?<!got )(?<!want )\bto {_STOPW}\b|\b(?:it|he|she) (?:doesn'?t|tried to|keeps?) |"                # "waiting for it to freeze"
+    r"\b(?:heard|bet|like|guess) (?:that )?(?:you|it) (?:can|could)\b|\bi saw you\b|"
+    r"리가 있나|내가 사람이다|퍽이나|[가-힣]겠다\W*$|했던데|그랬잖아|했잖아|(?:멈췄|정지했|그만했)(?:던데|잖아|으면)|"
+    r"(?-i:\b(?!(?:Lumi|Loomi|Rumi|Robot|Hey|Hi|Okay|Ok|No|Please|Now|Wait|Hello|So|Oh|Yo|Stop)\b)[A-Z][a-z]+), (?:okay )?stop|"
+    r"\bstop it,? (?-i:(?!Lumi\b|Robot\b)[A-Z][a-z]+)\b", re.I)
 
 
 STOP_PAD = re.compile(r"^(?:\W*(?:hey|hi|yo|oh|okay|ok|so|um+|uh+|listen|right|alright|all right|excuse me|mister robot|"
@@ -3255,6 +3275,13 @@ STOP_ONLY = re.compile(   # a whole sentence that only says stop / enough / stay
     r"기다려)|그대로 있어|가만히 있어|stay 해|wait 해)\W*){1,3}", re.I)
 
 
+STOP_POLITE = re.compile(   # a stop asked politely, after wording.ko_plain: "멈춰 주시겠어요?" -> "멈춰 줘?", "can you stop for me?"
+    r"\W*(?:(?:좀|지금|당장|잠깐|잠시|거기서?|이제)\s*)*(?:멈춰|멈춰 서|정지해|그만해|스톱해|스탑해|서) ?줘\W*|"
+    r"\W*(?:(?:please|lumi|hey|okay|ok)\W+)*(?:can|could|would|will) (?:you|u) (?:please |just |kindly )?(?:stop|halt|freeze)"
+    r"(?: (?:right )?(?:now|here|there|please))?(?: for (?:me|us|a (?:second|sec|moment|bit|minute)))?(?:,? please)?\W*|"
+    r"\W*(?:would|do) you mind stopping(?: (?:now|here|there))?(?: for (?:me|us|a (?:second|moment)))?(?:,? please)?\W*", re.I)
+
+
 def stop_order(text, markers):
     """"stop", "freeze", "멈춰": stop everything at once. Not "stop talking" and not a question about the stop button;
     "can you stop?", "멈출 수 있어?" and "stop, where are you going?" do stop. Not a negated stop ("don't stop", "계속
@@ -3263,11 +3290,15 @@ def stop_order(text, markers):
     if NOT_STOP.search(text) and not re.fullmatch(r"\W*(?:(?:no|ok|okay|lumi|루미야?|hey)\W+)*(?:sto+pp?|stob|stopped|halt|freeze|멈춰|머+엄*춰|"
                                                   r"그만|정지|스톱|스탑|stop it|stop now)\W*", text, re.I):
         return False
+    if STOP_UNSAID.search(text) or re.search(r"(?:^|\s)(?:나중에|이따가?|있다가)\s", text):
+        return False                                      # "이따가 멈춰 주세요": a stop for later
     bare = STOP_PAD.sub("", text.strip()).strip(" ,.!?~")
     if bare and STOP_ONLY.fullmatch(bare):
         return True                                       # "hi Lumi, stop, okay?", "enough already", "Lumi, wait"
         # (watch out / 위험해 / "Lumi, wait" / hold on: on a mission these halt it (mission_talk), never end it)
-    asked = bool(brain_mod.STOP_ASK.match(brain_mod.CALLING.sub("", text)) or
+    from assistant import wording
+    plain = brain_mod.CALLING.sub("", wording.ko_plain(text)).strip()
+    asked = bool(brain_mod.STOP_ASK.match(brain_mod.CALLING.sub("", text)) or STOP_POLITE.fullmatch(plain) or
                  re.match(r"^\W*(?:stop|halt|freeze|멈춰|정지|스톱)\W*[,.!]", text, re.I))
     return bool(FETCH_STOP.search(text) or asked) and (brain_mod.intent(text, markers) or ("",))[0] not in ("quiet", "look") \
         and not brain_mod.STOP_TALK.search(text) and ("?" not in text or asked)
@@ -3279,9 +3310,18 @@ def own_command(text, last=""):
     return bool(sing.asked(text, last) or sing.list_asked(text) or voice_words.read(text, last) or abilities.answer(text, "en", last))
 
 
+HAND_STATE_Q = re.compile(   # how the hand is now (A1): "is your hand open?", "hand open이야?", "손 펴져 있어?", "그리퍼 열려 있어요"
+    r"\b(?:is|are|r|was) (?:your|ur|the) (?:hand|gripper|claw|fingers?|arm)s? (?:still |now |already )?(?:open|opened|closed|shut|out|"
+    r"extended|empty|folded|in|up|down|stretched)\b|\b(?:hand|gripper|arm) (?:open|closed?|out)\s*(?:이야|이에요|인가요?|이니|상태|\?)|"
+    r"^\W*(?:(?:right|um|basically|next|so|okay)\W+)*did (?:you|u) drop (?:it|that|something|the \w+)\W*$|"
+    r"(?:손|그리퍼|집게|손가락|팔)(?:이|은|는|가)? ?(?:지금 |아직 |다 )?(?:open|close|오픈|클로즈|펴져|펴진|열려|열린|닫혀|닫힌|접혀|접힌|뻗어져|오므려져|"
+    r"쥐어져)\s*(?:있|상태|이야|인가)", re.I)
+
+
 def status_question(text):
-    """"What are you doing?", "where are you going?": answered from the task state ("들고 있는 거 줘" is a request)."""
-    return bool(STATUS_Q.search(text)) and not NOT_STATUS_NOW.search(text) and not EMPTY_HAND.search(text)
+    """"What are you doing?", "where are you going?", "is your hand open?": answered from the task state ("들고 있는 거
+    줘" is a request)."""
+    return bool(HAND_STATE_Q.search(text)) or bool(STATUS_Q.search(text)) and not NOT_STATUS_NOW.search(text) and not EMPTY_HAND.search(text)
 
 
 def says_goodbye(text):
@@ -3313,6 +3353,11 @@ NOT_A_STEP = re.compile(r"^\W*(?:(?:please|and|then|also)\s+)*(?:dance|jump|fly|
                         r"bring|take|give|hand|put|carry|deliver)\b|.*(?:춤|점프|날아|수영|박수)", re.I)   # a part not read: asked
 
 
+CAN_TOLD = re.compile(r"\b(?:you|u) (?:can|could|are able to|know how to)\b|(?<!줄 )(?<!주실 )(?<!줄)(?<!주실)수 ?(?:도 ?)?있(?:지|죠|잖|겠지|겠죠|을 ?걸)|"
+                      r"줄 ?(?:도 ?)?알(?:지|죠|잖)", re.I)   # with a tag: Lumi's ability said back, a question (TAG)
+MYEOT_SLIP = re.compile(r"(?<![가-힣])멸(?=\s*(?:센티|센치|미터|밀리|키로|킬로|그램|개|번|도|시|분|초|명|살|층|cm|mm|kg|m\b))", re.I)
+
+
 def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     """Which way a command goes, the same for voice (Lumi.answer), the dashboard's Command box (/tasks/parse) and
     tests/command_check: (kind, data). Kinds in this order: "stop"; "detour" (data: assistant/detour.read's
@@ -3322,16 +3367,23 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     by)); "end" (a goodbye); "sing"; "quick" (brain.intent's rule, one of QUICK_RULES, or the example bank's
     reading: assistant/intent_bank.py); (None, None): the LLM reads
     it. seen: seeing.answer or a stand-in; chain_ok: False on a mission or while a chain runs."""
-    from assistant import chain
+    from assistant import chain, intent_bank
+    text = MYEOT_SLIP.sub("몇", text or "")    # whisper's 멸 for 몇: "멸 센티까지 잡아?" asks, orders nothing
+    text = re.sub(r"(?<=[가-힣])(?=[a-zA-Z]{2})", " ", text)   # "원래 자리에put back": the English word apart
+    text = re.sub(r"\bcome on back\b", "come back", text, flags=re.I)   # not 1 m back
+    text = re.sub(r"(?<![\d.])360(?= ?돌아)", "360도", text)   # "루미 360 돌아 봐": a full turn, not "turn round"
     if stop_order(text, markers):
         return "stop", None
+    told = intent_bank.TAG.search(text) and (chain.PAST.search(text) or intent_bank.PAST_EN.search(text) or
+                                             intent_bank.past_ko(text) or CAN_TOLD.search(text))
+    # "you went to P5 earlier, right?", "you can lift your arm, right?", "너 팔 접을 수 있지?": asked, no order
     text = brain_mod.strip_asides(text)        # "hi Lumi, it's my birthday, put it down!": the command (A1)
     if sing.picked(text, last):                # after the list of songs: "the first one", "Fantastic Baby"
         return "sing", None
     arm_last = re.match(r"ACTION: (wave|arm (?:reach|fold))\b", last or "")
     if arm_last and ARM_AGAIN.match(text or ""):
         return "quick", tuple((arm_last.group(1).split() + [""])[:2])   # "again!", "한 번 더" right after a wave
-    hold = brain_mod.not_an_order(text) or not brain_mod.direct_order(text) or brain_mod.held_back(text)   # only a direct
+    hold = told or brain_mod.not_an_order(text) or not brain_mod.direct_order(text) or brain_mod.held_back(text)   # only a direct
     # order to Lumi now acts (held_back: "don't ..., then ...", "yeah right, like you could ...", "..., forget it")
     stuck = detour.recent()                    # right after a blocked drive: "try again", "go around it", "go back";
     how = stuck and detour.read(text, markers, stuck["goal"])   # only a direct order (detour.read), else the LLM
@@ -3349,12 +3401,14 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
         return "seeing", got
     if status_question(text):
         return "status", None
-    if (holding() if callable(holding) else holding) and brain_mod.held_put_back(text, markers):
+    if (holding() if callable(holding) else holding) and not brain_mod.held_back(text) and \
+            not brain_mod.ARM_TALK.search(text) and brain_mod.held_put_back(text, markers):
         return "quick", ("put", "back")        # "it's my birthday, put that back where you found it!"
-    if hold:                                   # a wave / arm rule may act on a question-form request ("악수 한번 할까요?",
+    song = sing.asked(text, last)              # "Let it go 불러 줘": a song title, never the hand (A1)
+    if hold and not song and not told:         # a wave / arm rule may act on a question-form request ("악수 한번 할까요?",
         arm_rule = brain_mod.intent(text, markers)   # "would it be possible to wave at me?"); intent() itself refuses
         if arm_rule and arm_rule[0] in ("wave", "arm"):   # negations, later times, remarks, ability questions (A1)
-            return "quick", arm_rule
+            return arm_quick(arm_rule, holding)
     if hold and not ((brain_mod.held_give(text, markers) or brain_mod.held_place(text, markers)) and
                      (holding() if callable(holding) else holding)):   # "테이블에 놔 줄래? 영상 찍고 있어": the hand's
         rule = brain_mod.intent(text, markers)   # weather / search are no motion: "Weather outside?"
@@ -3364,7 +3418,9 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     cor = brain_mod.correction(text, b.history)
     if cor:
         return "correction", cor
-    if brain_mod.hand_request(text, False, b, markers) or brain_mod.hand_request(text, True, b, markers):
+    if not song and not brain_mod.ARM_TALK.search(text) and not brain_mod.held_back(text) and \
+            (brain_mod.hand_request(text, False, b, markers) or brain_mod.hand_request(text, True, b, markers)):
+        # not "it'd be cool if you could hand it over someday", "I heard you can take things from people"
         held = holding() if callable(holding) else holding
         hand = brain_mod.hand_request(text, held, b, markers)
         if hand:
@@ -3372,22 +3428,34 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     read = read_mission(text, markers)
     if read:
         return "mission", read
-    arm_rule = brain_mod.intent(text, markers)
+    arm_rule = not song and brain_mod.intent(text, markers)
     if arm_rule and arm_rule[0] in ("wave", "arm"):
-        return "quick", arm_rule               # "빠빠이 해 줘", "let's see you reach your arm out": the arm, not a goodbye
+        return arm_quick(arm_rule, holding)    # "빠빠이 해 줘", "let's see you reach your arm out": the arm, not a goodbye
     if talk_fate(text) == "end" and (b.history or not HI_ANNYEONG.search(text)):   # "루미 안녕!" first: hello
         return "end", None
     if sing.asked(text, last):
         return "sing", None
     rule = brain_mod.intent(text, markers)
+    if rule and rule[0] in QUICK_RULES - {"come_back", "weather", "search"} and brain_mod.ARM_TALK.search(text):
+        return None, None                      # "자네 컵 잡는 거 제법이더군", "do you know how to drive right 30 cm?",
+                                               # "70센티 앞으로 움직일 리가 있나": a remark or an ability, no motion
     if rule and rule[0] in QUICK_RULES:
         return "quick", rule
     if not rule:
         from assistant import intent_bank
         rule = intent_bank.read(text, markers, holding)   # the same request in other words, by meaning
+        if rule and rule[0] not in ("come_back", "weather", "search") and brain_mod.ARM_TALK.search(text):
+            rule = None                        # "it'd be cool if you could take your hand back someday": talk (A1)
         if rule:
-            return "quick", rule
+            return arm_quick(rule, holding)
     return None, None
+
+
+def arm_quick(rule, holding):
+    """A rule's reading as route's ("quick", rule); an open hand while holding is refused (the thing would fall)."""
+    if tuple(rule[:2]) == ("arm", "open") and (holding() if callable(holding) else holding):
+        return "hand", (("refuse", brain_mod.REFUSE_OPEN), True)
+    return "quick", rule
 
 
 QUICK_RULES = {"go_to", "come", "follow", "quiet", "weather", "search", "move", "turn", "arm", "pick", "put", "move_object",
@@ -3399,7 +3467,7 @@ ARM_AGAIN = re.compile(r"^\W*(?:(?:okay|ok|yes|yeah|lumi|please|robot|루미야?
 
 
 FILLER_PART = re.compile(r"\W*(?:(?:hey|yo|hi|okay|ok|excuse me|um+|uh+|so|now|please|thanks|thank you|real quick|quick|"
-                         r"right now|lumi|robot|buddy|mister robot|bro|dude|어이|야|저기요?|루미야?|로봇아?|당장|지금|빨리|"
+                         r"right now|lumi|robot|buddy|mister robot|bro|dude|어이|야|저기요?|루미 ?씨|루미야?|로봇아?|당장|지금|빨리|"
                          r"얼른|어서|끝까지|이제|좀|제발)\W*)+", re.I)   # a part of the words that is no step: a call, "now"
 
 
@@ -3408,7 +3476,9 @@ def read_mission(text, markers):
     A single move / turn / arm / go, or words that are only partly a plain command, stay with the other paths."""
     from assistant import steps
     got, unread, by = steps.read(text, markers, llm=False)
-    unread = [u for u in unread if not FILLER_PART.fullmatch(u)]   # "팔 접어, 당장", "hey robot, fold your arm"
+    from assistant import chain
+    unread = [u for u in unread if not FILLER_PART.fullmatch(u) and   # "팔 접어, 당장", "hey robot, fold your arm"
+              not chain._restated(u, text.replace(u, " "))]          # "컵 잡아!, 아 잡아 줄 수 있어요?": said again
     rule = brain_mod.intent(text, markers) or ("", "")
     if unread and rule[0] == "look" and rule[1].endswith(f" {brain_mod.HEAD_YAW[1]:g}"):
         return None                                # "turn around and look": the head looks behind (brain.BEHIND_WORDS)

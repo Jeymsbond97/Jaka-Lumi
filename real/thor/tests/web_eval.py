@@ -34,8 +34,8 @@ WEATHER.update({   # every Korean level, new this night
 })
 NEWS = ["latest news", "what's the latest news", "any news today", "tell me the news", "news please", "what's in the news",
         "today's headlines", "AI news", "any AI news", "sports news", "latest sports news", "tech news", "world news",
-        "what happened today", "what's happening in the world", "오늘 뉴스", "오늘 뉴스 알려 줘", "최신 뉴스", "뉴스 알려 주세요",
-        "AI 뉴스", "스포츠 뉴스 알려 줘", "요즘 무슨 일 있어", "오늘 무슨 일 있었어", "경제 뉴스", "뉴스 좀 들려줘", "news 알려 줘",
+        "what happened today", "what's happening in the world", "what is happening today", "세상에 무슨 일 있어", "요즘 세상에 무슨 일 있어요", "오늘 뉴스", "오늘 뉴스 알려 줘", "최신 뉴스", "뉴스 알려 주세요",
+        "AI 뉴스", "스포츠 뉴스 알려 줘", "경제 뉴스", "뉴스 좀 들려줘", "news 알려 줘",
         "오늘 headline 뭐야", "최근 소식 알려 줘", "what's new in tech", "IT 뉴스", "연예 뉴스", "세계 뉴스 알려 줘",
         "who won the game last night", "어제 야구 누가 이겼어", "bitcoin price", "달러 환율 얼마야", "삼성전자 주가 얼마야",
         "who is the president of the US", "미국 대통령이 누구야"]
@@ -43,9 +43,16 @@ NEWS += ["뉴스 좀 알려 주시겠어요", "오늘 뉴스 알려 주십시오
          "경제 뉴스 좀 알려 주세요", "IT 뉴스 있어요", "오늘 헤드라인이 뭐예요", "주요 뉴스 알려 줘", "환율 얼마예요", "달러 환율 어떻게 돼요",
          "비트코인 지금 얼마예요", "코스피 어때요", "any news about AI", "what are today's headlines", "give me the latest news",
          "sports news please", "what's the dollar rate today", "how's the stock market today"]
+WEATHER.update({k: "" for k in [   # night 4: casual / honorific / Konglish
+ "날씨 어떠냐", "날씨가 우떻노", "오늘 날씨는 어떨까요", "내일 비 소식 있어요", "이번 주말에 비 소식 있나요", "오늘 몇 도까지 올라가요",
+ "최고 기온 몇 도예요", "낼 비 와", "담주 날씨 어때", "선생님 오늘 날씨가 어떻습니까", "오늘 날씨 좀 여쭤봐도 될까요", "날씨 좀 알려 주실 수 있으세요",
+ "웨더 어때", "레인 와", "is it gonna rain", "what's the high today", "how's it looking outside", "do i need a coat today",
+ "will i need an umbrella tomorrow", "could you tell me the weather please", "may i ask about the weather today", "weather report please"]})
+NEWS += ["축구 결과 알려 줘", "did korea win yesterday", "anything in the news", "what's going on in the world today", "엔화 환율 알려 줘", "주식 시장 어때요"]
 NOT = ["do you like rainy weather", "what's your favourite weather", "is it hot in here", "you're cool", "날씨 좋아해?",
        "how do you know the weather", "the news is boring", "what's your temperature",
-       "어떤 날씨 좋아해", "우산 어디 있어요?", "우산 잃어버렸어요", "where is my umbrella", "실내 너무 더워요", "i like the news", "are you cold", "추워?", "너 더워?"]
+       "어떤 날씨 좋아해", "우산 어디 있어요?", "우산 잃어버렸어요", "where is my umbrella", "실내 너무 더워요", "i like the news", "are you cold", "추워?", "너 더워?",
+       "요즘 무슨 일 있어", "오늘 무슨 일 있었어", "what happened to you today", "what happened here today", "did you win", "새로운 소식 있어"]   # about the visitor / Lumi: the LLM
 FOLLOW = [  # (first question, follow-up, expected place or None for "not a weather follow-up")
  ("what's the weather today", "and tomorrow?", ""), ("what's the weather today", "what about Busan?", "Busan"),
  ("what's the weather today", "and the weekend?", ""), ("what's the weather today", "what about the weekend?", ""),
@@ -77,6 +84,9 @@ FOLLOW = [  # (first question, follow-up, expected place or None for "not a weat
  ("what's the weather today", "should I bring a jacket?", ""), ("what's the weather in Busan", "and tomorrow?", ""),
  ("what's the weather today", "thanks", None), ("오늘 날씨 어때", "좋네", None), ("what's the weather today", "cool", None),
  ("오늘 날씨 어때", "알겠어요", None), ("what's the weather today", "what's your name?", None), ("오늘 날씨 어때", "고마워", None), ("what's the weather today", "okay", None),
+ ("오늘 날씨 어때", "낼은?", ""), ("오늘 날씨 어때", "비는 안 와요?", ""), ("what's the weather today", "what's the high?", ""),
+ ("오늘 날씨 어때", "내일은 어떨까요?", ""), ("오늘 날씨 어때", "부산은 어떻습니까?", "Busan"), ("오늘 날씨 어때", "담주는?", ""),
+ ("what's the weather today", "how about Daegu?", "Daegu"), ("what's the weather today", "부산은?", "Busan"),
 ]
 
 def run():

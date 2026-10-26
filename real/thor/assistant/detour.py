@@ -113,6 +113,9 @@ def read(text, markers=(), goal=None):
     ends = [m.end() for r in (_BACK_UP_RE, _AROUND, _BACK, _RETRY) for m in r.finditer(t)]
     if not ends or _NOT_ORDER.search(t):
         return None
+    if brain.held_back(re.sub(r"(?:포기하|멈추|그만두)지 ?마\w*|\bdon.?t (?:give up|stop)\b", " ", text)) or brain.ARM_TALK.search(text) or \
+            re.search(r"(?:라고|자고|하라고|가라고) ?(?:했|하더|그러)|봤(?:냐|니|어요?|나요)\s*\?|(?<![가-힣])아까(?![가-힣])|\b(?:also|too)\W*$", text):
+        return None                              # "아까 저 아저씨가 다시 가라고 했어", "재시도해부러" said after "-믄", "Maria, you go back"
     if _TAKEN_BACK.search(t, max(ends)) or _FIXED.search(t, max(ends)):
         return None                              # "try again. never mind", "go around— no, not need"
     fixed = list(_FIXED.finditer(t))

@@ -31,9 +31,10 @@ PLACE_M = 1.5                   # m; within this of a marker Lumi is "at" it
 SEEN_SAME_S = 600               # s; the same thing at the same place again within this only updates the time
 SEEN_SCORE = 0.3                # detections weaker than this are not kept (seeing.DESCRIBE_SCORE)
 MIN_TURNS = 2                   # a talk of fewer turns is not saved
-RECALL_MIN = 0.40               # cosine of the question's topic words to a talk's title + summary; below: not offered
-                                # (r6 train: 118 / 120 meant talks over it; a near one offered is a question, not a yes)
-WORD_BONUS = 0.2                # added when a topic word is in the talk's own words
+RECALL_MIN = 0.62               # cosine of the question's topic words to a talk (English or Korean title + summary)
+                                # when none of its words was said; unrelated short topics score 0.3-0.5, meant 0.5-0.8
+RECALL_PART = 0.50              # the cosine needed when only some of the topic words are the talk's own
+RECENT_TURNS = 3                # a recalled talk is "it" / "what you said" for this many turns after
 RECALL_OFFER = 3                # at most this many talks offered one after another
 IDLE_WAIT_S = 900               # s a summary waits for Lumi to be idle (no talk) before it is made anyway
 EARLIER_N = 5                   # visitor lines with facts kept from turns that left the LLM's window
@@ -93,7 +94,8 @@ TODAY = re.compile(r"\btoday(?![a-z])|\bthis (?:morning|afternoon|evening)(?![a-
 YESTERDAY = re.compile(r"\byesterday(?![a-z])|\blast night(?![a-z])|어제|어젯밤", re.I)
 TOO_OLD = re.compile(r"\b(?:last|past|previous) (?:week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?![a-z])|"
                      r"\b(?:a|one|two|three|several|few|\d+) (?:weeks?|months?|years?) ago\b|\b(?:three|four|five|\d+|few|several) days ago\b|"
-                     r"\blong (?:time )?ago\b|지난 ?(?:주|달|해|번 ?주)|저번 ?(?:주|달)|며칠 ?전|"
+                     r"\blong (?:time )?ago\b|\b(?:last|past|previous) weekend\b|\b(?:a|one|last) week (?:ago|back)\b|"
+                     r"지난 ?(?:주|달|해|번 ?주)|저번 ?(?:주|달)|며칠 ?전|(?:사흘|나흘|닷새|엿새|열흘|보름) ?(?:전|前)|"
                      r"(?:[3-9]|세|네|다섯|여러) ?일 ?전|(?:[2-9]|두|세|네|다섯|여러) ?(?:주|달|개월|년) ?전|일주일 ?전|한 ?달 ?전|작년|옛날", re.I)
 DAY_BEFORE = re.compile(r"\bday before yesterday(?![a-z])|\btwo days ago(?![a-z])|그저께|그제(?![가-힣])|이틀 ?전", re.I)
 ONLY_TWO_DAYS = {"en": "I only remember the last two days.", "ko": "저는 최근 이틀 동안의 일만 기억해요."}
@@ -231,8 +233,9 @@ HAND_Q = re.compile(   # questions about the hand / arm now (not orders: "open y
     r"\b(?:are|do) you (?:holding|have|carrying) (?:anything|something)(?: in your (?:hand|gripper))?\b|"
     r"\bwhat(?:'s| is) (?:in|on) your (?:hand|gripper)\b|\bstate of your (?:hand|arm|gripper)\b|"
     r"(?:손|팔|그리퍼|arm|hand|gripper)(?:은|는|이|가)?\s*(?:지금\s*)?(?:어디|어떻게|(?:무슨|어떤)\s*상태|상태)|"
-    r"(?:손|그리퍼)(?:은|는|이|가)?\s*(?:지금\s*)?(?:펴져|펼쳐져|벌어져|열려|닫혀|오므려져|쥐어져|비어|비었)\s*(?:있)?(?:어|니|나|나요|어요|습니까|있어|있니|있나요|있어요)?\s*\?|"
-    r"손에\s*(?:뭐|뭔가|무엇|아무것도)\s*(?:있|들|쥐)", re.I)
+    r"(?:손|그리퍼)(?:은|는|이|가)?\s*(?:지금\s*)?(?:펴져|펼쳐져|벌어져|열려|닫혀|오므려져|쥐어져|비어|비었|펴졌|열렸|닫혔|오므려졌|쥐어졌)\s*(?:있)?(?:어|니|나|나요|어요|습니까|있어|있니|있나요|있어요|냐|노|나요)?\s*\?|"
+    r"(?:팔|arm)(?:은|는|이|가)?\s*(?:지금\s*)?(?:어떤|무슨)\s*자세|"
+    r"(?:손|hand|gripper|그리퍼)에\s*(?:뭐|뭔가|무엇|뭘|아무것도|든 거|있는 거)(?:을|를|이|가)?\s*(?:있|들|쥐|잡|가지)", re.I)
 ARM_WHERE = {"look": ("My arm is in its resting pose, folded in front of me.", "팔은 앞에 접어 둔 기본 자세예요."),
              "ready": ("My arm is in its ready pose.", "팔은 준비 자세예요."),
              "carry": ("My arm is in its carry pose, close to my body.", "팔은 물건을 나르는 자세로 몸 가까이 있어요."),
@@ -272,7 +275,8 @@ def self_answer(text, lang="en"):
     ko = lang == "ko"
     if PLACE_Q.search(text):
         return None if not _state.get("place") else \
-            f"지금 {_state['place']}에 있어요." if ko else f"I'm at {_state['place']} right now."
+            ("지금 홈에 있어요." if _state["place"] == "home" else f"지금 {_state['place']} 근처에 있어요.") if ko \
+            else f"I'm at {_state['place']} right now."
     if LIFT_Q.search(text):
         mm = _state.get("lift")
         if mm is None:
@@ -286,8 +290,8 @@ def self_answer(text, lang="en"):
     if _state.get("holding"):
         parts.append(f"I'm holding {_state['holding']}." if not ko else f"손에 {_j(_held_ko(_state['holding']), '을', '를')} 들고 있어요.")
     elif _state.get("gripper"):
-        parts.append({"open": ("My hand is open and empty.", "손은 펴져 있고 비어 있어요."),
-                      "closed": ("My hand is closed, with nothing in it.", "손은 닫혀 있고 비어 있어요.")}[_state["gripper"]][ko])
+        parts.append({"open": ("My hand is open and empty.", "손은 펴져 있고, 아무것도 안 들고 있어요."),
+                      "closed": ("My hand is closed, with nothing in it.", "손은 닫혀 있고, 아무것도 안 들고 있어요.")}[_state["gripper"]][ko])
     return " ".join(parts) or None
 
 
@@ -356,6 +360,17 @@ def _object(text):
     return None
 
 
+def _colour(text, name):
+    """The colour said with the thing ("a green apple", "초록 사과"), else None ("orange" the fruit is no colour)."""
+    from assistant import seeing
+    t = text.lower()
+    for w in sorted(seeing.COLOURS, key=len, reverse=True):
+        if w == name or w == "하늘" or not re.search(rf"(?<![a-z가-힣]){w}(?![a-z])", t):
+            continue
+        return seeing.COLOURS[w]
+    return None
+
+
 def _thing_words(e, lang):
     from assistant import seeing
     if lang == "ko":
@@ -363,17 +378,20 @@ def _thing_words(e, lang):
     return seeing._a(e["name"], e.get("colour"))
 
 
-def seen_answer(text, lang="en", now=None):
-    """The answer to "did you see an apple today?" from what was kept, else None (not such a question)."""
-    if not SEEN_Q.search(text) or NOW_Q.search(text):
-        return None
-    days = _asked_days(text)
+def seen_answer(text, lang="en", now=None, days="ask"):
+    """The answer to "did you see an apple today?" from what was kept, else None (not such a question). days: a
+    follow-up ("and a green apple?") asks the days of the question before."""
+    if days == "ask":
+        if not SEEN_Q.search(text) or NOW_Q.search(text) and _asked_days(text) is None:   # "오늘 사과 본 적 있어요?"
+            return None
+        days = _asked_days(text)
     if days == "too old":
         return ONLY_TWO_DAYS[lang]
     name = _object(text)
     if name is None:
         return None                                    # a thing the cameras can't name: the LLM, with the seen list
     now = clock() if now is None else now
+    _recall["seen"] = (now, days)
     from assistant import seeing
     seen = [e for e in _load("seen") if e["name"] == name]
     hits = [e for e in seen if days is None or _day(e["t"], now) in days]
@@ -387,7 +405,14 @@ def seen_answer(text, lang="en", now=None):
                 (f" {when(other['t'], 'ko', now)}에 본 적은 있어요." if other else "")
         return f"I haven't seen {'anyone' if name == 'person' else 'one'} {span_en}." + \
             (f" I saw one {when(other['t'], 'en', now)}." if other else "")
-    e = hits[-1]
+    colour = _colour(text, name)
+    if colour and not any(e.get("colour") == colour for e in hits):   # "a green apple?" when only a red one was seen
+        e = hits[-1]
+        if lang == "ko":
+            return f"{span_ko} {seeing._j(seeing.COLOUR_KO.get(colour, colour) + ' ' + word_ko, '은', '는')} 못 봤어요. " \
+                   f"{when(e['t'], 'ko', now)}{_where(e, 'ko')} {seeing._j(_thing_words(e, 'ko'), '은', '는')} 봤어요."
+        return f"I haven't seen {seeing._a(name, colour)} {span_en}. I saw {_thing_words(e, 'en')} {when(e['t'], 'en', now)}{_where(e, 'en')}."
+    e = next((e for e in reversed(hits) if e.get("colour") == colour), hits[-1])
     if lang == "ko":
         return f"네, {when(e['t'], 'ko', now)}{_where(e, 'ko')} {seeing._j(_thing_words(e, 'ko'), '을', '를')} 봤어요."
     return f"Yes, I saw {_thing_words(e, 'en')} {when(e['t'], 'en', now)}{_where(e, 'en')}."
@@ -428,13 +453,15 @@ SUMMARY_PROMPT = """Here is a conversation between a visitor and Lumi, a robot. 
  "summary": "<2-3 short sentences: what was asked and answered, in English>",
  "facts": ["<each name, place, number or plan the visitor gave, in English>"],
  "commands": ["<each command for Lumi agreed in the talk, e.g. go to p3 and wave>"],
- "title_ko": "<the title in Korean>", "summary_ko": "<the summary in polite Korean (-요)>"}
+ "title_ko": "<the title in Korean>", "summary_ko": "<the summary in polite Korean (-요)>",
+ "facts_ko": ["<each fact in polite Korean (-요)>"]}
 Only what is in the conversation; nothing else."""
 SUMMARY_SCHEMA = {"type": "object", "properties": {"title": {"type": "string"}, "summary": {"type": "string"},
                                                    "facts": {"type": "array", "items": {"type": "string"}},
                                                    "commands": {"type": "array", "items": {"type": "string"}},
-                                                   "title_ko": {"type": "string"}, "summary_ko": {"type": "string"}},
-                  "required": ["title", "summary", "facts", "commands", "title_ko", "summary_ko"]}
+                                                   "title_ko": {"type": "string"}, "summary_ko": {"type": "string"},
+                                                   "facts_ko": {"type": "array", "items": {"type": "string"}}},
+                  "required": ["title", "summary", "facts", "commands", "title_ko", "summary_ko", "facts_ko"]}
 
 
 def _transcript(history):
@@ -456,7 +483,8 @@ def summarise(history, chat=None):
     return {"title": str(out.get("title", "")).strip()[:60], "summary": str(out.get("summary", "")).strip()[:600],
             "facts": [str(f)[:160] for f in out.get("facts", [])][:10],
             "commands": [str(f)[:160] for f in out.get("commands", [])][:5],
-            "title_ko": str(out.get("title_ko", "")).strip()[:60], "summary_ko": str(out.get("summary_ko", "")).strip()[:600]}
+            "title_ko": str(out.get("title_ko", "")).strip()[:60], "summary_ko": str(out.get("summary_ko", "")).strip()[:600],
+            "facts_ko": [str(f)[:160] for f in out.get("facts_ko", [])][:10]}
 
 
 def keep_talk(history, person=None, t=None, chat=None, embed=None, name=None):
@@ -467,8 +495,9 @@ def keep_talk(history, person=None, t=None, chat=None, embed=None, name=None):
     s = summarise(history, chat)
     if not s["title"] and not s["summary"]:
         return None
-    s.update(t=clock() if t is None else t, person=person, name=name,
-             vec=[round(float(x), 4) for x in embed([f"{s['title']}. {s['summary']}"])[0]])
+    en, ko = embed([f"{s['title']}. {s['summary']}", f"{s['title_ko']}. {s['summary_ko']}"])
+    s.update(t=clock() if t is None else t, person=person, name=name, vec=[round(float(x), 4) for x in en],
+             vec_ko=[round(float(x), 4) for x in ko])     # a Korean question is matched to the Korean words too
     with _lock:
         talks = _load("talks")
         talks.append(s)
@@ -509,33 +538,38 @@ RECALL_Q = re.compile(   # a question about an earlier talk; "I remember when ..
     r"\bwe (?:talked|spoke|chatted|discussed|were talking)\b|\bour (?:talk|chat|conversation)\b|"
     r"\b(?:what|which) did (?:we|i) (?:talk|speak|chat|say|tell|ask)\b|\bwhat did you (?:tell|say to) me about\b|"
     r"\bwhat (?:did )?we (?:talk|talked|discuss|discussed|chat|chatted)\b|\bdid (?:we|i) (?:talk|speak|chat|tell you|ask you|mention)\b|"
-    r"\bearlier (?:i|we) (?:said|told|asked|talked)\b|\bremember\W*$|\bremind me\b|\bwe had (?:a|our|that) (?:talk|chat|conversation)\b|"
+    r"\bearlier (?:i|we) (?:said|told|asked|talked)\b|\bremember(?: (?:that|this|it))?\W*$|\bring a bell\b|\bremind me\b|\bwe had (?:a|our|that) (?:talk|chat|conversation)\b|"
     r"\bdid we have (?:a|any) (?:talk|chat|conversation)\b|\bdid i (?:tell|give) you\b|\bwhat (?:we|you) (?:said|told me|talked about)\b|"
     r"(?:말해|알려|얘기해|이야기해) ?(?:줬|주었|드렸)(?:던|었|지|잖|죠)|(?:했던|나눴던|한) (?:얘기|이야기|대화)|"
     r"(?:얘기|이야기|대화)\s*(?:\S+\s+)?(?:했잖|했었|했던|나눴)|무슨\s*(?:topic|주제)(?:였|이었)|"
-    r"기억(?:나|해|하니|하세요|하시|하냐|하지|하죠|나요|날|하고|하는지|할)|(?:얘기|이야기|대화|말)(?:를|을)?\s*(?:했던|했었|나눴|나누었|한 거|했지|했잖|했는|했죠|했어)",
+    r"기억\s*(?:이\s*)?(?:나|해|하|날)|생각\s*(?:이\s*)?나|"
+    r"(?:얘기|이야기|대화|말)(?:를|을)?\s*(?:했던|했었|나눴|나누었|나누셨|하셨|한 거|했지|했잖|했는|했죠|했어|했노|했나|했니|했냐|했더라|했습니까|했을까)|"
+    r"\b(?:remember|recall)\s*(?:해|하|나|돼|되)|\b(?:talk|chat|conversation)\s*(?:했던|했었|한 거|나눴)",   # Konglish: "remember 해?"
     re.I)
-NOT_RECALL = re.compile(r"\bremember (?:to|that you|my|me)\b|\bremember me\?$|\b(?:i|we) (?:don'?t |do not )?remember\b|"
+NOT_RECALL = re.compile(r"\bremember (?:to|that you|my|me)\b(?! (?:asking|telling|saying|talking|ask|tell|say|talk))|\bremember me\?$|\b(?:i|we) (?:don'?t |do not )?remember\b|"
                         r"\b(?:can|could|will|would) you remember\b(?! (?:what|when|our|that we|we))|기억력|기억해\s*(?:줘|주세요|둬|놔)", re.I)
 GENERIC = re.compile(r"\b(?:what|which) did (?:we|i) (?:talk|speak|chat|say)(?: about)?\W*(?:today|yesterday|earlier|last time|before)?\W*$|"
                      r"무슨 ?(?:얘기|이야기|대화|말)|뭐(?:라고)? ?(?:얘기|이야기|말)", re.I)
-_ASK_EN = r"^\W*(?:(?:please|lumi|ok(?:ay)?|now|just|and|so|hey|can you|could you|would you|will you)\W+)*"
-FORGET = re.compile(   # an order to forget: "did you forget me?", "제 이름 잊어버렸어요?" are not
-    _ASK_EN + r"(?:forget (?:this|me|everything|all (?:of )?(?:this|that|it)|what (?:i|we) (?:said|told|talked)|"
-    r"our (?:talk|chat|conversation)|(?:this|that|the) (?:talk|chat|conversation)|about me|my name)\b|"
-    r"(?:delete|erase|clear|remove) (?:this|our|my|the) (?:conversation|talk|chat|data|memory|memories)\b|"
-    r"don'?t (?:remember|keep|save|store) (?:this|me|that|our|anything|what|any(?:thing)? of (?:this|it|that))\b|"
-    r"(?:wipe|erase|delete|clear|remove|forget) (?:out )?(?:what (?:we|i) (?:said|talked about|told you|discussed)|it all|everything|"
+FORGET = re.compile(   # an order to forget: "did you forget me?", "제 이름 잊어버렸어요?", "I forget what we said" are not
+    r"(?<!\bdid you )(?<!\bdo you )(?<!\bhave you )(?<!\bwill you )(?<!\bi )(?<!\bwe )(?<!n't )(?<!\bnot )(?<!\bnever )\b"
+    r"(?:forget (?:this|me|everything|all (?:of )?(?:this|that|it)|what (?:i|we) (?:said|told|talked|discussed|chatted)|"
+    r"(?:our|this|that|the|my) (?:talk|chat|conversation|data|info)|about (?:me|this|our talk)|my name|i was here)\b|"
+    r"(?:delete|erase|clear|remove|wipe) (?:out )?(?:this|our|my|the|that) (?:conversation|talk|chat|data|memory|memories|record|records|history)\b|"
+    r"(?:wipe|erase|delete|clear|remove) (?:out )?(?:what (?:we|i) (?:said|talked about|told you|discussed)|it all|everything|"
     r"all (?:of )?(?:it|that|this)|my (?:data|info|information|details))\b)|"
-    r"(?:얘기|이야기|말|대화|기록|내용|정보)(?:을|를|은|는)?\s*(?:다\s*|전부\s*|모두\s*)?(?:지워|삭제|잊어)|"
-    r"잊어\s*(?:줘|주세요|주라|버려|버리세요|줄래|줄래요|주실래요|주시겠어요)(?![가-힣])|잊어버려(?:요)?(?![가-힣])|잊으세요|"
-    r"기억(?:에서)?\s*(?:지워|삭제)|기억하지\s*마|(?:대화|기록)\s*(?:지워|삭제)", re.I)
+    r"\bdon'?t (?:remember|keep|save|store) (?:this|me|that|our|anything|what|any(?:thing)? of (?:this|it|that))\b|"
+    r"\b(?:you )?(?:didn'?t|did not|wouldn'?t) (?:keep|save|store|record|remember) (?:that|this|it|any of (?:this|that|it)|our)\b|"
+    r"(?:얘기|이야기|말|대화|기록|내용|정보|데이터|메모리|history|record|data)(?:을|를|은|는|도)?\s*(?:다\s*|전부\s*|모두\s*|싹\s*|좀\s*)?"
+    r"(?:지워|지우|지아|삭제|잊어|잊어버|없애|delete|erase|forget|remove|clear|wipe)|"
+    r"잊어\s*(?:줘|주세요|주라|주십시오|주시겠|주시기|주실래|주시면|줄래|줄 수|버려|버리|삐|뿌|도\s*돼|도 됩|달라)|잊어버려(?:요)?(?![가-힣])|"
+    r"잊으세요|잊으십시오|잊어라|잊어 ?도(?![가-힣])|기억(?:에서)?\s*(?:지워|삭제|없애)|기억하지\s*(?:마|말아|마세요|마십시오|말아 ?주)|"
+    r"(?:대화|기록)\s*(?:지워|삭제)|^\W*(?:다\s*)?지워\s*(?:줘|주세요|주십시오|주실래요|줄래)\W*$|(?:delete|forget|erase|remove)\s*(?:해|하|시켜)\s*(?:줘|주|줄|라|요|봐)", re.I)
 FORGOT = {"en": "Okay, I've forgotten our conversation.", "ko": "네, 우리 대화는 잊을게요."}
 CANT_REMEMBER = {"en": "I can't remember that.", "ko": "그건 기억이 안 나요."}
 OFFER_WAIT_S = 60               # s a "do you mean ...?" waits for yes / no
 
 
-DETAIL = re.compile(r"\bremind me\b|\bwhat you (?:told|said)\b|\bmain point\b|\bthe point\b|\bconclusion\b|\bwhat was (?:it|that)(?: again)?\b|결론|요점|포인트|point|\bwhat (?:did|was it) you (?:say|tell|said|told)|\bwhat was (?:it|that|the \w+)\b|"
+DETAIL = re.compile(r"\bremind me\b|\b(?:your|the) answer\b|\bwhat was your (?:point|answer)\b|\bwhat you (?:told|said)\b|\bmain point\b|\bthe point\b|\bconclusion\b|\bwhat was (?:it|that)(?: again)?\b|결론|요점|포인트|point|\bwhat (?:did|was it) you (?:say|tell|said|told)|\bwhat was (?:it|that|the \w+)\b|"
                     r"\btell me (?:more|again|what)\b|\bwhat did you (?:say|tell me)\b|\bwhat (?:you|we) said\b|\bthe details?\b|"
                     r"무슨 (?:얘기|이야기|말)(?:였|이었)|뭐라고 (?:했|하셨|말했)|다시 (?:말해|알려)|자세히|뭐였", re.I)
 
@@ -558,23 +592,29 @@ def _offer(s, lang, first=True, now=None):
     if lang == "ko":
         return f"{'' if first else '아니면 '}{when(s['t'], 'ko', now)}에 {_title_ko(s)}에 대해 " \
                f"이야기한 거 말씀이세요?"
-    title = s["title"][:1].lower() + s["title"][1:] if s["title"][1:2].islower() else s["title"]   # not "TV", "NASA"
-    return f"{'Do you mean' if first else 'Or was it'} our talk about {title} " \
+    return f"{'Do you mean' if first else 'Or was it'} our talk about {_lower(s['title'])} " \
            f"{when(s['t'], 'en', now)}?"
+
+
+def _lower(title):
+    return title[:1].lower() + title[1:] if title[1:2].islower() else title     # not "TV", "NASA"
 
 
 def _title_ko(s):
     return s.get("title_ko") or f"'{s['title']}'"
 
 
-def _told(s, lang, detail=False):
+def _told(s, lang, detail=False, turn=-99):
     """The answer once a talk is confirmed (or its details asked): its summary and facts; None in Korean when the
     talk has no Korean summary (the LLM then says it from the talk in its prompt)."""
-    _recall.update(talk=s, offered=[], left=[])
+    _recall.update(talk=s, offered=[], left=[], turn=turn)
     facts = " ".join(f if f.endswith(".") else f + "." for f in s.get("facts", [])[:3])
-    if lang == "ko":
-        ko = s.get("facts_ko") if detail else s.get("summary_ko")
-        return f"{'' if detail else '네, 기억나요. '}{' '.join(ko) if isinstance(ko, list) else ko}" if ko else None
+    if lang == "ko":                                   # a detail is the facts (the summary only names the topic)
+        facts_ko = " ".join(f if f.endswith(".") else f + "." for f in s.get("facts_ko", [])[:3])
+        if detail:
+            return facts_ko or (None if s.get("facts") else s.get("summary_ko")) or None
+        ko = s.get("summary_ko")
+        return f"네, 기억나요. {ko}" + (f" {facts_ko}" if facts_ko and facts_ko not in ko else "") if ko else None
     if detail:
         return f"I told you that {facts[:1].lower() + facts[1:]}" if facts else f"We talked about this: {s['summary']}"
     return f"Yes, I remember. {s['summary']}" + (f" {facts}" if facts and facts not in s["summary"] else "")
@@ -585,26 +625,96 @@ spoken chat chatted chatting discuss discussed conversation conversations say sa
 that this it its was were is are had have has yesterday today tonight earlier morning afternoon evening last time before ago
 day days two right again what which so and oh going back to in on at of with still can could would will any something thing
 things then there when where how much go ahead just okay ok well there's what's we've i've you've anything that's again,
-tell, remember, now yes yeah no""".split())
-_STOP_KO = re.compile(r"^(?:기억|얘기|이야기|대화|말|했|한|하|어제|오늘|아까|그저께|그제|이틀|우리|저|제가|내가|나랑|저랑|저와|나와|"
-                      r"루미|그때|그거|그것|뭐|무슨|나눴|나누|거|것|요|혹시|있잖|맞|좀|다시|알려|아침|오전|오후|저녁|지난|전에|"
-                      r"그래서|결론|요점|그러니까|줄|주|줘|알|있|없|해|할|뭔|어떤|무엇|어디|언제|remember|recall|talk|yesterday|today)")
+tell, remember, now yes yeah no topic topics subject subjects um uh hmm oh wait right pls bro hey talk? chatted?
+by way anyway also too stuff answer point main back asking asked ask didn't don't ring bell""".split())
+_STOP_KO = re.compile(r"^(?:기억|얘기|이야기|대화|말씀|말했|말한|했|어제|오늘|아까|그저께|그제|이틀|우리|제가|내가|나랑|저랑|저와|나와|"
+                      r"루미|그때|그거|그것|무슨|나눴|나누|혹시|있잖|맞|좀|다시|알려|아침|오전|오후|저녁|지난|전에|"
+                      r"그래서|결론|요점|그러니까|어떤|무엇|어디|언제|이었|였|이에|예요|입니|이야|주제|remember|recall|talk|yesterday|today|"
+                      r"(?:그리고|그럼|그러면|그런데|근데|잠깐|궁금한|궁금해|참|저기|음|어|아|자|얘|야|위해서|위해|대해|대해서|관해|관해서|대한|관한)$|"
+                      # one-syllable stems only alone or with a verb ending ("한 거", "해 줘"; not "한글", "해변", "주말")
+                      r"(?:말|한|하|거|것|요|주|줘|줄|알|있|없|해|할|뭔|뭐|저)(?:[요어아지죠고던는신셨세시자게니냐나까서면기여였잖든다며라래려줘봐야해했할줄][가-힣]?)?$|"
+                      r"(?:가|이|은|는|을|를|도|에|의|로|으로|에서)$)")   # a particle left alone ("point가")
 _KO_TAIL = re.compile(r"(?:에\s*대해서?|에\s*관해서?|이랑|랑|하고|얘기|이야기|은|는|을|를|도|에|의|요)+$")
+
+
+FOCUS = re.compile(r"\babout\b(.+)|\b(?:remember|recall)\b(.+)|((?:[가-힣A-Za-z0-9']+\s+){0,2}[가-힣A-Za-z0-9']+)\s*"
+                   r"(?:에\s*대해서?|에\s*관해서?|에\s*대한|얘기|이야기)", re.I)
 
 
 def topic(text):
     """The words of a recall question that name its topic ("remember we talked about birds yesterday?" -> "birds");
-    "" when it names none ("what did we talk about?")."""
+    "" when it names none ("what did we talk about?"). The words after "about" / "remember" or before "얘기" first,
+    so a filler ("Class, listen: ...", "Jason, look") is not taken for a topic."""
+    m = FOCUS.search(text)
+    part = next((g for g in m.groups() if g), text) if m else text
+    if m and m.group(3):                               # "시청자분들 위해서 어제 한글 얘기": what follows the time word
+        part = re.split(r"(?:어제|오늘|아까|그저께|그제|이틀 ?전|지난번|저번에|우리|오늘 ?아침)\s*", part)[-1] or part
+    return (_words(part) if m else "") or _words(text)
+
+
+def _words(text):
     out = []
     for w in re.findall(r"[A-Za-z][A-Za-z'.-]*|[가-힣]+|\d+", text):
         if re.match(r"[A-Za-z]", w):
             if w.lower().strip(".'") not in _STOP_EN and len(w) > 1:
                 out.append(w.lower().strip(".'"))
-        elif not _STOP_KO.match(w):
+        else:
+            w = re.sub(r"^(?:우리|저랑|나랑|제가|내가)(?=[가-힣]{1,})", "", w)    # "우리달 얘기" (no space)
+            if _STOP_KO.match(w):
+                continue
             w = _KO_TAIL.sub("", w)
             if w and not _STOP_KO.match(w):
                 out.append(w)
     return " ".join(out)
+
+
+NAMES_KO = {"cutshion": "쿳션 컷션 커션", "jaka": "자카", "lumi": "루미", "hangul": "한글", "chuseok": "추석", "kimchi": "김치",
+            "seoul": "서울", "busan": "부산", "jeju": "제주", "everest": "에베레스트"}   # names a title may keep in English
+
+
+def _hits(words, s):
+    """The share of the topic words found in a talk's own words (English and Korean title, summary, facts); a
+    one-syllable Korean word only alone or with a particle ("달" is not in "달해요")."""
+    text = " ".join([s["title"], s["summary"], s.get("title_ko", ""), s.get("summary_ko", "")] + s.get("facts", [])).lower()
+    text += "".join(f" {ko}" for en, ko in NAMES_KO.items() if en in text)   # "쿳션 얘기" for the talk "Cutshion"
+    n = 0
+    for w in words:
+        if w.isascii():
+            n += w in text or len(w) > 3 and w.rstrip("s") in text
+        elif len(w) > 1:
+            n += w in text
+        else:
+            n += bool(re.search(rf"(?<![가-힣]){w}(?:들)?(?:[은는이가을를도의]|에서|에)?(?![가-힣])", text))
+    return n / len(words) if words else 0.0
+
+
+def _rank(about, talks, embed):
+    """The talks that may be the one meant, best first. The words decide first (the embedding of one or two words
+    is weak: unrelated short topics score 0.3-0.5); a talk none of whose words were said needs a close meaning."""
+    import numpy as np
+    q = embed([about])[0]
+    words = [w for w in about.split() if len(w) > 2 or not w.isascii()]
+    out = []
+    for s in talks:
+        cos = max(float(np.dot(q, s["vec"])), float(np.dot(q, s["vec_ko"])) if s.get("vec_ko") else 0.0)
+        hit = max(_hits(words, s), _title_said(about, s))
+        if hit >= 0.99 or hit and cos >= RECALL_PART or cos >= RECALL_MIN:
+            out.append((hit, cos, s))
+    return [s for _, _, s in sorted(out, key=lambda x: (-x[0], -x[1]))]
+
+
+def _title_said(about, s):
+    """1.0 when every word of the talk's title (English or Korean) was said: "부산 날씨랑 새 얘기" names both the talk
+    "부산 날씨" and the talk "새"."""
+    said = set(about.lower().split())
+    for title in (s["title"], s.get("title_ko") or ""):
+        ws = [w for w in _words(title).split() if len(w) > 2 or not w.isascii()]
+        if ws and all(w in said or len(w) > 3 and w.rstrip("s") in {x.rstrip("s") for x in said} for w in ws):
+            return 1.0
+    return 0.0
+
+
+PRONOUN = re.compile(r"\b(?:it|that|this|then|that time)\b|그거|그것|그때|그 ?얘기|그 ?이야기|거기", re.I)
 
 
 def recall(text, lang="en", now=None, embed=None, history=()):
@@ -612,11 +722,13 @@ def recall(text, lang="en", now=None, embed=None, history=()):
     talk now (a topic of this talk: "what were we saying about the moon?" is the LLM's, not a memory)."""
     from assistant import brain
     now = clock() if now is None else now
+    past = list(history[:-1] if history and history[-1][0] == text else history)
     about = topic(text)
-    if _recall["offered"] and now - _recall["at"] < OFFER_WAIT_S:
+    other_q = HAND_Q.search(text) or SEEN_Q.search(text) or PLACE_Q.search(text) or LIFT_Q.search(text)
+    if _recall["offered"] and now - _recall["at"] < OFFER_WAIT_S and not other_q:
         yes = brain.confirm_answer(text)
-        if yes == "yes" or yes == "correction" and re.match(r"\W*(?:yes|yeah|yep|right|exactly|네|응|맞아|그래)\b", text, re.I):
-            return _told(_recall["offered"][-1], lang)
+        if yes == "yes" or yes == "correction" and re.match(r"\W*(?:yes|yeah|yep|right|exactly|네|예|응|맞아|맞습니다|맞아요|그래|그렇|그거)", text, re.I):
+            return _told(_recall["offered"][-1], lang, turn=len(past))
         if yes in ("no", "cancel") or yes == "correction" and re.match(r"\W*(?:no|nope|not that|아니|아뇨)\b", text, re.I):
             if yes == "cancel":
                 _recall.update(offered=[], left=[])
@@ -624,52 +736,47 @@ def recall(text, lang="en", now=None, embed=None, history=()):
             if _recall["left"]:
                 s = _recall["left"].pop(0)
                 _recall["offered"].append(s)
-                _recall.update(at=now, talk=s)
+                _recall.update(at=now, talk=s, turn=len(past))
                 return _offer(s, lang, first=False, now=now)
             _recall.update(offered=[], left=[], talk=None)
             return CANT_REMEMBER[lang]
     if DO_SAID.search(text) and not NOT_DO.search(text):
-        return do_said(text, lang, now)
-    if _recall.get("talk") and DETAIL.search(text) and not about:   # "remind me what you said", "결론이 뭐였어요?"
-        return _told(_recall["talk"], lang, detail=True)
+        out = do_said(text, lang, now)
+        _recall["turn"] = len(past)
+        return out
+    recent = _recall.get("talk") and len(past) - _recall.get("turn", -99) <= RECENT_TURNS
+    if recent and DETAIL.search(text) and (not about or _hits(about.split(), _recall["talk"]) >= 0.5):   # not "back to chess: what was that?"
+        return _told(_recall["talk"], lang, detail=True, turn=len(past))   # "remind me what you said", "결론이 뭐였어요?"
     if NAME_Q.search(text):
         return name_answer(lang)
     if not (RECALL_Q.search(text) or SAID_THEN.search(text) and _asked_days(text) is not None) or NOT_RECALL.search(text):
         return None
     days = _asked_days(text)
-    if about and days is None and any(w in a.lower() for _, a in history[:-1] for w in about.split()
-                                      if len(w) > 2 or len(w) > 1 and not w.isascii()):
-        return None                                    # a topic Lumi spoke about in this talk: the LLM has it
+    words = [w for w in about.split() if len(w) > 2 or len(w) > 1 and not w.isascii()]
+    if words and days in (None, {0}) and any(w in f"{q} {a}".lower() for q, a in past if not RECALL_Q.search(q) for w in words):
+        return None                                    # a topic of this talk ("아까 배터리에 대해 뭐라고 하셨죠?"): the LLM has it
     if days == "too old":
         return ONLY_TWO_DAYS[lang]
     talks = [s for s in _load("talks") if (days is None or _day(s["t"], now) in days) and _mine(s)]
     if not talks:
-        return ONLY_TWO_DAYS[lang] if days == {2} else CANT_REMEMBER[lang]
+        return CANT_REMEMBER[lang]
     if not about:                                      # "what did we talk about yesterday?": the talks of then
-        ranked = sorted(talks, key=lambda s: s["t"])[-RECALL_OFFER:]
-        if len(ranked) > 1:
-            return _listed(ranked, days, lang)
+        return _listed(sorted(talks, key=lambda s: s["t"])[-RECALL_OFFER:], days, lang, now, len(past))
     else:
-        import numpy as np
         if embed is None:
             from assistant import knowledge
             embed = knowledge.embed
-        q = embed([about])[0]
-        words = [w for w in about.split() if len(w) > 2 or not w.isascii()]
-        scored = sorted(((float(np.dot(q, s["vec"])) + WORD_BONUS * any(
-            w in " ".join([s["title"], s["summary"], s.get("title_ko", "")] + s.get("facts", [])).lower() for w in words), s)
-            for s in talks), key=lambda x: -x[0])
-        ranked = [s for score, s in scored if score >= RECALL_MIN]
+        ranked = _rank(about, talks, embed)
     if not ranked:
         return CANT_REMEMBER[lang]
     ranked = ranked[:RECALL_OFFER]
-    _recall.update(offered=[ranked[0]], left=ranked[1:], at=now, talk=ranked[0], listed=[])
+    _recall.update(offered=[ranked[0]], left=ranked[1:], at=now, talk=ranked[0], listed=[], turn=len(past))
     return _offer(ranked[0], lang, now=now)
 
 
 SAID_THEN = re.compile(r"\bwhat did you (?:say|tell me)\b|뭐라고\s*(?:하셨|했|말했|말씀하셨)|무슨 말(?:을|씀을)?\s*(?:했|하셨)", re.I)
 NAME_Q = re.compile(r"\b(?:you (?:still )?(?:remember|know|recall)|what(?:'s| is)) my name\b|\bremember my name\?|\bdid i (?:tell|give) you my name\b|\bwho (?:am|was) i\b|"
-                    r"(?:제|내|my) ?(?:이름|name)\s*(?:을|를|은|는)?\s*(?:기억|알아|아세요|아십니까|뭐|말했|말씀)", re.I)
+                    r"(?:제|내|my) ?(?:이름|name)\s*(?:을|를|은|는|이|가)?\s*(?:기억|알아|아세요|아십니까|아시|뭐|무엇|말했|말씀)", re.I)
 NO_NAME = {"en": "I don't remember you telling me your name. What is it?", "ko": "성함은 기억에 없어요. 성함이 어떻게 되세요?"}
 
 
@@ -713,10 +820,18 @@ def do_said(text, lang="en", now=None):
     return f"{when(s['t'], 'en', now)[:1].upper() + when(s['t'], 'en', now)[1:]} we agreed: \"{cmd}\". Shall I do that now?"
 
 
-def _listed(talks, days, lang):
-    """"Yesterday I talked about bibimbap, dinosaurs and Lumi's cameras." (the next turn's prompt has them all)."""
+def _listed(talks, days, lang, now=0.0, turn=-99):
+    """"Yesterday I talked about bibimbap, dinosaurs and Lumi's cameras." (the next turn's prompt has them all). One
+    talk: "Yesterday we talked about birds. Would you like to hear more?", and a yes tells it."""
     _recall.update(offered=[], left=[], talk=None, listed=talks)
     d = next(iter(days)) if days else None
+    if len(talks) == 1:
+        s = talks[0]
+        _recall.update(offered=[s], talk=s, listed=[], at=now, turn=turn)
+        if lang == "ko":
+            return f"{ {None: '최근 이틀 동안', 0: '오늘은', 1: '어제는', 2: '그저께는'}[d]} {_title_ko(s)}에 대해 이야기했어요. 더 들어 보실래요?"
+        return f"{ {None: 'In the last two days', 0: 'Today', 1: 'Yesterday', 2: 'The day before yesterday'}[d]} we talked " \
+               f"about {_lower(s['title'])} at about {_clock(s['t'], 'en')}. Would you like to hear more?"
     if lang == "ko":
         names = ", ".join(_title_ko(s) for s in talks)
         return f"{ {None: '최근 이틀 동안', 0: '오늘은', 1: '어제는', 2: '그저께는'}[d]} {names}에 대해 이야기했어요. 더 듣고 싶은 이야기가 있으세요?"
@@ -730,12 +845,40 @@ def _mine(s):
     return not (s.get("name") and _talk["name"] and s["name"] != _talk["name"])
 
 
+CHAT_EN = {"ur": "your", "u": "you", "pls": "please", "plz": "please", "da": "the", "dat": "that", "wat": "what", "r": "are"}
+
+
+def _clean(text):
+    """Whisper slips and chat spelling out: "w— what we talked" -> "what we talked", "is ur hand open" -> "is your
+    hand open"."""
+    text = re.sub(r"(?<![\w])(\w{1,3})\s*[—–-]+\s+(?=\1)", "", text)
+    return re.sub(r"(?<![\w'])(?:ur|u|pls|plz|da|dat|wat|r)(?![\w'])", lambda m: CHAT_EN[m.group(0).lower()], text, flags=re.I)
+
+
+SEEN_MORE = re.compile(r"\W*(?:(?:and|what about|how about|or|then|so|also|um|uh|oh|okay|ok|well|lumi|그럼|그러면|그리고|아니면|또|혹시|"
+                       r"음|어|아|자|잠깐|저기|근데|그런데|루미야?)\W+)*(?:the |an? |any )?"
+                       r"(?:[\w가-힣]+\s+)?([\w가-힣]+?)(?:은요|는요|이요|은|는|도|이나|나)?(?: either| too| then)?\W*", re.I)
+
+
+def _seen_more(text):
+    """"And a green apple?", "그럼 빨간 컵은?": a short follow-up naming only a thing (a colour or one word before it),
+    after a "did you see ...?" answer; "do you see an apple?", "그럼 빨간 컵 가져와" are not."""
+    text = re.split(r"[:,;]\s*", text.strip())[-1]                 # "Right, use case: and a green apple?"
+    m = SEEN_MORE.fullmatch(text)
+    return bool(m and _object(m.group(1)) and (re.search(r"[?？]|[은는도]\W*요?\W*$|^\W*(?:and|what about|how about|or)\b", text, re.I)))
+
+
 def reply(text, lang="en", now=None, history=()):
     """What to say at once for a memory question ("forget this", "do you remember ...?", "did you see a cup today?"),
     else None. lumi.py asks it before the other routes."""
+    text = _clean(text)
     if FORGET.search(text) and not re.search(r"\b(?:don'?t|never) forget\b|잊지\s*마", text, re.I):
         forget()
         return FORGOT[lang]
+    now = clock() if now is None else now
+    seen = _recall.get("seen")
+    if seen and now - seen[0] < OFFER_WAIT_S and not SEEN_Q.search(text) and _seen_more(text):
+        return seen_answer(text, lang, now, days=_asked_days(text) or seen[1] if _asked_days(text) != "too old" else seen[1])   # "흰 병 봤어?" -> "그럼 빨간 컵은?"
     return recall(text, lang, now, history=history) or seen_answer(text, lang, now) or self_answer(text, lang)
 
 

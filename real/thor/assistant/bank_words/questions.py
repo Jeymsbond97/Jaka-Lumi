@@ -372,7 +372,6 @@ _MORE = {
         "외로움 느껴", "너 살아 있어", "살아 있는 거 맞아", "생각할 줄 알아",
     ],
     "no": [
-        "몇 년도에 세웠어", "언제 세웠어요", "언제 설립했어", "설립 연도가 언제예요", "회사 언제 세워졌어요",
         "요즘 무슨 일 있어", "요즘 경제가 어때요", "요즘 경제 어때", "경기가 어때요", "요즘 뉴스 뭐 있어",
         "how heavy can you lift", "can i lift you", "내가 너 들 수 있어", "are you taller than me", "are you taller than my dad",
         "could you beat me in a race", "나랑 달리기 하면 누가 이겨", "who is faster you or me",
@@ -443,3 +442,38 @@ QUICK["no"] += [
     "how much longer will you wait", "how long are you waiting", "how long will you wait", "what's the job", "what's your task now",
     "introduce yourself then turn to your left", "자기소개하고 왼쪽 봐", "고개 숙이고 이름 알려 줘", "오른쪽 보고 나이 말해 줘",
 ]
+# "노래 부를 줄 알아요?": an ability question, answered; the song comes on "yes" / "불러 줘" (brain.DO_IT, SING_ASK).
+# A request ("노래 불러 줘", "can you sing?", "노래 부를 수 있어?") is audio/sing.asked's and never reaches this kind.
+_SING_KO = [s + e for s in ["노래 부를 줄 ", "노래 할 줄 ", "노래할 줄 ", "노래도 할 줄 ", "노래도 부를 줄 ", "너 노래 할 줄 ", "루미 노래 부를 줄 ",
+                             "노래 하실 줄 ", "노래 부르실 줄 ", "혹시 노래 부를 줄 "]
+            for e in ["알아", "알아요", "아니", "아세요", "아십니까", "압니까", "아나", "아나요", "알아유", "아노", "알지", "알죠"]]
+QUICK_KINDS["can_sing"] = (_SING_KO + [
+    "do you know how to sing", "are you able to sing", "is singing something you can do", "do you sing", "can robots like you sing",
+    "do you know how to sing songs", "are you able to sing at all", "is lumi able to sing", "do you know any singing",
+    "노래 부를 줄은 알아", "노래는 할 줄 알아요", "노래 부르는 거 할 줄 알아", "singing 할 줄 알아", "sing 할 줄 알아요",
+], {"en": ["Yes, I can sing! I have a few songs of my own. Shall I sing one for you?",
+           "I can! I know some songs of my own. Want to hear one?"],
+    "ko": ["네, 노래할 수 있어요! 제 노래가 몇 곡 있어요. 한 곡 불러 드릴까요?",
+           "할 줄 알아요! 제 노래가 있는데, 한 곡 들어 보실래요?"]})
+QUICK["no"] += ["노래 불러 줘", "노래 불러 줄래", "노래 한 곡 불러 주세요", "sing a song", "sing me a song", "sing for me",
+                "노래 좋아해", "노래 잘해", "do you like singing", "what songs can you sing", "무슨 노래 할 줄 알아", "부를 줄 아는 노래 뭐야",
+                "춤 출 줄 알아", "요리할 줄 알아", "수영할 줄 알아", "거짓말 할 줄 알아", "can you cook", "do you know how to swim"]
+# whose robot Lumi is ("너 어느 회사 거야?", "어디 회사 거예요?"): the maker, not the company's place (co_hq) or what it does (co_what)
+QUICK["maker"] = QUICK.get("maker", []) + [
+    s + e for s in ["너 어느 회사 거", "어느 회사 거", "어디 회사 거", "너 어디 회사 거", "루미 어디 회사 거", "이 로봇 어느 회사 거", "이 로봇 어디 회사 거",
+                    "어느 회사 제품", "어디 제품", "어느 회사 로봇", "너 어디 제품", "어디서 나온 로봇"]
+    for e in ["야", "예요", "에요", "니", "입니까", "인가요", "고", "여", "냐", "임", "이야", "이에요"]] + [
+    "who designed and built you", "who built and designed you", "who made and programmed you", "what company built you",
+    "which company built you", "what company created you", "which company designed you", "whose robot are you",
+    "whose robot is this", "which brand are you", "what brand is this robot",
+]
+QUICK["who"] = QUICK.get("who", []) + ["tell me about you", "tell me something about you", "tell me a bit about you", "what do you do",
+    "what do you do exactly", "what is it you do", "what's your job here", "what's your role", "너에 대해 알려 줘", "너에 대해 말해 줘",
+    "너에 대해 알려 주세요", "루미에 대해 알려 주세요", "당신에 대해 소개해 주세요"]
+QUICK["height"] = QUICK.get("height", []) + ["how tall is this thing", "how tall is this machine", "how tall is the robot", "how high is lumi",
+    "이거 키가 얼마야", "이 기계 키 몇이에요"]
+QUICK["name_meaning"] = QUICK.get("name_meaning", []) + [
+    s + e for s in ["루미 무슨 뜻", "루미가 무슨 뜻", "루미는 무슨 뜻", "루미라는 이름 무슨 뜻", "루미 뜻", "루미란 이름은 무슨 뜻"]
+    for e in ["이에요", "이야", "이니", "입니까", "이고", "이여", "인가요", "이죠"]] + [
+    "why is your name lumi", "why are you named lumi", "what does the name lumi mean", "why the name lumi",
+    "왜 루미라고 불러", "왜 이름이 루미야", "왜 루미예요", "왜 루미라고 지었어요"]

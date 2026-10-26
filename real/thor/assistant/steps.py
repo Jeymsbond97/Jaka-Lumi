@@ -44,7 +44,7 @@ _PEOPLE = r"(?:them|him|her|someone|somebody|the person(?: there)?|people|the pe
 # where one step ends and the next starts
 _SPLIT = re.compile(r"\s*(?:,|;|\.(?=\s|$)|\band then\b|\bthen\b|\band\b|\bafter that\b|\bafterwards\b|\bonce you'?re there\b|"
                     r"\bwhen you get there\b|그리고 나서|그러고 나서|그런 다음에?|그 후에?|그리고|그 ?다음에?|그담에|다음에)\s*")
-_SPLIT_KO = re.compile(r"(?<=[가-힣](?:고|서))(?<!라고)(?<!다고)(?<!자고)(?<!냐고)(?<!에서)(?<!말고)\s+(?!있)|(?<=다가)\s+")   # "들고 ", "가서 ": a verb
+_SPLIT_KO = re.compile(r"(?<=[가-힣](?:고|서))(?<!라고)(?<!다고)(?<!자고)(?<!냐고)(?<!에서)(?<!말고)\s+(?!있)(?!(?<![가와해]서\s)(?:줘|줘요|주세요|주십시오|줄래|주실래|주라|주게|주이소|봐|봐요|보세요)(?![가-힣]))|(?<=다가)\s+")   # "들고 ", "가서 ": a verb
                                                                                         # joining two steps, not a quote
 
 def _norm(text, markers=()):

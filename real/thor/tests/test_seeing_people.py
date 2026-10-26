@@ -51,7 +51,7 @@ CASES = [   # (question, regex the answer must match; None: not a seeing questio
     ("Lumi, am I wearing a hat?", r"^Yes.*black cap"),
     ("what colour is my cap?", r"black cap"),
     ("do I have a bag?", r"^Yes.*blue backpack"),
-    ("am I wearing a mask?", r"^No, I don't see a mask"),
+    ("am I wearing a mask?", r"^No, you don't have a mask on"),
     ("what colour is my hair?", r"hair looks brown"),
     ("is my hair short?", r"^No, your hair looks long"),
     ("is my hair long?", r"^Yes, your hair looks long"),
@@ -71,7 +71,7 @@ CASES = [   # (question, regex the answer must match; None: not a seeing questio
     ("안경 쓰셨나요?", r"^네, 안경을"),
     ("모자 쓰고 있어요?", r"검은색 모자를 쓰고"),
     ("가방 메고 있습니까?", r"파란색 백팩을 메고"),
-    ("마스크 썼어?", r"^아니요, 마스크는 안 보여요"),
+    ("마스크 썼어?", r"^아니요, 마스크는 안 쓰고 계세요"),
     ("내 머리 무슨 색이야?", r"갈색 머리"),
     ("머리 길어?", r"^네, 머리가 길어"),
     ("제 머리 짧아요?", r"^아니요, 머리가 길어"),
@@ -128,7 +128,7 @@ assert re.search(r"I looked again\. No, you're not wearing glasses", ask("are yo
 setup(me={**ME, "glasses": None, "hat": None, "bag": {"kind": "handbag", "colour": "red"}})
 seeing._last.update(kind=None, asked=None)
 assert re.search(r"can't see your face", ask("am I wearing glasses?"))
-assert re.search(r"^No, I don't see a hat", ask("am I wearing a hat?"))
+assert re.search(r"^No, you don't have a hat on", ask("am I wearing a hat?"))
 assert re.search(r"red handbag", ask("do I have a bag?"))
 assert re.search(r"빨간색 핸드백", ask("가방 메고 있어요?"))
 

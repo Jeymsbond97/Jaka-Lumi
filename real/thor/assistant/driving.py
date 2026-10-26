@@ -24,13 +24,13 @@ SPAN_M = 0.2                 # m; "한 뼘", one hand span; estimate
 STEP_M = 0.5                 # m; one step ("two steps", "한 걸음", "반 걸음"); estimate of a person's step
 TURN_MORE_DEG = 15.0         # deg; "a bit more" right after a turn: this much further the same way
 
-DIRS = (("back", r"\bback(?:wards?)?\b(?! down\b)|\bbackward\b|\breverse\b|^(?:let'?s )?(?:bake|big)\b(?= \d| half| a )|뒤로|뒤쪽|후진|"
+DIRS = (("back", r"\bback(?:wards?)?\b(?! down\b)|\bbackward\b|\breverse\b|\bretreat\b|^(?:let'?s )?(?:bake|big)\b(?= \d| half| a )|뒤로|뒤쪽|후진|"
                  r"물러"),                                    # whisper's "let's bake / big one meter"
         ("forward", r"\bforwards?\b|\bahead\b|앞으로|앞쪽|전진"),
-        ("left", r"\b(?:to the |to your )?left\b|왼쪽|좌측"),
-        ("right", r"(?<!all )\b(?:to the |to your )?right\b(?! now| away| here| there| back)|오른쪽|우측"))
+        ("left", r"\b(?:to the |to your )?left\b|왼 ?쪽|왼편|웬쪽|좌측"),
+        ("right", r"(?<!all )\b(?:to the |to your )?right\b(?! now| away| here| there| back)|오른 ?쪽|오른편|우측"))
 VERB = re.compile(r"\b(?:move|go|come|drive|step|scoot|scooch|shift|inch|roll|back (?:up|off)|reverse|get)\b|"
-                  r"가|와|이동|움직|물러|빠져|후진|전진|비켜")
+                  r"(?<![신인는])가|와|이동|움직|물러|빠져|후진|전진|비켜")   # not "…있으신가요?"
 NEAR_THING = re.compile(r"(?:테이블|책상|탁자|의자|소파|문|벽|창문)\s*(?:앞|옆|뒤)|"
                         r"(?<![가-힣])(?!(?:루미야?|조금만?|살짝|다시|그냥|이제|저기요?|여기|거기|약간|천천히|빨리|얼른|어서|그럼|근데|"
                         r"그리고|좀|더|한|두|세|반|쭉|바로|똑바로|계속|한번|한 번|일단|먼저|자|아주|많이|쪼끔|쬐끔|요만큼|뼘|걸음|발짝|발자국|미터|센티|센치|밀리)만?(?:\s|$))(?:[가-힣][가-힣_]{0,9}|(?<![a-z0-9_.])(?!(?:m|cm|mm|lumi|loomi|rumi|hey|ok|okay|please)\b)[a-z][a-z0-9_]*)\s*"
@@ -58,6 +58,7 @@ VAGUE = re.compile(r"\b(?:more|less|longer|further|farther|bit more|bit less) th
                    r"(?:가|와|이동|움직|후진|전진)")   # an amount half said: asked, never a guess
 NUM_WORD = re.compile(r"\b(?:eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|"
                       r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|dozen|couple|several|few|half)\b")
+UNIT_WORD = re.compile(r"미터|센티|센치|밀리|(?<![a-z])(?:cm|mm|meters?|metres?|centimet(?:er|re)s?|millimet(?:er|re)s?)(?![a-z])")
 KO_NUM_WORD = re.compile(r"(?<![가-힣])(?:하나|둘|셋|넷|다섯|여섯|일곱|여덟|아홉|열|스물|서른|마흔|쉰)(?:만|쯤|정도)?(?![가-힣])")
                                                     # "앞으로 다섯만 가": a count with no unit, asked
 KO_COUNT = re.compile(KO_NUM_WORD.pattern + r"|(?<![가-힣])[이삼사오육칠팔구]?[십백][일이삼사오육칠팔구]?(?:만|쯤|정도)?(?![가-힣])|"
@@ -122,6 +123,9 @@ def amount(t):
         return 0.25, True                                    # "a quarter of a meter"
     if VAGUE.search(t):
         return "?", False                                    # "more than a meter", "to meters" (two?), "move back some"
+    m = re.search(r"(?<![\w.])(\d+) ?m ?([1-9]0)(?:만|쯤|정도)?(?![\d.]|\s*(?:m|cm|mm|센|밀|도|times|번)(?![a-z]))", t)
+    if m:
+        return int(m.group(1)) + int(m.group(2)) / 100, True   # "1미터 50": 1.5 m
     m = re.search(r"(?<![\w.])(\d+(?:\.\d+)?) m(?![a-z])", t)
     if m:
         return float(m.group(1)), True
@@ -135,7 +139,7 @@ def amount(t):
         if m and not re.search(r"\b(?:few|couple|several|some)\b", t):
             n = m.group(1)
             return (float(n) if n and n[0].isdigit() else _NATIVE.get(n, 1)) * unit, False
-    if re.search(r"(?<![a-z\d.])\d", t) or NUM_WORD.search(t) or KO_NUM_WORD.search(t):
+    if re.search(r"(?<![a-z\d.])\d", t) or NUM_WORD.search(t) or KO_NUM_WORD.search(t) or UNIT_WORD.search(t):
         return "?", False                                    # "move back 20", "two feet", "a couple of metres",
                                                              # "오른쪽으로30가게"
     if LITTLE.search(t):

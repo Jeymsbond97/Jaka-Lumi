@@ -77,7 +77,7 @@ KO_CANON = ((r"있습니까|있나요|있냐|있니|있노|있는교|있심니�
             (r"입니까|인가요|이냐|이니|이노|인교|입니꺼", "이야"), (r"(미터|명|개)고(?=\s*\?)", r"\1야"),
             (r"아닙니다|아입니다|아이다", "아니야"), (r"(?<=[가-힣])입니다", "이야"), (r"말씀해", "말해"),
             (r"(?<![가-힣])내(?=하고|랑)", "나"), (r"(?<![가-힣])니(?=하고|랑)", "너"), (r"(?:나|저)하고\s*(?:너|루미)하고", "나하고"),
-            (r"(?<![가-힣])함(?=\s)", "한번"), (r"려어(?=놨|놓)", "려"), (r"(?<=[\s가-힣])(?:보십시오|보세요|봐요|보이소|봐라|봐\s*주세요|봐\s*줘)", "봐"))
+            (r"(?<![가-힣])함(?=\s)", "한번"), (r"^(\W*(?:\S+\s+)?)(그럼|그러면|근데|그리고)(?=[가-힣])", r"\1\2 "), (r"려어(?=놨|놓)", "려"), (r"(?<=[\s가-힣])(?:보십시오|보세요|봐요|보이소|봐라|봐\s*주세요|봐\s*줘)", "봐"))
 EN_IN_KO = ((r"\bwhat\s*(?:colou?r|색)", "무슨 색"), (r"\bcolou?rs?\b", "색"), (r"\bwhich side\b", "어느 쪽"),
             (r"\b(?:you\s+)?see\b", "보여"), (r"\bhow far\b", "얼마나 떨어져"), (r"\bdistance\b", "거리"),
             (r"\bnow\b", "지금"), (r"\breally\b", "진짜"), (r"\bholding\b|\bhold\b", "들고"), (r"\bhow many\b", "몇"),
@@ -94,7 +94,7 @@ EN_IN_KO = tuple((rx.replace(r"\b", r"(?<![A-Za-z])", 1).replace(r"\b", r"(?![A-
 KO_IN_EN = ((r"색깔?|컬러", "colour"), (r"상의|윗옷", "top"), (r"바지", "trousers"), (r"(?<![가-힣])(?:나|저)(?![가-힣])", "me"),
             (r"(?<![가-힣])(?:내|제)(?![가-힣])", "my"), (r"손가락", "fingers"), (r"주머니", "pocket"), (r"사람", "people"),
             (r"오른손", "right hand"), (r"왼손", "left hand"), (r"신발", "shoes"), (r"셔츠", "shirt"), (r"보여", "see"))
-EN_CANON = ((r"\bpeoples\b", "people"), (r"\bwhat (?:do )?i hold\b", "what am I holding"),
+EN_CANON = ((r"\bpeoples\b", "people"), (r"\b(is|are) dare\b", r"\1 there"), (r"\bready,? (?:set|steady),? go\b\W*", ""), (r"\bu\b", "you"), (r"\bda\b", "the"), (r"\bwhat (?:do )?i hold\b", "what am I holding"),
             (r"\bwhat i am (wearing|holding|doing)\b", r"what am I \1"), (r"\bwhat (?:clothes )?(?:do )?i wear(?:ing)?\b", "what am I wearing"),
             (r"\bwhat you see\b", "what do you see"), (r"\b(?:would|will) you be able to see\b|\bare you able to see\b", "can you see"),
             (r"^\W*(?:a |an |the )?(?!(?:do|does|can|could|would|will|did|i|you|and|so|what|which|how)\b)([a-z]+(?: [a-z]+)?) "
@@ -173,6 +173,8 @@ def canon(t):
     t = self_fixed(t)
     for rx, to in KO_CANON:
         t = re.sub(rx, to, t)
+    t = GLUED_COLOUR.sub(r"\1 ", t)
+    t = re.sub(r"(?<![가-힣])(제|내)(?=머리|바지|옷|윗옷|셔츠|티셔츠|신발|모자|안경|가방|손|자세)", r"\1 ", t)   # "제머리색 뭐예요?"                        # "분홍색바나나 보여?" -> "분홍색 바나나 보여?"
     if not re.search(r"[가-힣]", t):
         for rx, to in EN_CANON:
             t = re.sub(rx, to, t, flags=re.I)
@@ -194,6 +196,8 @@ _THING_EN = r"(?:(?P<col>" + "|".join(c for c in COLOURS if c.isascii()) + r")\s
 _THING_KO = r"(?:(?P<col>" + "|".join(c for c in COLOURS if not c.isascii()) + r")\w*\s*)?(?<![가-힣])(?<!몇 )(?P<obj>" + \
     "|".join(sorted(KO_WORDS, key=len, reverse=True)) + r")(?=[\s?.,!~]|$|[은는이가을를도의에랑와과요야]|까지|하고)"
                                  # a whole word: not 연 (kite) in 연구소, 개 (dog) in "몇 개"
+GLUED_COLOUR = re.compile(r"((?:" + "|".join(c for c in COLOURS if not c.isascii()) + r")색)(?=(?:" +
+                          "|".join(sorted(KO_WORDS, key=len, reverse=True)) + r"))")
 
 SEE_ME = re.compile(r"^\W*(?:wait,?\s*)?you see me\b|" r"(?<![가-힣])(?:나|저)\s*(?:를|가)?\s*잘\s*보여|" r"\b(do|can) you see me\b|\bam i (visible|in (your )?view)\b|(?<![가-힣])(나|저)(를|)? ?보여|(?<![가-힣])(나|저) ?보이|(?:내가|제가)\s*보여", re.I)
 SEE_THING = re.compile(r"(?<!what )\b(?:do|can|could) you (?:still )?(?:see|spot|notice)\b.*?\b(?:a|an|the|any|some|my)?\s*" + _THING_EN, re.I)
@@ -247,13 +251,16 @@ SIDE_Q = re.compile(r"\bwhat(?:'s| is| do you see| can you see)? (?:there )?(?:o
 HOW_MANY = re.compile(r"\bhow many (?:people|persons|visitors|humans|folks|guys)\b|\bhow many of us\b|몇 ?(?:명|사람)|몇\s*분이?나?\s*(?:보여|있)|"
                       r"몇\s*분\s*(?:이\s*)?계|\bcount (?:the )?(?:people|persons|heads|us)\b|사람\s*(?:count|how many)|"
                       r"\bare we (?:\w+ )?(?:or|two|three|four)\b.*\bhow many\b|"
-                      r"^\W*(?:(?:and|so|okay)\W+)?(?:(?:지금|이제|now)\s*(?:은|는)?\s*how many|how many(?: do you see| are there)? now)\W*$",
-                      re.I)   # "How many now?"
+                      r"^\W*(?:(?:and|so|okay)\W+)?(?:(?:지금|이제|now)\s*(?:은|는)?\s*how many|how many(?: do you see| are there)? now)\W*$|"
+                      r"\bhow many(?: (?:people|of us))?(?: do you see| are there| (?:are )?(?:here|left))? now\b",
+                      re.I)   # "How many now?", "someone left. How many now?"
 NOT_IN_VIEW = re.compile(r"\b(?:work|works|working|employ\w*|staff|company|companies|campy|firm|cutshion|country|city|"
                          r"live|lives|living|world|team|office|branch|developers?|engineers?|built|made|came|visited|talked|met)\b|"
                          r"직원|회사|쿳션|일하|일해|근무|나라|국가|도시|살아|사는|인구|팀|지사|만든|만들|개발자|엔지니어|왔었|다녀갔|만났|얘기했|이야기했",
                          re.I)   # "how many people work at Cutshion?": the company, not the cameras
-HOLDING = re.compile(r"(?<![가-힣])손(?:에는|엔|에)\s*(?:뭐|뭘|무엇)(?:가|이)?\s*(?:들었|있|쥐|잡)|" r"\bi'?m holding (?:an? |the |my )?(?:\w+ )?\w+,? (?:right|correct|yes)\s*\?|" r"^\W*(?:\S+\s+)?(?:이거|이건|이게|이기|이것)\s*\S+\s*맞(?:죠|지|제|아|나요|습니까|나)|" r"(?:사람|분|person|친구)\S*\s*(?:은|는)?\s*(?:지금\s*)?(?:손에\s*)?(?:뭐|뭘|무엇을?)\s*(?:들었|들고|holding|쥐고)|" r"\bwhat (?:thing )?(?:do )?i hold\b|" r"\bwhat(?:'s| is| am| do)? (?:i|is (?:in|on) my (?:left |right |other )?hands?|(?:in|on) my (?:left |right |other )?hands?)\b.*?\b(?:holding|carrying|have)\b|"
+HOLDING = re.compile(r"\bi (?:just )?picked (?:something|it|this|that|one) up\b.*\bwhat\b|"
+                     r"(?:뭐|뭘|무엇을?|뭔가|하나)\s*(?:집었|주웠|잡았)\S*\W*(?:\S+\s+)?(?:뭐|뭔|무엇|what)|"
+                     r"(?<![가-힣])손(?:에는|엔|에)\s*(?:뭐|뭘|무엇)(?:가|이)?\s*(?:들었|있|쥐|잡)|" r"\bi'?m holding (?:an? |the |my )?(?:\w+ )?\w+,? (?:right|correct|yes)\s*\?|" r"^\W*(?:\S+\s+)?(?:이거|이건|이게|이기|이것)\s*\S+\s*맞(?:죠|지|제|아|나요|습니까|나)|" r"(?:사람|분|person|친구)\S*\s*(?:은|는)?\s*(?:지금\s*)?(?:손에\s*)?(?:뭐|뭘|무엇을?)\s*(?:들었|들고|holding|쥐고)|" r"\bwhat (?:thing )?(?:do )?i hold\b|" r"\bwhat(?:'s| is| am| do)? (?:i|is (?:in|on) my (?:left |right |other )?hands?|(?:in|on) my (?:left |right |other )?hands?)\b.*?\b(?:holding|carrying|have)\b|"
                      r"\bwhat(?:'s| is)(?: it| this| that)? (?:in|on|with) my (?:left |right |other )?hands?\b|\bwhat(?:'s| is) my (?:left |right |other )?hands?\?|\bwhat (?:do )?i have (?:in|on) my (?:left |right |other )?hands?\b|\bam i holding\b|"
                      r"\bis there (?:something|anything) in my hand\b|\bwhat is this\b(?=.*\bhand\b)|\bwhat am i hold in\b|\banything (?:in|on) my (?:left |right |other )?hands?\b|"
                      r"\bwhat\b.{0,25}\b(?:i'?m|i am) (?:holding|carrying)\b|\bwhat(?:'ve| have| do) i (?:got|have)\b(?! to)|"
@@ -362,7 +369,9 @@ _TYPES_EN = rf"{_UPPER}|{_LOWER}|{_FEET}|dress(?:es)?|vests?|blazers?|cardigans?
 WEAR_ITEM = re.compile(rf"\b(?:i'?ve got|i have|i'?m wearing|i am wearing)\s+(?:an?\s+)?(?:\w+\s+)?(?:{_TYPES_EN})(?:\s+on)?,?\s+(?:right|correct|yes|yeah)\s*\?|" rf"^\W*(?:\w+\s+)?(?:{_TYPES_EN}),?\s+(?:i'?m|am i)\s+right\s*\?|" rf"\b(?:{_TYPES_EN})\b or (?:an? )?(?:{_TYPES_EN})\b.{{0,20}}\b(?:i'?ve got on|i(?:'m| am) wearing|on me)\b|" rf"\b(?:am i|is (?:she|he|my friend|the other (?:person|guy|man|woman)))\s+(?:wearing|in|dressed in)\s+"
                        rf"(?:a |an |any |my )?(?:[\w-]+\s+)?(?:{_TYPES_EN})\b|\bdo i have (?:a |an |any )?(?:\w+\s+)?(?:{_TYPES_EN}) on\b|"
                        rf"(?:{_UPPER_KO}|{_LOWER_KO}|{_FEET_KO}|원피스|조끼|블라우스|후드|부츠|샌들)\s*(?:을|를)?\s*"
-                       r"(?:입었|입고|입으셨|입으신|신었|신고|신으셨)(?:\s*(?:있|계))?\S*\s*\??\W*$", re.I)
+                       r"(?:입었|입고|입으셨|입으신|신었|신고|신으셨)(?:\s*(?:있|계))?\S*\s*\??\W*$|"
+                       rf"(?:{_UPPER_KO}|{_LOWER_KO}|원피스)\S*\s*(?:입었|입고|입으셨)\S*\s*(?:아니면\s*|or\s*)?"
+                       rf"(?:{_UPPER_KO}|{_LOWER_KO}|원피스)\S*\s*(?:입었|입고|입으셨)", re.I)   # "청바지 입었어 치마 입었어?"
                                  # "am I wearing a jacket?", "is she in jeans?", "청바지 입었어?"
 PATTERN_Q = re.compile(r"\bis this (?:\w+ )?(?:shirt|top|t-shirt|jacket|sweater|hoodie) (?:striped|checked|plain|printed|dotted|patterned)\b|" rf"\b(?:my|her|his)\s+(?:\w+\s+)?(?:{_UPPER}|{_LOWER}|clothes)\b.{{0,30}}\b(?:striped|stripes|stripy|checked|"
                        r"checkered|plaid|patterns?|patterned|plain|printed|dotted|polka)\b|"
@@ -390,7 +399,20 @@ FOLLOW_EN = re.compile(r"^\W*(?:(?:and|so|then|ok(?:ay)?|well|but|no|sorry|oh|al
 FOLLOW_KO = re.compile(r"^\W*(?:(?:그럼|그러면|그리고|근데|아니요|아니|아뇨)[\s,]*)*(?:\S+(?:\s*거)?\s*말고[\s,]*)?"
                        r"(?:(?:내|제|그|저|이)\s+)?(?P<x>.+?)\s*(?:(?:은|는|도)요?|말(?:이야|이에요|이요|요|고요)|요)?[\s?.!]*$")
 BYE = re.compile(r"\b(?:bye|goodbye|see you|see ya|later)\b|안녕|잘 ?(?:가|있어)", re.I)   # ends the thread
-ABOUT_LUMI = re.compile(r"(?:루미|너|니가|네가|당신)(?:는|은|가|도)?\s|^\W*넌|\bare you\b|\byou(?:'re| are) wearing\b", re.I)
+ABOUT_LUMI = re.compile(r"(?:루미|너|니가|네가|당신)(?:는|은|가|도|의)\s|(?<![가-힣])(?:너|니가|네가|당신)\s|루미\s+머리|^\W*넌|"
+                        r"\bare you\b|\byou(?:'re| are) wearing\b", re.I)   # "루미 바지 무슨 색이야?": a call (Lumi wears none)
+VOCATIVE = re.compile(r"(?:루미|로봇|\blumi|\brobot|\bloomy|\brumi)\s*(?:(?:쌤|선생님|선배님?|프로|선수|님|아저씨|양반|친구|군|양|짱|사장님|"
+                      r"착하지|야|아)(?![가-힣])|씨)|"
+                      r"(?:루미|로봇)\s*[,!]|(?:^|(?<=[\s,]))(?:친구|동료)(?:야|아|님)?\s*[,!]", re.I)
+                                 # "루미 씨, ...", "로봇 친구", "동료, 제 바지 ...": a call, not whom it is about
+FIRST_PERSON = re.compile(r"(?<![가-힣])(?:제가|내가|저는|나는|제|내|나|저(?!\s*(?:사람|분|쪽|기|거)))(?![가-힣])|"
+                          r"\b(?:i|me|my|mine|i'?m)\b", re.I)
+
+
+def _about_lumi(t):
+    """"루미는 무슨 옷 입었어?", "루미 머리 무슨 색이야?": about Lumi; "루미 씨, 제 바지 무슨 색이에요?": about the speaker."""
+    u = VOCATIVE.sub(" ", t)
+    return bool(ABOUT_LUMI.search(u)) and not FIRST_PERSON.search(u)
 ONE = re.compile(r"(?P<col>" + "|".join(COLOURS) + r")\w*\s*(?:ones?|거|것|걸)?", re.I)   # "the blue one", "파란 거"
 UP_ASKED = re.compile(r"\bup\b|\braised?\b|\braising\b|올라|올렸|손\s*(?:을\s*)?들(?:고|었)", re.I)
 HELD_ASKED = re.compile(r"\bhold|\bhave it\b|\bin my\b|\bit\b|\b(?:that|this) in\b|들고|쥐고|잡고|있(?:어|습|나|니)|들었게", re.I)
@@ -844,6 +866,7 @@ def _clothes_answer(p, text, lang, looks=None):
     kinds = {part: _type_of(part, looks) for part in NOUN}
     asked = [(part, (kinds[part] if lang == "en" else TYPE_KO.get(kinds[part], w)) if kinds[part] and GENERIC.fullmatch(w) else w)
              for _, part, w in sorted(asked)]              # "my bottoms" -> "your jeans" when the looks know the kind
+    named = bool(asked)                                    # pieces named: each one is answered, seen or not
     asked = asked or \
         [(part, (kinds[part] if lang == "en" else TYPE_KO.get(kinds[part])) if kinds[part] else NOUN[part][lang != "en"])
          for part in NOUN]
@@ -858,7 +881,9 @@ def _clothes_answer(p, text, lang, looks=None):
         return _say(f"Your {w} {'look' if w.endswith('s') else 'looks'} {c}.",
                     f"{_j(w, '은', '는')} {COLOUR_KO.get(c, c)}으로 보여요.", lang)
     shown = [(part, w, c) for part, w, c in seen if c]
-    hidden = [w for _, w, c in seen if not c]
+    hidden = [w for part, w, c in seen if not c and (named or part != "feet" or not seen[1][2])]
+                                 # "what am I wearing?": shoes out of view are not said alone (the head camera seldom
+                                 # sees the feet); with the trousers out of view too, both are
     if not shown:
         return _say("I can't see your clothes well enough to tell.", "옷이 잘 안 보여서 모르겠어요.", lang)
     en = [f"{c} {w}" for _, w, c in shown]
@@ -957,7 +982,7 @@ FAMILY = {"t-shirt": "top", "tee": "top", "shirt": "top", "blouse": "top", "polo
                                  # what counts as the same kind of piece ("shirt" asked, a t-shirt seen: yes)
 EXACT = {"jeans": ("jeans", "jean", "genes", "청바지")}   # asked by these words, only jeans is a yes
 PATTERN_ASKED = re.compile(r"\b(?:striped|stripes?|stripy|checked|checkered|chequered|plaid|patterns?|patterned|plain|"
-                           r"printed|prints?|dotted|dots|polka|logo)\b|무늬|줄무늬|체크|민무늬|프린트|그림|로고|도트|땡땡이", re.I)
+                           r"printed|prints?|dotted|dots|polka|logo)\b|무늬|줄무늬|체크(?!\s*(?:하|해|했|좀))|민무늬|프린트|그림|로고|도트|땡땡이", re.I)
 PATTERN_SAID = {"plain": ("plain", "무늬가 없어"), "striped": ("striped", "줄무늬가 있어"), "checked": ("checked", "체크무늬가 있어"),
                 "printed": ("printed", "프린트가 있어"), "dotted": ("dotted", "물방울무늬가 있어")}
 LENGTHS = {"short": ("short", "짧아"), "medium": ("medium length", "중간 길이예요"), "long": ("long", "길어"),
@@ -994,6 +1019,7 @@ PLURAL_WEAR = re.compile(r"\b(?:jeans|pants|trousers|shorts|leggings|shoes|sneak
 def _who(t):
     """Whom a question about a person asks about: "front" (the one talking), "other", or "left" / "right" (the person
     on that side as Lumi sees it)."""
+    t = VOCATIVE.sub(" ", t)                               # "로봇 친구, 제가 뭐 하고 있어요?": the speaker
     m = SIDE_WHO.search(t)
     if m:
         side = (m.group("s") or m.group("s2") or {"왼": "left", "오른": "right"}.get(m.group("k"))).lower()
@@ -1232,7 +1258,8 @@ def _wearing_answer(t, p, frames, lang, slow_line, more, who):
         ko = _ko_thing(v)
         return _say(f"Yes, you {en_v} {noun}.", f"네, {_j(ko, '을', '를') if ko else obj} {verb} 계세요.", lang)
     word = {"glasses": "glasses", "hat": "a hat", "mask": "a mask", "bag": "a bag"}[acc]
-    return _say(f"No, I don't see {word} on you.", f"아니요, {obj[:-1]}{'은' if obj[-2] in '경' else '는'} 안 보여요.", lang)
+    return _say(f"No, you don't have {word} on." if acc != "bag" else "No, you don't have a bag.",
+                f"아니요, {_j(obj[:-1], '은', '는')} 안 {verb} 계세요.", lang)
 
 
 def _hair_answer(t, looks, lang):
@@ -1428,7 +1455,7 @@ def answer(text, lang="en", frames=None, slow_line=None):
     kind = own
     if kind == "posture" and (FAR_ME.search(t) or HOW_FAR.search(t)):
         kind = "far"                                       # "how far am I standing?": the distance
-    if kind in ("shirt", "wearing", "hair", "describe", "wear_item") and ABOUT_LUMI.search(t):
+    if kind in ("shirt", "wearing", "hair", "describe", "wear_item") and _about_lumi(t):
         return None                                        # "루미는 무슨 옷 입었어?": about Lumi, not the visitor
     _last["after"] = 0.0                                   # a new question: looks of the last LOOKS_S do
     if kind in PERSON_KINDS:
@@ -1436,12 +1463,12 @@ def answer(text, lang="en", frames=None, slow_line=None):
     elif kind is None and last in PERSON_KINDS and _last["asked"] and (WHO_ELSE.search(t) or ME_AGAIN.search(t)):
         kind, t = last, _last["asked"][1]                  # "what about her?", "그 사람은?", "and me?": the same question
         _last["who"] = "other" if WHO_ELSE.search(text) else "front"
-    if kind is None and last in SEE_KINDS and _last["thing"] and not ABOUT_LUMI.search(t) and \
+    if kind is None and last in SEE_KINDS and _last["thing"] and not _about_lumi(t) and \
             (IT_WHERE.search(t) or IT_COLOUR.search(t) or IT_SIZE.search(t) or IT_COUNT.search(t)):
         kind = "it"                                        # "where is it?", "무슨 색이야?" about the thing just seen
     if kind is None and last:
         kind, t = _follow_up(t, last)
-    if kind is None or kind == "how_many" and NOT_IN_VIEW.search(t) or \
+    if kind is None or kind == "how_many" and NOT_IN_VIEW.search(t) and not NOW_END.search(t) or \
             kind == "where" and _thing(WHERE_THING.search(t))[0] in BIG:
         return None                                        # "where is the toilet?": the way there, not the cameras
     if kind == "far" and not (FAR_THING.search(t) or SEE_THING_KO.search(t)):
@@ -1455,12 +1482,13 @@ def answer(text, lang="en", frames=None, slow_line=None):
     if not frames:
         return _say(*NO_CAMERA, lang)
     said = _reply(kind, t, frames, lang, slow_line, more)
+    _last["state"] = _state(frames)                        # "and now?" next: what changed besides the question
     if _live(frames, more) and kind in PERSON_KINDS + ("see_me", "how_many", "closest", "friend"):
         threading.Thread(target=prefetch, args=(frames,), daemon=True).start()   # the next question about them: at once
     return said
 
 
-CHANGED = re.compile(r"\bput (?:\w+ )?\w+ on\b|\boff\b|\bsit\b|\bstand\b|다른\s*(?:거|것|걸)\s*들었|벗었|벗어|썼어요|썼습니다|꼈|앉았|일어섰|일어났|내렸|내려놨|옮겼|바꿨|놨|놓았|\btook (?:it |them |my \w+ )?off\b|"
+CHANGED = re.compile(r"\bput (?:\w+ )?\w+ on\b|\boff\b|\bsit\b|\bstand\b|다른\s*(?:거|것|걸)\s*들었|벗었|벗어|썼어요|썼습니다|썼어(?=\s*[.,!])|꼈|앉았|일어섰|일어났|내렸|내려놨|옮겼|바꿨|놨|놓았|\btook (?:it |them |my \w+ )?off\b|"
                      r"\bput (?:on|down|it down|them on)\b|\b(?:sat|stood) (?:down|up)\b|\bswitched\b|\bmoved\b|\bchanged\b|"
                      r"\blowered\b|\bremoved\b|\b(?:is|are) (?:gone|off)\b|'s (?:gone|off)\b|\bnow\b|지금|이제", re.I)
 CHANGE_KINDS = ((r"선글라스|sunglasses", "wearing", "am I wearing sunglasses?", "선글라스 썼어?"),
@@ -1493,7 +1521,7 @@ def _piece_of_someone(t):
 def _changed(t, last):
     """"I took my glasses off, now?", "모자를 벗었습니다. 지금은 쓰고 있습니까?", "앉았어요, 지금은?": the question about
     what they say changed, asked anew: (kind, words) or None."""
-    if not (CHANGED.search(t) and (AGAIN.search(t) or "?" in t or re.search(r"어때|어떻|보여|보이", t))):
+    if not (CHANGED.search(t) and (AGAIN.search(t) or "?" in t or re.search(r"어때|어떻|보여|보이|\bnow\W*$|\bwhich one\b", t, re.I))):
         return None
     for rx, kind, en, ko in CHANGE_KINDS:
         if re.search(rx, t, re.I):
@@ -1615,8 +1643,10 @@ def _check(t, lang, frames, since, slow_line, more=None):
         return _say(f"I count {_n(n)} {'person' if n == 1 else 'people'} in view now, not {count}; someone may be out of "
                     f"my view.", f"제 카메라에는 지금 {n}명이 보여요. 화면 밖에 계신 분이 있을 수도 있어요.", lang)
     if not (hand or said or denied or named):
+        old, _last["state"] = _last.get("state"), _state(frames)
         got = _reply(kind, asked, frames, lang, slow_line, more)
-        return got and _say("I looked again. ", "다시 봤어요. ", lang) + got
+        moved = _changes(old, _last["state"], kind, lang) if NOW_ASKED.search(t) else ""
+        return got and _say("I looked again. ", "다시 봤어요. ", lang) + got + moved
     p = scene.person_in_front(frames)
     if p is None:
         return _say("I can't see you well enough to tell. Could you step in front of me?",
@@ -1667,6 +1697,70 @@ def _check(t, lang, frames, since, slow_line, more=None):
         return _say(f"To my camera it looks like {_a(o['name'])}, not {_a(named)}, but I may be wrong.",
                     f"제 카메라에는 {_j(_ko_name(named), '이', '가')} 아니라 {_ko_name(o['name'])}(으)로 보여요. 틀릴 수도 있어요.", lang)
     return _verdict(o["colour"], said, denied, f"the {o['name']}", _ko_name(o["name"]), "looks", lang)
+
+
+NOW_END = re.compile(r"\bhow many\b[^.?!]{0,25}\bnow\W*$", re.I)   # "my friend just came. How many now?": the view
+NOW_ASKED = re.compile(r"\bnow\b|\bknow\b|\bthis time\b|지금|이제|이번", re.I)   # "and now?": a change is news too
+SKIP = {"posture": ("posture",), "holding": ("held",), "hand": ("held", "raised"), "raised": ("raised",),
+        "wearing": ("glasses", "hat", "bag"), "how_many": ("n",), "doing": ("posture", "held", "raised")}
+                                 # the fields the question itself answers: not said again as a change
+
+
+def _state(frames):
+    """What "and now?" compares: the person in front's posture, held things, raised hands, glasses / hat / bag (from
+    looks already had, never a new VLM look) and the number of people; None when nobody is in front."""
+    try:
+        p = scene.person_in_front(frames)
+        if p is None:
+            return None
+        lk = (p.get("looks") if "looks" in p else _cached_looks("front", p)) or {}
+        held = {s: h["object"]["name"] for s, h in p["hands"].items() if h and h.get("object")}
+        return {"posture": p.get("posture") or (lk.get("posture") if lk.get("posture") in POSE_SAID else None),
+                "held": held if all(p["hands"].values()) or held else None, "raised": tuple(p["raised"]),
+                **{k: lk.get(k) for k in ("glasses", "hat", "bag")}, "n": len(scene.people(frames))}
+    except Exception as e:                                 # noqa: BLE001 - stand-in cameras
+        print(f"seeing: no state ({e})", flush=True)
+        return None
+
+
+def _changes(old, new, kind, lang):
+    """" And now you're sitting.": what changed on the person in front since the answer before, beside what was asked
+    again ("" when nothing did or either look is missing)."""
+    if not old or not new:
+        return ""
+    en, ko = [], []
+    skip = SKIP.get(kind, ())
+    a, b = old["posture"], new["posture"]
+    if "posture" not in skip and a and b and a != b:
+        en.append(f"now you're {b}")
+        ko.append({"standing": "지금은 서 계세요", "sitting": "지금은 앉아 계세요", "crouching": "지금은 쪼그려 앉아 계세요"}[b])
+    a, b = old["held"], new["held"]
+    if "held" not in skip and a is not None and b is not None and a != b:
+        for s, x in b.items():
+            if a.get(s) != x:
+                en.append(f"now you're holding {_a(x)} in your {s} hand")
+                ko.append(f"지금은 {KO_SIDE[s]}손에 {_j(_ko_name(x), '을', '를')} 들고 계세요")
+        for x in set(a.values()) - set(b.values()):
+            en.append(f"you're not holding the {x} any more")
+            ko.append(f"이제 {_j(_ko_name(x), '은', '는')} 안 들고 계세요")
+    a, b = old["raised"], new["raised"]
+    if "raised" not in skip and a != b:
+        en.append(f"your {' and '.join(b)} hand is up now" if b else "your hand is down now")
+        ko.append(f"지금은 {'·'.join(KO_SIDE[x] + '손' for x in b)}을 들고 계세요" if b else "지금은 손을 내리셨어요")
+    for k, on_en, on_ko, off_ko in (("glasses", "glasses", "안경을 쓰고 계세요", "안경을 벗으셨어요"),
+                                    ("hat", "a hat on", "모자를 쓰고 계세요", "모자를 벗으셨어요"),
+                                    ("bag", "a bag", "가방을 메고 계세요", "가방을 내려놓으셨어요")):
+        a, b = old[k], new[k]
+        if k in skip or a is None or b is None or bool(a) == bool(b):
+            continue
+        en.append(f"now you have {on_en}" if b else f"you've taken your {'glasses' if k == 'glasses' else k} off")
+        ko.append(f"지금은 {on_ko}" if b else off_ko)
+    if "n" not in skip and old["n"] != new["n"]:
+        en.append(f"I see {_n(new['n'])} {'person' if new['n'] == 1 else 'people'} now")
+        ko.append(f"지금은 {new['n']}명이 보여요")
+    if not en:
+        return ""
+    return _say(" And " + ", and ".join(en) + ".", " 그리고 " + ". ".join(ko) + ".", lang)
 
 
 def _reply(kind, t, frames, lang, slow_line=None, more=None):
@@ -1761,7 +1855,7 @@ def _reply(kind, t, frames, lang, slow_line=None, more=None):
                         f"네, 다른 사람 {n}명이 더 보여요.", lang)
         return _say("No, I only see you now." if p else "No, I don't see anyone right now.",
                     "아니요, 지금은 한 분만 보여요." if p else "아니요, 지금은 아무도 안 보여요.", lang)
-    if kind == "shirt" and (OTHER.search(t) or _last.get("who", "front") != "front"):   # "what is my friend wearing?", "옆 사람 셔츠는 무슨 색이에요?"
+    if kind == "shirt" and (OTHER.search(VOCATIVE.sub(" ", t)) or _last.get("who", "front") != "front"):   # "what is my friend wearing?", "옆 사람 셔츠는 무슨 색이에요?"
         q = _someone(frames, _last.get("who") if _last.get("who", "front") != "front" else "other")
         if q is None:
             return _say("I only see you right now.", "지금은 한 분만 보여요.", lang)

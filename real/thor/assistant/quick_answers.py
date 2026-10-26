@@ -267,17 +267,19 @@ _said = {t for texts, _ in KINDS.values() for t in texts}
 NO = [t for t in NO if t not in _said]                              # a wording listed for a kind is that kind's
 
 CAMERA = re.compile(r"\b(?:see|seeing|saw|look(?:s|ing)?|watch|camera|wearing|holding|in front of|behind|colou?r|"
-                    r"recogni[sz]e|remember)\b|보여|보이|보니|(?<!해 )(?<!해)봐|봤|입었|들고|색|카메라|앞에|뒤에|알아봐|기억", re.I)
-ABOUT_ME = re.compile(r"\b(?:i(?! (?:call|address) you\b)|i'm|am i|my|me|mine)\b|(?:^|\s)(?:나|내|제|저|난|전)(?:는|가|를|의)?\s", re.I)
+                    r"recogni[sz]e|remember)\b|보여|보이|보니|(?<!해 )(?<!해)(?<!쭤 )(?<!쭤)(?<!여쭈어 )봐|봤|입었|들고|색|카메라|앞에|뒤에|알아봐|기억", re.I)
+ABOUT_ME = re.compile(r"\b(?:i(?! (?:call|address) you\b)(?! (?:talk|speak|chat) (?:to|with) you\b)|i'm|am i|my|"
+                      r"(?<!tell )(?<!give )(?<!let )(?<!show )me|mine)\b|(?:^|\s)(?:나|내|제|저|난|전)(?:는|가|를|의)?\s", re.I)
 FRAGMENT = re.compile(r"^\W*(?:and|so|but|then|or|also|why|really|seriously|wait|what about|how about|how come|are you sure)\b|"
                       r"^\W*(?:그럼|그러면|그리고|근데|그런데|그래서|아니|왜|진짜|정말|확실|설마|또)|"
                       r"\b(?:that|(?<!is )(?<!was )(?<!is it )(?<!how's )(?<!how is )it(?! is (?:now|today))|they|them|"
                       r"(?<!hello )(?<!hi )(?<!hey )there|this one|the arm|your arm)\b|"
                       r"그거|그건|거기|그분|그 회사|걔", re.I)   # not the clock's "it": "what day is it?"
-OTHER = re.compile(r"\b(?:lift|carry|hold|items?|(?<!this )things?|stuff|price|cost)\b|들 ?수|(?<!만)들어|물건|"
-                   r"^(?!.*(?:키|무게|체중|신장|속도|시간|나이)).*얼마(?:야|예요)|"
+OTHER = re.compile(r"\b(?:lift|carry|hold|items?|(?<!this )things?|stuff|price|cost)\b|들 ?수|(?<!만)(?<!알아)(?<!뭐 )들어|물건|"
+                   r"^(?!.*(?:키|무게|체중|신장|속도|시간|나이|높이|길이|크기)).*얼마(?:야|예요)|"
                    r"맞(?:아|지|죠|나|습니까)|아니(?:야|에요|죠)", re.I)   # what it can hold, the price, a check: the LLM
-SEVERAL = re.compile(r"\band\b|그리고|[?？].+\S|하고\s|랑\s", re.I)
+SEVERAL = re.compile(r"\band\b|\bthen\b|그리고|[?？].+\S|하고\s|랑\s|"
+                     r"[가-힣](?<![최광참사창공경재원])(?<!그리)고\s+(?!싶|있|계)", re.I)   # "고개 숙이고 몇 시야?", "보고 시간 알려 줘"
 EVENT_TIME = re.compile(r"\b(?:what time|what day|which day|what date) (?:does|do|did|will|is|are|was|were|should|can)\b"
                         r"(?!\s+(?:it|today)\b)|몇 ?시(?:에|부터|까지|쯤에)|며칠(?:에|까지|부터)|무슨 요일(?:에|까지|부터)|"
                         r"\b(?:open|close|start|end|begin|finish)\b|열어요|닫아요|시작|끝나", re.I)   # an event's time: the LLM
@@ -305,7 +307,8 @@ def _load():
 ASKING = re.compile(r"^\W*(?:(?:hang on|wait|okay|ok|so|um+|uh+|hey|excuse me|sorry|just out of curiosity|out of curiosity|"
                     r"i(?:'m| am) curious|quick question|one question|let me ask(?: (?:it|you|him|her))?|i bet (?:it'?s|you'?re) \w+|"
                     r"(?:may|can|could|might) i (?:ask|know)(?: you)?|i(?:'d| would) like to know|i want(?:ed)? to (?:ask|know)|"
-                    r"i wonder|do you mind (?:telling me|if i ask)|(?:(?:can|could|would|will) you )?tell me|might i trouble you for|could i trouble you for|잠깐(?:만)?|저기요?|궁금한데(?:요)?|궁금해서(?:요)?|"
+                    r"i wonder|do you mind (?:telling me|if i ask)|(?:(?:can|could|would|will) you )?tell me|might i trouble you for|could i trouble you for|잠깐(?:만)?|저기(?:요|유|예)?|이보게|자네|보소|"
+                    r"야야|궁금한 ?게 있는데(?:요)?|하나 여쭤봐도 될까요\??|여쭤봐도 될까요\??|궁금한데(?:요)?|궁금해서(?:요)?|"
                     r"하나 물어봐도 (?:돼|될까)요?|여쭤봐도 될까요|물어볼게(?:요)?|질문(?: 하나)?(?: 있어요| 있는데요?)?)"
                     r"\b[\s,.!?~:-]*)+", re.I)
     # "May I ask your age?", "Hang on, let me ask it. What's your name?", "궁금한데, 몇 살이에요?": the question after
@@ -315,7 +318,8 @@ def _core(text):
     from assistant import brain
     t = ASKING.sub("", brain.CALLING.sub("", brain.unfill(text or "")).strip()).strip() or text or ""
     t = re.sub(r"[\s,]*(?:lumi|루미야|루미)?[\s,.!?~]*$", "", t, flags=re.I).strip()
-    return t or (text or "").strip(" ,.!?~")
+    t = re.sub(r"얼만가$", "얼마예요", re.sub(r"(?<=[가-힣])는가$", "나요", re.sub(r"(?<=[가-힣])인가$", "인가요", t)))
+    return t or (text or "").strip(" ,.!?~")                # 하게체 questions ("키 얼만가", "얼마나 되는가") as 해요체
 
 
 def guarded(text, history=()):
@@ -330,6 +334,9 @@ def guarded(text, history=()):
         return "camera"
     if ABOUT_ME.search(t):
         return "about the visitor"
+    lead = re.match(r"^\W*(?:and|so|but|okay so|then)\W+", t, re.I)
+    if lead and len(t[lead.end():].split()) >= 3 and NAMES_LUMI.search(t[lead.end():]):
+        t = t[lead.end():]                             # "and your name is?", "so who are you?": a whole question
     if FRAGMENT.search(t):
         return "fragment"
     if SEVERAL.search(t):

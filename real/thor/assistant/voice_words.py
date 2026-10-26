@@ -30,10 +30,10 @@ LOUDER = re.compile(r"\blouder\b|\bspeak up\b|\b(?:can'?t|cannot|can not|couldn'
 QUIETER = re.compile(r"\bquieter\b|\bsofter\b|\btoo loud\b|\bnot so loud\b|\bless loud\b|\bso loud\b|"
                      r"\b(?:lower|turn down|drop) (?:your |the )?(?:voice|volume|sound)\b|\b(?:volume|sound) down\b|"
                      r"\bturn (?:it |yourself )?down\b|\b(?:speak|talk) (?:more )?(?:quietly|softly)\b|"
-                     r"작게|시끄러|(?:소리|볼륨|목소리)\s*(?:를|을|좀|\s)*(?:줄여|낮춰|내려)|(?:소리|목소리)\S*\s*너무\s*커", re.I)
+                     r"작게|조용조용|조곤조곤|소곤소곤|시끄러|(?:소리|볼륨|목소리)\s*(?:를|을|좀|\s)*(?:줄여|낮춰|내려)|(?:소리|목소리)\S*\s*너무\s*커", re.I)
 VOICE = re.compile(r"\b(?:speak|speaking|talk|talking|say|saying|said|voice|speech|words)\b|말|얘기|이야기|목소리", re.I)
-SLOW = re.compile(r"\b(?:slower|slowly|slow down)\b|천천히|느리게|느릿", re.I)
-FAST = re.compile(r"\b(?:faster|quicker|quickly|speed up)\b|빨리|빠르게", re.I)
+SLOW = re.compile(r"\b(?:slower|slowly|slow down)\b|천천히|느리게|느릿|슬로우하게|슬로우리", re.I)
+FAST = re.compile(r"\b(?:faster|quicker|quickly|speed up)\b|빨리|빠르게|패스트하게|퀵하게", re.I)
 TOO_FAST = re.compile(r"\b(?:too|so) fast\b|(?:너무|넘)\s*빨라|빠르네|빨라요", re.I)
 TOO_SLOW = re.compile(r"\b(?:too|so) slow(?:ly)?\b|(?:너무|넘)\s*느려|느리네|느려요", re.I)
 DRIVE = re.compile(r"\b(?:go|going|drive|driving|move|moving|walk|come|run|follow|forward)\b|"
@@ -77,7 +77,8 @@ def read(text, last=""):
     """("volume" | "speed", +1 | -1) when the words ask Lumi to speak louder / quieter / faster / slower, else None.
     `last` is the assistant's answer just before (brain history): after "ACTION: voice volume +1" a bare "more" /
     "again" / "조금 더" asks for the same again."""
-    t = text or ""
+    from assistant import wording
+    t = wording.polite(wording.ko_plain(text or ""))       # every speech level as 반말, no "if you don't mind"
     again = re.match(r"ACTION: voice (volume|speed) ([+-]1)\b", last or "")
     if again and driving.AGAIN.search(driving.clean(t)):
         return again.group(1), int(again.group(2))
