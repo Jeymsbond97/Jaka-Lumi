@@ -203,4 +203,17 @@ if __name__ == "__main__":
         assert brain._follow_examples(t, h), t
     for t in ("Where is p3?", "세종대왕이 누구예요?", "oh cool", "What's your name?", "Tell me about the Korean War."):
         assert not brain._follow_examples(t, h), t
+    # a world subject keeps Lumi's notes out (also lower-case English and a part named after it); Lumi's own things keep them
+    b = brain.Brain()
+    for h, t, want in (([], "Why do whales sing?", ["whales"]), ([], "부엉이는 고개를 몇 도까지 돌려요?", ["부엉이"]),
+                       ([("Why do whales sing?", "ACTION: none -\nTo find mates.")], "How far can the song go?", ["whales"]),
+                       ([("문어는 다리가 몇 개고?", "ACTION: none -\n여덟 개예요.")], "심장은 몇 개고?", ["문어", "다리", "심장"]),
+                       ([], "속도는 얼마예요?", []), ([], "How fast can you go?", []), ([], "Is the song yours?", []),
+                       ([], "Can the arm lift 2 kg?", [])):
+        b.history = list(h)
+        assert b.world_talk(t) == want, (t, b.world_talk(t))
+    # "really?" after a turn Lumi did not catch asks about the answer before it
+    h = [("롯데월드타워 높이 몇 m예요?", "ACTION: none -\n555미터예요."),
+         ("uh... what was it... 그...", "ACTION: unclear -\n죄송해요, 다시 말씀해 주시겠어요?")]
+    assert brain.topic_turn(h)[0].startswith("롯데월드타워"), brain.topic_turn(h)
     print("followup ok")

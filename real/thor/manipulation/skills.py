@@ -139,6 +139,9 @@ GRASPS = {                                       # COCO class -> (Korean name, U
     "handbag": ("핸드백", BIG), "backpack": ("가방", BIG), "umbrella": ("우산", BIG), "suitcase": ("여행가방", BIG),
     "hair drier": ("드라이기", BIG), "toaster": ("토스터", BIG),   # over the tips' open 88 mm, or over the payload
 }
+IK_SEEDS = ("ready", "look", "carry", "give")   # taught poses whose arm configurations (and wrist flips) seed the
+                                                 # pick / place IK: the controller answers the solution nearest the
+                                                 # seed, so one seed alone misses cups another configuration reaches
 RETRIES = 4                                      # the controller now and then answers with nothing: ask again
 RETRY_S = 0.2
 OPEN_AI = gripper.CLOSED_AI                      # AI_1 below this after opening = released
@@ -589,7 +592,7 @@ def ik_chain(waypoints, start_joints):
         if r["errorCode"] != "0":
             rows.append([name, pose, None, "no IK solution"])
             return rows
-        j = r["jointPosition"]
+        j = motion.nearest(r["jointPosition"], ref)    # J1 / J4 / J6 +-360: the same pose, nearest the last one
         err = None
         try:
             motion.check(j)
@@ -619,27 +622,35 @@ def wrist_flip(j):
 
 
 def above_joints(pose, start=None):
-    """Joint solutions for the approach pose `pose`: from `ready`'s arm configuration (where the picks were proven)
-    and from it with the wrist flipped. Each is within the joint limits and a joint move from `start` (default: here)
-    that move_joints accepts (no joint further than motion.MAX_TRAVEL); no duplicates."""
+    """Joint solutions for the approach pose `pose`: from the arm configuration of each IK_SEEDS pose (`ready` first,
+    where the picks were proven) and from it with the wrist flipped. Each is within the joint limits and a joint move
+    from `start` (default: here) that move_joints accepts (no joint further than motion.MAX_TRAVEL); no duplicates."""
     start = _joints() if start is None else start
-    ready = motion.nearest(motion.poses()["ready"], start)
+    taught = motion.poses()
     out = []
-    for seed in (ready, wrist_flip(ready)):
-        r = _ask("kine_inverse", jointPosition=[float(v) for v in seed], cartPosition=list(pose))
-        if r["errorCode"] != "0":
+    for name in IK_SEEDS:
+        if name not in taught:
             continue
-        j = r["jointPosition"]
-        try:
-            motion.check(j)
-        except motion.MotionError:
-            continue
-        near = motion.nearest(j, start)
-        if max(abs(a - b) for a, b in zip(near, start)) > motion.MAX_TRAVEL:
-            continue
-        if all(max(abs(a - b) for a, b in zip(motion.nearest(o, j), j)) > 1.0 for o in out):
-            out.append(j)
+        seed = motion.nearest(taught[name], start)
+        for s in (seed, wrist_flip(seed)):
+            j = _solve(pose, s, start)
+            if j is not None and all(max(abs(a - b) for a, b in zip(o, j)) > 1.0 for o in out):
+                out.append(j)
     return out
+
+
+def _solve(pose, seed, start):
+    """IK of `pose` from `seed`, J1 / J4 / J6 nearest `start`; None when there is none, it is out of the joint limits
+    or the joint move from `start` turns a joint further than motion.MAX_TRAVEL."""
+    r = _ask("kine_inverse", jointPosition=[float(v) for v in seed], cartPosition=list(pose))
+    if r["errorCode"] != "0":
+        return None
+    j = motion.nearest(r["jointPosition"], start)
+    try:
+        motion.check(j)
+    except motion.MotionError:
+        return None
+    return j if max(abs(a - b) for a, b in zip(j, start)) <= motion.MAX_TRAVEL else None
 
 
 def path_heights(j0, j1):
@@ -659,6 +670,14 @@ def joint_move_ok(j0, j1):
     return min(z) >= min(z[0], z[-1]) - PATH_SAG_MM
 
 
+def move_ok(j0, j1):
+    """The joint move j0 -> j1 out to a table keeps the gripper HEAD_CLEAR_MM from the head and does not dip
+    (arm_route.move_problem, the check of every pose-graph move); False when the head's place is not measured."""
+    from manipulation import arm_route
+    centre = arm_route.head_cam.head_centre()
+    return centre is not None and arm_route.move_problem(j0, j1, centre) is None
+
+
 def checked(waypoints, start_joints):
     rows = ik_chain(waypoints, start_joints)
     if rows[-1][3]:
@@ -674,7 +693,7 @@ def pick_options(obj, start):
     for yaw in GRASP_YAWS:
         waypoints = plan_pick(obj, yaw)
         for ja in above_joints(waypoints[0][1], start):
-            if not ik_chain(waypoints[1:], ja)[-1][3] and joint_move_ok(start, ja):
+            if not ik_chain(waypoints[1:], ja)[-1][3] and move_ok(start, ja):
                 yield waypoints, ja
 
 
@@ -698,7 +717,7 @@ def place_options(x, y, top_mm, start):
     for yaw in sorted(GRASP_YAWS, key=lambda a: abs((a - held + 180.0) % 360.0 - 180.0)):
         way = plan_place(x, y, top_mm, yaw=yaw)
         for ja in above_joints(way[0][1], start):
-            if not ik_chain(way[1:], ja)[-1][3] and joint_move_ok(start, ja) and tilt_on(start, ja) <= MAX_TILT_DEG:
+            if not ik_chain(way[1:], ja)[-1][3] and move_ok(start, ja) and tilt_on(start, ja) <= MAX_TILT_DEG:
                 yield way, ja
 
 

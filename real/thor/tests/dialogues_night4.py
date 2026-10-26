@@ -5,7 +5,8 @@ part?"), "really?" / "are you sure?" right after a motion (about the talk before
 number, settled facts after thanks (answered, not looked up), short follow-ups never answered "say it again".
 English, Korean (반말 / 해요체 / 하십시오체 / friendly / honorific / dialect) and mixed; Korean replies polite.
 
-    .venv/bin/python tests/dialogues_night4.py [only]   # through tests/followup_check.main -> logs/a4n4/night4_check.*
+    .venv/bin/python tests/dialogues_night4.py [only] [--b]   # through tests/followup_check.main -> logs/a4n4/night4_check.*
+                                                              # (--b: round 2 -> night4b_check.*)
 """
 import sys
 
@@ -81,14 +82,78 @@ DIALOGUES_NIGHT4 = [
       T("말씀하신 거 아까랑 좀 다른 것 같은데요?", must=[r"유칼립투스|잎|에너지|6|여섯|개월|18|20"], no=NK + [WHICH],
         check="같은 사실을 다시"),
       T("감사합니다, 많이 배웠어요. 안녕히 계세요.", "end")),
+    D("grandfather", "owl_ko_dialect", "ko",
+      T("부엉이 목 그거 을매나 돌아가노?", must=[r"270|이백칠십"], no=NK + [ME], check="270도; Lumi의 고개가 아님"),
+      T("그래 돌리믄 피는 우째 되노?", must=[r"피|혈관|혈액|핏줄|흐르|막히"], no=NK + [ME], check="혈관이 특별해서 피가 계속 흐름; " + FU),
+      T("눈은 와 안 움직이노?", must=[r"크|커|뼈|고정|관|원통"], no=NK + [ME], check="눈이 커서 고정; " + FU),
+      T("어... 그... 뭐였더라...", "-"),
+      T("참말이가?", must=[r"네|정말|맞|크|고정|270|피"], no=NK + [ME], check="부엉이 얘기를 다시 (못 알아들은 턴 전의 얘기)"),
+      T("욕봤다, 간데이.", "end")),
+    D("engineer", "lotte_mixed_konglish", "ko",
+      T("롯데월드타워 height 몇 m예요?", must=[r"555|오백오십오"], no=NK, check="555m"),
+      T("floor는 몇 개?", must=[r"123|백이십삼"], no=NK, check="123층; " + FU),
+      T("uh... what was it... 그...", "-"),
+      T("are you sure?", must=[r"555|123|yes|네|맞"], no=NK, rl="en", check="롯데월드타워 숫자를 다시 (못 알아들은 턴 전)"),
+      T("Okay, thanks. Bye!", "end")),
+]
+
+# round 2 (10:50): parts named after a world subject ("심장은 몇 개고?", "Why the name?"), lower-case English subjects,
+# Lumi's own numbers asked casually and very politely, "really?" after an uncaught turn, a topic taken up again
+DIALOGUES_NIGHT4B = [
+    D("student", "giraffe_en_native", "en",
+      T("Why do giraffes have such long necks?", must=[r"leaves|tree|reach|food|fight|eat"], no=N + [ME], check="to reach high leaves"),
+      T("How many bones are in it?", must=[r"seven|7"], no=N + [ME], check="seven, like ours; " + FU),
+      T("And the heart, is it big?", must=[r"kilo|kg|big|large|pump|blood|11|60 ?cm"], no=N + [ME], check="about 11 kg; " + FU),
+      T("hmm... the... uh...", "-"),
+      T("Really?", must=[r"yes|seven|7|kilo|kg|big"], no=N, check="yes, the giraffe facts again (before the uncaught turn)"),
+      T("Cool, thanks. Bye!", "end")),
+    D("grandmother", "lumi_specs_ko_honorific", "ko",
+      T("루미 님 머리에 든 컴퓨터는 메모리가 얼마나 되시는지요?", must=[r"122|백이십이"], no=NK, check="122GB"),
+      T("팔로는 얼마나 무거운 걸 드실 수 있으세요?", must=[r"2 ?(?:kg|킬로)|1 ?(?:kg|킬로)|이 ?킬로|일 ?킬로"], no=NK,
+        check="팔 2kg, 손에는 약 1kg"),
+      T("아이고 그래요? 정말이세요?", must=[r"네|2|1|킬로|맞"], no=NK, check="네, 같은 숫자를 다시"),
+      T("고마워요. 그럼 키는 어떻게 되세요?", must=[r"146|186|백사십"], no=NK, check="146cm, 올리면 186cm"),
+      T("잘 들었어요, 수고하세요.", "end")),
+    D("friend", "octopus_ko_banmal", "ko",
+      T("문어 피는 무슨 색이야?", must=[r"파란|푸른|청색"], no=NK + [ME], check="파란색"),
+      T("왜?", must=[r"구리|헤모시아닌|산소"], no=NK + [ME], check="구리가 든 헤모시아닌; " + FU),
+      T("심장은 몇 개야?", must=[r"3|세 ?개|셋"], no=NK + [ME], check="3개 (문어의 심장)"),
+      T("아까 피 색깔 뭐라 했지?", must=[r"파란|푸른|청색"], no=NK, check="파란색 (앞의 얘기로 돌아감)"),
+      T("ㅇㅋ 고마워, 간다~", "end")),
+    D("tourist", "namsan_mixed_konglish", "ko",
+      T("남산타워 언제 오픈했어요?", must=[r"1975|1980|칠십|팔십"], no=NK, check="1975년 완공, 1980년 개방"),
+      T("height는요?", must=[r"236|480|미터"], no=NK, check="약 236m; " + FU),
+      T("why 이름이 N이에요?", must=[r"남산|new|새|N"], no=NK + [r"제 이름|루미"], check="Namsan / new; 루미의 이름이 아님"),
+      T("Okay 땡큐!", "end")),
+    D("engineer", "sound_ko_hasipsio", "ko",
+      T("빛의 속도는 초속 몇 킬로미터입니까?", must=[r"30만|300,?000|삼십만|299"], no=NK, check="약 30만 km/s"),
+      T("소리는 어떻습니까?", must=[r"340|343|삼백사십"], no=NK + [ME], check="공기 중 약 340m/s; " + FU),
+      T("물속에서는 얼마나 빠릅니까?", must=[r"1,?500|1,?480|천오백|4|네 ?배"], no=NK, check="약 1,500m/s"),
+      T("확실하십니까?", must=[r"네|1,?500|천오백|맞|확실"], no=NK, check="네, 물속 숫자를 다시"),
+      T("수고하십시오.", "end")),
+    D("parent", "lumi_battery_en_nonnative", "en",
+      T("your battery, how many hour it go?", must=[r"10|ten"], no=N, check="about 10 hours"),
+      T("and when it is empty, you go charging alone?", must=[r"yes|myself|by myself|on my own|dock|charg"], no=N,
+        check="yes, goes to the charger by itself"),
+      T("hm ok, and the arm can carry how much?", must=[r"2 ?kg|two|1 ?kg|one|kilo"], no=N, check="2 kg with the gripper, ~1 kg in the hand"),
+      T("Sure?", must=[r"yes|2|two|1|one|kilo"], no=N, check="yes, the same numbers"),
+      T("Okay, see you.", "end")),
+    D("grandfather", "palace_ko_dialect", "ko",
+      T("경복궁 그거 언제 지었노?", must=[r"1395|조선|태조"], no=NK, check="1395년"),
+      T("이름은 와 그래 지었노?", must=[r"복|큰|하늘|복을|경사|시경|백성|태평"], no=NK + [r"제 이름|루미"],
+        check="큰 복을 누리라는 뜻; 루미의 이름이 아님"),
+      T("불은 몇 번 났노?", must=[r"임진왜란|1592|불|탔|화재|여러"], no=NK, check="임진왜란 때 탔고 1867년 다시 지음; " + FU),
+      T("고맙데이, 수고하그래이.", "end")),
 ]
 
 
 if __name__ == "__main__":
     from tests import followup_check as fc
     from tests import dialogue_check as dc
-    fc.DIALOGUES = DIALOGUES_NIGHT4
+    b = "--b" in sys.argv                                 # round 2: its own report
+    fc.DIALOGUES = DIALOGUES_NIGHT4B if b else DIALOGUES_NIGHT4
     (dc.ROOT / "logs" / "a4n4").mkdir(exist_ok=True)
-    dc.OUT_JSON, dc.OUT_MD = dc.ROOT / "logs" / "a4n4" / "night4_check.json", dc.ROOT / "logs" / "a4n4" / "night4_check.md"
+    name = "night4b_check" if b else "night4_check"
+    dc.OUT_JSON, dc.OUT_MD = dc.ROOT / "logs" / "a4n4" / f"{name}.json", dc.ROOT / "logs" / "a4n4" / f"{name}.md"
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     fc.main(args[0] if args else None, failed="--failed" in sys.argv)

@@ -44,6 +44,16 @@ CAPS = {
     "sing":     ("sing a song", "노래", "부르", "불러", ["노래 싱 해 줘"]),
     "louder":   ("speak louder", "더 크게", "말하", "말해", []),
     "slower":   ("speak slower", "좀 천천히", "말하", "말해", []),
+    "quieter":  ("speak more quietly", "좀 작게", "말하", "말해", []),
+    "look_dn":  ("look down", "아래를", "보", "봐", ["다운 봐 줘", "look down 해 주세요"]),
+    "look_me":  ("look at me", "저를", "보", "봐", ["룩 앳 미 해 줘"]),
+    "around":   ("turn around", "뒤로", "돌", "돌아", ["유턴 해 줘", "turn around 해 주세요"]),
+    "come_back": ("come back", "", "돌아오", "돌아와", ["컴백 해 줘"]),
+    "waist":    ("turn your waist left", "허리를 왼쪽으로", "돌리", "돌려", ["웨이스트 레프트로 돌려 줘"]),
+    "body_up":  ("raise your body", "몸을", "올리", "올려", ["리프트 업 해 줘", "바디 업 해 줘"]),
+    "open":     ("open your hand", "손", "펴", "펴", ["핸드 오픈 해 줘"]),
+    "put":      ("put the cup down", "컵 내려", "놓", "놔", []),
+    "charge":   ("go charge", "충전하러", "가", "가", ["차지하러 가 줘"]),
 }
 EN_FORMS = ["{}", "please {}", "{}, please", "could you {}?", "can you {} for me?", "would you {}, please?",
             "I'd like you to {}", "I'd love it if you could {}", "{}, if you don't mind", "lumi, {}",
@@ -138,7 +148,8 @@ def check(names=None):
                              "missed" if got is None or got.split()[0] in command_check.NO_MOTION else "wrong"))
         for t in not_now(pre, stem, a):
             got = read(t)
-            moves = got is not None and got.split()[0] not in command_check.NO_MOTION
+            moves = got is not None and got.split()[0] not in command_check.NO_MOTION and \
+                not (got == "action:look away" and "지 마" in t)   # "저를 보지 마세요": looking away is asked
             rows.append((name, "not_now", t, got, "no motion", "right" if not moves else
                          "wrong" if got in ("stop", "sing") else "motion"))   # a stop or a song moves nothing
     return rows

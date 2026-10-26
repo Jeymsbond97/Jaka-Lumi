@@ -87,7 +87,11 @@ def run_turn(b, text, lang, marks):
             bye = b.farewell(text, lang)
             b.reset()
             return r, bye, time.time() - t0, time.time() - t0
-        if r.startswith("action:") or r in ("weather", "search"):     # quick_command keeps it in the history
+        if r in ("weather", "search"):                              # lumi.look_up: the question (+ WEATHER_ASKED) is kept
+            asked = text + brain.WEATHER_ASKED if r == "weather" else text   # so "도쿄는?" / "how about Daegu?" follow it
+            b.history.append((asked, by_rule[1] or ""))
+            b.last_lookup = asked
+        elif r.startswith("action:"):                               # quick_command keeps it in the history
             a = r.split(":", 1)[-1].split(" ", 1)
             b.history.append((text, f"ACTION: {a[0]} {a[1] if len(a) > 1 else '-'}"))
         return r, by_rule[1], None, time.time() - t0

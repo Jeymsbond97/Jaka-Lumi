@@ -91,6 +91,10 @@ SEARCH_BASE_DEG = (180.0, 90.0)      # then the base turns towards that side, th
 LIFT_TRIES = LIFT_RANGE      # mm; nothing found: all of it again at the other end of these
 SAME_BASE_M = 0.02                   # m / rad; the base is still where it picked: the pick spot is still table
 SAME_BASE_RAD = 0.035
+WAIST_REACH_STEPS = (0.0, 15.0, -15.0, 30.0, -30.0)   # deg; a pick out of reach: waist turns tried around the one
+                             # that brings the object to PICK_ZONE_CENTRE's bearing about the column (the waist carries
+                             # the arm round the column: what it reaches beside it, it reaches ahead), before a base move
+WAIST_FOUND_MM = 80.0        # mm; after that turn the object is looked for this near where it should be seen
 APPROACH_TRIES = 5           # base moves to bring an object out of reach to PICK_ZONE_CENTRE before asking the person
 STRAIGHT_MAX_M = 0.6         # m; a straight drive (after a turn on the spot) at most this long, else navigation
 STANDOFF_M = 0.4             # m; navigation goes to this far back from the pick pose, then straight in
@@ -995,6 +999,61 @@ def _reachable(obj):
         return None
 
 
+def turned(obj, deg):
+    """`obj` (x, y mm, arm frame) as the arm will see it after the waist turns by `deg` (+ left): turned by -deg about
+    the column (the head's turning centre: the waist and the head turn about the same axis, URDF)."""
+    c = head_cam.head_centre()[:2]
+    x, y = c + _rot(-deg) @ (np.array([obj["x"], obj["y"]], float) - c)
+    return {**obj, "x": float(x), "y": float(y)}
+
+
+def waist_for(obj):
+    """Waist turns (deg from where it is, + left) to try for an object out of reach: the one that brings it to
+    PICK_ZONE_CENTRE's bearing about the column, then WAIST_REACH_STEPS around it; inside the body's limits and
+    WAIST_SCAN_MAX from the front, none smaller than TURN_MIN_DEG. [] when the head's place is not measured."""
+    c = head_cam.head_centre()
+    if c is None:
+        return []
+    bearing = lambda xy: math.degrees(math.atan2(-(xy[0] - c[0]), xy[1] - c[1]))       # + left of ahead
+    d = bearing((obj["x"], obj["y"])) - bearing(PICK_ZONE_CENTRE)
+    lo, hi = head.AXIS_LIMITS[1]
+    waist, now, out = head.status()[1], _waist_turn(), []
+    for t in ((d + s + 180.0) % 360.0 - 180.0 for s in WAIST_REACH_STEPS):
+        if abs(t) >= TURN_MIN_DEG and lo <= waist + t <= hi and abs(now + t) <= WAIST_SCAN_MAX and t not in out:
+            out.append(t)
+    return out
+
+
+def _waist_reach(task, obj, say):
+    """(obj, waypoints, joints above) of a pick after a waist turn, for an object the arm doesn't reach from here: the
+    first turn of waist_for whose pick, planned where the object will be (turned), passes; the waist turns (its sweep
+    checked), the camera looks again and the pick is planned from what it sees. None when no turn reaches it or the
+    object is not seen again where it should be (then the base moves)."""
+    for deg in waist_for(obj):
+        try:
+            if not _reachable(turned(obj, deg)):
+                continue
+        except skills.SkillError:
+            return None
+        _step("turning my waist to reach it", say)
+        _pose(_look())
+        if not _waist_to(_waist_turn() + deg):
+            return None
+        want = turned(obj, deg)
+        hits = [o for o in skills.look() if _is_task(o, task) and o["seen"] >= skills.MIN_SEEN
+                and o["spread"] <= skills.SPREAD_MM and o["top_mm"] is not None]
+        o = min(hits, key=lambda o: math.hypot(o["x"] - want["x"], o["y"] - want["y"]), default=None)
+        if o is None or math.hypot(o["x"] - want["x"], o["y"] - want["y"]) > WAIST_FOUND_MM:
+            log(f"after the waist turn the {task['object']} is not where it should be ({want['x']:.0f}, "
+                f"{want['y']:.0f})")
+            return None
+        plan = _reachable(o)
+        log(f"waist turned {deg:+.0f} deg: the {o['name']} at ({o['x']:.0f}, {o['y']:.0f})"
+            f"{' is in reach' if plan else ', still out of reach'}")
+        return (o, *plan) if plan else None
+    return None
+
+
 def _head_seen(match):
     """{"x", "y"} mm (arm frame) of a thing `match(detection)` takes that the head camera saw at least twice in
     HEAD_READS fresh frames within HEAD_SAME_MM, with "head": True (its depth is not the torso camera's: it only shows
@@ -1274,6 +1333,9 @@ def _reach(task, obj, say):
         other = _other_here(task, obj) if i == 0 else None
         if other:                                     # the one chosen is out of reach, another one is not
             return other
+        got = _waist_reach(task, obj, say)            # the waist brings the arm round to it: no base move
+        if got:
+            return got
         if yaw is None or i == APPROACH_TRIES or _charging():
             break
         w = _waist_turn()

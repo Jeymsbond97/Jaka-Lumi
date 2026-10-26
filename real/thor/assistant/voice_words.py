@@ -29,7 +29,7 @@ LOUDER = re.compile(r"\blouder\b|\bspeak up\b|\b(?:can'?t|cannot|can not|couldn'
                     r"(?:소리|목소리)\S*\s*너무\s*작", re.I)
 QUIETER = re.compile(r"\bquieter\b|\bsofter\b|\btoo loud\b|\bnot so loud\b|\bless loud\b|\bso loud\b|"
                      r"\b(?:lower|turn down|drop) (?:your |the )?(?:voice|volume|sound)\b|\b(?:volume|sound) down\b|"
-                     r"\bturn (?:it |yourself )?down\b|\b(?:speak|talk) (?:more )?(?:quietly|softly)\b|"
+                     r"\bturn (?:it |yourself )?down\b|\btone (?:it |yourself )?down\b|\b(?:speak|talk) (?:more )?(?:quietly|softly)\b|"
                      r"작게|조용조용|조곤조곤|소곤소곤|시끄러|(?:소리|볼륨|목소리)\s*(?:를|을|좀|\s)*(?:줄여|낮춰|내려)|(?:소리|목소리)\S*\s*너무\s*커", re.I)
 VOICE = re.compile(r"\b(?:speak|speaking|talk|talking|say|saying|said|voice|speech|words)\b|말|얘기|이야기|목소리", re.I)
 SLOW = re.compile(r"\b(?:slower|slowly|slow down)\b|천천히|느리게|느릿|슬로우하게|슬로우리", re.I)

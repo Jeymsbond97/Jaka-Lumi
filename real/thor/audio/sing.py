@@ -11,6 +11,7 @@ music: small diagonal bobs landing on the beats in energetic parts, a quick swee
 phrase start, slower sways in calm parts, each move called early enough (the owner's measured head timing) to land
 on its beat, one call at a time; it goes back to yaw 0 / pitch 0 when the song ends or is stopped. Never the lift, the waist or the arm.
 """
+import difflib
 import json
 import pathlib
 import random
@@ -56,17 +57,21 @@ SONG_WORD = re.compile(r"\bsing|\bsong|\bmusic|\btunes?\b|\bplaylist|k-?pop|노�
 SING = re.compile(r"\bsing\b|\bsay (?:a |some )?songs?\b|"                    # whisper writes "let's say song"
                   r"\b(?:play|put on|turn on|start)(?: me| us)? (?:a |some |any |another |the |your )?(?:songs?|music|tunes?)\b|"
                   r"\b(?:another|different|next|new|other) (?:song|tune)\b|\b(?:change|switch)(?: the| this| that)? (?:songs?|music|tunes?)\b|"
-                  r"(?:노래|음악|곡)\s*(?:좀\s*)?바꿔|\b(?:want|like|love) to hear (?:a |some )?(?:song|music)\b|"
+                  r"(?:노래|음악|곡)\s*(?:좀\s*)?바꿔|\b(?:(?:want|like|love) to|(?:can|could|may) (?:we|i)) hear (?:a |some |one of your )?(?:songs?|music)\b|\bgive (?:us|me) (?:a |some )?(?:song|tune|music)\b|"
                   r"^\W*(?:lumi\W*)?(?:a |some )?(?:song|music)(?:\W+(?:please|lumi))*\W*$|"
-                  r"(?:노래|음악|(?<![가-힣])곡)\s*(?:를|을|좀|하나|한\s*곡|한\s*번|한번|도|이나|나|이든|든|라도|\s)*"
-                  r"(?:불러|부르|들려|해|틀어|틀|뽑아|부탁|재생|플레이|(?:할|부를)\s*수\s*있)|"
-                  r"노래\s*(?:좀|하나)?\s*(?:듣고\s*싶|들을래|듣자)|(?:다른|딴|다음)\s*(?:노래|곡)|(?:다른|딴)\s*(?:거|걸|걸로)\s*(?:불러|들려|틀어)|^\W*(?:노래|음악)\s*(?:좀|하나)?\W*$", re.I)
+                  r"(?:노래|음악|(?<![가-힣])곡|(?<![가-힣])송)\s*(?:를|을|좀|쫌|쪼까|쪼끔|하나|한\s*곡조?|한\s*번|한번|함|한\s*자락|자락|도|이나|나|이든|든|라도|\s)*"
+                  r"(?:불러|부르|들려|해|틀어|틀|뽑아|땡겨|부탁|재생|플레이|싱\s*(?:해|하)|(?:할|부를)\s*수\s*있)|(?<![가-힣])싱\s*(?:좀\s*)?해\s*(?:줘|주|봐)|"
+                  r"노래\s*(?:좀|하나)?\s*(?:듣고\s*싶|들을래|듣자)|\b(?:songs?|music)\s*(?:좀\s*|하나\s*|한\s*곡\s*)?(?:불러|해|틀어|들려)|"
+                  r"(?<![가-힣])(?:거|것)\s*(?:로\s*)?한\s*곡|(?:다른|딴|다음)\s*(?:노래|곡)|(?:다른|딴)\s*(?:거|걸|걸로)\s*(?:불러|들려|틀어)|^\W*(?:노래|음악)\s*(?:좀|하나)?\W*$", re.I)
 SING_TITLE = re.compile(r"(불러|들려|틀어) ?(줘|주세요|줄래|봐|볼래)|\b(?:sing|play)\b")    # "러브 어택 불러 줘": a title said with it
-SONG_LIST = re.compile(r"\b(?:what|which) (?:kinds? of |sort of |other )?(?:songs?|music|tunes)\b|\bwhat (?:can|do|would|will) you sing\b|"
+TITLE_ASKED = re.compile(r"불러|들려|틀어|불르|부르[시세십실게자]|부를\s*수|플레이|(?<![가-힣])송(?![가-힣])|(?<![가-힣])싱(?![가-힣])|"
+                         r"\bplease\b|플리즈|\bhear\b|한\s*번만|\byou sing\b|\bcan (?:we|i) get\b", re.I)
+    # with one of our titles: "배드 불러 주라", "Love Attack 부르시게", "I'd love to hear Love Attack", "Fantastic Baby 플레이 해 줘"
+SONG_LIST = re.compile(r"\b(?:what|which) (?:kinds? of |sort of |other )?(?:songs?|music|tunes)\b|\b(?:what|hwat|wat|whta) (?:can|do|would|will) you sing\b|"
                        r"(?<!sing a )(?<!sing one )(?<!sing me a )(?<!sing us a )\bsongs? (?:do |can |could )?you (?:know|sing|have)\b|\b(?:know|have) any (?:other )?songs\b|"
                        r"\b(?:list|names?) of (?:your |the )?songs\b|"
                        r"(?:무슨|어떤|뭔|어느)\s*(?:노래|곡)(?!\s*(?:이든|든|이나|나|라도))|노래\s*(?:는|를|은)?\s*(?:뭐|뭘|몇)|"
-                       r"아는\s*노래|부를\s*(?:수\s*있는|줄\s*아는)\s*노래|노래\s*목록", re.I)
+                       r"아는\s*노래|부를\s*(?:수\s*있는|줄\s*아는)\s*노래|노래\s*목록|(?:송|노래|곡|song)\s*리스트|\bsong\s*list\b|플레이\s*리스트|\bplaylist\b|what\s*songs", re.I)
 NOT_REQUEST = re.compile(r"\b(?:do|did) you (?:really )?(?:like|love|enjoy)\b|"
                          r"\bwho sings?\b|\bfavou?rite\b|좋아하는|좋아해|잘\s*(?:해|하|불러)|"
                          r"^\W*(?:is|are|was|were|does|did|has|have)\b(?!\s+you\s+(?:able|willing)\s+to\s+sing\s+(?:a|some|me|us|for|something|one|another)\b)|\b(?:can|do|could) robots? (?:really |even )?sing\b|"
@@ -83,22 +88,25 @@ NOT_ASKED = re.compile(r"\b(?:don'?t|do not|never)\s+(?:\w+\s+)?(?:sing|play)\b|
                        r"\b(?:never ?mind|forget it|cancel that|actually,? no|on second thought)\b|아니다\s*(?:됐|그만|말자)|됐(?:어|다|습니다)\W*$|"
                        r"(?:끝나|오|되|돌아오|도착하|시작하)면\s|(?:제가|내가|우리가|저희가|애들이|아이들이|손님이|사람들이)\s+(?:\S+\s+){0,2}\S*[^안않]면\s|(?:부르는|하는|불렀던|부른) ?거 ?(?:봤|들었)|"
                        r"(?:부르|하|틀|불르)지\s*(?:마|말)|노래방|나중에|이따가?|있다가|끝나고|면\s*그때|(?:내가|제가)\s*(?:노래\s*)?"
-                       r"(?:불러|부를|부르|할)|"
+                       r"(?:불러|부를|부르|할|노래\s*(?:해|하))|(?:불러|노래\s*해|노래해|틀어)도\s*(?:돼|되|괜찮)|"
                        r"^\W*(?:\w+\W+){0,3}?(?:why|how come|how (?:do|does|did|can|could) you)\b|왜|어째서|어떻게", re.I)
                        # "don't sing", "I'll sing later", "노래 부르지 마", "why can you sing?", "왜 손은 안 되고 노래는 돼?":
                                                                         # no song, also when the LLM says sing
 # right after a song (or the list of songs): a short word switches or repeats it
 AFTER_SONG = re.compile(r"^\W*(?:(?:lumi|ok|okay|no|nah|um|please|then|now|and)\W+)*(?:sing |play )?"
-                        r"(?:another(?: one)?|(?:the )?next(?: one)?|a different one|something (?:else|different)|"
-                        r"not (?:this|that)(?: one)?|(?:it |that )?again|one more(?: time)?|once more|more)"
+                        r"(?:another(?: one)?|(?:the )?next(?: (?:one|song|sog|son|tune))?|a different one|something (?:else|different)|"
+                        r"not (?:this|that)(?: one)?|(?:it |that )?again|one more(?: time)?|once more|more|encore)"
                         r"(?:\W+(?:please|lumi))*\W*$|"
-                        r"^\W*(?:루미야?\W*)?(?:아니\W*)?(?:(?:그거|그\s*노래|이거|이\s*노래)\s*말고(?:\s*(?:다른|딴)\s*(?:거|걸로|노래))?|"
-                        r"(?:다른|딴)\s*(?:거|걸|걸로|것)|다음\s*(?:거|곡|노래)?|한\s*번\s*더|하나\s*더|다시|또)"
+                        r"^\W*(?:(?:야야?|어이|자네|보소|저기요?|저기유|실례지만|실례합니다|죄송한데요|이보게|우리)\W*)*"
+                        r"(?:(?:루미(?:루미)?|로봇)\s*(?:야|아|씨|님\s*(?:께서)?|군|양)?\W+)?(?:아니\W*)?(?:(?:그거|그\s*노래|이거|이\s*노래)\s*말고(?:\s*(?:다른|딴)\s*(?:거|걸로|노래))?|"
+                        r"(?:다른|딴)\s*(?:거|걸|걸로|것)|다음\s*(?:거|곡|노래)?|넥스트(?:\s*송)?|앵콜|앙코르|한\s*번만?\s*더|하나\s*더|다시|또)"
                         r"\s*(?:요|줘|해\s*줘|해\s*봐|해|불러\s*줘|들려\s*줘|부탁해요?|해요|주세요)?\W*$", re.I)
 SONG_OFFER = re.compile(r"\bshall i sing\b|\bwant to hear one\b|불러 드릴까요|들어 보실래요", re.I)   # Lumi's offer of a song
-OFFER_YES = re.compile(r"^\W*(?:(?:yes|yeah|yep|sure|ok(?:ay)?|please|of course|go ahead|why not|응|어|네|예|좋아요?|그래요?|"
-                       r"불러\s*(?:줘|주세요|봐|주실래요)|듣고\s*싶어요?|부탁해요?|해\s*(?:줘|주세요)|sing(?: it| one)?)(?:\W+|$))+$", re.I)
-AGAIN = re.compile(r"\bagain\b|\bone more time\b|\bonce more\b|한 ?번 ?더|다시", re.I)
+OFFER_YES = re.compile(r"^\W*(?:(?:야야?|어이|자네|보소|저기요?|저기유|실례지만|실례합니다|죄송한데요|이보게|우리)\W*)*"
+                       r"(?:(?:루미(?:루미)?|로봇)\s*(?:야|아|씨|님\s*(?:께서)?|군|양)?\W+)?(?:(?:yes|yeah|yep|sure|ok(?:ay)?|please|of course|go ahead|why not|응|웅|어|네|예|좋아요?|좋습니다|좋제|좋지|그래요?|"
+                       r"오케이|플리즈|아무거나|any(?:\s*one|thing)?(?: is fine)?|whatever|fine|"
+                       r"불러\s*(?:줘|주세요|봐|보게|주라|주실래요)|해\s*봐|ㅋ+|ㅎ+|듣고\s*싶어요?|부탁해요?|해\s*(?:줘|주세요)|sing(?: it| one)?)(?:\W+|$))+$", re.I)
+AGAIN = re.compile(r"\bagain\b|\bone more time\b|\bonce more\b|\bencore\b|한 ?번만? ?더|다시|앵콜|앙코르", re.I)
 ANOTHER = re.compile(r"\b(another|different|next|other|change|switch)\b|바꿔|\bsomething else\b|\bnot (this|that)\b|다른|딴|다음|말고", re.I)
 STOP = re.compile(r"\b(stop|enough|halt|quiet|shh+)\b|멈춰|그만|스톱|정지|조용", re.I)
 KOREAN = re.compile(r"\bkorean\b|한국", re.I)
@@ -118,7 +126,7 @@ FILLER = {"sing", "a", "an", "the", "song", "songs", "me", "us", "for", "please"
           "awesome", "lovely", "sweet", "funny", "silly", "piece", "tell", "show", "make", "is", "are", "be", "i", "we",
           "sung", "lumie", "random", "pick", "choose", "and", "like", "say", "wish", "how", "about", "have", "time",
           "cheer", "up", "sin", "sink", "sum", "here", "kids", "listen", "listening", "would", "mind", "surprise",
-          "change", "switch", "son", "sonf", "sogn", "snog", "sonng", "songg", "bro", "dude", "buddy", "robot", "grandma",
+          "change", "switch", "son", "sonf", "sog", "sogn", "snog", "sonng", "songg", "bro", "dude", "buddy", "robot", "grandma",
           "grandpa", "granny", "mom", "mum", "dad", "she", "he", "him", "her", "likes", "loves", "daughter", "sister",
           "brother", "friend", "wife", "husband", "kid", "guest", "guests", "na", "bestie", "dear"}   # slips of "song", the people sung to
 UNKNOWN = {"en": ["Sorry, I can't sing that one. I only know my own songs: {}. Want one of them?",
@@ -158,7 +166,8 @@ def asked(text, last=""):
     if picked(t, last):
         return True
     return bool(SING.search(t)) or bool(SING_TITLE.search(t) and (_title(t, songs()) or re.search(
-        r"[a-z]{2}.*(?:불러|들려|틀어)", t, re.I) and _other_song(t, songs())))   # "Let it go 불러 줘": not ours
+        r"[a-z]{2}.*(?:불러|들려|틀어)", t, re.I) and _other_song(t, songs()))) or \
+        bool(TITLE_ASKED.search(t) and _title(t, songs(), plain=bool(re.search(r"불러|들려|틀어|불르|부르|부를", t))))   # "Let it go 불러 줘": not ours
 
 
 _bank = None
@@ -243,11 +252,20 @@ def _name_re(name):
     return rf"(?<![a-z]){body}(?![a-z])" if re.search(r"[a-z]", name) else body
 
 
-def _title(text, all_songs):
-    """The song whose longest name is said ("I feel bad, sing Love Attack" is Love Attack), or None."""
+def _title(text, all_songs, plain=True):
+    """The song whose longest name is said ("I feel bad, sing Love Attack" is Love Attack), or None. plain=False:
+    not by a name that is also a plain word ("bad": "I feel bad, please")."""
     low = (text or "").lower()
-    found = [(len(n), sid) for sid, s in all_songs.items() for n in s["names"] if re.search(_name_re(n), low)]
+    found = [(len(n), sid) for sid, s in all_songs.items() for n in s["names"] if re.search(_name_re(n), low) and
+             (plain or n not in ("bad", "배드"))]
     return max(found)[1] if found else None
+
+
+def _title_at(text, all_songs):
+    """Where the longest of our titles said starts (0 when none)."""
+    low = (text or "").lower()
+    found = [(len(n), m.start()) for s in all_songs.values() for n in s["names"] for m in [re.search(_name_re(n), low)] if m]
+    return max(found)[1] if found else 0
 
 
 def _without_ours(text, all_songs):
@@ -264,7 +282,7 @@ EN_SLOTS = [re.compile(r"\b(?:sing|play|perform|put on)\s+(.+?)\s*(?:\b(?:songs?
             re.compile(r"((?:[\w'-]+\s+){0,2}[\w'-]+?)(?:'s)?\s+(?:songs?|tunes?|music)\b"),
             re.compile(r"\b(?:songs?|something|anything|one|tunes?|music)\s+(?:by|from|of|about)\s+(.+?)\s*(?:[,.!?]|\bplease\b|$)"),
             re.compile(r"\b(?:you know|do you know|know)\s+(.+?)\s*\?\s*(?:then |so |just |please |now )?(?:sing|play) (?:it|that|this)\b")]
-KO_SLOTS = [re.compile(r"((?:\S+\s+){0,2}\S+?)\s*(?:의\s*)?(?:노래|곡|음악|송)"),
+KO_SLOTS = [re.compile(r"((?:\S+\s+){0,2}\S+?)\s*(?:의\s*)?(?:노래|곡|음악|(?<![가-힣])송)"),
             re.compile(r"((?:\S+\s+){0,2}\S+?)\s*(?:을|를)?\s*(?:좀\s*)?(?:불러|들려|틀어|부르)")]
 FILLER_KO = {"루미야", "루미", "루미씨", "좀", "하나", "하나만", "한", "곡", "한곡", "노래", "음악", "아무", "아무거나", "다른", "딴",
              "다음", "새", "네", "니", "너", "너의", "네가", "니가", "당신", "우리", "저한테", "나한테", "우리한테", "저", "나", "제",
@@ -275,7 +293,7 @@ FILLER_KO = {"루미야", "루미", "루미씨", "좀", "하나", "하나만", "
              "로봇", "로봇아", "말고", "그거", "이거", "얘", "애들", "할머니", "할아버지", "엄마", "아빠", "손님", "손님들",
              "씨", "짱", "님", "오빠", "언니", "누나", "형", "선배", "선배님", "양반", "형제님", "친구", "기사님", "선생님",
              "로봇님", "루미아", "저기요", "이봐", "이보게", "어이", "대박", "그래", "곡뽑아", "부를", "줄", "알면", "할줄",
-             "부를줄"}   # addresses and the words of "부를 줄 알면 한 곡 해 봐"
+             "부를줄", "쫌", "쪼까", "쪼끔", "함", "퍼뜩", "후딱", "얼릉", "싱", "송", "자락", "한자락", "땡겨", "아", "불", "웅", "넥스트", "플리즈", "오케이", "바", "앵콜"}   # addresses and the words of "부를 줄 알면 한 곡 해 봐"
 VERB_KO = re.compile(r"^(?:불러|부르|불러줘|들려|틀어|틀|켜|해|줘|주|봐|부탁|시작|제발|할|하자|합시다|뽑아|바꿔|바꾸)")   # the request's own words
 _PARTICLE = re.compile(r"(?<=.)(?:을|를|은|는|이|가|도|만|요|나|이나|라도|이라도|으로|로)$")
 _ADNOMINAL = tuple("는은운한픈른쁜던된난진")    # "신나는", "조용한", "슬픈": a kind of song, no title
@@ -285,19 +303,21 @@ def _other_song(text, all_songs, whole=False):
     """A song not ours was named: 'sing Yesterday', 'Bad Guy by Billie Eilish', 'ATEEZ Wonderland', '아이유 노래',
     '빅뱅 거짓말 불러 줘', 'a Christmas song'. Words are read from the song word back: a describing word ("신나는",
     "좋으니까") or one said to someone ("아이한테") ends the title part."""
-    low = _without_ours(text, all_songs)
+    low = re.sub(r"(?<=[가-힣])(?=노래|음악|(?<!한)곡|불러|들려|틀어)|(?<=노래)(?=[가-힣])", " ", _without_ours(text, all_songs))
+    #                                              "노래하나불러줘요", "다음곡불러": the request's words written together
     whole_text = [re.match(r"(.*)", low, re.S)] if whole else []   # read by the bank: every word may hold a title
     for slots, word in ((EN_SLOTS, r"[a-z][a-z'-]*|[가-힣]+"), (KO_SLOTS, r"[a-z][a-z'-]*|[가-힣]+")):
         for m in whole_text + [m for slot in slots for m in slot.finditer(low)]:
             part = re.split(r"[,.!?~]", m.group(1))[-1]   # "루미 씨, 러브 어택 불러 줘": the address is no title
             for w in reversed(re.findall(word, part)):
                 if re.match(r"[a-z]", w):
-                    if w.strip("'-").removesuffix("'s") not in FILLER:
-                        return True
+                    w = w.strip("'-").removesuffix("'s")
+                    if w not in FILLER and not (len(w) > 4 and difflib.get_close_matches(w, FILLER, 1, 0.8)):
+                        return True                     # "pleaase", "anothre": slips of filler words
                     continue
                 if w in FILLER_KO or VERB_KO.match(w):
                     continue
-                if len(w) > 1 and w.endswith(_ADNOMINAL) or re.search(r"(?:한테|에게|께|니까|는데|해서|면)$", w):
+                if len(w) > 1 and w.endswith(_ADNOMINAL) or re.search(r"(?:한테|에게|께|께서|니까|는데|데요|지만|해서|면|합니다)$", w):
                     break
                 if _PARTICLE.sub("", w) not in FILLER_KO:
                     return True
@@ -313,8 +333,9 @@ def choose(text, lang="en", last=None, whole=False):
     if _other_song(text, all_songs, whole):
         return None
     named = _title(text, all_songs)
-    if named and not ANOTHER.search(text or ""):
-        return named
+    other = [m.start() for m in ANOTHER.finditer(text or "")]
+    if named and (not other or other[-1] < _title_at(text, all_songs)):
+        return named                                 # "다음은 러브 어택", "그거 말고 BAD": that one; "BAD 말고 다른 거": another
     if last in all_songs and AGAIN.search(text or "") and not ANOTHER.search(text or ""):
         return last                                  # "sing it again", "한 번 더"
     want = "ko" if KOREAN.search(text or "") else "en" if ENGLISH.search(text or "") else None

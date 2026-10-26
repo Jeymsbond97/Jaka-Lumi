@@ -49,10 +49,12 @@ WEATHER.update({k: "" for k in [   # night 4: casual / honorific / Konglish
  "웨더 어때", "레인 와", "is it gonna rain", "what's the high today", "how's it looking outside", "do i need a coat today",
  "will i need an umbrella tomorrow", "could you tell me the weather please", "may i ask about the weather today", "weather report please"]})
 NEWS += ["축구 결과 알려 줘", "did korea win yesterday", "anything in the news", "what's going on in the world today", "엔화 환율 알려 줘", "주식 시장 어때요"]
+NEWS += ["애플 대표 어떤 분이에요", "테슬라는 누가 이끌어요", "who leads tesla now", "구글 CEO는 어느 분입니까"]
 NOT = ["do you like rainy weather", "what's your favourite weather", "is it hot in here", "you're cool", "날씨 좋아해?",
        "how do you know the weather", "the news is boring", "what's your temperature",
        "어떤 날씨 좋아해", "우산 어디 있어요?", "우산 잃어버렸어요", "where is my umbrella", "실내 너무 더워요", "i like the news", "are you cold", "추워?", "너 더워?",
-       "요즘 무슨 일 있어", "오늘 무슨 일 있었어", "what happened to you today", "what happened here today", "did you win", "새로운 소식 있어"]   # about the visitor / Lumi: the LLM
+       "요즘 무슨 일 있어", "오늘 무슨 일 있었어", "what happened to you today", "what happened here today", "did you win", "새로운 소식 있어",
+       "우리 팀은 누가 이끌어요", "쿳션 대표 어떤 분이에요", "이 로봇은 누가 이끌어요"]   # about the visitor / Lumi: the LLM
 FOLLOW = [  # (first question, follow-up, expected place or None for "not a weather follow-up")
  ("what's the weather today", "and tomorrow?", ""), ("what's the weather today", "what about Busan?", "Busan"),
  ("what's the weather today", "and the weekend?", ""), ("what's the weather today", "what about the weekend?", ""),

@@ -131,7 +131,7 @@ def numbers(t):
                lambda m: str(1000 * _num(m.group(1)) if m.group(1) else 1000), t)     # "a thousand", "five thousand"
     t = re.sub(rf"\b([2-9]|{'|'.join(list(EN_NUM)[1:9])}) hundred(?: and)?(?: (\d+))?\b",
                lambda m: str(100 * _num(m.group(1)) + int(m.group(2) or 0)), t)       # "two hundred and fifty"
-    t = re.sub(rf"\b({'|'.join(TEEN)}|eleven|twelve)\b(?=\s*{UNIT}(?![a-z]))",
+    t = re.sub(rf"\b({'|'.join(TEEN)}|eleven|twelve)\b(?=\s*(?:{UNIT}(?![a-z])|degrees?\b|도(?![가-힣])))",
                lambda m: str(TEEN.get(m.group(1)) or EN_NUM[m.group(1)]), t)          # "fifteen centimetres"
     t = re.sub(r"\b(?:a|one) hundred(?: and)? (\d+)\b", lambda m: str(100 + int(m.group(1))), t)
     t = re.sub(r"\b(?:a|one) hundred\b", "100", t)
@@ -153,7 +153,7 @@ def numbers(t):
     t = re.sub(rf"(?<![가-힣\d])({_SINO})\s*도(?=\s+(?:왼쪽|오른쪽|뒤로|돌))", lambda m: f"{sino(m.group(1))}도", t)
     t = re.sub(r"(\d+)\s*degrees?(?=\s*[가-힣])", r"\1도", t)                 # "왼쪽으로 45 degrees 돌아"
     t = re.sub(r"(?<![\d.])(\d+) 도(?=\s+(?:왼|오른|위|아래|밑|좌|우|뒤|돌|회전|틀|꺾))", r"\1도", t)   # "고개를 90 도 오른쪽으로"
-    t = re.sub(rf"(?:^|(?<=으로)|(?<=[~,\s몸]))({_SINO})\s*도(?=\s*(?:왼|오른|좌|우|회전|돌|틀|꺾|만|쯤|정도))",
+    t = re.sub(rf"(?:^|(?<=으로)|(?<=[~,\s몸]))({_SINO})\s*도(?=\s*(?:왼|오른|좌|우|회전|돌|틀|꺾|만|쯤|정도|얼른|빨리|천천히|살짝|좀|퍼뜩|언능))",
                lambda m: f"{sino(m.group(1))}도 ", t)                    # written together: "왼쪽으로십오도회전해"
     t = re.sub(r"(?<![\d.])(\d+) ?(?:m|미터)\s?([1-9])0(?![\d.]|\s*(?:센|cm|밀|mm|미|m\b|도))(?=\s*(?:만|쯤|정도)?\s*(?:[가-힣]|$))",
                lambda m: f"{m.group(1)}.{m.group(2)} m", t)              # "1미터 50" is 1.5 m
@@ -161,7 +161,7 @@ def numbers(t):
     t = re.sub(rf"반\s*{UNIT}", "0.5 m", t)
     for w, d in NUM_WORDS.items():
         if w.isascii():
-            t = re.sub(rf"\b{w}\b(?=\s*(?:{UNIT}(?![a-z])|degrees?|and a (?:half|0\.5)))", d, t)   # "one meter", "a meter"
+            t = re.sub(rf"\b{w}\b(?=\s*(?:{UNIT}(?![a-z])|degrees?|도(?![가-힣])|and a (?:half|0\.5)))", d, t)   # "one meter", "a meter"
         else:
             t = re.sub(rf"(?<![가-힣]){w}\s*(?={UNIT})", d + " ", t)
     t = re.sub(rf"(?<![\d.])0(\d)\s*(?={UNIT}(?![a-z]))", r"0.\1 ", t)      # whisper's "05 meters": 0.5 m
@@ -329,6 +329,7 @@ KONGLISH = [   # English direction words said in Korean -> the Korean word ("레
     (r"(고개|머리|헤드|얼굴)\s*(?:를|을)?\s*업(?![가-힣])", r"\1 들어"),
     (r"(고개|머리|헤드|얼굴)\s*(?:를|을)?\s*다운(?![가-힣])", r"\1 숙여"),
     (_NO + r"헤드(?=\s)", "고개"),
+    (_NO + r"웨이스트(?=\s|를|을|는|가)", "허리"),
 ]
 
 
@@ -434,8 +435,10 @@ _HON = r"(?:세요|세용|세여|십시오|시오|셔요|시죠|실래요|실래
 _LOOK_AT = r"(왼쪽|오른쪽|위|위쪽|아래|아래쪽|뒤|뒤쪽|앞|하늘|천장|바닥|여기|이쪽|저쪽|나|날|저|정면|좌측|우측)"
 KO_PLAIN = [
     *((re.compile(a), b) for a, b in KONGLISH[:8]),                                    # slips / Konglish above
+    (re.compile(r"(?<=[가-힣?!.~]) +(?:허허|하하|헤헤|호호|히히|ㅋ+|ㅎ+)[\s!.~]*$"), ""),   # a laugh after it: "돌아 봐요 허허"
     (re.compile(r"(?<![가-힣])(?:퍼뜩|퍼떡|언능|얼렁|싸게싸게)(?![가-힣])"), "빨리"),      # dialect "quickly"
     (re.compile(r"(?<=봐) 봐(?=\s*(?:[,.!?~…]|$))"), ""),                                # "돌아가 봐 봐": once
+    (re.compile(r"(?<=[려어아여]) (?:좀|한 ?번) (?=놔|놓|둬|두)"), " "),                # "컵 내려 좀 놔 줘": a softener
     (re.compile(r"(?<=[가-힣])게나(?=\s*(?:[,.!?~…]|$))"), "게"),                       # 하게체 "이동하게나", "주게나"
     (re.compile(r"겄슈|겄어유|겠슈"), "겠어요"), (re.compile(r"(?<=[가-힣])세유(?=\s*(?:[,.!?~…]|$))"), "세요"),   # 충청
     (re.compile(r"(?<![가-힣])(\S*?[가-힣])(?:으)?(?:시겠어요|시겠습니까|시겠어|실래요|실래)\s*\?"), "STEMQ"),
@@ -454,7 +457,7 @@ KO_PLAIN = [
     (re.compile(r"(\d+(?:\.\d+)?\s*(?:도|미터|센티(?:미터)?|센치|cm|m)(?![가-힣a-z]))\s+(?:좀|쫌|한번|한 번)\s+(?=[가-힣])"), r"\1 "),
                                                                                    # "45도 좀 돌아 줘": the amount, then the verb
     (re.compile(r"(?<= )조(?:잉)?(?=\s*(?:[,.!?~…]|$))"), "줘"),                       # "흔들어 조잉", "손 한번 조"
-    (re.compile(r"악수 ?(?:한 ?번)? ?(?:할까요?|하실래요?|합시다|하십시다|하자잉|허자잉?|하입시더|하세|허세|합세|하시게)(?![가-힣])\s*\??"),
+    (re.compile(r"악수 ?(?:한 ?번)? ?(?:할까요?|하실까요?|할래요?|하시죠|하시겠어요|하실래요?|합시다|하십시다|하자잉|허자잉?|하입시더|하세|허세|합세|하시게)(?![가-힣])\s*\??"),
      "악수하자"),                                                                    # shake hands = wave; 하게체 "악수하세"
     (re.compile(r"(?<=[어아여해줘봐와가라자워려춰켜꺼놔둬]) (?:응|엉|알았지|알겠지|알았죠|알겠죠|오케이)"
                 r"\s*[?!.~]*(?=\s*$)"), ""),                                           # a tag after the order: "고개 들어 응?"
@@ -568,7 +571,7 @@ def norm(text, names=()):
     """Lower case, whisper's slips (ASR_SLIPS), Konglish directions (KONGLISH), numbers first ("point five meters" is
     a distance), then marker names (names: the map's)."""
     t = " " + (text or "").lower().replace("’", "'") + " "
-    t = re.sub(r"(\S+)[—–-]+\s*(?=\1)", "", t)                              # a stutter: "육십 센— 센티", "go ah— ahead"
+    t = re.sub(r"(?<!\S)(\S+)[—–-]+\s*(?=\1)", "", t)                              # a stutter: "육십 센— 센티", "go ah— ahead"
     t = re.sub(r"(?<=[가-힣])(?=\d+(?:\.\d+)?\s*(?:미터|센티|센치|cm|m\b|도))", " ", t)   # "오른쪽으로80센티미터"
     for slip, said in ASR_SLIPS + KONGLISH:
         t = re.sub(slip, said, t)

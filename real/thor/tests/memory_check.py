@@ -109,6 +109,8 @@ def _route(orig, d):
     def turn_route(b, say, lang, mk, state="idle", use_llm=True):
         memory._state["at"] = time.time()
         said = memory.reply(say, lang, history=b.history + [(say, "")])
+        if said is None and battery.asked(say):           # lumi.fixed_answer: the base's status (faked per dialogue)
+            said = battery.answer(say, lang)
         if said is None:
             return orig(b, say, lang, mk, state, use_llm)
         b.history.append((say, f"ACTION: none -\n{said}"))

@@ -259,6 +259,9 @@ def turn_route(b, say, lang, mk, state="idle", use_llm=True):
              got if got.startswith("action:") else "action:" + got)
         if r.startswith("action:") or r == "mission":
             b.history.append((say, f"ACTION: {r.split(':', 1)[1] if ':' in r else r}"))
+        elif r in ("weather", "search"):                   # lumi.look_up keeps the question (+ WEATHER_ASKED)
+            b.last_lookup = say + brain.WEATHER_ASKED if r == "weather" else say
+            b.history.append((b.last_lookup, ""))
         return r, "", "rules"
     if not use_llm:
         return "llm?", "", "-"

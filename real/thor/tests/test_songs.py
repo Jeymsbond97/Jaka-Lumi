@@ -33,6 +33,18 @@ ASKED = {"sing a song": True, "Lumi, sing me a song please": True, "sing Fantast
          "손님 오면 그때 노래해 줘": False, "I can't sing at all": False}
 wrong = {t: w for t, w in ASKED.items() if sing.asked(t) != w}
 assert not wrong, wrong
+ASKED2 = {"노래 싱 해 줘": True, "송 하나 불러 줘": True, "노래하나불러줘요": True, "노래 한 자락 해 줘": True, "배드 불러 주라": True,
+          "Love Attack 부르시게": True, "I'd love to hear Love Attack": True, "에이티즈 거 한 곡": True, "give us a song": True,
+          "제가 노래해도 돼요?": False, "노래 불러도 돼요?": False, "I feel bad, please": False, "택시 좀 불러 주세요": False,
+          "my daughter loves love attack": False}
+wrong = {t: w for t, w in ASKED2.items() if sing.asked(t) != w}
+assert not wrong, wrong
+assert sing.asked("웅 불러 줘~", "한 곡 불러 드릴까요?") and sing.asked("앵콜!", "ACTION: sing " + F) and sing.list_asked("송 리스트 알려 줘")
+for t in ["죄송한데요, 노래 하나 불러 주시겠어요?", "실례지만다른노래불러주시길부탁드립니다", "보소, 에이티즈 노래 쪼까 불러 줘", "sing anothre song",
+          "you sing song pleaase", "다른 노래 퍼뜩 불러 주이소"]:
+    assert sing.choose(t) in SONGS, t                # openers, dialect, slips and words written together are no title
+assert sing.choose("트로트한곡불러줘") is None and sing.choose("죄송하지만 아리랑 불러 주세요") is None
+assert sing.choose("루미야 자 다음은 꿈꾸던 어른이 되었나요 불러 줘") == D
 
 CHOSEN = {"sing Fantastic Baby": F, "판타스틱 베이비 불러 줘": F, "sing a BIGBANG song": F, "sing something by Big Bang": F,
           "러브어택 틀어 줘": L_, "리센느 노래 해 줘": L_, "sing a teez song": B, "sing BAD by ATEEZ": B,

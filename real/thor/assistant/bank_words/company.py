@@ -62,8 +62,8 @@ SPEC = {
          "who is the founder of {c}", "who leads {c}", "who is the president of {c}", "what's the name of {c}'s ceo",
          "who is the ceo", "who's the ceo", "who's your ceo", "who is your boss", "what is the name of the ceo"],
         _ko(["{c} 대표가 누구", "{c} 대표님이 누구", "{c} 사장이 누구", "{c} 사장님이 누구", "{c} 대표이사가 누구", "{c} 창업자가 누구",
-             "{c} 대표 이름이 뭐", "{c} 대표님 성함이 어떻게 되세요", "{c} 대표님 성함이 뭐"], ASK) +
-        _ko(["{c} 누가 세웠어", "{c} 누가 세웠어요", "{c} 누가 창업했어요", "{c} 누가 운영해요", "{c} 대표님은 누구신가요", "{c} 대표 누고",
+             "{c} 대표 이름이 뭐", "{c} 대표님 성함이 뭐"], ASK) +
+        _ko(["{c} 대표님 성함이 어떻게 되세요", "{c} 대표님 성함이 어떻게 되십니까", "{c} 누가 세웠어", "{c} 누가 세웠어요", "{c} 누가 창업했어요", "{c} 누가 운영해요", "{c} 대표님은 누구신가요", "{c} 대표 누고",
              "{c} 대표 누구여", "{c} 대표 누군데", "{c} 대표 알려 줘", "{c} ceo가 누구야", "{c} ceo 누구예요"]) +
         ["대표가 누구예요", "대표 이름이 뭐예요", "대표님 이름이 뭐예요", "대표님 성함이 어떻게 되세요", "사장님이 누구예요"],
         {"en": ["Cutshion's CEO is Lee Min-seok. Cutshion is his third company.",
@@ -129,9 +129,9 @@ SPEC = {
         ["회사는 어떤 로봇 만들어", "회사에서 무슨 로봇 만들어요", "쿳션은 뭐 만들어요"],
         {"en": ["Cutshion's robot apps are a barista robot, an AI drawing robot, a welding robot, a palletizing robot, a cooking "
                 "robot, an ice cream robot, a candy ball robot and an educational robot kit. Its own technology is CUVision, "
-                "Pionoid and GOMCOOK. Which one would you like to hear about?"],
+                "Pionoid and GOMCOOK. Ask me about any of them."],
          "ko": ["쿳션의 로봇 앱은 바리스타 로봇, AI 드로잉 로봇, 용접 로봇, 팔레타이징 로봇, 조리 로봇, 아이스크림 로봇, 캔디볼 로봇, "
-                "교육용 로봇이에요. 자체 기술로 큐비전, 피오노이드, 곰쿡이 있어요. 어떤 게 궁금하세요?"]}),
+                "교육용 로봇이에요. 자체 기술로 큐비전, 피오노이드, 곰쿡이 있어요. 궁금한 로봇이 있으면 물어보세요."]}),
     "co_awards": (
         ["has {c} won any awards", "did {c} win any awards", "what awards has {c} won", "{c} awards", "any awards for {c}",
          "what prizes did {c} get", "has {c} won anything"],
@@ -147,10 +147,9 @@ SPEC = {
         _ko(["{c} 전시회 어디 나갔어요", "{c} 어느 전시회 갔어요", "{c} 전시회 참가했어요", "{c} CES 나갔어요", "{c} 시이에스 갔어",
              "{c} 전시 이력이 어떻게 돼요", "{c} 박람회 나간 적 있어요", "{c} 어떤 전시회 나갔습니까", "{c} 전시회 어데 갔노"]),
         {"en": ["Cutshion has shown its robots at RoboWorld, IFA Berlin, the Gangnam Robot Plus Festival, Smart Life Week, the Korea "
-                "ICT Expo in Japan, CES in Las Vegas in 2025 and 2026, the NRA Show in Chicago and VivaTech in Paris. Which show "
-                "comes next I don't know."],
+                "ICT Expo in Japan, CES in Las Vegas in 2025 and 2026, the NRA Show in Chicago and VivaTech in Paris."],
          "ko": ["쿳션은 로보월드, 베를린 IFA, 강남 로봇 플러스 페스티벌, 스마트 라이프 위크, 일본 코리아 ICT 엑스포, 라스베이거스 "
-                "CES 2025와 2026, 시카고 NRA 쇼, 파리 비바테크에 참가했어요. 다음 전시회는 저도 몰라요."]}),
+                "CES 2025와 2026, 시카고 NRA 쇼, 파리 비바테크에 참가했어요."]}),
     "co_investment": (
         ["has {c} got investors", "who invested in {c}", "did {c} get investment", "how much funding does {c} have",
          "is {c} funded", "{c} investment", "has {c} raised money"],
@@ -172,11 +171,13 @@ SPEC = {
         ["how many employees does {c} have", "how many people work at {c}", "how big is {c}", "what is {c}'s revenue",
          "how much money does {c} make", "is {c} hiring", "can i work at {c}", "how do i get a job at {c}", "is {c} on the stock market",
          "is {c} listed", "what are {c}'s opening hours", "how many robots has {c} sold", "what's {c}'s sales",
+         "what is {c}'s next exhibition", "where will {c} exhibit next", "which show is {c} going to next",
          "how many employees does the company have", "how many people work there", "is the company hiring"],
         _ko(["{c} 직원 몇 명이에요", "{c} 직원이 몇 명이야", "{c} 직원 수가 어떻게 돼요", "{c} 직원 몇 명 있어", "{c} 사람 몇 명 일해요",
              "{c} 매출이 얼마예요", "{c} 매출 얼마야", "{c} 돈 얼마 벌어요", "{c} 채용해요", "{c} 채용 중이에요", "{c} 입사하려면 어떻게 해요",
              "{c} 상장했어요", "{c} 상장 회사예요", "{c} 영업시간이 어떻게 돼요", "{c} 몇 시에 문 열어요", "{c} 로봇 몇 대 팔았어요",
-             "{c} 판매 대수가 어떻게 돼요", "{c} 직원 몇 명이고", "{c} 직원 수가 어떻게 되십니까", "{c} 규모가 어떻게 돼요"]) +
+             "{c} 판매 대수가 어떻게 돼요", "{c} 직원 몇 명이고", "{c} 다음 전시회 어디예요", "{c} 다음 전시회 언제 나가요",
+             "{c} 다음에 어느 전시회 가요", "{c} 다음 전시 일정이 어떻게 됩니까", "{c} 직원 수가 어떻게 되십니까", "{c} 규모가 어떻게 돼요"]) +
         ["직원이 몇 명이에요", "직원 몇 명이에요"],
         {"en": ["I don't have that information. Please ask a staff member, or contact Cutshion at 070-8959-2960 or "
                 "cutshion@cutshion.com."],
@@ -190,7 +191,10 @@ SPEC = {
          "루미 가격이 어떻게 돼요", "너 가격 알려 줘", "너 살 수 있어요", "너 팔아요", "너 판매해요", "루미 판매해요", "렌탈 돼요", "대여 돼요",
          "렌탈 가격 알려 주세요", "바리스타 로봇 가격 알려 주세요", "아이스크림 로봇 가격이 어떻게 돼요", "로봇 사고 싶어요", "이 로봇 사려면 어떻게 해요",
          "구매하려면 어떻게 해요", "가격 좀 알려 주실래요", "가격 우째 되노", "값이 어떻게 돼요", "price 알려 줘", "가격 how much"] +
-        _ko(["{c} 로봇 가격 알려 주세요", "{c} 로봇 가격이 어떻게 돼요", "{c} 로봇 사려면 어떻게 해요"]),
+        _ko(["{c} 로봇 가격 알려 주세요", "{c} 로봇 가격이 어떻게 돼요", "{c} 로봇 사려면 어떻게 해요"]) +
+        [w + n + e for w in ["", "이 로봇 ", "로봇 ", "루미 ", "너 "] for n in ["가격 ", "값 "]   # every speech level
+         for e in ["알려 줘", "좀 알려 줘", "알려 주세요", "좀 알려 주세요", "알려 주십시오", "말해 주세요", "얼마야", "얼마예요", "얼마입니까",
+                   "얼마세요", "얼마고", "얼만교", "어떻게 되나요"]],
         {"en": ["I don't know the prices: they aren't on Cutshion's website. Please ask a staff member, or contact Cutshion at "
                 "070-8959-2960 or cutshion@cutshion.com."],
          "ko": ["가격은 홈페이지에 없어서 저도 몰라요. 직원에게 물어보시거나 쿳션(070-8959-2960, cutshion@cutshion.com)에 문의해 주세요."]}),

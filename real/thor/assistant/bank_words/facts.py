@@ -6,6 +6,7 @@ sound alike.
 Questions the quick lane's guards leave to the LLM on purpose are not listed here: the cameras ("camera", "see"),
 faces ("recognise", "remember"), what it can lift or hold ("lift", "hold", "things"), the price.
 """
+import re
 
 
 def _ko(stems, ends):
@@ -62,11 +63,11 @@ QUICK_KINDS = {
     "gripper": ([
         "what gripper do you have", "what gripper is that", "what's on the end of your arm", "what kind of hand do you have",
         "do you have a hand", "do you have fingers", "how many fingers do you have", "what's that gripper", "who makes your gripper",
-        "how wide can your gripper open", "how wide can you grip", "how big a cup can you grab", "can you grab a paper cup",
-        "can you pick up a paper cup", "how fast does the gripper close",
+        "how wide can your gripper open", "how wide can you grip", "how big a cup can you grab",
+        "how fast does the gripper close",
         "그리퍼 뭐 써요", "그리퍼가 뭐예요", "무슨 그리퍼야", "어떤 그리퍼예요", "손이 어떻게 생겼어", "손가락 몇 개야", "손가락이 몇 개예요",
         "손 있어요", "손가락 있어", "집게가 뭐예요", "집게 어디 거예요", "그리퍼 어디 제품이에요", "얼마나 넓게 벌어져요", "몇 센티까지 잡아요",
-        "몇 센티까지 집을 수 있어요", "종이컵 집을 수 있어요", "종이컵도 잡아", "손가락이 몇 개고", "그리퍼 뭐 쓰노", "그리퍼 머여",
+        "몇 센티까지 집을 수 있어요", "손가락이 몇 개고", "그리퍼 뭐 쓰노", "그리퍼 머여",
         "gripper 뭐 써요", "그리퍼 brand가 뭐야", "finger 몇 개야", "손 모양이 어때요", "어떤 손이 달려 있으세요",
     ], {"en": ["I wear a Zimmer electric gripper with two long steel fingers, made for cups and glasses. I can grip firm things from about 6 to 9 cm wide.",
                "A Zimmer electric gripper with two steel fingers. It opens and closes in about a second and holds firm things 6 to 9 cm wide; a paper cup is too soft, it gets squeezed flat."],
@@ -172,9 +173,9 @@ QUICK_KINDS = {
         "앞에 사람 있으면 어떻게 돼요", "길 막히면 어떻게 해요", "충돌하면 어떻게 돼요", "안 부딪혀", "장애물 피하나", "장애물 우째 피하노",
         "obstacle 피할 수 있어요", "장애물 avoid 돼요",
     ], {"en": ["My lidar, my 3D camera and five ultrasonic sensors see obstacles, and I drive around them. I drive slowly and stop for people in my way, and my bumper stops me if it's pressed.",
-               "I plan my way around people and obstacles, stop when someone is in my way, and my arm stops when it bumps into something."],
+               "I see obstacles with my lidar, my cameras and my ultrasonic sensors, plan my way around them, and stop when someone is in my way. My arm stops when it bumps into something."],
         "ko": ["라이다, 3D 카메라, 초음파 센서 5개로 장애물을 보고 피해서 가요. 앞에 사람이 있으면 천천히 가거나 멈추고, 범퍼가 눌리면 바로 멈춰요.",
-               "사람과 장애물을 피해서 경로를 짜고, 길에 사람이 있으면 멈춰요. 팔도 뭔가에 부딪히면 멈춰요."]}),
+               "라이다와 카메라, 초음파 센서로 사람과 장애물을 보고 피해서 경로를 짜요. 길에 사람이 있으면 멈추고, 팔도 뭔가에 부딪히면 멈춰요."]}),
     "dance": ([
         "can you dance", "do you dance", "do you know how to dance", "are you able to dance", "can robots dance",
         "can you walk", "do you walk", "do you have legs", "can you run", "can you jump", "can you fly", "can you swim",
@@ -248,8 +249,8 @@ QUICK_KINDS = {
         "뭐 집을 수 있어", "뭐 집을 수 있어요", "뭘 집을 수 있니", "무엇을 집을 수 있습니까", "어떤 걸 집을 수 있어요", "뭐 잡을 수 있어",
         "병도 집을 수 있어요", "사과 집을 수 있어", "과일 집을 수 있어요", "바닥에 있는 거 주울 수 있어요", "바닥에서 주울 수 있어",
         "어떤 거 집을 수 있으세요", "뭐 집을 수 있노", "뭐 집을 수 있나", "뭐 pick 할 수 있어", "pick up 뭐 돼요",
-    ], {"en": ["I can pick up cups, mugs and glasses, bottles, apples, oranges and bananas, from a table or a box near table height, not from the floor. So far I've picked up cups live.",
-               "Cups, glasses, bottles and fruit like apples, oranges and bananas, from about table height. Not from the floor: my arm doesn't reach that low."],
+    ], {"en": ["I can pick up cups, mugs and glasses, bottles, apples, oranges and bananas, from a table or a box near table height. I can't pick from the floor. So far I've picked up cups live.",
+               "Cups, glasses, bottles and fruit like apples, oranges and bananas, from about table height. Not from the floor: I can't reach that low."],
         "ko": ["컵, 머그, 유리잔, 병, 사과, 오렌지, 바나나를 탁자 높이에서 집을 수 있어요. 바닥에 있는 건 못 집어요. 실제로 집어 본 건 컵이에요.",
                "탁자 높이에 있는 컵, 유리잔, 병, 그리고 사과, 오렌지, 바나나 같은 과일을 집어요. 바닥은 팔이 안 닿아서 못 집어요."]}),
     "operator": ([
@@ -311,6 +312,8 @@ USE = ["뭐 써", "뭐 써요", "뭐 쓰니", "뭐 쓰세요", "뭐 쓰십니까
        "뭐고", "뭐여", "뭔가요", "무슨 거야", "어떤 거예요", "어떤 걸 쓰세요"]
 ABLE = ["수 있어", "수 있어요", "수 있니", "수 있나요", "수 있으세요", "수 있으십니까", "수 있습니까", "수 있나", "수 있노", "수 있어유",
         "수 있음", "줄 알아", "줄 알아요", "줄 아니", "줄 아세요", "줄 압니까", "줄 아나", "줄 아노", "수 있겠어", "수 있겠어요"]
+TELL = ["알려 줘", "좀 알려 줘", "알려 줘요", "알려 주세요", "좀 알려 주세요", "알려 주십시오", "알려 주시겠어요", "말해 줘", "말해 주세요",
+        "알려 주이소", "알려 도"]   # "<noun> 알려 줘": the same question asked as a request
 EN_NOUN = ["what's your {}", "what is your {}", "tell me your {}", "what {} do you have", "what's the robot's {}", "your {}?",
            "what is lumi's {}", "what's this robot's {}", "{} of this robot", "what {} does this robot have"]
 EN_ABLE = ["can you {}", "are you able to {}", "can lumi {}", "is this robot able to {}", "do you know how to {}", "can this robot {}",
@@ -362,6 +365,8 @@ HAVES = {   # kind: ([Korean nouns before 있-], [English "a ..."])
 }
 for _kind, (_ko_n, _en_n) in NOUNS.items():
     QUICK_KINDS[_kind][0].extend(w + n + e for w in ["", "너 ", "이 로봇 "] for n in _ko_n for e in HOW)
+    QUICK_KINDS[_kind][0].extend(w + n + e for w in ["", "로봇 ", "이 로봇 ", "루미 "]
+                                 for n in dict.fromkeys(re.sub(r"[이가] $", " ", n) for n in _ko_n) for e in TELL)
     QUICK_KINDS[_kind][0].extend(f.format(n) for f in EN_NOUN for n in _en_n)
 for _kind, (_ko_n, _en_n) in TOOLS.items():
     QUICK_KINDS[_kind][0].extend(w + n + e for w in KO_WHO[:4] for n in _ko_n for e in USE)
@@ -392,3 +397,59 @@ for _kind, _texts in {
     "operator": ["who operates this robot", "who runs this robot", "who is in charge of this robot", "이 로봇 누가 운영해요", "이 로봇 관리자 누구예요"],
 }.items():
     QUICK_KINDS[_kind][0].extend(_texts)
+
+# night 4, round 2: kinds the train sets asked for (knowledge/lumi_about_en.md: the arm, the gripper, short moves)
+QUICK_KINDS["paper_cup"] = (
+    _ko(["종이컵 집을 수 있", "종이컵 잡을 수 있", "종이컵도 잡을 수 있", "종이컵도 집을 수 있", "종이컵 들 수 있", "종이컵 잡으실 수 있",
+         "paper cup 잡을 수 있", "종이컵 잡을수있", "종이컵 집을수있"], CAN) +
+    ["종이컵도 잡아", "종이컵 잡아요", "종이컵은 못 잡아", "종이컵은 안 돼요", "종이컵도 돼요", "종이컵 되나", "종이컵 잡을 줄 알아",
+     "종이컵 집으면 찌그러져요", "종이컵 같은 거 잡을 수 있습니까", "종이컵은 어떻게 돼요", "종이컵 잡을 수 있는교",
+     "can you grab a paper cup", "can you pick up a paper cup", "can you hold a paper cup", "are you able to hold paper cups",
+     "can your gripper hold a paper cup", "what about paper cups", "do paper cups work", "can you take paper cups",
+     "will a paper cup get crushed", "can u grab paper cups", "paper cup 잡을 수 있어요", "can you pick up paper cups too"],
+    {"en": ["Not well: a paper cup is too soft, my fingers squeeze it flat. Firm cups and glasses about 6 to 9 cm wide are fine.",
+            "A paper cup is too soft for my steel fingers, they squeeze it flat. I hold firm cups and glasses 6 to 9 cm wide."],
+     "ko": ["종이컵은 너무 물러서 제 손가락이 눌러 찌그러뜨려요. 6에서 9cm 폭의 단단한 컵이나 유리잔은 잡을 수 있어요.",
+            "종이컵은 부드러워서 눌려 버려요. 단단한 컵이나 유리잔은 6에서 9cm 폭까지 잡아요."]})
+QUICK_KINDS["arm_weight"] = (
+    _ko(["팔 무게가 얼마", "팔 무게 얼마", "팔은 무게가 얼마", "팔 자체 무게가 얼마", "팔 하나 무게가 얼마", "로봇 팔 무게가 얼마"],
+        ["야", "예요", "에요", "니", "입니까", "인가요", "고", "여", "임", "나 돼요", "나 됩니까", "나 나가요"]) +
+    ["팔 하나 몇 키로임", "팔 몇 킬로예요", "팔이 몇 킬로예요", "팔 몇 kg이야", "팔은 몇 kg입니까", "팔은 몇 킬로야", "팔 무게 몇 키로", "팔이 몇 킬로나 나가요", "팔 무게는요", "팔 얼마나 무거워요",
+     "팔 무거워요", "팔 무게 아세요", "팔 무게가 어떻게 되십니까", "arm 무게 얼마야",
+     "how heavy is your arm", "how much does your arm weigh", "what does the arm weigh", "what's the weight of your arm",
+     "how heavy is the robot arm", "is your arm heavy", "arm weight?", "how many kilos is your arm"],
+    {"en": ["My arm itself weighs 9.9 kg. It can lift up to 2 kg, the gripper included.",
+            "The arm alone is 9.9 kg; with the gripper on it, it lifts up to 2 kg."],
+     "ko": ["팔 자체 무게는 9.9kg이에요. 그리퍼를 포함해 2kg까지 들 수 있어요.",
+            "팔만 9.9kg이에요. 그리퍼까지 합쳐 2kg까지 들어요."]})
+QUICK_KINDS["short_move"] = (
+    ["앞으로 가라 하면 최대 몇 미터 가", "앞으로 최대 몇 미터 갈 수 있어", "앞으로 최대 몇 미터 가요", "한 번에 몇 미터까지 가요",
+     "한 번에 최대 몇 미터 움직여요", "앞으로 가라고 하면 얼마나 가", "직진은 최대 몇 미터예요", "최대 몇 미터까지 직진해요",
+     "한 번에 얼마나 멀리 가세요", "앞으로 몇 미터까지 갈 수 있습니까", "앞뒤로 최대 몇 미터 가노", "forward 최대 몇 meter 가요",
+     "앞으로 10미터 가라 하면 감", "앞으로 10미터 가라고 하면 가요", "뒤로 최대 몇 미터 가요",
+     "how far can you move forward in one go", "what's the longest straight move you make", "how far will you go if i say move forward",
+     "what's the farthest you drive straight", "how many meters can you move forward at once", "is there a limit to how far you move forward",
+     "if i say go forward 10 meters, will you", "max distance for a forward move?"],
+    {"en": ["A straight move forward or back is at most 3 metres at a time. For anything farther, name a place on my map and I drive there.",
+            "At most 3 metres per straight move. Farther than that, I go to a named place on my map."],
+     "ko": ["앞뒤로 곧장 가는 건 한 번에 최대 3미터예요. 더 먼 곳은 지도에 있는 장소 이름으로 말해 주시면 거기까지 가요.",
+            "한 번에 곧장 가는 건 3미터까지예요. 그보다 멀면 지도의 장소로 가요."]})
+QUICK_KINDS["llm_runtime"] = (
+    ["what serves your language model", "what software serves your llm", "what software runs your llm", "do you use ollama",
+     "how is your model served", "what program runs gemma", "is it ollama", "what runs gemma on you", "what serves gemma",
+     "is gemma served with ollama", "do you run ollama",
+     "언어 모델은 어떤 프로그램으로 돌려요", "언어 모델은 어떤 프로그램으로 돌리시나요", "언어 모델은 어떤 프로그램으로 구동합니까",
+     "언어 모델 뭘로 돌려", "모델 돌리는 프로그램 뭐야", "언어 모델 돌리는 소프트웨어가 뭐예요", "젬마 돌리는 프로그램이 뭐야", "올라마 써요", "올라마 쓰니", "모델 서버 뭐 써요", "LLM 뭘로 돌려요", "젬마는 뭘로 돌려요", "모델 서빙 뭐로 해요"],
+    {"en": ["Ollama serves my language model, Gemma 4, on my own NVIDIA Jetson Thor, without the cloud."],
+     "ko": ["언어 모델 젬마 4는 올라마로 제 엔비디아 젯슨 토르에서 돌려요. 클라우드는 안 써요."]})
+QUICK["dof"] = QUICK.get("dof", []) + [
+    "너 몇 군데 움직여", "몇 군데 움직일 수 있어요", "몇 군데가 움직여요", "움직이는 데가 몇 군데예요", "몇 군데 움직이십니까", "어디 어디 움직여요",
+    "how many parts of you move", "how many moving parts do you have", "how many joints do you have in total", "which parts of you can move"]
+QUICK["battery_spec"] = QUICK.get("battery_spec", []) + [
+    "배터리 뭐 들어 있어", "배터리 뭐 들었어요", "무슨 배터리 들어 있어요", "배터리 종류가 뭐예요", "어떤 배터리 써요", "배터리 뭐 쓰세요",
+    "무슨 배터리 쓰노", "what battery is inside you", "what kind of battery is in you", "what battery do you use", "what battery powers you"]
+QUICK["no"] += [
+    "앞으로 3미터 가", "앞으로 10미터 가 줘", "앞으로 2미터 가 주세요", "뒤로 1미터 가", "move forward 5 meters", "go forward 2 meters",
+    "drive 3 meters ahead", "종이컵 집어 줘", "종이컵 잡아 줘", "pick up the paper cup", "grab my paper cup", "종이컵 가져와",
+    "팔 들어", "팔 내려", "raise your arm", "대통령 연세가 어떻게 됩니까", "대통령 몇 살이에요", "엄마 연세가 어떻게 되세요", "how old is the president",
+    "오픈AI는 누가 이끌고 있습니까", "오픈AI CEO가 누구야", "who runs openai", "who leads openai"]

@@ -52,7 +52,7 @@ SPANS = re.compile(rf"(?:(?<![\w.]){_COUNT}\s*)?뼘")
 TINY = re.compile(r"\b(?:tiny|teeny|wee|hair|hairs?breadth|smidge|smidgen|tad|touch|nudge|slightly|little tiny)\b|"
                   r"\bfew (?:centimet(?:er|re)s|cm)\b|\binch (?:forward|back|left|right|ahead)|"
                   r"살짝|아주 조금|쪼끔|쬐끔|약간|요만큼|조금만 살짝")
-LITTLE = re.compile(r"\b(?:a little|a bit|little bit|bit)\b|조금|쪼금")   # "좀" is "please" as often as "a bit"
+LITTLE = re.compile(r"\b(?:a little|a bit|little bit|bit)\b|조금|쪼금|쪼매|쫌만")   # "좀" is "please" as often as "a bit"
 VAGUE = re.compile(r"\b(?:more|less|longer|further|farther|bit more|bit less) than\b|(?:^|\s)몇\s*(?:미터|센티|m\b|걸음)|\bsome (?:meters?|metres?)\b|\bto (?:m|meters?|metres?)\b|"
                    r"\b(?:some|like|uh|um)\s*$|(?<![가-힣])[이삼사오육칠팔구]?[십백][일이삼사오육칠팔구]?\s*(?:만\s*)?"
                    r"(?:가|와|이동|움직|후진|전진)")   # an amount half said: asked, never a guess

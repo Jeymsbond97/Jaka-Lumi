@@ -716,7 +716,7 @@ def _load():
 POLITE = re.compile(r"\bif you don'?t mind\b|\b(?:it'?d|it would|that would|that'?d) be (?:great|nice|good|lovely|awesome|"
                     r"cool|helpful) if you(?: could)?\b|^\W*go ahead and\b|\bfor a (?:sec|second|moment|bit)\b|\bif you please\b", re.I)
 SLANG = [(re.compile(rf"(?<![\w가-힣]){a}(?![\w가-힣])", re.I), b) for a, b in (
-    ("wav", "wave"), ("reech", "reach"), ("ur", "your"), ("u", "you"), ("lemme", "let me"), ("luk", "look"),
+    ("wav", "wave"), ("reech", "reach"), ("ur", "your"), ("u(?!-?turn)", "you"), ("lemme", "let me"), ("luk", "look"),
     ("pickup", "pick up"), ("plz|pls", "please"), ("mister robot|hey robot|yo robot|bro|buddy|lol|beep boop", ""),
     ("^\\W*robot", ""), (",?\\s*robot(?=\\s*[,.!?]|\\s*$)", ""),
     ("보이소|보시오|보시게|보십시오", "봐"), ("주이소|주시게", "주세요"), ("따라온나|따라오시게|따라오이소", "따라와"),
@@ -791,6 +791,7 @@ def core(text, markers=()):
     "감사합니다") cut, and the one marker named written as CANON_PLACE ("go to the coffee corner" -> "go to p3")."""
     from assistant import brain
     t = TAIL.sub("", brain.CALLING.sub("", plain(text))).strip(" ,.!?~") or text
+    t = re.sub(r"(?<![가-힣])좀\s+(?=[가-힣])", "", t)          # "뒤로 좀 돌아 줘": a softener, not a word to compare
     named = [m for m in markers if brain.named_place(t, m, markers)]
     if len(named) == 1:
         low = brain._norm(t, markers)
@@ -872,7 +873,7 @@ MOVE_VERB = (r"\b(?:move|go|step|back up|backup|scoot|slide|shift|drive|roll|rev
 LOOK_DIR = {"left": r"\bleft|왼|레프트|(?:^|\s)좌로|좌측", "right": r"\bright|\brite\b|오른|라이트|(?:^|\s)우로|우측",
             "up": r"\bup|\bupward|\bceiling|\bsky\b|\bhigher\b|천장|하늘|(?<!원)위", "down": r"\bdown|\bfloor|\bground|\bfeet\b|바닥|땅|아래|밑"}
 LOOK_ME = (r"\b(?:at|on|to|toward|towards) (?:me|us|나)\b|\bthis way\b|\bover here\b|\bmy way\b|\bhere\b|\bwatch me\b|"
-           r"\bme in the eye|\bmy face\b|나한테|저한테|쳐다봐|(?:^|\s)(?:여기|이쪽|저|나|날)(?:를|을)?\s*(?:좀\s*)?(?:봐|보세요|look)")
+           r"\bme in the eye|\bmy face\b|나한테|저한테|쳐다봐|(?:^|\s)(?:여기|이쪽|저|나|날|절)(?:를|을)?\s*(?:(?:좀|한 ?번|잠깐|잠시|다시)\s*)*(?:바라|쳐다)?(?:봐|보세요|look)")
 
 
 EN_NUM = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen "
@@ -1061,7 +1062,7 @@ def _slot(kind, text, markers, holding):
                 not re.search(r"\bface\b|\bother (?:side|way)\b|\d+\s*(?:degrees?|도)", t.replace("360", "")) and \
                 said_amount(text)[1] in (None, 360):
             return ("turn", ("right" if re.search(r"\bright\b|오른쪽", t) else "left") + " 360")
-        if re.search(r"\baround\b|\bu-?turn\b|유턴|뒤로 돌|뒤돌|\bother way\b|\babout face\b|한 바퀴", t):
+        if re.search(r"\baround\b|\bu-?turn\b|유턴|뒤로 (?:(?:좀|한 ?번|얼른|빨리)\s*)?돌|뒤돌|\bother way\b|\babout face\b|한 바퀴", t):
             return None if re.search(r"\bleft|\bright\b|왼|오른", t) else ("turn", "around 180")
         d = [x for x in _dirs(t) if x in ("left", "right")]
         if not d and said_amount(text)[1] == 180:
@@ -1163,7 +1164,9 @@ def read(text, markers=(), holding=False):
     kind = kind_of(text, markers)
     if isinstance(kind, tuple):                        # two motions close: only when the words fit one of them
         kind, other = kind
-        if other not in ACTS or _slot(other, text, markers, holding) is not None:
+        if other == "put" and not holding and not PUT_VERB.search(text):
+            pass                                       # "원래 자리로 가 줘": no put verb, nothing held: the trip back
+        elif other not in ACTS or _slot(other, text, markers, holding) is not None:
             return None
     if kind and _verb_conflict(kind, text, holding):
         return None
@@ -1173,8 +1176,9 @@ def read(text, markers=(), holding=False):
 
 PICK_VERB = re.compile(r"집|잡|들어|들고|가져|갖다|챙겨|\b(?:pick|grab|take|get|fetch|bring|hold)\b", re.I)
 LOOK_VERB = re.compile(r"봐|보세|쳐다|바라|\b(?:look|see|watch)\b", re.I)
-BACK_VERB = re.compile(r"돌아|복귀|가|와|\b(?:return|go|come|head|back)\b", re.I)
-POINTED = re.compile(r"저기 ?저|저 ?자리|그 ?자리로|\bthat (?:spot|place|position)\b|\bover there\b", re.I)
+PUT_VERB = re.compile(r"놓|놔|둬|두|내려|\b(?:put|place|drop|set|leave)\b", re.I)
+BACK_VERB = re.compile(r"돌아|복귀|컴백|리턴|가|와|\b(?:return|go|come|head|back)\b", re.I)
+POINTED = re.compile(r"저기 ?저|저 ?자리|(?<!아까 )그 ?자리로|\bthat (?:spot|place|position)\b|\bover there\b", re.I)
 
 
 def _verb_conflict(kind, text, holding):
@@ -1199,7 +1203,7 @@ def _verb_conflict(kind, text, holding):
     return holding and kind in ("arm_open", "arm_fold", "arm_reach", "arm_close")
 
 
-HEAD_WORD = re.compile(r"머리|고개|얼굴|시선|\b(?:head|eyes|face|gaze)\b", re.I)
+HEAD_WORD = re.compile(r"머리|고개|얼굴|시선|\b(?:head|eyes|(?<!about )face|gaze)\b", re.I)
 BODY_WORD = re.compile(r"본체|몸|허리|상체|몸통|\b(?:body|torso|waist|upper body|yourself)\b", re.I)
 GO_VERB = re.compile(r"(?<![가-힣])가(?: ?줘| ?주|$|\s)|이동|움직|무브|\b(?:move|go|drive|roll|scoot)\b", re.I)
 HAND_SHAPE = re.compile(r"펴|펼|쥐|주먹|넣|접|내려|오므|놔|놓|\b(?:open|close|fist|tuck|fold|lower)\b", re.I)

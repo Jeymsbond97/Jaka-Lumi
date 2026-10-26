@@ -9,7 +9,9 @@ knowledge/lumi_about_en.md "What I can do now" and brain.SYSTEM "What you can do
 import re
 import sys
 
-ASKED = re.compile(r"\bwhat (?:else |all |things |kinds? of things )?(?:can|could) you do\b(?!\s+(?:with|about|if|when|to|for (?:it|that)))|"
+ASKED = re.compile(r"\bwhat (?:else |all |things |kinds? of things )?(?:can|could) (?:you|u) do\b(?!\s+(?:with|about|if|when|to|for (?:it|that)))|"
+                   r"\b(?:you|u) can do what\b(?!\s+(?:you|i|we|he|she|they|it|ever)\b)|\bwhat (?:you|u) can do(?:ing)?\b|\b(?:skills?|functions?|abilities)\s*(?:뭐|뭔|머|있|이써)|"
+                   r"(?:스킬|펑션|평션)\S*\s*(?:뭐|뭔|머|있|이써|알려)|"
                    r"\bwhat (?:are|r) (?:all )?your (?:abilities|skills|capabilities|functions|features|talents)\b|"
                    r"\bwhat are you (?:able to do|capable of|good at)\b|\bwhat do you do\b(?!\s+(?:with|when|if|for fun))|"
                    r"\bwhat can you help (?:me |us )?with\b|\btell me (?:about )?(?:what you can do|your (?:abilities|skills))\b|"
@@ -17,8 +19,8 @@ ASKED = re.compile(r"\bwhat (?:else |all |things |kinds? of things )?(?:can|coul
                    r"\bwhat can (?:i|we) (?:ask|get|have) you (?:to )?do\b|\bwhat (?:are your|is your) (?:special )?(?:talents?|specialty|speciality)\b|"
                    r"(?<![가-힣]로 )(?<![가-힣]으로 )(?:뭐|뭘|머|멀|무엇|무엇을|뭐를)\s*(?:또\s*)?할\s*(?:수|줄)\s*(?:있|알|아|이써|이싸)|"
                    r"(?:뭐|뭘|무엇을?)\s*시킬\s*수|특기가?\s*(?:뭐|뭔|있)|무슨\s*function|"
-                   r"무슨\s*일을?\s*(?:해|하|할)|어떤\s*(?:일|것|거|걸)을?\s*(?:할\s*수|해|하)|할\s*수\s*있는\s*(?:게|것|거|일)|"
-                   r"뭐\s*하는\s*로봇|무슨\s*기능|어떤\s*기능|기능\S*\s*(?:뭐|뭔|있|알려)|(?:능력|기능)\S*\s*(?:뭐|뭔|알려|소개)", re.I)
+                   r"무슨\s*일을?\s*(?:해|하|할)|어떤\s*(?:일|것|거|걸)을?\s*(?:할\s*수|해|하)|할\s*(?:수\s*있는|줄\s*아는)\s*(?:게|것|거|일)|"
+                   r"뭐\s*하는\s*로봇|무슨\s*기능|어떤\s*기능|기능\S*\s*(?:뭐|뭔|있|알려|무엇|머)|(?:능력|기능)\S*\s*(?:뭐|뭔|알려|소개|무엇)", re.I)
 MORE = re.compile(r"^\W*(?:(?:yes|yeah|yep|sure|ok|okay|please|lumi|and)\W*)*(?:tell me more|more|go on|what else|and\?|"
                   r"and what else|anything else|details?|yes|yeah|yep|sure|ok|okay|please)(?:\W+(?:please|lumi))*\W*$|"
                   r"\bwhat else can you do\b|\btell me (?:more|everything|the rest)\b|"
@@ -48,7 +50,8 @@ NOT_LUMI = re.compile(r"\b(?:cutshion|company|jaka)\b|쿳션|회사|자카|안�
 
 def asked(text):
     """Do these words ask what Lumi can do? ("what can you do?", "what are your abilities", "넌 무슨 일을 해?")"""
-    return bool(ASKED.search(text or "")) and not NOT_LUMI.search(text or "")
+    t = re.sub(r"\S+—\s*", "", text or "")              # a stutter: "기— 기능", "할 줄— 줄 아는"
+    return bool(ASKED.search(t)) and not NOT_LUMI.search(t)
 
 
 def more_asked(text, last=""):

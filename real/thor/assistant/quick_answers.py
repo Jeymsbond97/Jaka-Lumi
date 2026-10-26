@@ -133,10 +133,10 @@ KINDS = {
         "what ai do you use", "what model do you use", "which language model are you",
         "what is your ai model", "what's your brain", "what ai are you", "what llm do you run",
         "무슨 ai 써요", "어떤 모델 써요", "언어 모델이 뭐예요", "인공지능 뭐 써", "ai 모델이 뭐야",
-    ], {"en": ["I answer with Gemma 4, a language model made by Google, running on my own NVIDIA Jetson Thor.",
-               "My language model is Gemma 4 by Google, and I understand speech with Whisper; both run on my own computer, without the cloud."],
-        "ko": ["구글이 만든 언어 모델 젬마 4로 대답해요. 제 안의 엔비디아 젯슨 토르에서 돌아가요.",
-               "제 언어 모델은 구글의 젬마 4이고, 음성 인식은 위스퍼예요. 둘 다 클라우드 없이 제 컴퓨터에서 돌아가요."]}),
+    ], {"en": ["I answer with Gemma 4, a language model made by Google, served by Ollama on my own NVIDIA Jetson Thor.",
+               "My language model is Gemma 4 by Google, served by Ollama, and I understand speech with Whisper; both run on my own NVIDIA Jetson Thor, without the cloud."],
+        "ko": ["구글이 만든 언어 모델 젬마 4로 대답해요. 제 안의 엔비디아 젯슨 토르에서 올라마로 돌아가요.",
+               "제 언어 모델은 구글의 젬마 4이고 올라마로 돌려요. 음성 인식은 위스퍼예요. 둘 다 클라우드 없이 제 젯슨 토르에서 돌아가요."]}),
     "robot": ([
         "are you a robot", "are you human", "are you alive", "are you real", "are you an ai", "are you a person",
         "is there a person inside", "is someone controlling you", "do you have feelings", "do you have emotions",
@@ -267,22 +267,22 @@ _said = {t for texts, _ in KINDS.values() for t in texts}
 NO = [t for t in NO if t not in _said]                              # a wording listed for a kind is that kind's
 
 CAMERA = re.compile(r"\b(?:see|seeing|saw|look(?:s|ing)?|watch|camera|wearing|holding|in front of|behind|colou?r|"
-                    r"recogni[sz]e|remember)\b|보여|보이|보니|(?<!해 )(?<!해)(?<!쭤 )(?<!쭤)(?<!여쭈어 )봐|봤|입었|들고|색|카메라|앞에|뒤에|알아봐|기억", re.I)
-ABOUT_ME = re.compile(r"\b(?:i(?! (?:call|address) you\b)(?! (?:talk|speak|chat) (?:to|with) you\b)|i'm|am i|my|"
+                    r"recogni[sz]e|remember)\b|보여|보이|보니|(?<!해 )(?<!해)(?<!쭤 )(?<!쭤)(?<!여쭈어 )봐(?!도 ?(?:돼|되|될|괜찮))|봤|입었|들고|색|카메라|앞에|뒤에|알아봐|기억", re.I)
+ABOUT_ME = re.compile(r"\b(?:(?<!can )(?<!could )(?<!may )i(?! (?:call|address) you\b)(?! (?:talk|speak|chat) (?:to|with) you\b)|i'm|am i|my|"
                       r"(?<!tell )(?<!give )(?<!let )(?<!show )me|mine)\b|(?:^|\s)(?:나|내|제|저|난|전)(?:는|가|를|의)?\s", re.I)
 FRAGMENT = re.compile(r"^\W*(?:and|so|but|then|or|also|why|really|seriously|wait|what about|how about|how come|are you sure)\b|"
                       r"^\W*(?:그럼|그러면|그리고|근데|그런데|그래서|아니|왜|진짜|정말|확실|설마|또)|"
                       r"\b(?:that|(?<!is )(?<!was )(?<!is it )(?<!how's )(?<!how is )it(?! is (?:now|today))|they|them|"
-                      r"(?<!hello )(?<!hi )(?<!hey )there|this one|the arm|your arm)\b|"
+                      r"(?<!hello )(?<!hi )(?<!hey )(?<!is )(?<!are )there(?! (?:is|are)\b)|this one)\b|"
                       r"그거|그건|거기|그분|그 회사|걔", re.I)   # not the clock's "it": "what day is it?"
 OTHER = re.compile(r"\b(?:lift|carry|hold|items?|(?<!this )things?|stuff|price|cost)\b|들 ?수|(?<!만)(?<!알아)(?<!뭐 )들어|물건|"
                    r"^(?!.*(?:키|무게|체중|신장|속도|시간|나이|높이|길이|크기)).*얼마(?:야|예요)|"
                    r"맞(?:아|지|죠|나|습니까)|아니(?:야|에요|죠)", re.I)   # what it can hold, the price, a check: the LLM
-SEVERAL = re.compile(r"\band\b|\bthen\b|그리고|[?？].+\S|하고\s|랑\s|"
-                     r"[가-힣](?<![최광참사창공경재원])(?<!그리)고\s+(?!싶|있|계)", re.I)   # "고개 숙이고 몇 시야?", "보고 시간 알려 줘"
+SEVERAL = re.compile(r"\band\b(?!\s+(?:built|made|\w+ed)\s+(?:you|lumi|this robot)\b)|\bthen\b|그리고|[?？].+\S|하고\s|랑\s|"
+                     r"[가-힣](?<![최광참사창공경재원라])(?<!그리)고\s+(?!싶|있|계)", re.I)   # "고개 숙이고 몇 시야?", "보고 시간 알려 줘"
 EVENT_TIME = re.compile(r"\b(?:what time|what day|which day|what date) (?:does|do|did|will|is|are|was|were|should|can)\b"
                         r"(?!\s+(?:it|today)\b)|몇 ?시(?:에|부터|까지|쯤에)|며칠(?:에|까지|부터)|무슨 요일(?:에|까지|부터)|"
-                        r"\b(?:open|close|start|end|begin|finish)\b|열어요|닫아요|시작|끝나", re.I)   # an event's time: the LLM
+                        r"\b(?:open|close)\b(?!\s+(?:a|the|my|your|this|that|doors?)\b)|\b(?:start|end|begin|finish)\b|열어요|닫아요|시작|끝나", re.I)   # an event's time: the LLM
 NAMES_LUMI = re.compile(r"\b(?:you|your|yourself|u|ur|lumi)\b|(?:^|\s)(?:너|넌|니|네|당신|루미|본인|자기)", re.I)
 
 _bank = None
@@ -317,7 +317,10 @@ ASKING = re.compile(r"^\W*(?:(?:hang on|wait|okay|ok|so|um+|uh+|hey|excuse me|so
 def _core(text):
     from assistant import brain
     t = ASKING.sub("", brain.CALLING.sub("", brain.unfill(text or "")).strip()).strip() or text or ""
-    t = re.sub(r"[\s,]*(?:lumi|루미야|루미)?[\s,.!?~]*$", "", t, flags=re.I).strip()
+    if not re.search(r"\b(?:is|was|name|named|called)\s+lumi\W*$", t, re.I):   # the subject: "How wide is Lumi?"
+        t = re.sub(r"[\s,]*(?:lumi|루미야|루미)?[\s,.!?~]*$", "", t, flags=re.I).strip()
+    if re.fullmatch(r"(?:무슨|뭔|무엇의?) ?뜻\S*", t) and "루미" in (text or ""):
+        t = "루미 " + t                                 # "루미 무슨 뜻이에요?": what the name means
     t = re.sub(r"얼만가$", "얼마예요", re.sub(r"(?<=[가-힣])는가$", "나요", re.sub(r"(?<=[가-힣])인가$", "인가요", t)))
     return t or (text or "").strip(" ,.!?~")                # 하게체 questions ("키 얼만가", "얼마나 되는가") as 해요체
 
@@ -337,13 +340,16 @@ def guarded(text, history=()):
     lead = re.match(r"^\W*(?:and|so|but|okay so|then)\W+", t, re.I)
     if lead and len(t[lead.end():].split()) >= 3 and NAMES_LUMI.search(t[lead.end():]):
         t = t[lead.end():]                             # "and your name is?", "so who are you?": a whole question
-    if FRAGMENT.search(t):
+    why = re.match(r"^\W*(?:why|왜)\s+", t, re.I)       # "why is your name Lumi?", "왜 루미라고 불러?": a whole question
+    whole_why = why and len(t[why.end():].split()) >= 2 and NAMES_LUMI.search(t[why.end():]) and \
+        not FRAGMENT.search(t[why.end():])
+    if FRAGMENT.search(t) and not whole_why:
         return "fragment"
     if SEVERAL.search(t):
         return "several"
     if OTHER.search(t):
         return "other"
-    if EVENT_TIME.search(t):
+    if EVENT_TIME.search(t) and not re.search(r"\bwhen did\b", t, re.I):   # "when did Cutshion start?": a founding
         return "event time"
     if history and not NAMES_LUMI.search(t):
         return "in a talk, not naming Lumi"            # "how old?" / "몇 살이에요?" after the company: about that

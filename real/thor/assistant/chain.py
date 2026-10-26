@@ -129,6 +129,9 @@ def plan(text, markers=(), cant=None):
             continue                                     # "이장이 말하는디, 팔 제자리로 해", "I'll hold it, give it here"
         elif out and out[-1][0] in ("quick", "steps") and _restated(p, out[-1][1]):
             continue                                     # "손 거둬!, 아 거두시겠어요?": the same order again, politely
+        elif out and out[-1][0] == "quick" and out[-1][2][0] == "wave" and re.search(r"(?:면서|며|서)\W*$", out[-1][1]) and \
+                GREET.search(p) and not rule:
+            continue                                     # "손 흔들면서 인사하고 고개 숙여": the wave is the greeting
         elif ASK.search(p) or rule and rule[0] in ("weather", "search") or cant is not None and cant.match(p):
             out.append(["talk", p, None])
         else:

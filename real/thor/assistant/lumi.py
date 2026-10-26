@@ -3261,14 +3261,21 @@ STOP_UNSAID = re.compile(   # a stop that is taken back, for later, said about t
     r"\bstop it,? (?-i:(?!Lumi\b|Robot\b)[A-Z][a-z]+)\b", re.I)
 
 
+STOP_LATER = re.compile(   # a stop for later ("내일 그만하시게", "행사가 끝난 후에 멈춰 주세요") or reported ("아까 직원분이
+    # 그만하라고 지시했습니다"); "내가 멈추라고 했지!" is said now
+    r"(?:^|\s)(?:나중에|이따가?|있다가|내일|모레|다음에|다음 ?번에)\s|(?:끝난|끝나고|마친|마치고|끝내고) ?(?:후|뒤|다음)?에?\s|"
+    r"[가-힣]고 ?나서\s|(?<!내가 )(?<!제가 )(?<!내가)(?:그만하|멈추|멈춰 ?달|정지하|서)라고\s*(?:\S+\s+)?"
+    r"(?:했|하셨|그랬|말했|말씀|지시|하더|하던|한다|하네)")
+
+
 STOP_PAD = re.compile(r"^(?:\W*(?:hey|hi|yo|oh|okay|ok|so|um+|uh+|listen|right|alright|all right|excuse me|mister robot|"
                       r"robot|lumi|loomi|루미 ?씨|루미 ?선생|루미야?|로봇아?|로봇 양반|어+|아+|야|저기요?)\b)+|"
                       r"(?:\W*\b(?:please|plz|pls|bro|now|right now|real quick|thanks|thank you|okay|ok|would you|will you|"
-                      r"right|already|빨리|좀|제발|당장|루미야?)\b)+\W*$", re.I)
+                      r"right|already|lumi|robot|빨리|좀|제발|당장|루미야?)\b)+\W*$", re.I)
 STOP_ONLY = re.compile(   # a whole sentence that only says stop / enough / stay (after calls and fillers): stop at once
-    r"(?:(?:sto+p|stahp|stob|top it|enough|that'?s enough|that is enough|no more|quit it|cut it out|kill it|abort|"
+    r"(?:(?:sto+p|stahp|stob|top it|enough|that'?s enough|that is enough|no more|quit it|cut it out|knock it off|whoa,? there|whoa(?:,? whoa)+|kill it|abort|"
     r"stop (?:everything|driving|moving|it|that|the robot|right there|right now)|enough (?:music|of that)|"
-    r"hold it|stop 해|그만|그만해|그만해요|그만하세요|그만하십시오|그만해 ?줄래요?|"
+    r"hold it(?: (?:right )?(?:there|here))?|stop 해|그만|그만해|그만해요|그만하세요|그만하십시오|그만해 ?줄래요?|"
     r"그만해 ?주세요|그마내|그만둬|멈춰|멈쳐|멈처|멈추라고|멈춰 ?봐|거기까지|고마 ?(?:서라|해라|해|하이소)|서|don'?t go|가지 ?마|그마+안|"
     r"얼음|cut it|노래 ?꺼|음악 ?꺼|stop the (?:music|song)|music off|stay|stay (?:here|there|put|right there)|"
     r"(?:just )?wait there|stop following(?: me)?|finish follow|(?:여기|거기)(?:서)? ?(?:그대로 ?)?(?:있어|있어요|계세요|stay|서|서세요|"
@@ -3276,7 +3283,7 @@ STOP_ONLY = re.compile(   # a whole sentence that only says stop / enough / stay
 
 
 STOP_POLITE = re.compile(   # a stop asked politely, after wording.ko_plain: "멈춰 주시겠어요?" -> "멈춰 줘?", "can you stop for me?"
-    r"\W*(?:(?:좀|지금|당장|잠깐|잠시|거기서?|이제)\s*)*(?:멈춰|멈춰 서|정지해|그만해|스톱해|스탑해|서) ?줘\W*|"
+    r"\W*(?:(?:좀|지금|당장|잠깐|잠시|거기서?|이제)\s*)*(?:멈춰|멈춰 서|정지해|그만해|스톱해|스탑해|서)(?: ?줘)?\W*|"
     r"\W*(?:(?:please|lumi|hey|okay|ok)\W+)*(?:can|could|would|will) (?:you|u) (?:please |just |kindly )?(?:stop|halt|freeze)"
     r"(?: (?:right )?(?:now|here|there|please))?(?: for (?:me|us|a (?:second|sec|moment|bit|minute)))?(?:,? please)?\W*|"
     r"\W*(?:would|do) you mind stopping(?: (?:now|here|there))?(?: for (?:me|us|a (?:second|moment)))?(?:,? please)?\W*", re.I)
@@ -3287,10 +3294,12 @@ def stop_order(text, markers):
     "can you stop?", "멈출 수 있어?" and "stop, where are you going?" do stop. Not a negated stop ("don't stop", "계속
     해"), talk about stopping ("he said stop", "bus stop", "my laptop freezes", "내 다리도 자주 멈춰"); a short bare
     stop word always stops (also stretched: "stooop", "머엄춰")."""
-    if NOT_STOP.search(text) and not re.fullmatch(r"\W*(?:(?:no|ok|okay|lumi|루미야?|hey)\W+)*(?:sto+pp?|stob|stopped|halt|freeze|멈춰|머+엄*춰|"
+    if NOT_STOP.search(text) and not re.fullmatch(r"\W*(?:(?:lumi|robot|hey|okay|ok)\W+)*(?:would|do) you mind stopping"
+                                                  r"(?:,? (?:now|here|there|please|for (?:me|us|a (?:second|moment))))*\W*", text, re.I) \
+            and not re.fullmatch(r"\W*(?:(?:no|ok|okay|lumi|루미야?|hey)\W+)*(?:sto+pp?|stob|stopped|halt|freeze|멈춰|머+엄*춰|"
                                                   r"그만|정지|스톱|스탑|stop it|stop now)\W*", text, re.I):
         return False
-    if STOP_UNSAID.search(text) or re.search(r"(?:^|\s)(?:나중에|이따가?|있다가)\s", text):
+    if STOP_UNSAID.search(text) or STOP_LATER.search(text):
         return False                                      # "이따가 멈춰 주세요": a stop for later
     bare = STOP_PAD.sub("", text.strip()).strip(" ,.!?~")
     if bare and STOP_ONLY.fullmatch(bare):
@@ -3321,7 +3330,9 @@ HAND_STATE_Q = re.compile(   # how the hand is now (A1): "is your hand open?", "
 def status_question(text):
     """"What are you doing?", "where are you going?", "is your hand open?": answered from the task state ("들고 있는 거
     줘" is a request)."""
-    return bool(HAND_STATE_Q.search(text)) or bool(STATUS_Q.search(text)) and not NOT_STATUS_NOW.search(text) and not EMPTY_HAND.search(text)
+    hand = HAND_STATE_Q.search(text) and not re.search(r"\b(?:stretch|stick|hold|put|reach|extend|get|move|bring)\b", text, re.I)
+    return bool(hand) or bool(STATUS_Q.search(text)) and not NOT_STATUS_NOW.search(text) and not EMPTY_HAND.search(text)
+    # hand: not "may I ask you to stretch your arm out?" (an order)
 
 
 def says_goodbye(text):
@@ -3396,7 +3407,9 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
         plan = None                            # "그 cup 들고 wave 해" with a cup in the hand: no second pick; the LLM
     if plan:
         return "chain", plan
-    got = seen(text) if seen else None
+    held_order = (holding() if callable(holding) else holding) and not hold and \
+        (brain_mod.held_place(text, markers) or brain_mod.held_give(text, markers))   # "put it down ok?" with a cup:
+    got = seen(text) if seen and not held_order else None                              # the hand, not "I put it down, now?"
     if got:
         return "seeing", got
     if status_question(text):
@@ -3478,7 +3491,8 @@ def read_mission(text, markers):
     got, unread, by = steps.read(text, markers, llm=False)
     from assistant import chain
     unread = [u for u in unread if not FILLER_PART.fullmatch(u) and   # "팔 접어, 당장", "hey robot, fold your arm"
-              not chain._restated(u, text.replace(u, " "))]          # "컵 잡아!, 아 잡아 줄 수 있어요?": said again
+              not chain._restated(u, text.lower().replace(u, " "))]  # "컵 잡아!, 아 잡아 줄 수 있어요?": said again
+    # (the parts come lower-cased: "부스 B로 가서" is the part itself, not said twice)
     rule = brain_mod.intent(text, markers) or ("", "")
     if unread and rule[0] == "look" and rule[1].endswith(f" {brain_mod.HEAD_YAW[1]:g}"):
         return None                                # "turn around and look": the head looks behind (brain.BEHIND_WORDS)

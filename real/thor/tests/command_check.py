@@ -87,8 +87,9 @@ def rules(text, state, marks, b):
             return "refuse"                                  # Lumi.wave refuses with something held (wave.HOLDING)
         if data[0] == "put" and not holding:
             return "empty_hand"                              # skills.put_down: nothing picked, nothing moves
-        if data[0] == "fetch" and not holding and {"object", "place"} & set(brain.parse_fetch(text, marks)[1]):
-            return "ask"                                     # fetch_dialog asks what is missing before anything moves
+        if data[0] == "fetch" and (holding or {"object", "place"} & set(brain.parse_fetch(text, marks)[1])):
+            return "ask"                                     # fetch_dialog asks what is missing before anything moves;
+            #                                                  holding: lumi.fetch_request asks where to put it first
         return data[0] if data[0] in ("weather", "search") else f"action:{data[0]} {data[1]}".strip()
     return None
 

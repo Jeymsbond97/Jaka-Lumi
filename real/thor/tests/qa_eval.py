@@ -73,7 +73,7 @@ POS.update({
  "arm": ["What sort of arm is that?", "Which robot arm do you use?", "팔은 무슨 모델이에요?", "팔 길이가 몇 센티야?", "how far is your reach?",
          "팔이 어디까지 닿습니까?", "팔 하나밖에 없어?"],
  "gripper": ["What kind of gripper is on you?", "How many fingers have you got?", "그리퍼는 무슨 제품이에요?", "손가락이 몇 개니?",
-             "집게는 뭐 써?", "can you grab a paper cup?"],
+             "집게는 뭐 써?"],
  "lidar": ["Is there a lidar on you?", "How far can the lidar measure?", "라이다 달려 있니?", "라이다 있으십니까?", "레이저 스캐너 있어?"],
  "sensors": ["Which sensors are on this robot?", "What sensors do you use?", "센서 어떤 게 달려 있어요?", "무슨 센서 있니?", "센서 몇 개 달렸노?"],
  "stairs": ["Can you go up the stairs?", "Are you able to climb stairs?", "계단도 올라가니?", "계단 오르실 수 있습니까?", "턱 넘을 수 있나?",
@@ -121,6 +121,15 @@ POS.update({
 })
 NEG += ["does the barista robot have a lidar?", "make me a latte", "라떼 한 잔 만들어 줘", "where's the coffee robot?", "바리스타 로봇 어디 있어?",
         "what is samsung?", "who is the CEO of Google?", "애플 대표가 누구야?", "커피 얼마예요?", "this cushion is comfy"]
+POS.update({   # night 4, round 2
+ "paper_cup": ["can you grab a paper cup?", "Could you hold a paper coffee cup?", "종이컵도 집으실 수 있나요?", "종이컵 잡을 수 있겠나?",
+               "종이컵은 잡을 수 있습니까?"],
+ "arm_weight": ["How much does the arm itself weigh?", "팔 무게는 얼마나 됩니까?", "팔이 몇 kg이에요?", "팔 무게 얼마고?"],
+ "short_move": ["How far do you go when I say move forward?", "앞으로 가 하면 최대 몇 미터까지 가요?", "직진 최대 거리가 몇 미터입니까?"],
+ "llm_runtime": ["What runs Gemma for you?", "Is your model served with Ollama?", "언어 모델 돌리는 프로그램이 뭐예요?"],
+})
+NEG += ["move forward 4 meters", "앞으로 5미터 가 줘", "grab the paper cup", "종이컵 좀 집어 주세요", "how old is the mayor?",
+        "사장님 연세가 어떻게 되세요?", "who leads samsung?"]
 
 def run():
     ok = bad = miss = 0

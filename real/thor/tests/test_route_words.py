@@ -75,6 +75,45 @@ CASES = [   # (text, state, route)
     # amounts
     ("루미,앞으로삼십센티미터가", "idle", "ask"), ("뒤로1미터50이동해부러", "idle", "action:move back 1.5"),
     ("앞으로 30센티 가", "idle", "action:move forward 0.3"),
+    # a stop for later or reported (night 4, round 3)
+    ("행사가 끝난 후에 멈춰 주시길 바랍니다", "idle", None), ("내일 그만하시게", "idle", None),
+    ("아까 직원분이 그만하라고 지시했습니다", "idle", None), ("루미 군, 그만하시게", "idle", "stop"),
+    ("저기요, 당장 멈춰 주시길 바랍니다", "idle", "stop"),
+    # turn (try turning) or look round; a correction said as a new order in full
+    ("왼쪽으로 돌아 봐", "idle", "action:turn left 90"), ("오른쪽으로 돌아봐 줄래요?", "idle", "action:look right"),
+    ("왼쪽으로 돌아보시게", "idle", "action:look left"), ("레프트 턴 해 봐", "idle", "action:turn left 90"),
+    ("루미 오른편으로 135도 돌아— 아니 왼편으로 백이십 도 돌아 주세요~", "idle", "action:turn left 120"),
+    ("우리 루미, 오른쪽으로 백삼십오 도 돌아... 아 잘못 말했다, 몸통째 왼쪽으로 돌려 주세요", "idle", "action:turn left 90"),
+    ("go forward half a metre, no wait, back up 10 cm", "idle", "action:move back 0.1"),
+    ("turn left 45 degrees, no, right", "idle", "action:turn right 45"),
+    ("좌측으로 20센티 움직여 줘, 아니 움직이실래요?", "idle", "action:move left 0.2"),
+    ("부스 B로 가서 왼쪽으로 돌아요", "idle", "talk"), ("hello robot, please come back for me, thank you", "idle", "action:come_back"),
+    ("애플 그랩 해", "idle", "action:pick apple"), ("실례합니다. 제자리에 지금 갖다 놓으십시오", "holding", "action:put back"),
+    # round 4: new wordings
+    ("back to your arm. what was it again?", "idle", None), ("now face the other way", "idle", "action:turn around 180"),
+    ("do a 180, please", "idle", "action:turn around 180"), ("룩 다운 해 주세요", "idle", "action:look down"),
+    ("룩 앳 미 해 줘", "idle", "action:look me"), ("룩 업 할 수 있어?", "idle", None),
+    ("바이바이 좀 하세요", "idle", "action:wave"), ("어이 로봇, 빠빠이 하시게", "idle", "action:wave"),
+    ("멈추시게", "idle", "stop"), ("hold it right there", "idle", "stop"), ("내일 멈추시게", "idle", None),
+    ("you put down arm please", "idle", "action:arm fold"), ("어이 로봇아, 손 쪼까 내려 줘", "idle", "action:arm fold"),
+    ("Lumi, may I ask you to stretch your arm out?", "idle", "action:arm reach"), ("is your arm out?", "idle", "status"),
+    ("Lumi, robot, put it down ok?", "holding", "place"), ("I put it down, now?", "holding", "seeing"),
+    ("할머니 드려라", "holding", "give"), ("우리 할머니 드리십시오", "holding", "give"), ("전화 드려", "holding", None),
+    ("인사 드려", "holding", None), ("연락 줘", "holding", None),
+    ("손 흔들면서 인사하고 고개 숙여", "idle", "chain:wave+look_down"),
+    ("왔던 길로 돌아가", "idle", "action:come_back"), ("원래 있던 자리로 가 주세요", "idle", "action:come_back"),
+    ("go back the way you came", "idle", "action:come_back"), ("원래 있던 자리로 가지 마", "idle", None),
+    ("어제 왔던 길로 가면 돼요", "idle", None), ("knock it off, Lumi", "idle", "stop"), ("whoa there", "idle", "stop"),
+    ("whoa, that's cool", "idle", None), ("lemme have it", "holding", "give"),
+    # "would you mind …ing", polite conditions and "-주시면 안 될까요" (lead, 11:30)
+    ("would you mind shaking hands", "idle", "action:wave"), ("would you mind coming here?", "idle", "action:come"),
+    ("do you mind waving at the kids?", "idle", "action:wave"), ("would you mind stopping here, please", "idle", "stop"),
+    ("would you mind if I took a photo?", "idle", None), ("would you mind not moving?", "idle", None),
+    ("손 흔들어 주시면 안 될까요?", "idle", "action:wave"), ("괜찮으시면 악수해 주실래요?", "idle", "action:wave"),
+    ("p3로 가 주시면 안 될까요?", "idle", "action:go_to p3"), ("실례가 안 된다면 이리 와 주시겠어요?", "idle", "action:come"),
+    ("혹시 괜찮으시면 컵 좀 집어 주실 수 있을까요?", "idle", "action:pick cup"), ("if you don't mind, wave at me", "idle", "action:wave"),
+    ("괜찮으시면 손 흔들지 마세요", "idle", None), ("괜찮으시면 내일 p3로 가 주세요", "idle", None),
+    ("괜찮으시면 저한테 주시면 안 될까요?", "holding", "give"),
 ]
 
 DETOUR = [   # right after a blocked drive to p2: (text, detour.read)
@@ -83,6 +122,7 @@ DETOUR = [   # right after a blocked drive to p2: (text, detour.read)
     ("지가 말하믄 재시도해부러", None), ("다시 시도할 줄은 알아?", None), ("그냥 돌아올 줄 아는가?", None),
     ("다시 시도해 줘", "retry"), ("다른 길로 가 주세요", "around"), ("루미야 포기하지 마", "retry"),
     ("never mind that, just try again", "retry"),
+    ("루미야, 다른 길 있나 민수야?", None), ("여러분, 모두 포기하고 돌아와 보시기 바랍니다", None),
 ]
 
 

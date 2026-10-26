@@ -125,6 +125,10 @@ assert ask("기억나? 어제 새 얘기 했던 거", "ko") == "어제 오후 4�
 assert ask("네", "ko") == "네, 기억나요. 한국의 새에 대해 이야기했어요."
 assert ask("우리 부산 날씨 얘기했던 거 기억나요?", "ko") == "오늘 오후 2시쯤에 부산 날씨에 대해 이야기한 거 말씀이세요?"
 assert ask("아니", "ko") == "그건 기억이 안 나요."
+assert ask("우리 서울 날씨 얘기했잖아, 기억해?", "ko") == "그건 기억이 안 나요."        # a name said must be the talk's own
+assert ask("didn't we talk about the weather in Seoul?") == "I can't remember that."
+assert ask("Didn't we have a chat about birds yesterday?").startswith("Do you mean our talk about birds")
+memory._recall.update(offered=[], left=[])
 assert ask("부산 날씨랑 새 얘기했던 거 기억나요?", "ko") == "오늘 오후 2시쯤에 부산 날씨에 대해 이야기한 거 말씀이세요?"
 assert ask("아니", "ko") == "아니면 어제 오후 4시쯤에 새에 대해 이야기한 거 말씀이세요?"
 assert ask("아니요", "ko") == "그건 기억이 안 나요."
@@ -165,9 +169,10 @@ memory._talk["name"] = None
 # forget this: the person's talks go, the talk now is not kept
 memory.heard("james")
 for q in ["forget this conversation", "please forget what I said", "Don't remember any of this, okay?", "잊어 줘", "대화 기록 지워 주세요", "forget me",
-          "Lumi, can you forget our conversation?", "잊어 주세요", "다 잊어버려", "delete my data"]:
+          "Lumi, can you forget our conversation?", "잊어 주세요", "다 잊어버려", "delete my data", "You forget what I say please.",
+          "아까 그 토크 포겟해 줘", "내 데이터 딜리트해 주세요", "다 지워 주이소.", "Wipe what we talked about.", "우리 얘기 기억에서 지워 줘."]:
     assert memory.FORGET.search(q), q
-for q in ["forget it", "don't forget the cup", "잊지 마", "did you forget me?", "제 이름 잊어버렸어요?", "잊어버렸어?"]:
+for q in ["forget it", "don't forget the cup", "잊지 마", "포겟하지 마", "did you forget me?", "제 이름 잊어버렸어요?", "잊어버렸어?"]:
     assert memory.reply(q, "en", NOW) != memory.FORGOT["en"], q
 assert memory.reply("forget our conversation", "en", NOW) == "Okay, I've forgotten our conversation."
 assert [s["title"] for s in json.loads((memory.DIR / "talks.json").read_text())] == ["Weather in Busan", "Stage show"]
@@ -225,11 +230,21 @@ assert memory.reply("where is your hand?", "en", NOW) == "My hand is held out in
 assert memory.reply("손에 뭐 있어요?", "ko", NOW) == "손을 앞으로 내밀고 있어요. 손에 빨간색 컵을 들고 있어요."
 for q in ["open your hand", "손 펴", "손 펴 줘", "give me your hand", "close your hand", "hand me the cup", "손 줘"]:
     assert memory.reply(q, "en", NOW) is None, q
-assert memory.reply("hand open or close?", "en", NOW).endswith("I'm holding the red cup.")
+for q in ["hand open or close?", "what u holding?", "Is anything in your hand?"]:
+    assert memory.reply(q, "en", NOW).endswith("I'm holding the red cup."), q
 memory._state.update(place="p3", lift=0.0)
 assert memory.reply("where are you?", "en", NOW) == "I'm at p3 right now."
 assert memory.reply("지금 어디야?", "ko", NOW) == "지금 p3 근처에 있어요."
 assert memory.reply("where are you going?", "en", NOW) is None and memory.reply("where are you from?", "en", NOW) is None
+for q in ["Um, where are you right now?", "you are where now?", "Which place on the map are you at?", "where you are?",
+          "너 지금 어디임?", "지금 있는 곳 어딘가?", "너 지금 어디입니까?", "지금 어디에 계십니까?", "지금 어느 위치에 계세요?",
+          "현재 위치가 어디예요?", "너 지금 어디유?", "지금 있는 곳 어데고?", "map에서 어디예요?", "너 지금 어디에 있는지 여쭤봐도 될까요?",
+          "so where you at now?", "tell me where you are now", "What's your location right now?", "지금 위치 좀 알려 줘.", "지금 어딨어?",
+          "지금 어디 있노?"]:
+    assert (memory.reply(q, "en", NOW) or "").startswith(("I'm at p3", "지금 p3")), q
+for q in ["Where are you looking?", "where are you taking me?", "지금 어디 보고 있어?", "어디 가?", "지금 어디로 가?",
+          "어디서 왔어?", "너 어디 출신이야?", "화장실 어디야?", "입구는 어디예요?"]:
+    assert memory.reply(q, "en", NOW) is None, q
 assert memory.reply("지금 몸 얼마나 올라가 있어?", "ko", NOW) == "리프트는 맨 아래에 있어요. 몸을 올리지 않은 상태예요."
 memory._state.update(lift=75.0)
 assert memory.reply("how high is your lift?", "en", NOW) == "My lift is raised 75 millimetres."
@@ -285,19 +300,50 @@ for q in ["어제 새 얘기 했던 거 기억나?", "어제 새 얘기 했던 �
           "어제 새 얘기 했던 거 기억나나?", "어제 새 얘기 했던 거 기억 나냐?", "어제 새 얘기 했던 거 기억나노?",       # friendly, dialect
           "어제 새 얘기했던 거 생각나요?", "어제 새 얘기 했잖아, 기억 안 나?", "어제 저랑 새 얘기 나누셨던 거 기억나세요?",
           "루미야 어제 새 얘기한 거 remember 해?", "Remember 어제 새 얘기?", "음 그 어제 새 얘기 기억나?",           # Konglish, fillers
-          "잠깐, 시청자분들 위해서 어제 새 얘기 한 거 기억나요?"]:
+          "잠깐, 시청자분들 위해서 어제 새 얘기 한 거 기억나요?",
+          "어제 새 얘기 기억허냐?", "어제 새 얘기 하지 않았어?", "어제 새 얘기 안 했어?"]:            # dialect, negative questions
     memory._recall.update(offered=[], talk=None, listed=[], left=[])
     assert memory.recall(q, "ko", NOW, embed=fake_embed) == BIRDS_KO, (q, memory.recall(q, "ko", NOW, embed=fake_embed))
-for q in ["응", "네", "맞아요", "그렇습니다", "어 맞아"]:                                    # yes at any level
+for q in ["응", "네", "맞아요", "그렇습니다", "어 맞아", "맞제", "ㅇㅇ", "응 그거"]:              # yes at any level
     memory.recall("어제 새 얘기 했던 거 기억나?", "ko", NOW, embed=fake_embed)
     assert (memory.recall(q, "ko", NOW, embed=fake_embed) or "").startswith("네, 기억나요. 새들이 왜 남쪽으로"), (q, memory.recall(q, "ko", NOW, embed=fake_embed))
 for q in ["그래서 결론이 뭐였어요?", "그때 뭐라고 했었지?", "그때 뭐라고 하셨죠?", "뭐라고 했는지 다시 말해 줄래?", "그때 point가 뭐였어요?",
-          "다시 remind 해 줘, 뭐라고 했어?"]:                                                # the detail is the facts, in Korean
+          "다시 remind 해 줘, 뭐라고 했어?", "뭐라고 말씀하셨었죠?", "핵심이 뭐였어요?", "그 얘기 좀 자세히 해 줘."]:   # the detail is the facts, in Korean
     assert memory.recall(q, "ko", NOW, embed=fake_embed) == "많은 새들이 겨울에 먹이를 찾아 남쪽으로 이동해요.", q
+for q in ["아닙니다", "아냐", "ㄴㄴ", "아뇨, 그거 말고요"]:                                  # no at any level
+    memory.recall("어제 새 얘기 했던 거 기억나?", "ko", NOW, embed=fake_embed)
+    assert memory.recall(q, "ko", NOW, embed=fake_embed) == "그건 기억이 안 나요.", q
+for q in ["Nah.", "No, a different one.", "not really"]:
+    memory.recall("Remember we talked about birds yesterday?", "en", NOW, embed=fake_embed)
+    assert memory.recall(q, "en", NOW, embed=fake_embed) == "I can't remember that.", q
 memory._recall.update(offered=[], talk=None, listed=[], left=[])
+for q in ["Do you happen to recall our bird chat?", "We were chatting about birds yesterday, weren't we?", "Any memory of us discussing birds?",
+          "yo lumi u remember bird talk yday?", "Birds. Yesterday. Ring any bells?", "Did we not talk about birds yesterday?",
+          "Didn't we talk about birds?", "you and me talk birds, remember or no?"]:
+    memory._recall.update(offered=[], talk=None, listed=[], left=[])
+    assert memory.recall(memory._clean(q), "en", NOW, embed=fake_embed) == "Do you mean our talk about birds yesterday at about 4 pm?", q
+memory._recall.update(offered=[], talk=None, listed=[], left=[])
+for q in ["나 그런 얘기 안 했어.", "I never said that."]:
+    assert memory.recall(q, "ko", NOW, embed=fake_embed) is None, q
 assert memory.recall("한글 얘기 기억나세요? 어제 했던 거요.", "ko", NOW, embed=fake_embed) == "어제 오후 3시쯤에 한글에 대해 이야기한 거 말씀이세요?"
 assert memory.recall("Remember 어제 쿳션 얘기?", "ko", NOW, embed=fake_embed).endswith("Cutshion에 대해 이야기한 거 말씀이세요?")
 assert memory.recall("Going back to chess: what was that again?", "en", NOW, embed=fake_embed) is None   # not the talk recalled
+for q in ["Quick one: what did you tell me about it?", "Lumi-san ano... what did you tell me about it?",   # a filler is no topic
+          "Okay, and please, robot what did you tell me about that?", "and answer was what?", "what was the answer?"]:
+    memory._recall.update(offered=[], talk=None, listed=[], left=[])
+    memory.recall("Remember we talked about birds yesterday?", "en", NOW, embed=fake_embed)
+    assert memory.recall(q, "en", NOW, embed=fake_embed) == "I told you that many birds migrate south for food in winter.", q
+for q, lang in [("Right, did we talk about sharks?", "en"), ("yesterday we talk sharks, you remember?", "en"),   # a new question
+                ("Exactly what did we talk about last week?", "en"), ("맞다, 어제 상어 얘기도 했었나?", "ko"),        # is no "yes"
+                ("그래, 지난주에 우리 무슨 얘기 했지?", "ko")]:
+    memory._recall.update(offered=[], talk=None, listed=[], left=[])
+    memory.recall("Remember we talked about birds yesterday?", "en", NOW, embed=fake_embed)
+    out = memory.recall(q, lang, NOW, embed=fake_embed)
+    assert out in memory.CANT_REMEMBER.values() or out in memory.ONLY_TWO_DAYS.values(), (q, out)
+memory._talk.update(skip=True, track=None)             # "forget this" said in this talk (no person known): nothing recalled
+for q, lang in [("So what did we say about birds?", "en"), ("어제 새 얘기 했던 거 기억나요?", "ko"), ("Do what we said yesterday.", "en")]:
+    assert memory.recall(q, lang, NOW, embed=fake_embed) in memory.CANT_REMEMBER.values(), q
+memory._talk.update(skip=False, track="p2")
 assert memory.recall("어제 문어 얘기 했던 거 기억나?", "ko", NOW, embed=fake_embed) == "그건 기억이 안 나요."
 assert memory.recall("우리 무슨 주제로 얘기했었지?", "ko", NOW, embed=fake_embed).startswith("최근 이틀 동안")   # "주제" is no topic
 for q in ["지난주에 우리 무슨 얘기 했지?", "저번 주 월요일에 우리 뭐 얘기했어?", "last weekend 얘기 기억나?", "사흘 전에 내가 뭐라고 했는지 기억나?",

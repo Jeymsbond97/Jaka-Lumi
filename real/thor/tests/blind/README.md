@@ -380,3 +380,41 @@ negation / ability / condition / later / reported / remark / others / take-back 
 imports, fields, levels, maps / markers, expect tokens, steps, regexes, no earlier train text, no case in both splits,
 and parity (every set has every level in both splits, every meaning `intent` / `q` / song at every level in both
 splits, near misses at every level in every command set, dialogues_mixed and lookup_dialogues): 0 problems.
+
+## r10 (round 10, 2026-10-26: English half, cup tasks, writer W5)
+
+`r10/train/` and `r10/held/`, written blind from docs/14, docs/16 and docs/17 (no assistant code or bank read). The
+owner's complaint: round 9 was only ~17 % English. Here English is **half of every set** (en_native 27 %, en_nonnative
+23 %), the nine Korean / Konglish / mixed levels of round 9 share the other half (5.6 % each), and every meaning is said
+at every level in both splits. English wordings: plain, polite and indirect ("would you mind …ing", "could you
+possibly …", "I was wondering if you could …", "I need you to …"), questions that are requests ("can you …?", "how about
+…ing?", "any chance you could …?"), casual, rude, long and rambling ("sorry to bother you, but …", "my hands are full,
+so …"), children; non-native English (broken frames "you can …?", "I want that you …", articles dropped); accent and
+whisper slips ("tern lef", "pleace", "kup", "tay bull"). Near misses at every level in every command set: negation,
+ability questions that are no request ("is it possible for a robot like you to …, in general?"), condition, later,
+reported, remark, words to others, take-back, hypothetical, quote (`:hard_<kind>`, expect `talk | ask`; "don't look at
+me" = `action:look away | talk | ask`). Field `level` as round 9, `style` on English cases (plain, polite, direct,
+question, casual, rude, long, child, nonnative, nn_whole, whole). No text in both splits, none of an earlier round's
+train text (rounds 1–4, r6, r8, r9). Formats of round 9; NO new expect tokens. Load as `tests.blind.r10.<split>.<name>`.
+
+| File | train / held | Notes |
+|---|---|---|
+| `commands_go`, `_move`, `_turn`, `_look`, `_lift`, `_waist` | 1754, 2036, 1372, 1975, 782, 697 (each split) | r6 conventions; amounts new to this round (move 15 / 25 / 40 / 60 / 70 cm, 2.5 / 3 m, 3.5 m refused; turn 20–150°; look 5–50°; lift 3–15 cm; waist 20 / 60 / 90°) |
+| `commands_wave`, `_reach`, `_hand`, `_give`, `_take`, `_put`, `_bring` | 826, 712, 724, 526, 730, 526, 1029 | handshakes = wave, "lend me your hand" = reach; give / take / put / bring here are apples, oranges and "it" (the cups are in `commands_cup`) |
+| `commands_follow`, `_come`, `_point`, `_stop`, `_status`, `_voice` | 524, 712, 473, 968, 1023 / 965, 922 | stop with every running action as `before`; status includes "what's in your hand?", "where are you taking that cup?" and near misses (my phone's battery, don't tell me) |
+| `commands_more`, `_chain`, `_detour` | 853 / 846, 1402, 1282 | chain: 45 % cup chains ("pick up the cup and look at me", holding "put the cup down and give us a wave": `chain \| mission`, `parts` "pick cup", "pick red cup", "put down", "give") |
+| `commands_missions` | 1800 | step notation of tests/test_steps.py; cup missions: `pick red cup \| go M \| give`, `pick cup \| go M \| place`, `go M \| receive cup wait \| go here`, `go M \| give Sarah`, `pick cup \| go M \| give \| go here`, `go M \| place \| go here`, `receive hand \| go M`, `pick white cup \| give`, `go M \| pick cup \| go here`, `pick cup \| go M \| place dining table`, plus waits, two places, an instruction wait; `?` for coffee, dancing, later, conditions (field `kind` P1–P14 / hard) |
+| `commands_sing`, `speed_short` | 828 / 804, 1024 / 1000 | sing: every song at every level; speed_short ≤ 3 words, `fast: True`, every capability at every level incl. the cup ("hand it over", "set it down") |
+| `commands_cup` | 11114 | NEW set, command format (scored like the other command sets). Idle: pick by colour (`action:pick red cup \| mission \| refuse`) or by which one ("the cup on the left", "the smaller cup", "제일 가까운 컵": `action:pick cup \| …`); search ("look for the red cup": `seeing \| action:look \| action:pick red cup \| mission \| action:fetch \| ask \| talk`); take from a hand (`receive \| talk`); "pass me the cup" (`mission \| action:fetch \| action:pick cup`); fetch from a marker, from one marker to another, to a named person at a marker, deliver and come back (`action:fetch \| mission`, `\| ask` for a translated marker name); "wait here until I tell you" (`talk \| stop \| ask`); "give me the cup" idle (`empty_hand \| ask \| talk \| mission \| action:fetch \| action:pick cup`). Holding (state `holding`, 44 %): give to me (`give`), to a described person ("the man in the blue shirt", "her": `give \| ask`), to a name only (`ask \| give`), put here / on a named thing / back, carry to a marker (`mission \| action:fetch \| action:go_to M`), carry and put on the table there; new orders on the way (before `("bring the cup to Sarah at the stage", "ACTION: mission")`): stop, wait here (`stop \| talk \| ask`), "no, the other table" (`place \| ask \| talk`), "give it to her instead" (`give \| ask`), "go to M instead", "never mind, bring it back". Whole-sentence corrections are not wrapped in request frames (style `whole`) |
+| `dialogues_mixed` (+ `_b`) | 303 (2121 scored turns), _b 502 (2644 / 2646) | one level per dialogue; mixed: 4 commands in a talk, a near miss, status, goodbye. `_b` cup talks: (A) pick → "what are you holding?" → give (`give \| empty_hand \| none`, the checker keeps the start's hand) → thanks (`action:arm open \| give \| none`); (B) holding: put on a named table → "no, the other table" → give to a described person → a near miss; (C) fetch from a marker → stop → to a named person; (D) take from the hand → carry to a marker → "don't move until I say so" → come here → give |
+| `memory_dialogues` | 161 (644 scored turns) | r6 memory format with cup memory: `seen` a cup today (where), `self.holding` a cup or nothing, a talk yesterday with the command "bring the red cup to stage"; turns: where was the cup seen, what are you holding (`status \| none`), what did I ask yesterday (cup + place), "do what we said" (`ask \| none`, the place read back) |
+
+Totals: 36614 train / 36501 held cases, 966 / 966 dialogues; per level (cases + scored turns) English 49.8 %
+(en_native 26.9, en_nonnative 22.9), each Korean / Konglish / mixed level 5.6 %. Unique text 89.8 %.
+
+Generators (seeded, not in the repo): `logs/w5_gen/` on the Thor: `en10.py` (English frames, -ing forms, non-native
+grammar, accent slips, near-miss frames), `render10.py` (a meaning at a level; Korean endings from W4's
+`logs/w4_gen/ko.py` plus indirect ones), `caps10.py` (single commands), `cup10.py` (cup tasks), `gen10.py` (all command
+sets, missions, chain, sing, status, more, speed_short; train and held filled cell by cell from one pool of taken
+texts), `dlg10.py` (dialogues); `check_r10.py` (round 9's checks plus no held text in train and the English share):
+0 problems.
