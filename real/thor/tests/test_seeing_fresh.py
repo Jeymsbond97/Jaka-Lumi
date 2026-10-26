@@ -40,7 +40,7 @@ def person_in_front(frames=None):
         hands[w["hand"]]["object"] = {"name": w["thing"], "colour": w["colour"], "position_mm": None,
                                       "distance_m": 0.8, "width_mm": None}
     return {"distance_m": 1.0, "bearing_deg": 0.0, "where": "in front of me", "position_mm": None, "camera": "head",
-            "facing": True, "gesture": None, "raised": [], "pointing": None, "hands": hands,
+            "facing": True, "gesture": None, "raised": w.get("raised", []), "pointing": None, "hands": hands,
             "clothes": {"upper": w.get("upper"), "lower": w.get("lower"), "feet": None}}
 
 
@@ -140,6 +140,30 @@ dialogue([("Can you see me?", {"person": False}, r"can't see you"),
           ("What about now?", {"person": True}, r"looked again.*yes, i can see you"),
           ("Lumi, look at the left side.", None, "llm")])                     # a head turn, not a seeing follow-up
 
+# a question naming a hand is about that hand only, the person's own left / right (live 2026-10-23 15:34: "what about
+# left hand?" with a laptop in the right and the left raised empty -> "I see a black laptop in your right hand" thrice)
+LEFT_UP = r"^Your left hand is up and I don't see anything in it\.$"
+world.update(START, hand="right", thing="laptop", colour="black", raised=["left"])
+dialogue([("What is my hand?", None, r"black laptop in your right hand"),
+          ("What about left hand?", None, LEFT_UP),
+          ("What is it in my left hand?", None, LEFT_UP),
+          ("What about the left one?", None, LEFT_UP),
+          ("and the other hand?", None, r"^In your right hand I see a black laptop"),
+          ("and this one?", None, LEFT_UP),
+          ("really?", None, r"looked again.*left hand is up"),
+          ("What about Inna's left hand?", {"raised": []}, r"^I don't see anything I can recognise in your left hand"),
+          ("What's in my right hand?", None, r"^In your right hand I see a black laptop"),
+          ("No, it's my left hand.", None, r"laptop in your right hand, but I may be wrong")])   # a claim stays a claim
+world.update(raised=["left"])
+dialogue([("내 손에 뭐 있어?", None, r"오른손에 .*노트북"),
+          ("왼손은?", None, r"^왼손을 들고 계신데"),
+          ("다른 손은?", None, r"^오른손에 .*노트북"),
+          ("그럼 왼손에는 뭐 있어?", None, r"^왼손을 들고 계신데"),
+          ("What about 왼손?", None, r"^왼손을 들고 계신데"),                   # mixed
+          ("what about the other one?", None, r"^In your right hand I see a black laptop"),
+          ("그럼 left hand는?", None, r"^왼손을 들고 계신데")])
+world.update(raised=[])
+
 # nothing in the hand any more, or nobody there
 world.update(START)
 dialogue([("what am I holding?", None, r"left hand"),
@@ -194,5 +218,20 @@ assert real_snapshot(("head",), since=asked) == []
 assert len(real_snapshot(("head",))) == 1                         # without `since`: anything under FRESH_S
 (tmp / "det_head.json").write_text(json.dumps({"time": time.time(), "people": [], "objects": []}))
 assert len(real_snapshot(("head",), since=asked)) == 1
+
+# "what's in my hand" in every wording goes to the cameras (2026-10-23: "What is in my right hand?" went to the LLM)
+for said in ("What is in my right hand?", "What's in my left hand?", "what is in my hand", "what's in my hand?",
+             "What is my hand?", "what am I holding", "What do I have in my hand?", "what is on my hand",
+             "Lumi, what's in my hand?", "내 손에 뭐 있어?", "내 오른손에 뭐 있어?", "제 왼손에 뭐 있어요?", "내가 뭐 들고 있어?",
+             "내 손에 든 거 뭐야?"):
+    assert next((k for k, rx in seeing.KINDS if rx.search(said)), None) == "holding", said
+
+# a barge-in that is the echo of Lumi's own answer (sound match ~0.5, bent words) is not a new question
+from audio import mouth
+mouth.recent_speech = lambda s=30.0: "Let me check. It is overcast in Seoul today with temperatures between 7 and 19 degrees."
+assert lumi.Lumi.own_echo("So today, with temperature, it's been", share=lumi.ECHO_LIKELY_SHARE)
+assert lumi.Lumi.own_echo("The school is over.", share=lumi.ECHO_LIKELY_SHARE)
+assert not lumi.Lumi.own_echo("What about Busan?", share=lumi.ECHO_LIKELY_SHARE)
+assert not lumi.Lumi.own_echo("Look it up.", share=lumi.ECHO_LIKELY_SHARE)
 
 print("seeing fresh ok")

@@ -104,6 +104,25 @@ outs = iter([["search NY weather\n", "It is 15 degrees. Clear."]])
 assert list(brain.Brain().respond_from("Weather?", "x")) == ["It is 15 degrees.", "Clear."]
 outs = iter([["Search results say 330 m."]])
 assert list(brain.Brain().respond_from("Eiffel?", "x")) == ["Search results say 330 m."]
+# "Let me check." is said by lumi before the lookup: never again inside the answer
+outs = iter([["Let me check. It is 15 degrees. 확인해 볼게요."]])
+assert list(brain.Brain().respond_from("Weather?", "x")) == ["It is 15 degrees."]
+
+# the days a weather question asks (today: Friday 23 October 2026), and only their lines of the forecast
+fri = datetime.date(2026, 10, 23)
+for q, days in {"오늘 날씨": [0], "and tomorrow?": [1], "모레는요?": [2], "내일모레": [2], "next Monday?": [3],
+                "다음 주 월요일 어때요?": [3], "this weekend": [1, 2], "이번 주말": [1, 2], "and Friday?": [0],
+                "next Friday": [7], "yesterday": [-1], "어제": [-1], "in 2 days": [2], "사흘 뒤": [3], "what about Busan?": None,
+                "the day after": [2]}.items():
+    assert web.asked_day(q, [1], fri) == days, (q, web.asked_day(q, [1], fri))
+week = "Weather in Seoul now: clear sky, 15 degrees.\n" + "\n".join(
+    f"{(fri + datetime.timedelta(days=i)).strftime('%A %d %B')}: rain." for i in range(7))
+assert web.weather_on(week, [3], fri) == "Forecast for Seoul:\nMonday 26 October: rain."
+assert web.weather_on(week, [0], fri).startswith("Weather in Seoul now") and web.weather_on(week, None, fri) == week
+assert "too far ahead, the forecast reaches only to Thursday 29 October" in web.weather_on(week, [9], fri)
+assert "already past" in web.weather_on(week, [-1], fri)
+from tests import dialogues_weather                          # 30+ weather talks, EN / KO / mixed
+dialogues_weather.check()
 # respond_stream: "search ..." under "ACTION: none" or without "ACTION:" is the lookup, never said; its words are not
 # the query
 outs = iter([["ACTION: none -\n", "search Lotte World", " ticket price"]])
@@ -187,8 +206,8 @@ def fake_say_stream(pieces, lang=None, abort=None):
 
 
 class FakeBrain:
-    weather_place = brain.Brain.weather_place
-    weather_at = ""
+    weather_place, weather_on = brain.Brain.weather_place, brain.Brain.weather_on
+    weather_at, weather_days, history = "", None, []
 
     def respond_from(self, asked, facts):
         events.append(("llm", asked, time.time()))

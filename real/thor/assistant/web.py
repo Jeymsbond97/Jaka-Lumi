@@ -122,6 +122,74 @@ def weather(place=DEFAULT_PLACE):
         return None
 
 
+WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6,
+            "월": 0, "화": 1, "수": 2, "목": 3, "금": 4, "토": 5, "일": 6}
+NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "이틀": 2, "사흘": 3, "나흘": 4}
+DAY_AFTER = re.compile(r"\bthe (?:day after|next day|following day)\b(?! tomorrow)|그 ?다음 ?날|다음 ?날|그 ?담 ?날", re.I)
+DAY_BEFORE = re.compile(r"\bthe day before\b(?! yesterday)|그 ?전 ?날", re.I)
+FIXED_DAY = re.compile(r"\bday after tomorrow\b|\bday before yesterday\b|내일 ?모레|글피|그저께|그제|모레|"
+                       r"\btoday\b|\btonight\b|\bthis (?:morning|afternoon|evening)\b|\bright now\b|\bnow\b|오늘|지금|"
+                       r"\btomorrow\b|내일|\byesterday\b|어제", re.I)
+FIXED_OFFSET = {"day after tomorrow": 2, "day before yesterday": -2, "내일모레": 2, "내일 모레": 2, "글피": 3,
+                "그저께": -2, "그제": -2, "모레": 2, "tomorrow": 1, "내일": 1, "yesterday": -1, "어제": -1}
+IN_DAYS = re.compile(r"\bin (\d+|one|two|three|four|five|six|seven) days?\b|(\d+|이틀|사흘|나흘) ?(?:일)? ?(?:후|뒤)", re.I)
+WEEKDAY = re.compile(r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b|([월화수목금토일])요일", re.I)
+WEEKEND = re.compile(r"\bweekend\b|주말", re.I)
+NEXT_WEEK = re.compile(r"\bnext\b|다음 ?주|담 ?주", re.I)        # "next Monday", "다음 주 월요일", "next weekend"
+WEEK = re.compile(r"\b(?:this|next) week\b|이번 ?주|다음 ?주|담 ?주", re.I)
+DAY_PHRASE = re.compile("|".join(r.pattern for r in (DAY_AFTER, DAY_BEFORE, IN_DAYS, WEEKDAY, WEEKEND, WEEK, NEXT_WEEK, FIXED_DAY)) +
+                        r"|\b(?:this|coming|on)\b", re.I)          # all the words that name a day, for lumi's follow-ups
+
+
+def asked_day(text, before=None, today=None):
+    """The days a question asks about, as days from today: [0] today, [1] tomorrow, [2] 모레, a weekday its next
+    one (today's own name is today), "next Monday" / "다음 주 월요일" the Monday of next week, "this weekend" / "주말"
+    Saturday and Sunday, "next week" its seven days; negative for days past. "The day after" / "다음 날" is the day
+    after `before` (the days asked the turn before). None when no day is named."""
+    t = text or ""
+    wd = (today or datetime.date.today()).weekday()
+    before = before or [0]
+    if DAY_AFTER.search(t):
+        return [before[-1] + 1]
+    if DAY_BEFORE.search(t):
+        return [before[0] - 1]
+    m = IN_DAYS.search(t)
+    if m:
+        n = m.group(1) or m.group(2)
+        return [int(n) if n.isdigit() else NUMBER_WORDS[n.lower()]]
+    week = 7 if NEXT_WEEK.search(t) else 0
+    m = WEEKDAY.search(t)
+    if m:
+        day = WEEKDAYS[(m.group(1) or m.group(2)).lower()]
+        return [7 - wd + day] if week else [(day - wd) % 7]
+    if WEEKEND.search(t):
+        return [d for d in (week + (5 - wd) % 7, week + (6 - wd) % 7) if wd != 6 or week or d == 0]   # Sunday: today
+    if WEEK.search(t):
+        return list(range(7 - wd, 14 - wd)) if week else list(range(0, 7 - wd))
+    m = FIXED_DAY.search(t)
+    if m:
+        return [FIXED_OFFSET.get(m.group(0).lower(), 0)]
+    return None
+
+
+def weather_on(forecast, days, today=None):
+    """Of weather()'s text only what the days asked need: the line of each day (the weather now with today), and a
+    plain line for a day past or beyond the forecast, so the answer can't take another day's line."""
+    lines = (forecast or "").split("\n")
+    if days is None or len(lines) < 2:
+        return forecast
+    today = today or datetime.date.today()
+    place = re.match(r"Weather in (.+?) now:", lines[0])
+    out = [lines[0]] if 0 in days else [f"Forecast for {place.group(1) if place else 'here'}:"]
+    last = (today + datetime.timedelta(days=len(lines) - 2)).strftime("%A %d %B")
+    for d in days:
+        name = (today + datetime.timedelta(days=d)).strftime("%A %d %B")
+        out.append(lines[d + 1] if 0 <= d < len(lines) - 1 else
+                   f"{name}: already past, there is no forecast for a day gone by." if d < 0 else
+                   f"{name}: too far ahead, the forecast reaches only to {last}.")
+    return "\n".join(out)
+
+
 def _place(place):
     """{name, latitude, longitude} of a place (English or a Korean name of KO_PLACES), or None; geocoded once."""
     place = en_place(place)

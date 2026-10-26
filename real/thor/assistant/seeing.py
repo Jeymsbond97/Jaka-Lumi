@@ -130,16 +130,16 @@ NOT_IN_VIEW = re.compile(r"\b(?:work|works|working|employ\w*|staff|company|compa
                          r"live|lives|living|world|team|office|branch|developers?|engineers?|built|made|came|visited|talked|met)\b|"
                          r"직원|회사|쿳션|일하|일해|근무|나라|국가|도시|살아|사는|인구|팀|지사|만든|만들|개발자|엔지니어|왔었|다녀갔|만났|얘기했|이야기했",
                          re.I)   # "how many people work at Cutshion?": the company, not the cameras
-HOLDING = re.compile(r"\bwhat(?:'s| is| am| do)? (?:i|is in my hands?|in my hands?)\b.*?\b(?:holding|carrying|have)\b|"
-                     r"\bwhat(?:'s| is)(?: it| this| that)? in my hands?\b|\bwhat(?:'s| is) my hands?\?|\bwhat (?:do )?i have in my hands?\b|\bam i holding\b|"
-                     r"\bis there (?:something|anything) in my hand\b|\bwhat is this\b(?=.*\bhand\b)|\bwhat am i hold in\b|\banything in my hands?\b|"
+HOLDING = re.compile(r"\bwhat(?:'s| is| am| do)? (?:i|is (?:in|on) my (?:left |right |other )?hands?|(?:in|on) my (?:left |right |other )?hands?)\b.*?\b(?:holding|carrying|have)\b|"
+                     r"\bwhat(?:'s| is)(?: it| this| that)? (?:in|on) my (?:left |right |other )?hands?\b|\bwhat(?:'s| is) my (?:left |right |other )?hands?\?|\bwhat (?:do )?i have (?:in|on) my (?:left |right |other )?hands?\b|\bam i holding\b|"
+                     r"\bis there (?:something|anything) in my hand\b|\bwhat is this\b(?=.*\bhand\b)|\bwhat am i hold in\b|\banything (?:in|on) my (?:left |right |other )?hands?\b|"
                      r"\bwhat\b.{0,25}\b(?:i'?m|i am) (?:holding|carrying)\b|\bwhat(?:'ve| have| do) i (?:got|have)\b(?! to)|"
                      r"\bwhat(?:'s| is) this(?: thing)?\W*$|\bwhat i(?:'ve| have) got\b|hold\s*했\S*\W+.*뭐|"
                      r"(?<!루미 )(?<!네 )손에\s*(?:뭐|뭘|든|있는).{0,15}(?:보여|보이|알아|맞혀|\bwhat is it\b)|"   # Lumi's hand: status
-                     r"(?:my\s*hand|(?:내|제)\s*손)\s*에?\s*(?:든|있는|뭐|뭔|무엇)|(?:내|제)\s*손\b.*(?:뭐|뭘)\s*들고\s*있|\bi(?:'ve| have) got something\b.*\bwhat\b|"
+                     r"(?:my\s*hand|(?:내|제)\s*(?:오른|왼)?손)\s*에?\s*(?:든|있는|뭐|뭔|무엇)|(?:내|제)\s*(?:오른|왼)?손\b.*(?:뭐|뭘)\s*들고\s*있|\bi(?:'ve| have) got something\b.*\bwhat\b|"
                      r"(?:내가|제가)\s*(?:hold|들고|잡고|쥐고)\s*(?:하고\s*)?있는\s*(?:거|게|것)|손에\s*(?:something|뭔가|무언가)|"
                      r"^\W*(?:\S+\W+){0,3}(?:이거|이건|이게)\s*(?:뭐|뭔|무엇|what)|"
-                     r"(?:내가|제가|나|저)\s*(?:지금\s*)?(?:뭐|뭘|무엇을?)\s*(?:들고|잡고|쥐고|holding)|(?:내|제)\s*(?:손|hand)에\s*(?:뭐|뭔|무엇|든|있)|"
+                     r"(?:내가|제가|나|저)\s*(?:지금\s*)?(?:뭐|뭘|무엇을?)\s*(?:들고|잡고|쥐고|holding)|(?:내|제)\s*(?:오른|왼)?(?:손|hand)에\s*(?:뭐|뭔|무엇|든|있)|"
                      r"(?:내가|제가)\s*(?:든|들고\s*있는|쥐고\s*있는)\s*(?:거|게|것)", re.I)   # "제가 들고 있는 거 뭐예요?"
                                  # "뭐 들고 있어?" without "내가" asks about Lumi's own hand (lumi.status_question)
 WHICH_HAND = re.compile(r"\b(?:which|what) hand(?![a-z])|무슨\s*손|오른손\S*\s*(?:아니면\s*)?왼손\S*\s*\?|\bleft or (?:my |the )?right\b|\bwhich of my hands\b|어느\s*(?:쪽\s*)?(?:손|hand)|손\s*어느\s*쪽|"
@@ -253,12 +253,18 @@ NOT_A_HAND = re.compile(r"\b(?:that'?s|that is|you'?re|you are|all|is that|is it
                         re.I)
 HAND_SAID = re.compile(r"(?P<n>\bnot (?:in )?(?:the |my |your )?|\bisn'?t (?:in )?(?:the |my |your )?)?\b(?P<s>left|right)\b"
                        r"(?=\s*(?:hand|one|side)(?![a-z])|\W*$)|(?P<k>왼|오른)\s*(?:손|쪽|편)\S{0,3}(?P<kn>\s*아니)?", re.I)
+HAND_ASKED = re.compile(r"\b(?:what|how) about\b|^\W*and\b|\bwhat\b.*\b(?:in|on)\b|\?\s*$|"
+                        r"(?:손|쪽|거)\S{0,2}(?:은|는|엔)\s*\??\W*$|뭐|뭘|무엇|뭔", re.I)
+                                 # "what about the left hand?", "왼손은?": a question about that hand, not "it's my left hand"
+OTHER_HAND = re.compile(r"\bother (?:hand|one)\b|\bthis (?:one|hand)\b|다른\s*(?:손|쪽)|반대\S{0,2}\s*손|이쪽\s*손|^\W*이\s*손|"
+                        r"^\W*(?:그럼\s*)?이건\s*\?", re.I)   # "and the other one?", "this one?" after a hand answer
 COLOUR_SAID = re.compile(r"(?P<n>\bnot (?:\w+ ){0,2}|n't (?:\w+ ){0,2})?\b(?P<c>" + "|".join(c for c in COLOURS if c.isascii()) +
                          r")(?![a-z])|(?P<k>" + "|".join(c for c in COLOURS if not c.isascii()) + r")\w*(?P<kn>\s*아니)?", re.I)
 _last = {"thing": None,          # the thing seen last: "how far is it?"
          "name": None,           # the kind of thing asked about last: "and the blue one?"
          "kind": None,           # the kind of the question just answered: "what about my jeans?" after the shirt
          "asked": None,          # (kind, words) of that question: "really?", "and now?" ask it again
+         "hand": None,           # the hand the last "what's in my hand" answer was about: "and the other one?"
          "parts": [],            # [(part, word, colour)] said in the clothes answer: "it's white" is about these
          "at": 0.0}              # time.time() of the last seeing answer
 
@@ -434,13 +440,17 @@ def _it_answer(t, frames, lang):
                 if th['distance_m'] else f"{_j(_ko_name(name), '은', '는')} {_where_ko(th['where'])}에 있어요.", lang)
 
 
-def _held_answer(frames, lang):
+def _held_answer(frames, lang, side=None):
+    """What the person holds; side ("left" / "right", the person's own): only what is in that hand."""
     p = scene.person_in_front(frames)
     if p is None:
         return _say("I can't see you well enough to tell. Could you step in front of me?",
                     "잘 안 보여서 모르겠어요. 제 앞으로 와 주시겠어요?", lang)
+    if side:
+        return _hand_answer(p, side, lang)
     o = scene.object_in_hand(frames)
     if o:
+        _last["hand"] = o["hand"]
         hand = {"left": ("left", "왼"), "right": ("right", "오른")}[o["hand"]]
         return _say(f"You're holding {_a(o['name'], o['colour'])} in your {hand[0]} hand.",
                     f"{hand[1]}손에 {COLOUR_KO[o['colour']] + ' ' if o['colour'] in COLOUR_KO else ''}"
@@ -448,6 +458,30 @@ def _held_answer(frames, lang):
     if scene.person_holds(None, frames) is False:
         return _empty_hands(lang)
     return _say("I can't see your hands well enough to tell.", "손이 잘 안 보여서 모르겠어요.", lang)
+
+
+def _hand_answer(p, side, lang):
+    """The one hand asked about ("what about my left hand?"), never the other hand's thing: what is in it, that it is
+    up with nothing seen in it, or that nothing known is in it."""
+    _last["hand"] = side
+    h, k = p["hands"].get(side), {"left": "왼", "right": "오른"}[side]
+    o = h and h["object"]
+    if o:
+        return _say(f"In your {side} hand I see {_a(o['name'], o['colour'])}.",
+                    f"{k}손에 {COLOUR_KO[o['colour']] + ' ' if o['colour'] in COLOUR_KO else ''}"
+                    f"{_j(_ko_name(o['name']), '이', '가')} 보여요.", lang)
+    if side in p["raised"]:
+        return _say(f"Your {side} hand is up and I don't see anything in it.",
+                    f"{k}손을 들고 계신데, 그 손에는 든 게 안 보여요.", lang)
+    if h is None:
+        return _say(f"I can't see your {side} hand well enough to tell.", f"{k}손이 잘 안 보여서 모르겠어요.", lang)
+    return _say(f"I don't see anything I can recognise in your {side} hand.",
+                f"{k}손에는 제가 알아볼 수 있는 게 안 보여요.", lang)
+
+
+def _asked_hand(t):
+    """The hand a question is about: "what's in my left hand?", "왼손은?", "and the other one?" (not the one just told)."""
+    return _side(t) or (OTHER_HAND.search(t) and {"left": "right", "right": "left"}.get(_last["hand"])) or None
 
 
 def _empty_hands(lang, now=False):
@@ -653,6 +687,11 @@ def _check(t, lang, frames, since, slow_line):
     short = len(t.split()) <= CLAIM_WORDS and \
         not ((ORDER.search(re.sub(r"\W+look\W*$", "", t)) or HEAD.search(t)) and not again)   # "put it in my right hand"; "..., look"
     hand = _side(t) if short and kind in ("holding", "hand", "raised") else None
+    side = _asked_hand(t) if short and kind in ("holding", "hand") and HAND_ASKED.search(t) else None
+    if side:                                               # "what about the left hand?": that hand, from a new look
+        _last["kind"], _last["asked"] = "holding", ("holding", f"what is in my {side} hand?")
+        frames = _look(frames, since)
+        return _held_answer(frames, lang, side) if frames else _say(*NO_CAMERA, lang)
     said, denied = _colours(t) if short and kind in ("shirt", "holding", "hand") else (None, set())
     named = _said_thing(t) if short and kind in ("holding", "hand") and not hand else None
     count = _said_count(t) if short and kind == "how_many" else None
@@ -762,7 +801,7 @@ def _reply(kind, t, frames, lang, slow_line=None):
             return _say("I can't measure how far it is.", "거리는 잴 수 없어요.", lang)
         return _say(f"The {name} is about {_metres(d)} from me.", f"{_j(_ko_name(name), '은', '는')} 저한테서 {_d(d)}미터쯤 떨어져 있어요.", lang)
     if kind == "holding":
-        return _held_answer(frames, lang)
+        return _held_answer(frames, lang, _asked_hand(t))
     p = scene.person_in_front(frames)
     if kind == "friend":                                   # "do you still see my friend?": anyone besides them
         n = len(scene.people(frames)) - (p is not None)
