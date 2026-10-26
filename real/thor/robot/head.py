@@ -13,6 +13,8 @@ import urllib.request
 BODY = "http://192.168.10.90:5000/api/extaxis"
 YAW_LIMIT = 60.0                 # deg; we keep the head well inside its +-180 range
 PITCH_RANGE = (-5.0, 35.0)       # deg, hardware range
+HEAD_REST_PITCH = PITCH_RANGE[0]  # deg; the head's rest: its lowest, looking down (+pitch = up), so sitting people
+                                 # and near things are in view. Every "head back / ahead" uses it; yaw rests at 0
 VEL = 40                         # speed ratio %, 1-100 (was 15: too slow to follow a visitor)
 ACC = 40                         # acceleration ratio %, 1-100
 # Temporary (2026-10-20): the head camera's cable is too short, a higher lift pulls it out. Back to 250 mm (what

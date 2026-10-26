@@ -39,7 +39,7 @@ fetch.head_cam.base_from_head = lambda yaw, pitch: None                        #
 fetch.objects.latest = lambda camera="torso": {"age_s": None, "objects": [], "head_pose": None}
 fetch.camview.want = lambda name: None
 fetch.head.moveto = lambda *a, **kw: (_ for _ in ()).throw(AssertionError("real head / lift move in a test"))
-fetch.head.status = lambda: [75.0, -15.0, 0.0, 0.0]
+fetch.head.status = lambda: [75.0, -15.0, *fetch.HEAD_AHEAD]                 # the head at rest
 skills.arm.cmd = lambda *a, **kw: (_ for _ in ()).throw(AssertionError(f"real arm command in a test: {a}"))
 say = lambda en, ko: said.append(en)
 P = lambda **k: k

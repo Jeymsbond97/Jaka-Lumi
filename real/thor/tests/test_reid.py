@@ -1,4 +1,4 @@
-"""Self-check of knowing people again (vision/reid.py, lumi.Vision.know, Lumi.greet / note_talk), no robot, no camera:
+"""Self-check of knowing people again (vision/reid.py, lumi.Vision.know, Lumi.greet after a wave), no robot, no camera:
 python tests/test_reid.py"""
 import types
 
@@ -72,7 +72,6 @@ def greet_next(L):
     t = L.vision.to_greet()
     assert t is not None
     L.greet(t)
-    L.note_talk()
     return t
 
 
@@ -81,15 +80,12 @@ def leave(L, seconds):
     see(L.vision, [], 3.0)
     if L.current is not None:
         L.current, L.voice_until = None, clock["t"] + lumi.VOICE_SESSION_S
-    L.note_talk()
     clock["t"] += seconds
-    L.note_talk()
 
 
 def goodbye(L):
     """The person says goodbye in view (answer() / end_conversation clear the talk)."""
     L.current, L.voice_until = None, 0.0
-    L.note_talk()
 
 
 # who it is is decided once a few faces are seen, or after FACE_WAIT_S without them
@@ -102,29 +98,21 @@ L = make()
 see(L.vision, [("green", 40, "ben")], 1.0)
 assert L.vision.to_greet() is not None                                    # faces seen: no wait
 
-# a new person: the full greeting
+# a new person who waves: the full greeting
 L = make()
 see(L.vision, [("red", 0)])
 a = greet_next(L)
-assert lumi.GREETING in said and L.current is a and a.person.talking, said
+assert lumi.GREETING in said and L.current is a, said
 
-# gone briefly while talking, back at another angle (a new track): no word, Lumi listens on
-leave(L, 60)
-see(L.vision, [("red", 30)])
-b = greet_next(L)
-assert b is not a and b.person is a.person and L.current is b, said
-assert said == [], said                                                    # no greeting, the history kept
-
-# a goodbye in view, back within RECENT_S: the short welcome back
+# gone, back at another angle (a new track) and waves again: known, the short welcome back (a wave always answered)
 goodbye(L)
-assert not a.person.talking
 leave(L, 60)
 see(L.vision, [("red", -10)])
 greet_next(L)
 assert said == ["<reset>", lumi.WELCOME_BACK["en"]], said
 
-# talk open but away longer than RECENT_S: welcome back too
-leave(L, lumi.RECENT_S + 10)
+# away a few minutes: welcome back too
+leave(L, 160)
 see(L.vision, [("red", 0)])
 greet_next(L)
 assert lumi.WELCOME_BACK["en"] in said, said

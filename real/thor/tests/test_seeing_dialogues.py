@@ -59,9 +59,14 @@ def _person(p):
     if p is None:
         return None
     seen = p.get("hands_visible", True)
-    hands = {s: ({"position_mm": None, "object": _thing(*p[f"{s}_hand"]) if isinstance(p.get(f"{s}_hand"), (list, tuple))
+    hands = {s: ({"position_mm": None, "distance_m": 0.8, "object": _thing(*p[f"{s}_hand"]) if isinstance(p.get(f"{s}_hand"), (list, tuple))
                   else (_thing(p[f"{s}_hand"], None) if p.get(f"{s}_hand") else None)} if seen else None)
              for s in ("left", "right")}
+    for s, h in hands.items():                     # the palm check: something without a class shows as a colour
+        raw = p.get(f"{s}_hand")
+        if h is not None:
+            h["something"] = None if h["object"] else {"colour": (raw[1] if isinstance(raw, (list, tuple)) else None) or
+                                                       "grey", "share": 0.5} if raw else {"colour": None, "share": 0.0}
     return {"distance_m": p.get("dist_m"), "bearing_deg": BEARING.get(p.get("side"), 0.0), "where": _where(p.get("side")),
             "position_mm": None, "camera": "head", "facing": True, "gesture": None,
             "raised": [p["raised"]] if p.get("raised") else [], "pointing": None, "hands": hands,
@@ -111,6 +116,22 @@ scene.pointing_target = lambda frames=None: None
 scene.ask_vlm = lambda q, lang="en", frames=None: None
 
 
+def ask_vlm_hand(evidence, lang="en", frames=None, side=None):
+    """The close look names a thing the detector has no class for (a watch), as gemma4 does on the hand picture."""
+    p = _front(frames)
+    for s in ((side,) if side else ("right", "left")):
+        raw = p and p.get(f"{s}_hand")
+        name = raw and (raw[0] if isinstance(raw, (list, tuple)) else raw)
+        if name and not _thing(name, None):
+            k = {"watch": "시계"}.get(name, name)
+            return f"You're holding a {name} in your {s} hand." if lang == "en" else \
+                f"{seeing.KO_SIDE[s]}손에 {seeing._j(k, '을', '를')} 들고 계세요."
+    return None
+
+
+scene.ask_vlm_hand = ask_vlm_hand
+
+
 def lang_of(text):
     return "ko" if re.search(r"[가-힣]", text) else "en"
 
@@ -118,7 +139,7 @@ def lang_of(text):
 def run(dialogues):
     ok, bad, asked = 0, [], 0
     for n, d in enumerate(dialogues):
-        seeing._last.update(thing=None, name=None, kind=None, asked=None, parts=[], at=0.0)
+        seeing._last.update(thing=None, name=None, kind=None, asked=None, parts=[], held=None, unsure=0.0, at=0.0)
         b = brain.Brain()
         marks = d.get("markers") or MARKS
         for i, turn in enumerate(d["turns"]):

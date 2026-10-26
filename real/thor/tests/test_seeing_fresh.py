@@ -35,7 +35,7 @@ def person_in_front(frames=None):
     w = _now(frames)
     if not w.get("person", True):
         return None
-    hands = {s: {"position_mm": None, "object": None} for s in ("left", "right")}
+    hands = {s: {"position_mm": None, "distance_m": 0.8, "object": None} for s in ("left", "right")}
     if w.get("hand"):
         hands[w["hand"]]["object"] = {"name": w["thing"], "colour": w["colour"], "position_mm": None,
                                       "distance_m": 0.8, "width_mm": None}
@@ -59,6 +59,7 @@ scene.object_in_hand = object_in_hand
 scene.person_holds = lambda obj=None, frames=None: bool(_now(frames).get("hand"))
 scene.people = lambda frames=None: [{}] if _now(frames).get("person", True) else []
 scene.ask_vlm = lambda q, lang="en", frames=None: "VLM"
+scene.ask_vlm_hand = lambda evidence, lang="en", frames=None, side=None: None
 scene.things = lambda frames=None: []
 
 
@@ -75,7 +76,7 @@ def say(text):
 
 def dialogue(turns):
     """turns: (words, world change before them or None, regex the answer must match; "llm": not a seeing answer)."""
-    seeing._last.update(thing=None, name=None, kind=None, asked=None, parts=[], at=0.0)
+    seeing._last.update(thing=None, name=None, kind=None, asked=None, parts=[], held=None, unsure=0.0, at=0.0)
     for words, change, want in turns:
         if change:
             world.update(change)
@@ -151,7 +152,7 @@ dialogue([("What is my hand?", None, r"black laptop in your right hand"),
           ("and the other hand?", None, r"^In your right hand I see a black laptop"),
           ("and this one?", None, LEFT_UP),
           ("really?", None, r"looked again.*left hand is up"),
-          ("What about Inna's left hand?", {"raised": []}, r"^I don't see anything I can recognise in your left hand"),
+          ("What about Inna's left hand?", {"raised": []}, r"^I don't see anything in your left hand"),
           ("What's in my right hand?", None, r"^In your right hand I see a black laptop"),
           ("No, it's my left hand.", None, r"laptop in your right hand, but I may be wrong")])   # a claim stays a claim
 world.update(raised=["left"])
@@ -167,8 +168,8 @@ world.update(raised=[])
 # nothing in the hand any more, or nobody there
 world.update(START)
 dialogue([("what am I holding?", None, r"left hand"),
-          ("and now?", {"hand": None}, r"don't see anything I can recognise in your hands"),
-          ("it's in my right hand", None, r"don't see anything I can recognise in your hands"),
+          ("and now?", {"hand": None}, r"don't see anything in your hands"),
+          ("it's in my right hand", None, r"don't see anything in your hands"),
           ("what about now?", {"person": False}, r"can't see you")])
 
 # no follow-up without a seeing answer just before; an order is never a correction
@@ -233,5 +234,65 @@ assert lumi.Lumi.own_echo("So today, with temperature, it's been", share=lumi.EC
 assert lumi.Lumi.own_echo("The school is over.", share=lumi.ECHO_LIKELY_SHARE)
 assert not lumi.Lumi.own_echo("What about Busan?", share=lumi.ECHO_LIKELY_SHARE)
 assert not lumi.Lumi.own_echo("Look it up.", share=lumi.ECHO_LIKELY_SHARE)
+
+# "what am I holding" tries hard before giving up: fresh looks until two agree, the colour steady across questions,
+# then the close look (gemma4 on the hand picture), then a request for a hint and a new look after it (2026-10-23 live:
+# a phone found only sometimes, a laptop "I can't tell" 4-5 times, a yellow cup "white" then "yellow")
+def person(right=None, something=None):
+    """A person in front whose right hand holds `right` ((name, colour, score) or None)."""
+    obj = right and {"name": right[0], "colour": right[1], "score": right[2], "position_mm": None, "distance_m": 0.8,
+                     "width_mm": None}
+    hand = {"position_mm": None, "distance_m": 0.8, "object": obj, "something": something or {"colour": None, "share": 0}}
+    return {"hands": {"right": hand, "left": {**hand, "object": None, "something": {"colour": None, "share": 0}}},
+            "raised": [], "posture": None}
+
+
+def held(views, said="what am I holding?", vlm=None, hint=None):
+    """The answer when the first look sees views[0] and each new look (more()) the next; also the close look's words
+    and what Lumi said before it."""
+    views, spoken, asked_vlm = list(views), [], []
+    scene.person_in_front = lambda frames: frames[0]["p"]
+    scene.ask_vlm_hand = lambda evidence, lang="en", frames=None, side=None: asked_vlm.append(evidence) or vlm
+    more = lambda: [{"p": views.pop(0)}] if views else None
+    got = seeing._held_answer([{"p": views.pop(0)}], "en", None, more, spoken.append, hint)
+    return got, spoken, asked_vlm
+
+
+seeing._last.update(held=None, unsure=0.0)
+PHONE = ("cell phone", "black", 0.22)                                    # a weak box: true only when two looks agree
+got, spoken, _ = held([person(PHONE), person(PHONE)])
+assert got == "You're holding a black cell phone in your right hand." and not spoken, got
+got, spoken, ev = held([person(PHONE), person(), person()], vlm="UNSURE")
+assert spoken == ["Let me look closely."] and "cell phone (score 0.22" in ev[0], (spoken, ev)
+assert got == "It might be a black cell phone in your right hand, but I'm not sure. Could you turn it toward me, or " \
+              "tell me what it is?", got
+got, _, _ = held([person(), person(), person()], hint="phone", vlm=None)
+assert got == "I still can't make it out well, so I'll take your word: it's a phone.", got
+got, _, _ = held([person(("cell phone", "black", 0.5))], hint="phone")
+assert got.startswith("Yes, now I see it: a black cell phone"), got
+LAPTOP = ("laptop", "grey", 0.6)
+got, spoken, _ = held([person(), person(), person(LAPTOP)])               # found on the third look: no close look
+assert got == "You're holding a grey laptop in your right hand." and not spoken, got
+got, spoken, ev = held([person(something={"colour": "green", "share": 0.6})] * 3, vlm="You're holding a green ball.")
+assert got == "You're holding a green ball." and "something green" in ev[0], (got, ev)
+got, _, _ = held([person(something={"colour": "green", "share": 0.6})] * 3, vlm=None)
+assert got.startswith("I see something green in your right hand, but I can't tell what it is. Could you turn"), got
+got, spoken, _ = held([person()] * 3)                                    # depth at the hands, nothing there
+assert got == "I don't see anything in your hands." and not spoken, got
+
+seeing._last.update(held=None)                                           # the colour stays steady ...
+assert held([person(("cup", "yellow", 0.8))])[0].endswith("a yellow cup in your right hand.")
+assert held([person(("cup", "white", 0.8)), person(("cup", "yellow", 0.8))])[0].endswith("a yellow cup in your right hand.")
+assert held([person(("cup", "white", 0.8)), person(("cup", "orange", 0.8)), person(("cup", "yellow", 0.8))])[0] \
+    .endswith("a yellow cup in your right hand.")
+assert held([person(("cup", "white", 0.8)), person(("cup", "white", 0.8))])[0].endswith("a white cup in your right hand.")
+seeing._last["held"]["at"] -= seeing.STEADY_S + 1                       # ... for STEADY_S, then a new look decides
+assert held([person(("cup", "yellow", 0.8))])[0].endswith("a yellow cup in your right hand.")
+                                                                         # the model is told the same colour
+assert seeing._steady({"name": "cup", "colour": "white"})["colour"] == "yellow"
+
+for said, want in (("it's my wallet", "wallet"), ("이거 지갑이야", "지갑"), ("no, it's a phone", "phone"),
+                   ("it's my right hand", None), ("okay", None), ("제가 서 있나요 앉아 있나요?", None)):
+    assert seeing._hint(said) == want, (said, seeing._hint(said))
 
 print("seeing fresh ok")

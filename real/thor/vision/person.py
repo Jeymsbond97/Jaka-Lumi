@@ -181,8 +181,9 @@ def load_net():
         return CvNet()
 
 
-def detect_boxes(net, color):
-    """YOLOv8 boxes: list of (x1, y1, x2, y2, score, COCO class id); class 0 is a person."""
+def detect_boxes(net, color, object_score=OBJECT_SCORE):
+    """YOLOv8 boxes: list of (x1, y1, x2, y2, score, COCO class id); class 0 is a person. object_score: the floor for
+    things other than people and cups (scene.py looks at a hand crop with a lower one)."""
     h, w = color.shape[:2]
     scale = SIZE / max(h, w)
     canvas = np.zeros((SIZE, SIZE, 3), np.uint8)              # letterbox, keep aspect ratio
@@ -191,7 +192,7 @@ def detect_boxes(net, color):
                                                                # (8400, 84): cx, cy, w, h, 80 class scores
     cls = out[:, 4:].argmax(axis=1)
     scores = out[np.arange(len(out)), 4 + cls]
-    floor = np.array([WEAK_SCORE.get(int(c), OBJECT_SCORE) for c in cls])
+    floor = np.array([WEAK_SCORE.get(int(c), object_score) for c in cls])
     keep = scores > np.where(cls == 0, MIN_SCORE, floor)
     if not keep.any():
         return []

@@ -8,15 +8,17 @@
 
 Behaviour
 - Every person the camera sees gets a track (an ID followed from frame to frame).
-- A new person who stays in the greeting zone is greeted once: Lumi turns its head to them and says hello
-  (a greeting never moves the arm). A second person who arrives is greeted the same way, then the talk goes on.
-- While a greeted person stays but says nothing, Lumi says nothing more (MAX_PROMPTS 0): it never speaks by itself.
+- Lumi speaks only when called: a wake word ("Lumi", "Hi Lumi", "Hi", "How are you", "루미야", "안녕하세요", "하이")
+  or a wave (a hand up, facing it) from someone in the greeting zone. Someone who only stands there or walks past is
+  not greeted, and nobody is greeted during a task or a drive. Greeted: the head turns to them, "Hi, I'm Lumi..."
+  (a greeting never moves the arm). The talk then goes on without the wake word until a goodbye or TALK_IDLE_S of
+  silence (ended without a word); then a call is needed again.
+- An answer is never cut for someone new: a call while Lumi talks is answered after it, turned to the caller.
 - When the person disappears from the camera (LOST_S), listening and speaking stop at once.
-  Someone who comes back later is a new visit and is greeted again.
 - Voice commands (English / Korean): go to <marker>, go home, look left/right/up/down/center, wave, stop. The arm
   waves only when asked, with an empty hand, from `look`, along a checked route (manipulation/wave.py).
-- Patrol (--patrol): drive marker to marker in a loop. Only a person in the robot's path (PATH_HALF_WIDTH to
-  each side) closer than PATROL_NEAR_MAX makes Lumi stop and greet; people sitting beside the path are ignored.
+- Patrol (--patrol): drive marker to marker in a loop. People are never greeted while driving (the base's own
+  sensors stop it for obstacles); a wake word stops it and Lumi talks.
   If the person says nothing for PATROL_WAIT_S, or the talk is over, or the person left, the patrol goes on
   (the base drives around a person who still stands in the way).
   Below LOW_BATTERY % Lumi drives home to charge and continues at RESUME_BATTERY %.
@@ -106,6 +108,8 @@ FACE_WAIT_S = 1.0                  # s after HOLD_S Lumi waits for those faces a
                                    # 2026-10-21: 6 of 8 returns had 3 good faces within 1.7 s, the other two after 5 s
 LOST_S = 2.0                       # s not seen -> the person is gone (detections can miss a few frames)
 PROMPT_S = 12.0                    # s of silence before "How can I help you?"
+TALK_IDLE_S = 20.0                 # s of silence with the visitor in view that end a conversation: the next talk needs
+                                   # the wake word or a wave again (owner, 2026-10-23)
 MAX_PROMPTS = 0                    # Lumi never speaks into a silence by itself: the greeting asked already (owner,
                                    # 2026-10-22: "How can I help you?" twice to someone standing silent)
 TOO_CLOSE = 0.45                   # m, a running wave is stopped
@@ -118,7 +122,7 @@ CLOSE_BOX = 0.85                   # a person is really closer than TOO_CLOSE on
 HEAD_SIGN = 1.0                    # +image angle -> +head yaw (checked: + = robot's left)
 LOOK = {"left": (40, None), "right": (-40, None), "center": (0, 0), "up": (None, 20), "down": (None, -5)}
 # ^ yaw/pitch in degrees for "look" commands: +yaw = left, +pitch = up (checked on the dashboard 2026-10-12)
-WAKE = re.compile(r"\b(hi|hey|hello|okay|ok|hai|high)?[\s,.!]*(lumi|lumia|loomi|lumie|lumy|lummy|looney|lu-mi|rumi|roomie)\b"
+WAKE = re.compile(r"\b(hi|hey|hello|okay|ok|hai|high)?[\s,.!]*(lumi|lumia|loomi|loomy|lumie|lumee|lumy|lummy|lummi|looney|lu-mi|rumi|rumy|roomie)\b"
                   r"|루미|누미", re.I)
 WAKE_REPLY = {"en": "Yes? How can I help?", "ko": "네? 무엇을 도와드릴까요?"}
 NAME_ONLY = re.compile(r"^\s*(hi |hey |hello )?(lumi|loomi|rumi|루미)[\s,.!?]*$", re.I)
@@ -287,7 +291,11 @@ STATUS_Q = re.compile(
     r"(?:컵|병|사과|바나나|오렌지)(?:을|를)? ?들고 ?있(?:어|니|나요|어요)?\?|손이 ?비어|뭐 ?가져가는|그거 ?(?:누구 ?거|나 ?주는)", re.I)
 NOT_STATUS_NOW = re.compile(r"\b(tonight|after work|weekend|tomorrow|later today|for fun|in your free time)\b|주말|쉬는 날|"
                             r"저 사람|우리|내일|퇴근|나중에", re.I)    # not about what Lumi is doing now
-HELLO_ONLY = re.compile(r"^\s*(hi|hey|hello|hiya)( there)?[\s,.!]*$|^\s*(안녕|안녕하세요)[\s.!]*$", re.I)
+HELLO_ONLY = re.compile(r"^(?=\W*\w)\s*(?:(?:hi|hey|hello|hiya|hai|hallo|helo|high)(?: there)?[\s,.!]*)?"   # a plain "Hi!",
+                        r"(?:how are you(?: doing)?(?: today)?[\s,.!?]*)?$|"                        # "how are you?"
+                        r"^\s*(?:안녕|안녕하세요|안녕하십니까|하이)[\s.!~?]*$", re.I)               # "안녕하세요", "하이"
+CALL_REST = re.compile(r"^(?:[\W_]|\b(?:hi|hey|hello|hiya|hai|ok|okay|there|how are you(?: doing)?(?: today)?)\b|"
+                       r"안녕(?:하세요|하십니까)?|하이|야|아)*$", re.I)   # what is left of a call without the name
 CAMERA_HALF_FOV = 42.0             # deg; half the camera's view (+ the head's YAW_LIMIT for the head camera)
 WAKE_MAX_S = 6.0                   # s; longer utterances are not checked for the wake word
 BARGE_IN_LOGPROB = -0.6            # an interruption must be heard more clearly than a normal answer (-1.0)
@@ -327,7 +335,8 @@ STUCK_S = 90.0                     # s without a main-loop pass -> stacks of all
 GREETING = "Hi, I'm Lumi, the assistant robot. How can I help you?"   # same voice as every other answer
 PROMPT = {"en": "How can I help you?", "ko": "무엇을 도와드릴까요?"}
 WELCOME_BACK = {"en": "Welcome back! How can I help you?", "ko": "다시 오셨네요, 무엇을 도와드릴까요?"}
-RECENT_S = 150.0                   # s; someone known back within this while the talk was open: Lumi just listens on
+WAVE_CHECK_S = 0.4                 # s between two looks for a raised hand (pose net, ~20 ms); two looks in a row
+WAVE_MATCH_DEG = 15.0              # deg; a raised hand belongs to the tracked person within this angle
 IN_VIEW_S = 0.5                    # s; a track seen this recently is someone else in view (not the one coming back)
 PATH_HALF_WIDTH = 0.4              # m to each side of the robot's centre line; on patrol only people in this
                                    # corridor are greeted (not people sitting at desks beside the aisle)
@@ -1109,7 +1118,8 @@ class Lumi:
         """Answered without the LLM: what Lumi can do (assistant/abilities.py; the rest on "tell me more" / "yes"),
         which songs it knows, the battery now and whether it is charging (assistant/battery.py), and right after a song "another one" / "again" / "그거 말고" (audio/sing.py). True if
         handled."""
-        if last.startswith("ACTION: sing") and sing.AFTER_SONG.search(text) and sing.asked(text, last):
+        if last.startswith("ACTION: sing") and sing.AFTER_SONG.search(text) and sing.asked(text, last) or \
+                sing.picked(text, last):                   # after the list: "the first one", "Fantastic Baby"
             self.sing_song(text)
             return True
         if sing.list_asked(text):
@@ -1150,7 +1160,8 @@ class Lumi:
             self.fetch_say("Sorry, I'm on a task right now. I can sing when I've finished.",
                            "죄송해요, 지금 다른 일을 하고 있어요. 끝나면 불러 드릴게요.")
             return
-        song = sing.choose(text, self.lang, self.last_song)
+        song = sing.picked(text, self.brain.history[-1][1] if self.brain.history else "") or \
+            sing.choose(text, self.lang, self.last_song)   # after the list: "the first one", a title, "아무거나"
         if song is None:                                   # a song we don't have: say which ones we know
             say = sing.unknown_reply(self.lang)
             self.brain.history.append((text, f"ACTION: none songs\n{say}"))   # a title next is sung
@@ -1168,8 +1179,8 @@ class Lumi:
     def song_abort(self):
         """While singing (clip mic only, like barge_in): "stop" / "그만" ends the song; another clear request ends
         it and is answered next (pending_text). The song's own words and unclear sounds are ignored."""
-        if self.interrupted():
-            return True
+        # not self.interrupted(): the head dances away from the listener, who then "left" (songs cut after 2-4 s,
+        # 2026-10-23); only words end a song
         u = self.mic.next(0.0)
         if u is None or not getattr(u, "during_speech", False) or u.seconds < 0.25 or mouth.own_voice(u):
             return False
@@ -1974,6 +1985,10 @@ class Lumi:
         if not ears.understood(BARGE_IN_LOGPROB):        # unclear while Lumi talks = mostly Lumi's own voice
             log(f"  ignored while talking (unclear): {text!r}")
             return False
+        if call_only(text):                              # "Hi Lumi" / "루미야" while Lumi answers (another visitor):
+            log(f"  called while talking: {text!r} - answer finished first, then turn to them")   # never cut for it
+            self.pending_text, self.pending_call = text, (text, u)
+            return False
         if seeing.recheck(text):                         # "Really?", "진짜?", "Now?" right after a seeing answer
             log(f"  interrupted by a check of what I see: {text!r}")
             self.pending_text = text
@@ -2005,24 +2020,17 @@ class Lumi:
 
     # ---------- interrupts ----------
     def interrupted(self):
-        """Stop listening/speaking: the person left, or a new person is waiting to be greeted."""
+        """Stop listening/speaking: the person left. Never for a newcomer: the answer is finished first, then
+        someone who waves or calls is turned to (owner, 2026-10-23)."""
         if not self.vision:
             return False
-        if self.current is None and time.time() < self.voice_until:
-            return False
-        return (self.current is not None and not self.vision.present(self.current)) or \
-            self.vision.to_greet() is not None
+        return self.current is not None and not self.vision.present(self.current)
 
     # ---------- behaviour ----------
     def greet(self, track):
-        """A full greeting for someone new; someone known back: listen on, or a short welcome back."""
+        """Someone waved at Lumi: a greeting for someone new, a short welcome back for someone known."""
         track.greeted = True
         who, gone = self.vision.know(track)
-        if gone is not None and gone < RECENT_S and who.talking:
-            log(f"person #{track.id} is back after {gone:.0f} s - listening on")
-            self.current = track
-            self.turn_head(HEAD_SIGN * track.angle)
-            return
         if self.current is None:
             self.brain.reset()
         self.current = track
@@ -2035,6 +2043,24 @@ class Lumi:
         self.turn_head(HEAD_SIGN * track.angle)          # speech only: a greeting never moves the arm
         mouth.say(GREETING)                              # cached at start: plays at once
 
+    def waver(self):
+        """The person in the greeting zone not greeted yet who waves at Lumi (a hand up, facing it) in two looks
+        WAVE_CHECK_S apart, or None. The pose net runs only while someone waits in the zone."""
+        t = self.vision.to_greet()
+        now = time.time()
+        if t is None or now - getattr(self, "wave_checked", 0.0) < WAVE_CHECK_S:
+            return None
+        self.wave_checked = now
+        from vision import scene
+        frames = safe(scene.snapshot, (self.vision.camera,), default=[]) or []
+        up = [w for w in (safe(hands_up, frames, default=[]) or []) if self.vision.near_angle(w, WAVE_MATCH_DEG) is t]
+        seen, self.wave_seen = getattr(self, "wave_seen", None), (t.id, now) if up else None
+        if up and seen and seen[0] == t.id and now - seen[1] <= 2.5 * WAVE_CHECK_S:
+            log(f"WAVE from person #{t.id} at {t.distance} m, {t.angle:+.0f} deg")
+            self.wave_seen = None
+            return t
+        return None
+
     def warm_llm(self):
         """brain.warm in the background (markers and the task state are read there, listening starts at once)."""
         threading.Thread(target=lambda: safe(lambda: self.brain.warm(self.markers, self.now_doing()[0])), daemon=True).start()
@@ -2043,6 +2069,9 @@ class Lumi:
         """Listen once; answer if something was said. Returns True if the visitor spoke."""
         if self.pending_text:                              # asked while Lumi was talking
             text, self.pending_text = self.pending_text, None
+            call, self.pending_call = getattr(self, "pending_call", None), None
+            if call and call[0] == text:                   # a call while Lumi talked: turn to the caller first
+                self.who_spoke(call[1])
             self.answer(text)
             return True
         self.warm_llm()                                    # the LLM's prompt start cached while they speak
@@ -2052,6 +2081,7 @@ class Lumi:
             log(f"  ignored own voice (sound match {mouth.last_echo:.2f}): {text!r}")
             text = None
         if text and self.own_echo(text) and not stop_order(text, self.markers) and \
+                not sing.picked(text, self.brain.history[-1][1] if self.brain.history else "") and \
                 (u is None or (u.during_speech if u.source == "clip" else len(text.split()) <= 2)):
             # Lumi heard itself: the clip mic while Lumi talked, or the room's echo of the last word on the head array
             # (muted while Lumi talks); a longer head-array sentence is the visitor ("okay go to P9" after a list with
@@ -2671,7 +2701,7 @@ class Lumi:
             if text:
                 log(f"  heard {text!r} (no wake word)")
             return False
-        rest = text[m.end():].strip(" ,.!?")
+        rest = re.sub(r"^(?:야|아)(?![가-힣])", "", text[m.end():]).strip(" ,.!?")   # "루미야, 뭐 보여?"
         lang = ears.heard_lang("ko" if re.search(r"[가-힣]", text) else "en")
         self.lang = lang
         cal = doa.load_calib()
@@ -2687,7 +2717,7 @@ class Lumi:
         self.quiet_until = 0.0
         self.brain.reset()
         self.closing_pending = None
-        command = rest if len(rest) > 2 else ""
+        command = rest if len(rest) > 2 else text if re.search(r"how are you", text, re.I) else ""   # answered
         target = self.find_caller(robot_angle, trusted)
         if target is not None:
             target.greeted = True
@@ -2929,16 +2959,13 @@ class Lumi:
             self.write_calib("finished")
         from tasks import follow
         following = follow.running()                       # no greetings (the head would turn away), keep listening
-        greet_now = (self.modes.patrol if moving else self.modes.greeter) and time.time() > self.quiet_until \
-            and not following
-        self.note_talk()
-        candidate = self.vision.to_greet() if greet_now else None
-        focus = self.current or candidate
+        greet_now = self.modes.greeter and not moving and time.time() > self.quiet_until and not following \
+            and not self.doing()                           # never during a task: standing, idle or talking only
+        candidate = self.waver() if greet_now else None    # Lumi never speaks to someone who only stands there or
+        focus = self.current or candidate                  # walks past: a wave (or the wake word) calls it
         self.vision.det.focus_angle = focus.angle if focus else None    # drawn red in the dashboard
         new = candidate
-        if new:                                            # a new visitor (first or second person)
-            if self.patrol:
-                self.patrol.pause()
+        if new:                                            # someone waved at Lumi (first or second person)
             self.greet(new)
             self.last_activity, self.prompts = time.time(), 0
             return
@@ -2975,9 +3002,8 @@ class Lumi:
                 self.looked_at = 0.0
                 self.turn_head(0, 0)
             if self.voice_until:
-                talked = bool(self.brain.history) and self.vision is not None and self.vision.anyone_near()
-                log(f"voice conversation over (silence){'' if talked else ', nobody here or nothing said: no goodbye'}")
-                self.end_conversation(None, quiet=not talked)
+                log("voice conversation over (silence): the wake word or a wave again")
+                self.end_conversation(None, quiet=True)    # Lumi never speaks unasked: no goodbye into a silence
             if self.check_wake():                          # "Hi Lumi" works in every mode
                 return
             if self.patrol:
@@ -2993,22 +3019,14 @@ class Lumi:
 
         if self.talk_turn():
             self.last_activity, self.prompts = time.time(), 0
+        elif not following and not self.doing() and time.time() - self.last_activity > TALK_IDLE_S:
+            log(f"conversation over (nothing said for {TALK_IDLE_S:.0f} s): the wake word or a wave again")
+            self.current.greeted = True                    # still here: only a new call starts the next talk
+            self.end_conversation(None, quiet=True)        # Lumi never speaks unasked, no goodbye into a silence
         elif (not following and not self.interrupted() and time.time() - self.last_activity > PROMPT_S and self.prompts < MAX_PROMPTS):
             log(f"silent for {PROMPT_S:.0f} s - prompt")
             mouth.say(PROMPT[self.lang], abort=self.interrupted)
             self.last_activity, self.prompts = time.time(), self.prompts + 1
-
-    def note_talk(self):
-        """Remember whom Lumi talks with and how the talk ended: with them in view (a goodbye: closed) or after they
-        left (open: back within RECENT_S, Lumi listens on without a word)."""
-        if self.current is not None:
-            if self.current.person is None:
-                self.vision.know(self.current)
-            self.talked_with = self.current.person
-            self.talked_with.talking = True
-        elif getattr(self, "talked_with", None) and time.time() >= self.voice_until:
-            self.talked_with.talking = time.time() - self.talked_with.last_seen > LOST_S
-            self.talked_with = None
 
     def watchdog(self):
         """If the main loop is stuck for STUCK_S, write every thread's stack to the log (to find the cause)."""
@@ -3135,6 +3153,8 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     from assistant import chain
     if stop_order(text, markers):
         return "stop", None
+    if sing.picked(text, last):                # after the list of songs: "the first one", "Fantastic Baby"
+        return "sing", None
     hold = brain_mod.not_an_order(text) or not brain_mod.direct_order(text)   # only a direct order to Lumi acts
     stuck = detour.recent()                    # right after a blocked drive: "try again", "go around it", "go back";
     how = stuck and detour.read(text, markers, stuck["goal"])   # only a direct order (detour.read), else the LLM
@@ -3298,6 +3318,25 @@ def consent_place(text, brain, markers):
 def empty_hand_request(text):
     """"hand it over", "테이블에 놔" with nothing held (and no object named): Lumi says its hand is empty."""
     return bool(EMPTY_HAND.search(text)) and not any(w in text.lower() for w in brain_mod.OBJECTS)
+
+
+def call_only(text):
+    """"Hi Lumi", "루미야", "안녕하세요", "How are you?": a call, nothing asked yet."""
+    t = text or ""
+    return bool(WAKE.search(t) or HELLO_ONLY.match(t)) and bool(CALL_REST.match(WAKE.sub(" ", t)))
+
+
+def hands_up(frames):
+    """Waist-frame bearings (deg) of the people in these camera frames (scene.snapshot) holding a hand up while facing
+    Lumi: a wave or a hi at the camera."""
+    from vision import pose, scene
+    out = []
+    for f in frames:
+        for p in pose.detect(f["color"]):
+            raised, _ = scene._gesture(p["kp"])
+            if raised and scene._facing(p["kp"]) is not False:
+                out.append(scene._bearing(f, (p["box"][0] + p["box"][2]) / 2))
+    return out
 
 
 def claimed_name(text):

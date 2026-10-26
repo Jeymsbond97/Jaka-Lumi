@@ -142,6 +142,12 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `vision/reid.py` | `FORGET_S` | 600 s | Someone not seen this long is new again: the full greeting |
 | `assistant/lumi.py` | `RECENT_S` | 150 s | Back within this while the talk was open: Lumi listens on without a word; later, or after a goodbye: "Welcome back! How can I help you?" |
 | `vision/person.py` | `ZOOM` | 3 torso crops | Parts of the frame looked at a second time, bigger |
+| `vision/scene.py` | `HAND_CROPS_PX`, `HELD_SCORE` | 320, 640 px; 0.2 | Squares around each hand the detector looks at again; handheld classes count there from this score |
+| `assistant/seeing.py` | `LOOKS`, `SURE`, `STEADY_S` | 3, 0.35, 30 s | "What am I holding": fresh looks at most; a held box this sure counts from one look (weaker: two looks agree); the same thing keeps its colour this long unless two looks agree on another |
+| `vision/scene.py` | `COLOUR_CORE`, `WB_V_PCT`, `WB_MAX_S`, `WB_GAIN` | 0.6; 90, 100; 0.8–1.25 | A held thing's colour from this middle part of its box; white balance from the scene's brightest pale pixels, gains limited |
+| `vision/scene.py` | `PALM`, `BLOB_MM`, `BLOB_SHARE` | 0.6 / 0.35 forearm, 100 mm, 0.25 | Something without a class in a hand: not-skin pixels past the wrist at its depth over this share (estimates) |
+| `vision/scene.py` | `SIT_THIGH`, `STAND_THIGH`, `CROUCH_THIGH`, `CROUCH_DROP` | 0.45, 0.6, 0.1, 0.8 | Posture: knee below hip / ankle below hip as parts of the torso length (estimates) |
+| `vision/scene.py` | `VLM_HAND_MODEL`, `VLM_HAND_WIDTH`, `VLM_HAND_TIMEOUT_S` | gemma4:e4b, 320 px, 12 s | The model, picture width and wait for the close look at a hand (26b took 18–33 s per picture, e4b 2–13 s) |
 | `manipulation/skills.py` | `MIN_SEEN` | 5 of 8 frames | An object must be seen this often at the same place |
 | `manipulation/skills.py` | `HAND_PROBE_MM`, `HAND_NEAR_MM`, `HAND_FAR_MM` | 30/50/70, 60, 250 mm | In-hand check by depth (`hand_sees`) |
 

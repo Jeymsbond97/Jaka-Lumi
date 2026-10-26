@@ -2,12 +2,15 @@
 
     sees(name=None, colour=None) -> [{name, colour, distance_m, bearing_deg, where, camera, position_mm, score}]
     people() -> [{distance_m, bearing_deg, camera}]   everyone in view, both cameras merged
-    person_in_front() -> {distance_m, bearing_deg, where, position_mm, camera, facing, gesture, raised, pointing,
-                          clothes: {upper, lower, feet}, hands: {"left"|"right": {"position_mm", "object"}}} or None
+    person_in_front() -> {distance_m, bearing_deg, where, position_mm, camera, facing, gesture, raised, pointing, posture,
+                          clothes: {upper, lower, feet}, hands: {"left"|"right": {"position_mm", "distance_m", "object",
+                          "something" (a thing without a class: {colour, share}), "px"}}} or None
     person_holds(object=None) -> True / False / None (None: can't tell)
     object_in_hand() -> {name, colour, hand, position_mm, distance_m, width_mm} or None
     pointing_target() -> {"position_mm", "distance_m"} or None
     ask_vlm(question, lang="en") -> one spoken sentence from gemma4 on the picture of the person, or None (slow: 3-20 s)
+    ask_vlm_hand(evidence, lang="en") -> the same about what the person holds, from the picture around the hands and
+                          the measured facts; "UNSURE" when it can't tell (slow: 1-30 s)
 
     python vision/scene.py                       # print all of it for the cameras now
     python vision/scene.py --save tests/data/x   # save the frames now as a test fixture (x_head.jpg/.npz/.json, ...)
@@ -56,7 +59,20 @@ HAND_R = 0.5                     # hand region radius as a part of the forearm l
 NO_DEPTH_R = 0.5                 # without depth the box centre must be this part of the radius from the hand
 WRIST_PCT = 20                   # depth percentile at the wrist: the nearer part of the patch is the arm, not the room
 HAND_DEPTH_M = 0.35              # m; an object this much further or nearer than the wrist is not in the hand
-HAND_CROP_PX = 320               # px; the detector looks again at a square this big around each hand (small things)
+HAND_CROPS_PX = (320, 640)       # px; the detector looks again at squares this big around each hand: small things,
+                                 # and a laptop or a book held up (a 320 crop cut a laptop in half)
+HELD_SCORE = 0.2                 # in those crops a handheld class counts from this score (the whole frame: 0.35); a
+                                 # phone held up scored 0.2-0.35 and was missed (2026-10-23). seeing.py trusts a weak
+                                 # one only when two looks agree, or says it is a guess
+COLOUR_CORE = 0.6                # a held thing's colour from this middle part of its box (the edges are hand and room)
+WB_V_PCT, WB_MAX_S = 90, 100    # white balance: the scene's brightest pixels (this V percentile) with HSV S under
+WB_GAIN = (0.8, 1.25)            # this are taken as white; per-channel gain limits (a beige wall is not grey)
+PALM = (0.6, 0.35)               # something in a hand without a class: pixels around wrist + 0.6 x forearm, radius
+BLOB_MM, BLOB_SHARE = 100, 0.25  # 0.35 x forearm, within this depth of the wrist and not skin, over this share
+                                 # (estimates, 2026-10-23; not yet measured live)
+SIT_THIGH, STAND_THIGH = 0.45, 0.6   # posture: knee below hip by under / over this part of the torso length (hip -
+CROUCH_THIGH, CROUCH_DROP = 0.1, 0.8  # shoulder) is sitting / standing; crouching: hip at knee level and the ankle
+                                 # under this part of the torso below the hip (estimates from body proportions)
 HANDHELD = {"bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
             "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "cell phone", "remote", "mouse", "book",
             "scissors", "toothbrush", "hair drier", "sports ball", "frisbee", "umbrella", "handbag", "backpack",
@@ -89,6 +105,18 @@ VLM_TIMEOUT_S = 12.0
 VLM_PROMPT = ("You are the eyes of a service robot. Look at the picture and answer the question in one short spoken "
               "sentence in {lang}. Say only what is clearly visible. If it is not clearly visible, say that you "
               "can't tell. Question: {q}")
+VLM_HAND_MODEL = "gemma4:e4b"    # the close look at a hand: gemma4:26b took 18-33 s for each new picture (measured
+                                 # 2026-10-23 17:30, quiet or busy GPU alike; 1.3 s only for a picture seen before),
+                                 # e4b 2-13 s once loaded (12.6 s to load; seeing.warm_up loads it). Both name
+                                 # things wrongly on unclear pictures, so the answer starts "It looks like"
+VLM_HAND_WIDTH = 320             # px; the hand picture sent
+VLM_HAND_TIMEOUT_S = 12.0        # s; longer: Lumi says it can't make it out and asks for a hint
+VLM_HAND_PROMPT = ("You are the eyes of a friendly service robot. The picture shows a person's hand close up; they "
+                   "asked what they are holding. What your cameras measured: {evidence}. Answer in {lang} in one short, "
+                   "natural spoken sentence to them (\"you're holding ...\"): what the thing is, its colour, and its "
+                   "shape if that helps, beginning \"It looks like\" unless it is plain to see. Trust the picture over the "
+                   "measurements. If the hand is clearly empty, say so. If you can't tell what it is, answer exactly "
+                   "UNSURE.")
 
 _det_lock = threading.RLock()
 _det = {"net": None}
@@ -277,14 +305,53 @@ def _box_net():
 
 
 def _hand_boxes(f, cx, cy):
-    """Object boxes (x1, y1, x2, y2, score, cls) found by a second, zoomed look at the square around a hand."""
+    """Object boxes (x1, y1, x2, y2, score, cls) found by second, zoomed looks at squares around a hand, handheld
+    classes from HELD_SCORE."""
     img = f["color"]
     h, w = img.shape[:2]
-    s = HAND_CROP_PX // 2
-    x1, y1 = int(max(0, min(w - 2 * s, cx - s))), int(max(0, min(h - 2 * s, cy - s)))
-    with _det_lock:
-        boxes = person.detect_boxes(_box_net(), img[y1:y1 + 2 * s, x1:x1 + 2 * s])
-    return [(a + x1, b + y1, c + x1, d + y1, sc, cl) for a, b, c, d, sc, cl in boxes]
+    out = []
+    for size in HAND_CROPS_PX:
+        s = min(size, h, w) // 2
+        x1, y1 = int(max(0, min(w - 2 * s, cx - s))), int(max(0, min(h - 2 * s, cy - s)))
+        with _det_lock:
+            boxes = person.detect_boxes(_box_net(), img[y1:y1 + 2 * s, x1:x1 + 2 * s], object_score=HELD_SCORE)
+        out += [(a + x1, b + y1, c + x1, d + y1, sc, cl) for a, b, c, d, sc, cl in boxes]
+    return out
+
+
+def _gains(img):
+    """Per-channel (B, G, R) gains that make the scene's bright, pale pixels grey: the light's colour taken out (a warm
+    lamp makes a white cup cream and a cream one yellow). Limited to WB_GAIN."""
+    small = img[::8, ::8].reshape(-1, 3)
+    hsv = cv2.cvtColor(small.reshape(-1, 1, 3), cv2.COLOR_BGR2HSV).reshape(-1, 3)
+    white = small[(hsv[:, 2] >= np.percentile(hsv[:, 2], WB_V_PCT)) & (hsv[:, 1] < WB_MAX_S)]
+    if len(white) < 20:
+        return np.ones(3)
+    m = white.astype(np.float32).mean(axis=0) + 1
+    return np.clip(m.mean() / m, *WB_GAIN)
+
+
+def _balanced(f, px):
+    """Pixels with the scene's light taken out (_gains, once per frame)."""
+    if "_wb" not in f:
+        f["_wb"] = _gains(f["color"])
+    return np.clip(px.astype(np.float32) * f["_wb"], 0, 255).astype(np.uint8)
+
+
+def _core(box, part=COLOUR_CORE):
+    """The middle part of a box (x1, y1, x2, y2), int px."""
+    x1, y1, x2, y2 = box
+    dx, dy = (x2 - x1) * (1 - part) / 2, (y2 - y1) * (1 - part) / 2
+    return int(x1 + dx), int(y1 + dy), int(max(x1 + dx + 1, x2 - dx)), int(max(y1 + dy + 1, y2 - dy))
+
+
+def _skin_mask(px, skin):
+    """True for the pixels (N, 3 BGR) of the skin colour (hue, saturation); all False without a skin reference."""
+    if skin is None or len(px) == 0:
+        return np.zeros(len(px), bool)
+    hsv = cv2.cvtColor(px.reshape(-1, 1, 3).astype(np.uint8), cv2.COLOR_BGR2HSV).reshape(-1, 3).astype(np.float32)
+    dh = np.abs(hsv[:, 0] - skin[0])
+    return (np.minimum(dh, 180 - dh) <= SKIN_HUE) & (np.abs(hsv[:, 1] - skin[1]) <= SKIN_SAT)
 
 
 def _skin(f, kp):
@@ -303,16 +370,15 @@ def _skin(f, kp):
 def _thing_colour(px, skin):
     """Colour of a held thing's box pixels without the hand's skin (a grey phone in a hand read "orange", 2026-10-22);
     the box as it is when the skin leaves too little (an orange thing itself)."""
-    if skin is None or len(px) == 0:
+    if len(px) == 0:
         return objects.colour_name(px)
-    hsv = cv2.cvtColor(px.reshape(-1, 1, 3).astype(np.uint8), cv2.COLOR_BGR2HSV).reshape(-1, 3).astype(np.float32)
-    dh = np.abs(hsv[:, 0] - skin[0])
-    keep = ~((np.minimum(dh, 180 - dh) <= SKIN_HUE) & (np.abs(hsv[:, 1] - skin[1]) <= SKIN_SAT))
+    keep = ~_skin_mask(px, skin)
     return objects.colour_name(px[keep] if keep.mean() >= SKIN_KEEP else px)
 
 
 def _held(f, kp, side, body_h, skin=None):
-    """{position_mm, distance_m, object} for one hand, or None when the wrist is not seen. skin: _skin()."""
+    """{position_mm, distance_m, object, something, px, camera} for one hand, or None when the wrist is not seen.
+    skin: _skin()."""
     wr, el = pose.seen(kp, f"{side}_wrist"), pose.seen(kp, f"{side}_elbow")
     if wr is None:
         return None
@@ -343,14 +409,39 @@ def _held(f, kp, side, body_h, skin=None):
         if f["depth"] is not None and (z is None or m["distance_m"] is None or
                                        abs(m["distance_m"] - z / 1000) > HAND_DEPTH_M):
             continue                                            # behind or before the hand: not in it
-        if skin is not None:
-            m["colour"] = _thing_colour(f["color"][int(y1):int(y2), int(x1):int(x2)].reshape(-1, 3), skin)
+        a, b, c, d = _core((x1, y1, x2, y2))                # the middle of the box, the light taken out
+        m["colour"] = _thing_colour(_balanced(f, f["color"][b:d, a:c].reshape(-1, 3)), skin)
         o = {"name": name, "colour": m["colour"], "score": round(float(score), 2), "box": (x1, y1, x2, y2),
              "distance_m": m["distance_m"], "position_mm": m.get("position_mm"), "width_mm": m.get("width_mm")}
         if best is None or (gap, -score) < best[0]:
             best = ((gap, -score), o)
     hand["object"] = best[1] if best else None
+    hand["px"], hand["camera"] = (float(cx), float(cy), float(r)), f["camera"]   # the other camera may fill a hand in
+    hips = [p[1] for p in (pose.seen(kp, "left_hip"), pose.seen(kp, "right_hip")) if p]
+    shown = not hips or wr[1] < min(hips)                  # a hand held up shows a thing; one hanging by the trousers
+    hand["something"] = None if best or el is None else \
+        _blob(f, wr, el, z, skin) if shown else {"colour": None, "share": 0.0}   # has them at its depth (2026-10-21)
     return hand
+
+
+def _blob(f, wr, el, z, skin):
+    """{colour, share}: share of the palm disc that is not skin at the hand's depth, just past the wrist, and the
+    colour of it when over BLOB_SHARE (something the detector has no class for), else colour None (an empty hand).
+    None: no depth to tell."""
+    if f["depth"] is None or z is None:
+        return None
+    fore = np.subtract(wr, el)
+    cx, cy = np.add(wr, PALM[0] * fore)
+    r = max(6, int(PALM[1] * np.hypot(*fore)))
+    h, w = f["depth"].shape
+    yy, xx = np.ogrid[:h, :w]
+    disc = (xx - cx) ** 2 + (yy - cy) ** 2 <= r * r
+    near = disc & (f["depth"] > 0) & (np.abs(f["depth"].astype(np.float32) - z) < BLOB_MM)
+    px = f["color"][near]
+    px = px[~_skin_mask(px, skin)]
+    share = len(px) / max(1, disc.sum())
+    return {"colour": objects.colour_name(_balanced(f, px)) if share >= BLOB_SHARE else None,
+            "share": round(float(share), 2)}
 
 
 def _named(f, mask, ref_z=None, skin_v=None):
@@ -461,6 +552,26 @@ def _gesture(kp):
     return raised, pointing
 
 
+def _posture(kp):
+    """"standing" / "sitting" / "crouching" from where the knees and ankles are against the torso length in the
+    picture, or None (no hips or knees in view)."""
+    def y(names):
+        pts = [pose.seen(kp, n) for n in names]
+        pts = [p[1] for p in pts if p]
+        return np.mean(pts) if pts else None
+    sh, hip, knee = y(("left_shoulder", "right_shoulder")), y(("left_hip", "right_hip")), y(("left_knee", "right_knee"))
+    ankle = y(("left_ankle", "right_ankle"))
+    if None in (sh, hip, knee) or hip - sh <= 0:
+        return None
+    torso = hip - sh
+    thigh = (knee - hip) / torso                               # 0.8-0.9 standing; small when the thigh points at us
+    if thigh > STAND_THIGH:
+        return "standing"
+    if thigh < CROUCH_THIGH and ankle is not None and (ankle - hip) / torso < CROUCH_DROP:
+        return "crouching"
+    return "sitting" if thigh < SIT_THIGH else None
+
+
 def _facing(kp):
     eyes = [pose.seen(kp, n) for n in ("left_eye", "right_eye")]
     if all(eyes) and pose.seen(kp, "nose"):
@@ -484,7 +595,7 @@ def _describe_person(f, p):
     hands = {s: _held(f, kp, s, body_h, skin) for s in ("left", "right")}
     out = {"camera": f["camera"], "box": p["box"], "distance_m": None if z is None else round(z / 1000, 2),
            "bearing_deg": _bearing(f, chest[0]), "position_mm": _mm(_to_base(f, chest[0], chest[1], z)),
-           "facing": _facing(kp), "raised": raised, "pointing": pointing,
+           "facing": _facing(kp), "raised": raised, "pointing": pointing, "posture": _posture(kp),
            "gesture": "hand_raised" if raised else "pointing" if pointing else None,
            "clothes": _clothes(f, kp, z),
            "hands": hands, "seen": int((kp[:, 2] > pose.KP_SEEN).sum()), "_f": f, "_kp": kp}
@@ -550,6 +661,7 @@ def _front(frames):
             me["clothes"][k] = me["clothes"][k] or other["clothes"][k]
         if me["facing"] is None:
             me["facing"] = other["facing"]
+        me["posture"] = me["posture"] or other["posture"]      # the torso camera sees the legs the head camera can't
     return me
 
 
@@ -582,7 +694,7 @@ def object_in_hand(frames=None):
         if h and h["object"]:
             o = h["object"]
             return {"name": o["name"], "colour": o["colour"], "hand": s, "position_mm": o["position_mm"],
-                    "distance_m": o["distance_m"], "width_mm": o["width_mm"]}
+                    "distance_m": o["distance_m"], "width_mm": o["width_mm"], "score": o["score"]}
     return None
 
 
@@ -644,19 +756,57 @@ def ask_vlm(question, lang="en", frames=None):
         img = f["color"][max(0, y1 - my):y2 + my, max(0, x1 - mx):x2 + mx]
     else:
         img = next((f for f in frames if f["camera"] == "head"), frames[0])["color"]
-    img = cv2.resize(img, (VLM_WIDTH, max(1, int(img.shape[0] * VLM_WIDTH / img.shape[1]))))
+    return _vlm(img, VLM_PROMPT.format(lang="Korean" if lang == "ko" else "English", q=question))
+
+
+def _vlm(img, content, width=VLM_WIDTH, timeout=VLM_TIMEOUT_S, model=VLM_MODEL):
+    """gemma4's words about a picture, or None on a timeout / error."""
+    img = cv2.resize(img, (width, max(1, int(img.shape[0] * width / img.shape[1]))))
     b64 = base64.b64encode(cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 85])[1]).decode()
-    body = {"model": VLM_MODEL, "stream": False, "think": False, "keep_alive": -1,
+    body = {"model": model, "stream": False, "think": False, "keep_alive": -1,
             "options": {"temperature": 0, "num_predict": 60},
-            "messages": [{"role": "user", "images": [b64],
-                          "content": VLM_PROMPT.format(lang="Korean" if lang == "ko" else "English", q=question)}]}
+            "messages": [{"role": "user", "images": [b64], "content": content}]}
     try:
         req = urllib.request.Request(VLM_URL, json.dumps(body).encode(), {"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=VLM_TIMEOUT_S) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read())["message"]["content"].strip() or None
     except Exception as e:
         print(f"scene: VLM gave no answer ({e})", flush=True)
         return None
+
+
+def hand_crop(frames=None, side=None):
+    """The picture around the hand(s) of the person in front (a square of 5 hand radii, at least 320 px), or None."""
+    frames = snapshot() if frames is None else frames
+    p = _front(frames)
+    if p is None:
+        return None
+    hands = [h for s, h in p["hands"].items() if h and h.get("px") and side in (None, s)]
+    if not hands:
+        return None
+    hands = [h for h in hands if h["camera"] == hands[0]["camera"]]
+    img = next(f["color"] for f in frames if f["camera"] == hands[0]["camera"])
+    xs, ys = [h["px"][0] for h in hands], [h["px"][1] for h in hands]
+    half = max(160, 2.5 * max(h["px"][2] for h in hands), (max(xs) - min(xs)) / 2 + 160, (max(ys) - min(ys)) / 2 + 160)
+    cx, cy = (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2
+    x1, y1 = int(max(0, cx - half)), int(max(0, cy - half))
+    crop = img[y1:int(cy + half), x1:int(cx + half)]
+    return crop if crop.size else None
+
+
+def ask_vlm_hand(evidence, lang="en", frames=None, side=None):
+    """One spoken sentence on what the person in front holds, from gemma4 with the picture around their hand(s) and
+    what the cameras measured (evidence: a line of facts), or "UNSURE" / None (can't tell, timeout). Slow: 1-30 s."""
+    img = hand_crop(frames, side)
+    if img is None:
+        return None
+    return _vlm(img, VLM_HAND_PROMPT.format(lang="Korean" if lang == "ko" else "English", evidence=evidence),
+                width=VLM_HAND_WIDTH, timeout=VLM_HAND_TIMEOUT_S, model=VLM_HAND_MODEL)
+
+
+def warm_vlm_hand():
+    """Loads the close-look model (VLM_HAND_MODEL) with a tiny picture, so the first close look is not 12 s slower."""
+    _vlm(np.zeros((32, 32, 3), np.uint8), "Say OK.", width=32, timeout=60, model=VLM_HAND_MODEL)
 
 
 def _print(frames):

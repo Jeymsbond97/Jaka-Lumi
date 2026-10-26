@@ -304,7 +304,8 @@ yaws = [m[4] for m in body.moves if m[1] == "follow head"]
 assert body.overlaps == 0 and len(yaws) >= 3, (body.overlaps, len(yaws))
 assert max(yaws) > 20.0 and min(yaws) >= -follow.HEAD_STEP_DEG, yaws                                  # left, toward them
 assert abs(yaws[-1]) < 15.0, yaws[-1]                                                                      # back toward 0
-assert math.degrees(w.th) > 120.0 and all(m[5] == follow.HEAD_PITCH for m in body.moves), math.degrees(w.th)
+assert math.degrees(w.th) > 120.0 and all(m[5] == follow.HEAD_PITCH for m in body.moves[:-1]), math.degrees(w.th)
+assert body.moves[-1][4:] == (0.0, head.HEAD_REST_PITCH), body.moves[-1]                  # after it: back to rest
 print(f"walk behind: head up to {max(yaws):.0f} deg, base turned {math.degrees(w.th):.0f} deg, {len(yaws)} head moves")
 
 # live 2026-10-21: "follow me" from a person at 0.54 m, -80 deg, the head turned to them; prepare() turned the head

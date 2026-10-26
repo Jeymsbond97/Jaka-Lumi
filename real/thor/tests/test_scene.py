@@ -142,6 +142,52 @@ assert seeing._clothes_answer(p, "what colour are my shoes?", "en") == "Your sho
 assert seeing._clothes_answer(p, "신발 뭐 신었어?", "ko") == "신발은 흰색으로 보여요."
 assert seeing._clothes_answer(p, "내가 뭐 입고 있어?", "ko") == "빨간색 상의에 검은색 바지를 입고, 흰색 신발을 신고 계세요."
 
+# ---------- a held cup's colour under a warm lamp: the box's middle, the light taken out (2026-10-23 live: a yellow cup
+# read "white", then "yellow"); fingers over the box bottom; the old whole-box reading said orange / red ----------
+WARM = np.array((0.68, 0.86, 1.0))                                                       # B, G, R of the lamp
+for want, true in (("yellow", (40, 210, 240)), ("white", (235, 235, 235)), ("blue", (200, 90, 30))):
+    for light in (WARM, np.ones(3)):
+        img = (np.full((720, 1280, 3), 250.0) * light).astype(np.uint8)                  # a white wall
+        img[560:640, 850:900] = (np.array(true) * light).astype(np.uint8)
+        img[630:660, 840:910] = (np.array((110, 140, 200)) * light).astype(np.uint8)     # the fingers
+        depth = np.full((720, 1280), 2500, np.uint16)
+        depth[100:700, 500:900] = 1000
+        frame = {"camera": "torso", "color": img, "depth": depth, "people": [], "head_yaw": 0.0, "intr": intr,
+                 "T": np.eye(4), "objects": [{"name": "cup", "score": 0.8, "box": (845, 555, 905, 660)}]}
+        got = scene._held(frame, k, "left", 600)["object"]["colour"]
+        assert got == want, (want, light, got)
+for name in ("holding_cup_back", "white_shirt_near"):                                    # a neutral room: no change
+    assert all(abs(g - 1) < 0.08 for f in fx(name) for g in scene._gains(f["color"])), name
+
+# ---------- something in a hand the detector has no class for: not skin, at the hand's depth ----------
+img = np.full((720, 1280, 3), 200, np.uint8)
+depth = np.full((720, 1280), 2500, np.uint16)
+depth[100:700, 500:900] = 1000
+frame = {"camera": "torso", "color": img, "depth": depth, "people": [], "head_yaw": 0.0, "intr": intr, "T": np.eye(4),
+         "objects": []}
+img[560:640, 845:905] = (40, 160, 40)                                                    # a green thing past the wrist
+h = scene._held(frame, k, "left", 600)
+assert h["object"] is None and h["something"]["colour"] == "green", h
+depth[575:700, 830:920] = 1250                                                           # the body 25 cm behind: empty
+assert scene._held(frame, k, "left", 600)["something"] == {"colour": None, "share": 0.0}
+
+# ---------- sitting / standing / crouching from keypoints (torso 300 px) ----------
+legs = {"standing": dict(left_knee=(680, 860), right_knee=(600, 860), left_ankle=(680, 1100), right_ankle=(600, 1100)),
+        "sitting": dict(left_knee=(690, 640), right_knee=(590, 640), left_ankle=(690, 900), right_ankle=(590, 900)),
+        "crouching": dict(left_knee=(720, 610), right_knee=(560, 610), left_ankle=(690, 800), right_ankle=(590, 800))}
+for want, kn in legs.items():
+    assert scene._posture(kp(**body, **kn)) == want, want
+assert scene._posture(kp(**body)) is None                                                # no knees in view
+for said, posture, lang, want in (("Am I sitting or standing?", "sitting", "en", "You're sitting."),
+                                  ("I am standing or sitting.", "standing", "en", "You're standing."),   # 2026-10-23
+                                  ("am I standing?", "sitting", "en", "No, you're sitting."),
+                                  ("am I sitting?", "sitting", "en", "Yes, you're sitting."),
+                                  ("내가 앉아 있어 서 있어?", "crouching", "ko", "쪼그려 앉아 계세요."),
+                                  ("나 서 있어?", "standing", "ko", "네, 서 계세요."),
+                                  ("Am I sitting or standing?", None, "en", "I can't see your legs")):
+    assert next(k for k, rx in seeing.KINDS if rx.search(said)) == "posture", said
+    assert seeing._posture_answer({"posture": posture}, said, lang).startswith(want), (said, want)
+
 # ---------- words that are not about the cameras ----------
 f = fx("empty_room")
 for text in ("how far is Seoul?", "what time is it?", "is there a cafe nearby?", "what are you doing?",

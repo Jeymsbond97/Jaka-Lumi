@@ -1,6 +1,6 @@
 """Spoken answers about what Lumi sees, from vision/scene.py: "do you see the red apple?", "how far is it?", "what's on
 the table?", "how many people are here?", "what am I holding?", "what colour is my shirt?", "is my hand raised?",
-"am I wearing glasses?" (the slow VLM), English and Korean.
+"am I wearing glasses?" (the slow VLM), "am I sitting or standing?", English and Korean.
 
     answer(text, lang, frames=None, slow_line=None) -> spoken sentence, or None when the words are not such a question
     facts() -> one line of what the cameras see now, for the conversation model; facts_for(text) only when the words
@@ -9,18 +9,25 @@ the table?", "how many people are here?", "what am I holding?", "what colour is 
     python assistant/seeing.py "do you see a cup?"          # answer from the cameras now
     python assistant/seeing.py --load tests/data/scene_white_shirt_near "what colour is my shirt?"
 
-Only what the detections give is said; anything else is "I can't tell". Nothing here moves the head.
+Only what the detections give is said; anything else is "I can't tell". "What am I holding?" tries harder first: fresh
+looks until two agree (a weak detector box counts then), the same thing's colour kept steady for STEADY_S, then a close
+look by gemma4 at the hand picture with the measured facts ("Let me look closely."), and when still unsure what it seems
+to be and a request for a hint, looked at again with the hint. Nothing here moves the head.
 Every answer comes from frames taken after the words (scene.snapshot(since=...)), also a follow-up right after one
 ("really?", "and now?", "다시 봐": the same question again) and a correction ("it's white", "오른손이야"), which is
 checked against the camera and agreed with only when the camera sees it so.
 """
 import re
 import sys
+import threading
 import time
+from collections import Counter
+from pathlib import Path
 
 from assistant import brain
 from vision import objects, pose, scene
 
+ROOT = Path(__file__).resolve().parents[1]      # the project folder
 NEAR_SAY = 6                     # at most this many kinds of things named in "what do you see"
 DESCRIBE_SCORE = 0.3             # weaker boxes (depth-checked cups) count for "do you see a cup", not in the list
 THREAD_S = 60.0                  # s; this long after a seeing answer the conversation model gets a new look too
@@ -131,7 +138,7 @@ NOT_IN_VIEW = re.compile(r"\b(?:work|works|working|employ\w*|staff|company|compa
                          r"직원|회사|쿳션|일하|일해|근무|나라|국가|도시|살아|사는|인구|팀|지사|만든|만들|개발자|엔지니어|왔었|다녀갔|만났|얘기했|이야기했",
                          re.I)   # "how many people work at Cutshion?": the company, not the cameras
 HOLDING = re.compile(r"\bwhat(?:'s| is| am| do)? (?:i|is (?:in|on) my (?:left |right |other )?hands?|(?:in|on) my (?:left |right |other )?hands?)\b.*?\b(?:holding|carrying|have)\b|"
-                     r"\bwhat(?:'s| is)(?: it| this| that)? (?:in|on) my (?:left |right |other )?hands?\b|\bwhat(?:'s| is) my (?:left |right |other )?hands?\?|\bwhat (?:do )?i have (?:in|on) my (?:left |right |other )?hands?\b|\bam i holding\b|"
+                     r"\bwhat(?:'s| is)(?: it| this| that)? (?:in|on|with) my (?:left |right |other )?hands?\b|\bwhat(?:'s| is) my (?:left |right |other )?hands?\?|\bwhat (?:do )?i have (?:in|on) my (?:left |right |other )?hands?\b|\bam i holding\b|"
                      r"\bis there (?:something|anything) in my hand\b|\bwhat is this\b(?=.*\bhand\b)|\bwhat am i hold in\b|\banything (?:in|on) my (?:left |right |other )?hands?\b|"
                      r"\bwhat\b.{0,25}\b(?:i'?m|i am) (?:holding|carrying)\b|\bwhat(?:'ve| have| do) i (?:got|have)\b(?! to)|"
                      r"\bwhat(?:'s| is) this(?: thing)?\W*$|\bwhat i(?:'ve| have) got\b|hold\s*했\S*\W+.*뭐|"
@@ -179,6 +186,13 @@ FRIEND = re.compile(r"\b(?:do|can) you (?:still )?see (?:my (?:friend|colleague)
                     r"\bis (?:my (?:friend|colleague)|the other (?:person|guy|man|woman)) still (?:here|there|in view)\b|"
                     r"(?:친구|동료|그\s*사람|다른\s*(?:사람|분)|옆\s*사람)\S*\s*(?:아직도?\s*|still\s*)?(?:보여|보이|있어|있나|있습)", re.I)
 DOING = re.compile(r"\bwhat am i doing\b|\bwhat(?:'m| am) i up to\b|(?:내가|제가|나|저)\s*(?:지금\s*)?(?:뭐|뭘|무엇을?)\s*하고\s*있", re.I)
+POSTURE = re.compile(r"\b(?:am i|is (?:he|she|my friend))\s+(?:\w+\s+)?(?:sitting|standing|seated|"
+                     r"crouching|squatting)\b|\b(?:sitting|standing|seated|crouching|squatting)\s+or\s+(?:sitting|standing|"
+                     r"seated|crouching|squatting|not)\b|\bwhat(?:'s| is) my (?:posture|pose)\b|\bdo i (?:sit|stand)\b|"
+                     r"(?:앉아|서|쪼그려\s*앉아)\s*(?:있|계)\S*\s*(?:아니면|or)?\s*(?:앉아|서)\s*(?:있|계)|"
+                     r"(?:내가|제가|나|저)\s*(?:지금\s*)?(?:앉아|서|쪼그려\s*앉아)\s*(?:있|계)\S*\s*\?|"
+                     r"(?:앉았|섰)\S*\s*(?:아니면\s*)?(?:서|앉아|섰|앉았)\S*|(?:내|제)\s*자세", re.I)   # 2026-10-23 live: "I am
+                                 # standing or sitting." got "nice to meet you"
 RAISED = re.compile(r"\bwhich (?:hand|arm) (?:do i have|have i got) (?:up|raised)\b|\b(?:is|are) my (?:hand|hands|arm|arms) (?:raised|up)\b|\bam i raising (?:my )?(?:hand|arm)\b|"
                     r"\bdid i raise my hand\b|\bwhich hand (?:did i raise|is (?:up|raised)|am i (?:raising|holding up|lifting))\b|"
                     r"\bwhich (?:hand|arm) is (?:up|raised)\b|\b(?:see|tell) (?:if|whether) (?:i'?m|i am) raising\b|"
@@ -266,6 +280,8 @@ _last = {"thing": None,          # the thing seen last: "how far is it?"
          "asked": None,          # (kind, words) of that question: "really?", "and now?" ask it again
          "hand": None,           # the hand the last "what's in my hand" answer was about: "and the other one?"
          "parts": [],            # [(part, word, colour)] said in the clothes answer: "it's white" is about these
+         "held": None,           # {name, colour, at} of the held thing said last: its colour stays steady
+         "unsure": 0.0,          # time.time() Lumi last asked "could you tell me what it is?"
          "at": 0.0}              # time.time() of the last seeing answer
 
 
@@ -360,9 +376,22 @@ def _say(en, ko, lang):
     return en if lang == "en" else ko
 
 
-EMPTY_HANDS = ("I don't see anything I can recognise in your hands{}. Small things like a watch, a ring or a pen "
-               "I can't make out.", "{}손에 제가 알아볼 수 있는 건 없어요. 시계, 반지, 펜 같은 작은 건 제 카메라로는 알아보기 어려워요.")
+EMPTY_HANDS = ("I don't see anything in your hands{}.", "{}손에 든 게 없어 보여요.")
 NO_CAMERA = ("My cameras aren't giving me a picture right now, so I can't tell.", "지금은 카메라 화면이 없어서 잘 모르겠어요.")
+LOOKS = 3                        # fresh looks at most at the hands before the close look (each 0.1-1 s)
+SURE = 0.35                      # a held thing seen once with this detector score is trusted (person.OBJECT_SCORE);
+                                 # a weaker one when two looks agree
+STEADY_S = 30.0                  # s; the same kind of thing asked about again this soon keeps its colour unless two
+                                 # new looks agree on another (a yellow cup read white, then yellow, 2026-10-23)
+HINT_S = 60.0                    # s; after "could you tell me what it is?" this long, the next words are the hint
+SAVE_DIR = ROOT / "logs" / "seeing"   # the frames of each live "what am I holding" (to measure misses later)
+SAVE_KEEP = 40                   # ... the newest this many questions kept
+HINT = re.compile(r"^\W*(?:(?:no|nope|well|ok(?:ay)?|so|oh|it'?s|it is|this is|that'?s|i'?m holding|i have|they'?re)\W+)+"
+                  r"(?:(?:a|an|my|the|some|just)\s+)?(?P<x>[a-z][a-z -]{1,30}?)\W*$|"
+                  r"^\W*(?:이거|이건|그거|그건|제가\s*든\s*(?:건|거)|아니\S*)?\s*(?P<k>[가-힣A-Za-z ]{1,15}?)\s*"
+                  r"(?:이야|야|예요|이에요|에요|입니다|이요|요)\W*$", re.I)   # "it's my wallet", "이거 지갑이야"
+UNSURE_SAID = re.compile(r"UNSURE|can'?t tell|not sure|모르겠|알 수 없|확실하지", re.I)   # the close look gave up
+TURNED = re.compile(r"\bturn(?:ed)?\b|\bhow about (?:now|this)\b|\bcan you see (?:it|now)\b|돌렸|이제\s*보여|보여\s*\?", re.I)
 
 
 def _seen_answer(name, colour, frames, lang):
@@ -440,43 +469,175 @@ def _it_answer(t, frames, lang):
                 if th['distance_m'] else f"{_j(_ko_name(name), '은', '는')} {_where_ko(th['where'])}에 있어요.", lang)
 
 
-def _held_answer(frames, lang, side=None):
-    """What the person holds; side ("left" / "right", the person's own): only what is in that hand."""
+KO_SIDE = {"left": "왼", "right": "오른"}
+
+
+def _from(p, side=None):
+    """The thing in that hand (None: right first, then left) of a person_in_front, with "hand", or None."""
+    for s in ((side,) if side else ("right", "left")):
+        h = p["hands"].get(s)
+        if h and h.get("object"):
+            return {**h["object"], "hand": s}
+    return None
+
+
+def _vote(got):
+    """The thing several looks agree on: {name, colour, hand, score, sure, doubt} or None. sure: one look with a
+    detector score >= SURE or two looks; the colour is the one most looks gave, the colour said before for the same
+    kind of thing (STEADY_S) unless two looks now agree on another; doubt: the newest look disagrees with that."""
+    if not got:
+        return None
+    names = Counter(x["name"] for x in got)
+    best = max(names, key=lambda n: (names[n], max(x.get("score", 1.0) for x in got if x["name"] == n)))
+    mine = [x for x in got if x["name"] == best]
+    cols = Counter(x["colour"] for x in mine if x["colour"])
+    colour = max(cols, key=lambda c: (cols[c], max(i for i, x in enumerate(mine) if x["colour"] == c)), default=None)
+    mem = _last["held"]
+    doubt = False
+    if mem and mem["name"] == best and time.time() - mem["at"] < STEADY_S and mem["colour"] and colour != mem["colour"] \
+            and cols[colour] < 2:
+        colour, doubt = mem["colour"], True               # one look against the colour said seconds ago: look again
+    score = max(x.get("score", 1.0) for x in mine)
+    return {**mine[-1], "colour": colour, "score": score, "sure": score >= SURE or len(mine) >= 2, "doubt": doubt}
+
+
+def _held_look(frames, p, side, more):
+    """Up to LOOKS fresh looks (more(): new frames, None in tests with saved frames) until the looks agree on a thing.
+    (sure thing or None, weak guess or None, the last frames, the person in them)."""
+    got = []
+    for i in range(LOOKS):
+        if i:
+            nxt = more() if more else None
+            q = scene.person_in_front(nxt) if nxt else None
+            if q is None:
+                break
+            frames, p = nxt, q
+        o = _from(p, side)
+        if o:
+            got.append(o)
+        pick = _vote(got)
+        if pick and pick["sure"] and not pick["doubt"]:
+            break
+    pick = _vote(got)
+    if pick and pick["sure"]:
+        return pick, None, frames, p
+    return None, pick, frames, p
+
+
+def _save(frames):
+    """The frames of a live question to logs/seeing/ (the newest SAVE_KEEP kept), in the background."""
+    def run():
+        try:
+            SAVE_DIR.mkdir(parents=True, exist_ok=True)
+            scene.save(str(SAVE_DIR / time.strftime("%Y%m%d_%H%M%S")), frames)
+            old = sorted(SAVE_DIR.glob("*.json"))[:-2 * SAVE_KEEP]
+            for j in old:
+                for x in SAVE_DIR.glob(j.stem + ".*"):
+                    x.unlink()
+        except Exception as e:
+            print(f"seeing: frames not saved ({e})", flush=True)
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _held_answer(frames, lang, side=None, more=None, slow_line=None, hint=None):
+    """What the person holds; side ("left" / "right", the person's own): only what is in that hand. Tries hard
+    before giving up: fresh looks until two agree (_held_look), then gemma4 on the picture of the hand with what the
+    cameras measured; still unsure: what it seems to be and a request for a hint (hint: the words they gave)."""
     p = scene.person_in_front(frames)
     if p is None:
         return _say("I can't see you well enough to tell. Could you step in front of me?",
                     "잘 안 보여서 모르겠어요. 제 앞으로 와 주시겠어요?", lang)
     if side:
-        return _hand_answer(p, side, lang)
-    o = scene.object_in_hand(frames)
+        _last["hand"] = side                               # "and the other one?" next
+    o, weak, frames, p = _held_look(frames, p, side, more)
+    if more and all("color" in f for f in frames):         # live frames (tests fake them)
+        _save(frames)
     if o:
-        _last["hand"] = o["hand"]
-        hand = {"left": ("left", "왼"), "right": ("right", "오른")}[o["hand"]]
-        return _say(f"You're holding {_a(o['name'], o['colour'])} in your {hand[0]} hand.",
-                    f"{hand[1]}손에 {COLOUR_KO[o['colour']] + ' ' if o['colour'] in COLOUR_KO else ''}"
-                    f"{_j(_ko_name(o['name']), '을', '를')} 들고 계세요.", lang)
-    if scene.person_holds(None, frames) is False:
-        return _empty_hands(lang)
-    return _say("I can't see your hands well enough to tell.", "손이 잘 안 보여서 모르겠어요.", lang)
+        return _held_said(o, lang, side, hint)
+    sides = (side,) if side else ("left", "right")
+    seen = {s: p["hands"][s] for s in sides if p["hands"].get(s)}
+    blobs = {s: h["something"]["colour"] for s, h in seen.items() if (h.get("something") or {}).get("colour")}
+    k = KO_SIDE.get(side, "")
+    if not seen and not weak:
+        return _say(f"I can't see your {side + ' hand' if side else 'hands'} well enough to tell.",
+                    f"{k}손이 잘 안 보여서 모르겠어요.", lang)
+    if not weak and not blobs and all(h.get("distance_m") is not None for h in seen.values()) and not hint:
+        if side and side in p["raised"]:                   # depth at the wrist and nothing but the hand there
+            return _say(f"Your {side} hand is up and I don't see anything in it.",
+                        f"{k}손을 들고 계신데, 그 손에는 든 게 안 보여요.", lang)
+        _last["held"] = None
+        return _say(f"I don't see anything in your {side} hand." if side else EMPTY_HANDS[0].format(""),
+                    f"{k}손에는 든 게 없어 보여요." if side else EMPTY_HANDS[1].format(""), lang)
+    evidence = "; ".join(
+        ([f"the object detector's best guess is a {weak['name']} (score {weak['score']:.2f}, unsure)"] if weak else
+         ["the object detector knows no class for it"]) +
+        [f"in their {s} hand something {c}" for s, c in blobs.items()] +
+        ([f"about {weak['width_mm'] // 10:.0f} cm wide"] if weak and weak.get("width_mm") else []) +
+        ([f"they say it is {_a(hint)}"] if hint else []))
+    if slow_line:
+        slow_line(_say("Let me look closely.", "자세히 볼게요.", lang))
+    said = scene.ask_vlm_hand(evidence, lang, frames, side)
+    print(f"seeing: close look ({evidence}) -> {said}", flush=True)
+    if said and not UNSURE_SAID.search(said):
+        _last["unsure"], _last["held"] = 0.0, None
+        return said
+    if hint:
+        _last["unsure"] = 0.0
+        return _say(f"I still can't make it out well, so I'll take your word: it's {_a(hint)}.",
+                    f"아직 잘 안 보이지만, {hint}(이)라고 믿을게요.", lang)
+    _last["unsure"] = time.time()
+    s, c = next(iter(blobs.items()), ((weak or {}).get("hand") or side, None))
+    where = f" in your {s} hand" if s else ""
+    if weak:
+        en = f"It might be {_a(weak['name'], weak['colour'])}{where}, but I'm not sure."
+        ko = f"{KO_SIDE.get(s, '')}손에 든 게 {_ko_name(weak['name'])}인 것 같은데 확실하지 않아요."
+    elif c:
+        en, ko = f"I see something {c}{where}, but I can't tell what it is.", \
+            f"{KO_SIDE.get(s, '')}손에 {COLOUR_KO.get(c, c)} 뭔가가 보이는데, 뭔지는 모르겠어요."
+    else:
+        en, ko = f"I can't make out what's{where or ' in your hand'}.", "손에 든 게 뭔지 잘 안 보여요."
+    return _say(en + " Could you turn it toward me, or tell me what it is?",
+                ko + " 저한테 보이게 돌려 주시거나, 뭔지 말씀해 주시겠어요?", lang)
 
 
-def _hand_answer(p, side, lang):
-    """The one hand asked about ("what about my left hand?"), never the other hand's thing: what is in it, that it is
-    up with nothing seen in it, or that nothing known is in it."""
-    _last["hand"] = side
-    h, k = p["hands"].get(side), {"left": "왼", "right": "오른"}[side]
-    o = h and h["object"]
-    if o:
+def _held_said(o, lang, side=None, hint=None):
+    """The sentence for a thing seen in a hand (the hand asked about first), remembered so its colour stays steady."""
+    _last["hand"], _last["unsure"] = o["hand"], 0.0
+    _last["held"] = {"name": o["name"], "colour": o["colour"], "at": time.time()}
+    h, k = o["hand"], KO_SIDE[o["hand"]]
+    col_ko = COLOUR_KO[o["colour"]] + " " if o["colour"] in COLOUR_KO else ""
+    named = hint and (_said_thing(hint) or _name(hint.split()[-1]))
+    if named and named != o["name"]:
+        return _say(f"To my camera it looks like {_a(o['name'], o['colour'])}, not {_a(named)}, but I may be wrong.",
+                    f"제 카메라에는 {_j(_ko_name(named), '이', '가')} 아니라 {col_ko}{_ko_name(o['name'])}(으)로 보여요. "
+                    f"틀릴 수도 있어요.", lang)
+    if hint:
+        return _say(f"Yes, now I see it: {_a(o['name'], o['colour'])} in your {h} hand.",
+                    f"네, 이제 보여요. {k}손에 {col_ko}{_j(_ko_name(o['name']), '이', '가')} 있어요.", lang)
+    if side:
         return _say(f"In your {side} hand I see {_a(o['name'], o['colour'])}.",
-                    f"{k}손에 {COLOUR_KO[o['colour']] + ' ' if o['colour'] in COLOUR_KO else ''}"
-                    f"{_j(_ko_name(o['name']), '이', '가')} 보여요.", lang)
-    if side in p["raised"]:
-        return _say(f"Your {side} hand is up and I don't see anything in it.",
-                    f"{k}손을 들고 계신데, 그 손에는 든 게 안 보여요.", lang)
-    if h is None:
-        return _say(f"I can't see your {side} hand well enough to tell.", f"{k}손이 잘 안 보여서 모르겠어요.", lang)
-    return _say(f"I don't see anything I can recognise in your {side} hand.",
-                f"{k}손에는 제가 알아볼 수 있는 게 안 보여요.", lang)
+                    f"{k}손에 {col_ko}{_j(_ko_name(o['name']), '이', '가')} 보여요.", lang)
+    return _say(f"You're holding {_a(o['name'], o['colour'])} in your {h} hand.",
+                f"{k}손에 {col_ko}{_j(_ko_name(o['name']), '을', '를')} 들고 계세요.", lang)
+
+
+def _steady(o):
+    """A thing in a hand (object_in_hand) with the colour said for it seconds ago (STEADY_S), for other answers."""
+    mem = _last["held"]
+    if o and mem and mem["name"] == o["name"] and time.time() - mem["at"] < STEADY_S:
+        return {**o, "colour": mem["colour"]}
+    return o
+
+
+def _hint(t):
+    """The thing named after "could you tell me what it is?": "it's my wallet", "이거 지갑이야" -> "my wallet" / "지갑",
+    else None."""
+    m = "?" not in t and HINT.match(t.strip())
+    x = m and (m.group("x") or m.group("k") or "").strip()
+    if not x or re.fullmatch(r"(?:it|this|that|right|left|okay|ok|sure|yes|no|here|now|hand|네|아니|맞아|여기|이거|그거)",
+                             x, re.I) or _side(t):
+        return None
+    return x
 
 
 def _asked_hand(t):
@@ -530,9 +691,28 @@ def _clothes_answer(p, text, lang):
     return _say(en, ko, lang)
 
 
+POSE_SAID = {"standing": ("You're standing", "서 계시고"), "sitting": ("You're sitting", "앉아 계시고"),
+             "crouching": ("You're crouching", "쪼그려 앉아 계시고")}
+POSE_WORD = {"standing": r"stand|서|섰", "sitting": r"sit|seated|앉", "crouching": r"crouch|squat|쪼그"}
+
+
+def _posture_answer(p, t, lang):
+    """"Am I sitting or standing?": from the knees and ankles (scene._posture); "No, ..." when they guessed another."""
+    got = p.get("posture")
+    if got is None:
+        return _say("I can't see your legs well enough to tell whether you're sitting or standing.",
+                    "다리가 잘 안 보여서 앉아 계신지 서 계신지 모르겠어요.", lang)
+    asked = [k for k, rx in POSE_WORD.items() if re.search(rx, t, re.I)]
+    lead = ("Yes, " if asked == [got] else "No, " if len(asked) == 1 else "", "네, " if asked == [got] else
+            "아니요, " if len(asked) == 1 else "")
+    ko = {"standing": "서 계세요.", "sitting": "앉아 계세요.", "crouching": "쪼그려 앉아 계세요."}[got]
+    return _say(f"{lead[0]}{POSE_SAID[got][0].replace('You', 'you' if lead[0] else 'You')}.", f"{lead[1]}{ko}", lang)
+
+
 def _doing_answer(p, frames, lang):
-    o = scene.object_in_hand(frames)
-    en, ko = [f"You're standing{_m(p['distance_m'], 'en')} {p['where']}"], [f"제 {_where_ko(p['where'])}에 서 계시고"]
+    o = _steady(scene.object_in_hand(frames))
+    pose_en, pose_ko = POSE_SAID.get(p.get("posture"), ("You're", "계시고"))
+    en, ko = [f"{pose_en}{_m(p['distance_m'], 'en')} {p['where']}"], [f"제 {_where_ko(p['where'])}에 {pose_ko}"]
     if p["facing"] is True:
         en.append("looking at me")
         ko.append("저를 보고 계시고")
@@ -553,7 +733,7 @@ HELD_ASKED = re.compile(r"\bhold|\bhave it\b|\bin my\b|\bit\b|들고|쥐고|잡�
 
 
 KINDS = (("wearing", WEARING), ("holding", HOLDING), ("shirt", SHIRT), ("raised", RAISED), ("where", WHERE_THING), ("hand", WHICH_HAND),
-         ("pointing", POINTING), ("doing", DOING), ("friend", FRIEND), ("see_me", SEE_ME), ("how_many", HOW_MANY), ("behind", BEHIND),
+         ("pointing", POINTING), ("posture", POSTURE), ("doing", DOING), ("friend", FRIEND), ("see_me", SEE_ME), ("how_many", HOW_MANY), ("behind", BEHIND),
          ("far", HOW_FAR), ("see", SEE_THING), ("there", THERE_IS), ("still", STILL_THERE), ("see_ko", SEE_THING_KO),
          ("see_more", SEE_MORE), ("what_see", WHAT_SEE))
 
@@ -564,9 +744,10 @@ def answer(text, lang="en", frames=None, slow_line=None):
     t = text.strip()
     asked_at = time.time()                                 # the answer comes from frames taken after this
     last = _last["kind"]
+    more = (lambda: scene.snapshot(since=time.time())) if frames is None else None   # new looks (saved frames: none)
     own = next((k for k, rx in KINDS if rx.search(t)), None)   # a whole question of its own is answered as asked
     if last and _last["asked"] and own is None:
-        got = _check(t, lang, frames, asked_at, slow_line)   # "really?", "and now?", "it's white": a new look
+        got = _check(t, lang, frames, asked_at, slow_line, more)   # "really?", "and now?", "it's white": a new look
         if got:
             _last["at"] = time.time()
             return got
@@ -598,7 +779,7 @@ def answer(text, lang="en", frames=None, slow_line=None):
     frames = _look(frames, asked_at)
     if not frames:
         return _say(*NO_CAMERA, lang)
-    return _reply(kind, t, frames, lang, slow_line)
+    return _reply(kind, t, frames, lang, slow_line, more)
 
 
 def _look(frames, since):
@@ -678,7 +859,7 @@ def _verdict(c, said, denied, en, ko, verb, lang, before=None):
                 f"제 카메라에는 아직 {_j(ko, '이', '가')} {k}으로 보여요. 조명 때문에 틀릴 수도 있어요.", lang)
 
 
-def _check(t, lang, frames, since, slow_line):
+def _check(t, lang, frames, since, slow_line, more=None):
     """A follow-up right after a seeing answer, from a new look: "really?", "and now?", "look again", "다시 봐" ask the
     same question again; "it's white", "no, it's in my right hand", "아니야 흰색이야" are checked against the camera
     (agreed only when it sees so, else what it sees and that it may be wrong). None: not such a follow-up."""
@@ -691,7 +872,12 @@ def _check(t, lang, frames, since, slow_line):
     if side:                                               # "what about the left hand?": that hand, from a new look
         _last["kind"], _last["asked"] = "holding", ("holding", f"what is in my {side} hand?")
         frames = _look(frames, since)
-        return _held_answer(frames, lang, side) if frames else _say(*NO_CAMERA, lang)
+        return _held_answer(frames, lang, side, more, slow_line) if frames else _say(*NO_CAMERA, lang)
+    hint = _hint(t) if kind == "holding" and time.time() - _last["unsure"] < HINT_S else None
+    if hint or kind == "holding" and _last["unsure"] and TURNED.search(t):   # after "could you tell me what it is?"
+        frames = _look(frames, since)
+        _last["kind"] = kind
+        return _held_answer(frames, lang, _asked_hand(asked), more, slow_line, hint) if frames else _say(*NO_CAMERA, lang)
     said, denied = _colours(t) if short and kind in ("shirt", "holding", "hand") else (None, set())
     named = _said_thing(t) if short and kind in ("holding", "hand") and not hand else None
     count = _said_count(t) if short and kind == "how_many" else None
@@ -709,7 +895,7 @@ def _check(t, lang, frames, since, slow_line):
         return _say(f"I count {_n(n)} {'person' if n == 1 else 'people'} in view now, not {count}; someone may be out of "
                     f"my view.", f"제 카메라에는 지금 {n}명이 보여요. 화면 밖에 계신 분이 있을 수도 있어요.", lang)
     if not (hand or said or denied or named):
-        got = _reply(kind, asked, frames, lang, slow_line)
+        got = _reply(kind, asked, frames, lang, slow_line, more)
         return got and _say("I looked again. ", "다시 봤어요. ", lang) + got
     p = scene.person_in_front(frames)
     if p is None:
@@ -761,7 +947,7 @@ def _check(t, lang, frames, since, slow_line):
     return _verdict(o["colour"], said, denied, f"the {o['name']}", _ko_name(o["name"]), "looks", lang)
 
 
-def _reply(kind, t, frames, lang, slow_line=None):
+def _reply(kind, t, frames, lang, slow_line=None, more=None):
     """The answer to a question of this kind (answer() read it) from these frames."""
     if kind == "behind":
         return _say("My cameras look forward, so I can't see what's behind me. " + describe(frames, "en"),
@@ -801,7 +987,7 @@ def _reply(kind, t, frames, lang, slow_line=None):
             return _say("I can't measure how far it is.", "거리는 잴 수 없어요.", lang)
         return _say(f"The {name} is about {_metres(d)} from me.", f"{_j(_ko_name(name), '은', '는')} 저한테서 {_d(d)}미터쯤 떨어져 있어요.", lang)
     if kind == "holding":
-        return _held_answer(frames, lang, _asked_hand(t))
+        return _held_answer(frames, lang, _asked_hand(t), more, slow_line)
     p = scene.person_in_front(frames)
     if kind == "friend":                                   # "do you still see my friend?": anyone besides them
         n = len(scene.people(frames)) - (p is not None)
@@ -833,8 +1019,9 @@ def _reply(kind, t, frames, lang, slow_line=None):
     if kind == "hand":                                     # "which hand?": the one holding something, else one raised
         up = UP_ASKED.search(t)                            # "left or right, which one's up?"
         if not up and (HELD_ASKED.search(t) or scene.object_in_hand(frames) or not p["raised"]):
-            return _held_answer(frames, lang)
+            return _held_answer(frames, lang, None, more, slow_line)
         kind = "raised"
+        _last["kind"], _last["asked"] = kind, (kind, t)      # "and now?" asks about the raised hand again
     if kind == "raised":
         if p["raised"]:
             return _say(f"Yes, your {' and '.join(p['raised'])} hand is up.",
@@ -861,6 +1048,8 @@ def _reply(kind, t, frames, lang, slow_line=None):
                     "손으로 가리키시는 건 보이는데, 무엇인지는 모르겠어요.", lang)
     if kind == "doing":
         return _doing_answer(p, frames, lang)
+    if kind == "posture":
+        return _posture_answer(p, t, lang)
     if kind == "wearing":                                  # detections can't tell: ask the picture (slow)
         if slow_line:
             slow_line(_say("Let me look.", "잠깐 볼게요.", lang))
@@ -883,10 +1072,12 @@ ABOUT_VIEW = re.compile(r"\b(?:see|seeing|look(?:ing)? at|camera|cameras|in fron
 
 
 def warm_up():
-    """Load the pose and object models now, so the first question is answered in ~0.1 s, not ~1 s."""
+    """Load the pose and object models now, so the first question is answered in ~0.1 s, not ~1 s; the close look's
+    model in the background."""
     try:
         pose.load()
         scene._box_net()
+        threading.Thread(target=scene.warm_vlm_hand, daemon=True).start()   # the close look's model, ~12 s
     except Exception as e:
         print(f"seeing: models not loaded ({e})", flush=True)
 
@@ -907,8 +1098,9 @@ def facts(frames=None):
         line = describe(frames, "en")
         p = scene.person_in_front(frames)
         if p:
-            o = scene.object_in_hand(frames)
+            o = _steady(scene.object_in_hand(frames))
             line += f" The person in front is{_m(p['distance_m'], 'en')}" + \
+                (f", {p['posture']}" if p.get("posture") else "") + \
                 (", wearing " + ", ".join(f"{c} {NOUN[k][0]}" for k, c in p["clothes"].items() if c)
                  if any(p["clothes"].values()) else "") + \
                 (f", holding {_a(o['name'], o['colour'])}" if o else "") + "."

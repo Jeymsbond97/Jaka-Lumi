@@ -150,9 +150,13 @@ def lang_of(text):
     return "ko" if re.search(r"[가-힣]", text) else "en"
 
 
+FOREIGN = re.compile(r"[Ѐ-ӿ぀-ヿ㐀-䶿一-鿿豈-﫿]+")   # Cyrillic, kana,
+# Chinese: Lumi speaks only English and Korean, such text from the LLM is dropped, never read out
+
+
 def sentences(text):
-    parts = re.split(r"(?<=[.!?。！？])\s+", text.strip())
-    return [p for p in parts if p]
+    parts = re.split(r"(?<=[.!?。！？])\s+", FOREIGN.sub("", text).strip())
+    return [p for p in parts if re.search(r"\w", p)]
 
 
 def first_parts(sentence):

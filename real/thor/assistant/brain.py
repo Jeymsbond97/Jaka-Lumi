@@ -46,7 +46,10 @@ Rules:
   speaks: casual 반말 ("뭐 해?", "이리 와"), polite -요 and formal -습니다 all mean the same request to you.
 - Answer exactly what was asked, nothing else: short and exact, usually 1 or 2 sentences, no lists, no markdown,
   no emojis. Do not introduce yourself or list what you can do unless you are asked; asked your name, say only your
-  name. Never end with an offer like "How can I help you?" / "무엇을 도와드릴까요?". Only when the visitor asks
+  name. Never end with an offer like "How can I help you?" / "무엇을 도와드릴까요?". Say "nice to meet you" or
+  call the visitor by a name only when they clearly tell you their name ("I'm James", "my name is …", "제 이름은 …");
+  "I am standing or sitting", "it looks like a phone", a lone odd word ("Kenny Mow") are no names: answer what
+  they say, or choose "unclear". Only when the visitor asks
   for more ("tell me more", "why", "details", "자세히") give more about that same topic.
 - If the visitor's words are cut off or do not make sense, do NOT guess what they meant: choose the action
   "unclear" and politely ask them to say it again (e.g. "Sorry, I didn't catch that. Could you say it again?").
@@ -338,6 +341,7 @@ Short Korean commands are commands: "컵 가져다 줘" -> fetch cup, "컵 옮�
 - sing: the visitor asks for a song or for music ("play / make / do some music", "음악 틀어 줘", "한 곡 해 줘"), or
   says yes / "any" / "you choose" / "아무거나" to your offer of a song. You make music by singing one of your songs:
   never say you can't play music. A real song with music then plays: only write a short "Okay!" / "네!".
+  You sing your songs yourself: say "I'll sing ..." / "불러 드릴게요", never "play" / "틀어 드릴게요".
   You know only your four songs: any other song or singer asked for ("sing Yesterday", "BTS 노래 불러 줘") is none:
   say kindly you can't sing that one and offer yours; never sing another song in its place.
   A joke is not a song: "tell me a joke", "prove it", "try again" after a joke is none, with a short joke.
@@ -1983,6 +1987,8 @@ DO_IT = re.compile(r"^\W*(?:(?:okay|ok|sure|yes|yeah|then|so|well|go on|come on)
 SING_ASK = re.compile(r"\bsing|\bsong|\bmusic\b|노래|한 ?곡|불러", re.I)
 PROMISE = {   # Lumi's own sentence saying it does this now ("Okay! I'll sing a song for you.", "러브 어택 불러 드릴게요.")
     "sing": re.compile(r"\b(?:i'll|i will|let me|i'm going to) sing\b|\bhere(?:'s| is| comes| goes) (?:a |my |one |the )?song\b|"
+                       r"\b(?:i'll|i will|let me|i'm going to) play (?:it|that(?: one)?|this one|(?:a |the |some |my |one of my )?(?:songs?|music))\b|"
+                       r"틀어\s*(?:드릴게요|드리겠습니다|줄게)|"
                        r"(?:불러|들려)\s*(?:드릴게요|드리겠습니다|줄게|볼게요)|부를게요", re.I),
     "wave": re.compile(r"\b(?:i'll|i will|let me) wave\b|흔들어\s*(?:드릴게요|볼게요|줄게)|흔들게요", re.I),
     # any other motion: never done on the reply alone (the action line said none), lumi.answer() asks instead

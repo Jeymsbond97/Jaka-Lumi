@@ -535,7 +535,7 @@ $("driveStop").onclick = () => { holdStop(); api("/jog/stop", {}); api("/agv/can
 $("driveSpeed").oninput = e => $("driveSpeedV").textContent = e.target.value + " %";
 $("bodySpeed").oninput = e => $("bodySpeedV").textContent = e.target.value + " %";
 $("armSpeed").oninput = e => $("armSpeedV").textContent = e.target.value + " %";
-$("headCentre").onclick = e => act(e.target, () => api("/head/turn", {yaw: 0, pitch: 0}));
+$("headCentre").onclick = e => act(e.target, () => api("/head/turn", {yaw: 0, pitch: -5}));
 
 /* ---------- map ---------- */
 const cv = $("map"), ctx = cv.getContext("2d");

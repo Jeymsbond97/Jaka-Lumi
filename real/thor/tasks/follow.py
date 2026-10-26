@@ -279,7 +279,7 @@ def _run(see, say, people):
     v = w = 0.0
     done, target, stats = threading.Event(), [None], {"head": None, "head_ms": None}
     head.owners = (threading.current_thread(),)
-    person = Person()
+    person, head_thread = Person(), None
     try:
         got = see()                                      # where they are now: prepare() may turn the waist
         sig = got[3] if got else None
@@ -382,6 +382,13 @@ def _run(see, say, people):
                 _joy(0.0, 0.0)
             except (ConnectionError, OSError):
                 pass                                   # one command lasts 0.5 s: the base stops anyway
+        if head_thread is not None:                    # the head back to rest (ahead, looking down) once its own
+            head_thread.join(HEAD_TIMEOUT_S)           # move has ended: overlapping movetos hang the body API
+            try:
+                head.moveto([*head.status()[:2], 0.0, head.HEAD_REST_PITCH], vel=HEAD_VEL, acc=HEAD_VEL,
+                            timeout=HEAD_TIMEOUT_S)
+            except (ConnectionError, OSError, ValueError, KeyError) as e:
+                fetch.log(f"follow: head error {e!r}")
         head.owners = ()
         fetch.log("follow: ended")
 
