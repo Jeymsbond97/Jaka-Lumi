@@ -43,6 +43,12 @@ CASES.update({   # any wording of the body commands, English, Korean and mixed (
     "정면 봐": ("look", "center"), "고개 살짝 왼쪽으로": ("look", "left small"), "고개 좀 위로 살짝 들어 봐": ("look", "up small"),
     "고개 오른쪽으로 30도 돌려": ("look", "right 30"), "turn your head left 120": ("look", "left 120"),
     "look behind you": ("look", "left 180"), "뒤를 봐": ("look", "left 180"), "뒤 돌아봐": ("look", "left 180"), "now 오른쪽 봐!": ("look", "right"),
+    # up / down as said or heard live (2026-10-23: "Look at the bellow.", "Look it up." went to the LLM)
+    "Look at up.": ("look", "up"), "look at the up": ("look", "up"), "look upward": ("look", "up"), "look above": ("look", "up"),
+    "Look it up.": ("look", "up"), "Look at down.": ("look", "down"), "look downwards": ("look", "down"),
+    "Look at the bellow.": ("look", "down"), "look below": ("look", "down"), "위 봐": ("look", "up"), "업 봐": ("look", "up"),
+    "다운 봐": ("look", "down"), "밑에 봐": ("look", "down"), "아래 봐 줘": ("look", "down"),
+    "look it up for me": None, "Can you look it up?": None, "Look up the news.": ("search", "Look up the news."),
     "look up the weather in Paris": ("weather", "Paris"),
     "부산 날씨 알려줘": ("weather", "Busan"),
     "제주도 날씨는?": ("weather", "Jeju City"),
@@ -124,6 +130,13 @@ assert brain.head_goal("right 200", 0, 0) == (-180.0, 0, "yaw")
 assert brain.head_goal("up 50", 0, 0) == (0, 35.0, "pitch")
 assert brain.head_goal("left small", 10, 0) == (25.0, 0, None)
 assert brain.head_goal("down", 20, 10) == (20, -5, None)
+assert brain.head_goal("left", 40, 0) == (55.0, 0, None) and brain.head_goal("right", -40, 0) == (-55.0, 0, None)   # "look left"
+assert brain.head_goal("up", 0, 20) == (0, 30.0, None) and brain.head_goal("left", -40, 0) == (40, 0, None)   # again: further
+for said, want in {"Look at the left side.": "left", "Look at the right side.": "right", "Lumi, look at the left side.": "left",
+                   "look on your left": "left", "Look at the front.": "center", "look left more": "left small",
+                   "look more to the right": "right small", "왼쪽 좀 봐 줘": "left", "오른쪽 봐": "right", "왼쪽 봐": "left",
+                   "왼쪽 더 봐": "left small", "오른쪽 조금 더 봐 줘": "right small"}.items():   # live 2026-10-23: went to the LLM
+    assert brain.intent(said, ["p1", "p2", "home"]) == ("look", want), (said, brain.intent(said))
 assert brain.lift_goal("up 50", 80) == (105.0, True)
 assert brain.lift_goal("down small", 50) == (20.0, False)
 assert brain.lift_goal("up", 0) == (105.0, False)

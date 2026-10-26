@@ -37,7 +37,7 @@ Jetson AGX Thor inside the robot and turns it into a conversational service robo
 | **Answer questions** | About itself and Cutshion, and about the world with live information from the internet, in English or Korean. |
 | **Describe what it sees** | People, clothing, gestures, what someone is holding, and objects around it. |
 | **Follow a person** | Walks with a visitor at their pace and keeps them in view. |
-| **Go to places** | Drives to any named location on the map, patrols a route, and returns to its dock to charge. |
+| **Go to places** | Drives to any named location on the map or to a spot a person points at, patrols a route, and returns to its dock to charge. |
 | **Fetch and deliver** | Picks up a cup or bottle, brings it to a person or a place, puts it down, or hands it over. |
 | **Run missions** | Carries out several steps from one spoken request, such as fetching an item, delivering it and passing on a message. |
 | **Sing and gesture** | Sings songs from its repertoire and waves to greet or say goodbye. |
@@ -223,7 +223,7 @@ Lumi는 쿳션이 개발한 **JAKA Lumi** 모바일 매니퓰레이터용 소프
 | **질문 답변** | 자신과 쿳션에 대한 질문은 물론, 인터넷의 실시간 정보로 세상의 다양한 질문에 영어나 한국어로 답합니다. |
 | **보이는 것 설명** | 사람, 옷차림, 제스처, 손에 든 물건, 주변 사물을 설명합니다. |
 | **사람 따라가기** | 방문객의 걸음에 맞춰 함께 이동하며 계속 지켜봅니다. |
-| **장소 이동** | 지도에 있는 어느 장소로든 이동하고, 순찰하며, 충전 도크로 돌아갑니다. |
+| **장소 이동** | 지도에 있는 어느 장소나 사람이 가리키는 곳으로 이동하고, 순찰하며, 충전 도크로 돌아갑니다. |
 | **가져오기와 전달** | 컵이나 병을 집어 사람이나 장소로 가져가고, 내려놓거나 건네줍니다. |
 | **미션 수행** | 물건 가져오기, 전달하기, 메시지 전하기처럼 한 번의 요청으로 여러 단계를 수행합니다. |
 | **노래와 제스처** | 레퍼토리의 노래를 부르고, 인사나 작별할 때 손을 흔듭니다. |

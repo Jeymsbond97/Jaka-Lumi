@@ -354,7 +354,7 @@ NO = [
     '가자', '가자 이제', '이제 가자', '자 가자', "let's go now", "okay let's go", "come on, let's go", 'back to where you picked it up', 'put it back where you found it',
     # past events and tag questions are the PAST_EN / past_ko / TAG guards' (exact, before any match)
     '인스타 팔로우 해 줘', 'follow us on instagram', 'follow our account', '따라 해 봐', '내 말 따라 해', 'repeat after me', 'copy me', 'do what i do', 'can you lend me a hand?', 'give me a hand with this', '한 번만 더 해 줘', 'do it again', 'again please', 'one more time', '다시 해 줘', '또 해 봐', '한 번 더', 'over here for a sec', 'wait over there', 'the other way', '왼쪽으로', '오른쪽으로', '앞으로', '뒤로',
-    'can your arm move?', 'how long is your arm?', 'how far can you reach?', '악수하자', '악수할래?', 'can you turn your head?', 'is your head turning?', 'how high can you go?', 'how low can you go?', "what's on the ceiling?", 'is the floor clean?', 'where are you looking?', 'what are you looking at?', '어디 보고 있어?', '왜 나를 봐?', '왜 따라와?', '키가 몇이야?', '팔 길이가 얼마야?', '고개 아파?', '손 차가워?', '손 따뜻해?',
+    'can your arm move?', 'how long is your arm?', 'how far can you reach?', 'can you turn your head?', 'is your head turning?', 'how high can you go?', 'how low can you go?', "what's on the ceiling?", 'is the floor clean?', 'where are you looking?', 'what are you looking at?', '어디 보고 있어?', '왜 나를 봐?', '왜 따라와?', '키가 몇이야?', '팔 길이가 얼마야?', '고개 아파?', '손 차가워?', '손 따뜻해?',
     # cut-off starts
     "let's", "can you", "could you", "please", "lumi, can you", "wait", "hmm", "so", "go", "move", "turn", "look",
     "루미야 저기", "저기요", "루미야", "혹시", "그럼", "잠깐만", "있잖아", "근데",
@@ -580,7 +580,7 @@ ARM_REACH += [
     "please stretch out your arm", "hold your arm out", "hold your hand out to me", "hand out please",
     "put your hand forward", "push your arm out", "arm forward", "arm forward please", "your arm, stretch it out",
     "you stretch arm please", "you put arm out", "arm long please", "make arm long", "arm straight please",
-    "reach reach", "gimme your hand", "give your hand to me", 
+    "reach reach", "gimme your hand", "give your hand to me", "shake hands with me", "let's shake hands", "shake my hand", "give me a hand", "악수하자", "악수할래?", "루미야 손 줘", 
     "팔 뻗어 보거라", "팔 뻗어 보게", "팔 좀 뻗어 보이소", "팔 뻗어 부러", "팔 뻗어 봐유", "팔 뻗어 줘용", "팔 뻗어 주라",
     "팔 좀 뻗어 주세요", "팔 쭉 뻗어 주세요", "팔 앞으로 뻗어 주세요", "팔 앞으로 내밀어 주세요", "손 내밀어 주세요",
     "손 좀 내밀어 줄래?", "손 앞으로 뻗어", "손 쭉 뻗어 봐", "팔 펴 봐", "팔 펴 주세요", "팔을 펴 주십시오",

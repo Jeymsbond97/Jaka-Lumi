@@ -270,6 +270,11 @@ ASR_SLIPS = [   # how whisper writes Korean commands (tests/asr_check.py, 2026-1
     (r"고게(?=\s*(?:들|숙))", "고개"), (r"찝어", "집어"), (r"파이나(?=\s*(?:갔|가|로))", "파이널"),
     # the owner's English as whisper wrote it live (logs/lumi.log 2026-10-21 / 22)
     (r"\bcount to(?= p\s?\d)", "come to"),                       # "Let's count to p5."
+    # the head up / down, said or heard loosely (2026-10-23 15:08-15:16: "Look at the bellow.", "Look it up.")
+    (r"\blook (?:at |to(?:wards?)? )?(?:the )?(?:upwards?|above)\b|\blook (?:at |to(?:wards?)? )(?:the )?up\b", "look up"),
+    (r"\blook (?:at |to(?:wards?)? )?(?:the )?(?:downwards?|below|bellow)\b|\blook (?:at |to(?:wards?)? )(?:the )?down\b",
+     "look down"),
+    (r"^\W*look it up\W*$", " look up "),       # alone it is the head; "look it up for me" / "look up the news" stay a search
     (r"\b(?:go )?(?:copy|pick) (\d+|one|two|three|four|five|six|seven|eight|nine|ten) point\b", r"go to p\1"),
     (r"\bfall(?:ow)? (?:lonely|of him)\b", "follow me"),         # "Let's fall lonely.", "Let's fall of Him."
     # hearing round 2 (tests/asr_check.py blind r3 / set 5, 2026-10-22 night)
@@ -294,6 +299,8 @@ KONGLISH = [   # English direction words said in Korean -> the Korean word ("레
      "돌아"),                                            # "왼쪽으로 턴 해", "왼쪽으로 turn 해"
     (r"(?:" + _NO + r"무브|(?:(?<=미터 )|(?<=센티 )|(?<=센치 )|(?<=cm )|(?<=\dm )|(?<=으로 ))고|" + _NO + r"고\s*고)(?:\s*(?:해|해요|하세요|해\s*줘|해\s*주세요))?(?![가-힣])",
      "이동해"),                                          # "고" alone is a particle / a place's "go": after a way only
+    (_NO + r"업\s*(?=(?:좀\s*)?(?:봐|보세요|봐요))", "위 "),     # "업 봐"
+    (_NO + r"다운\s*(?=(?:좀\s*)?(?:봐|보세요|봐요))", "아래 "),  # "다운 봐"
     (r"(고개|머리|헤드|얼굴)\s*(?:를|을)?\s*업(?![가-힣])", r"\1 들어"),
     (r"(고개|머리|헤드|얼굴)\s*(?:를|을)?\s*다운(?![가-힣])", r"\1 숙여"),
     (_NO + r"헤드(?=\s)", "고개"),

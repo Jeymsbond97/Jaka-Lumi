@@ -168,7 +168,7 @@ for t in ["wave", "wave at them", "wave your hand", "wave hello", "give them a w
           "say hi with your hand", "손 흔들어", "손 흔들어 줄래?", "손 인사 해 줘", "손 좀 흔들어 주세요", "애들한테 손 흔들어 줘",
           "wave 해 줘", "손 wave 해 봐"]:
     add("wave", t, "action:wave")
-for t in ["do you know how to wave?", "손 흔들 줄 알아?", "I saw you wave yesterday", "the wave was nice", "shake hands with me",
+for t in ["do you know how to wave?", "손 흔들 줄 알아?", "I saw you wave yesterday", "the wave was nice",
           "a new wave of visitors is coming"]:
     add("wave_not", t, "talk")
 for t in ["bye bye", "bye-bye!", "바이바이", "빠이빠이", "잘 가", "okay, bye!", "see you, Lumi"]:

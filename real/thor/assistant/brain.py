@@ -357,7 +357,7 @@ Short Korean commands are commands: "컵 가져다 줘" -> fetch cup, "컵 옮�
   the opposite move.
 - A condition or a later time is no order now ("when I say go, go to p1", "after the talk, come here", "if I
   wave, follow me", "내가 가라고 하면 가", "나중에 와"): none, say you'll do it when they ask. In "go to p1, no, p2" /
-  "p1로 가, 아니 p2로" the last one counts. "Shake hands with me" is a handshake you can't do: none, offer a wave; "give me your hand" / "손 줘" is arm reach.
+  "p1로 가, 아니 p2로" the last one counts. A handshake ("shake hands with me", "악수하자") is arm reach, as are "give me your hand" / "give me a hand" / "손 줘".
 - unclear: you did not understand what the visitor said or wants: ask them to repeat.
 - none: only talk.
 For weather and search only write the action line; the answer is made after the lookup.
@@ -458,19 +458,22 @@ BEHIND_WORDS = (r"\blook(?:ing)? (?:over |to(?:wards?)? |at |in )?(?:the |your )
                 r"|(?:고개|머리)(?:를|좀|살짝|조금|\s)*뒤(?:쪽)?(?:으로|로)?\s*(?:좀\s*)?(?:돌려|봐)")         # 뒤에 봐 줘; not 뒤로 돌아
 # ^ the head turns to look behind (head_target); "what's behind you?" is a question for seeing.BEHIND
 HEAD_WORDS = (r"\blook (?:straight )?(?:up|down|left|right|ahead|forward|straight|at me|behind|this way|over here|to (?:the|your|my) (?:left|right))\b"
+              r"|\blook (?:a (?:little |bit )?)?(?:more |further )?(?:at|to|towards?|on|over|in) (?:the |your |my )?(?:left|right|front)(?: side)?\b"
+              r"|\blook (?:a (?:little |bit )?)?(?:more|further) (?:to (?:the |your )?)?(?:left|right|up|down)\b"   # "look at the left side"
               r"|" + BEHIND_WORDS +
               r"|\blook at (?:my|this|that|our) (?:son|daughter|kid|child|baby|friend|wife|husband|boy|girl|mom|dad)\b"
               r"|(?:우리|내|제) (?:애|아이|아들|딸|친구)\s*(?:좀\s*)?(?:봐|쳐다)"
               r"|\b(?:turn|move|rotate|tilt|swing) your head\b|\b(?:raise|lift|lower|drop) your head\b|\bface me\b|\bhead (?:up|down)\b"
               r"|(?:고개|머리)(?:를|좀|살짝|조금|약간|\s)*(?:왼쪽|오른쪽|위|아래|정면|앞|들어|숙여|올려|내려|돌려)"
               r"|(?:고개|머리)(?:를|좀|\s)*(?:원위치|원래대로|제자리)|\bhead back to (?:the )?(?:centre|center|middle)\b"   # the head, not put back
-              r"|(?:위|아래|밑|왼쪽|오른쪽|정면|앞|나|날|저|절|나를|저를)(?:를|을|으로|로|쪽|쪽을|에)?\s*(?:\d+\s*도\s*(?:만|쯤|정도)?\s*)?(?:좀\s*)?(?:봐|보세요|봐요|봐 ?줘|봐 ?주세요|볼래|봐 ?봐)")
+              r"|(?:위|아래|밑|왼쪽|오른쪽|정면|앞|나|날|저|절|나를|저를)(?:를|을|으로|로|쪽|쪽을|에)?\s*(?:\d+\s*도\s*(?:만|쯤|정도)?\s*)?(?:(?:좀|조금|더|약간|살짝)\s*)*(?:봐|보세요|봐요|봐 ?줘|봐 ?주세요|볼래|봐 ?봐)")
 LIFT_WORDS = (r"\b(?:raise|lift|lower) (?:yourself|your body|your torso|your upper body)\b|\blift (?:yourself )?(?:up|down)\b(?! (?:the|a|an|that|this|it)\b)"
               r"|\bget (?:a (?:little |tiny )?bit |a little |slightly )?(?:taller|shorter|smaller|higher|lower)\b|\bmake yourself (?:taller|shorter|smaller)\b|\bstand (?:up )?tall(?:er)?\b"
               r"|\b(?:go|move) (?:higher|lower)\b|키(?:를)? ?(?:좀 )?(?:[\d.]+ ?(?:m|mm|cm) ?(?:만 ?)?)?(?:높여|키워|올려|낮춰|줄여|크게|작게)"
               r"|몸(?:을)? ?(?:좀 )?(?:[\d.]+ ?(?:m|mm|cm) ?(?:만 ?)?)?(?:올려|내려|낮춰|높여)"
               r"|리프트(?:를)? ?(?:좀 )?(?:올려|내려|위로|아래로)|상체(?:를)? ?(?:좀 )?(?:올려|내려|들어)")
 SMALL = re.compile(r"\ba (?:little )?bit\b|\bslightly\b|\ba little\b|\ba touch\b|조금|살짝|약간|좀 더")
+MORE = re.compile(r"\b(?:more|further)\b|(?:^|\s)더(?:\s|$)")   # "look left more", "왼쪽 더 봐": a step on from where it is
 HEAD_YAW, HEAD_PITCH = head_hw.AXIS_LIMITS[2], head_hw.AXIS_LIMITS[3]   # commanded looks: the body's full range
 HEAD_SMALL_DEG = 15.0          # deg; "look left a bit": the head turns this much from where it is
 HEAD_AWAY_DEG = 60.0           # deg; "look away", "don't look at me": the head turns this much aside from where it is
@@ -481,7 +484,7 @@ def head_target(t):
     """Normalised words -> "left" | "left 30" | "up small" | "me" | "center"; None for "look up the news"."""
     if re.search(r"\blook up\b\s+(?!(?:a |please|lumi|slightly|again|at|to|\d|now|and|then|too|more)\b)[a-z]", t):
         return None
-    if re.search(r"\b(?:straight|ahead|forward|center|centre)\b|정면|가운데|원위치|원래대로|제자리|(?:^|\s)앞(?:을|으로|쪽)?\s*(?:좀\s*)?(?:봐|보)", t):
+    if re.search(r"\b(?:straight|ahead|forward|center|centre|front)\b|정면|가운데|원위치|원래대로|제자리|(?:^|\s)앞(?:을|으로|쪽)?\s*(?:좀\s*)?(?:봐|보)", t):
         return "center"
     if re.search(BEHIND_WORDS, t):                     # the head as far round as it goes, by the side said
         side = "right" if re.search(r"\bright\b|오른쪽", t) else "left"    # "over your right shoulder"; left when none
@@ -490,7 +493,7 @@ def head_target(t):
                      ("up", r"\bup\b|\braise\b|\blift\b|위|들어|올려"), ("down", r"\bdown\b|\blower\b|\bdrop\b|아래|밑|숙여|내려")):
         if re.search(words, t):
             deg = re.search(r"(\d+)\s*(?:degrees?|도)?", t)       # a bare number on the head is degrees
-            return f"{d} {deg.group(1)}" if deg else (f"{d} small" if SMALL.search(t) else d)
+            return f"{d} {deg.group(1)}" if deg else (f"{d} small" if SMALL.search(t) or MORE.search(t) else d)
     if re.search(r"\b(?:at me|face me)\b|(?:^|\s)(?:나|날|저|절|나를|저를)\s*(?:좀\s*)?봐|\blook at (?:my|this|that|our) \w+|"
                  r"(?:우리|내|제) (?:애|아이|아들|딸|친구)", t):   # "look at my son": towards whoever speaks
         return "me"                                     # after the directions: "look down at me" is down
@@ -524,6 +527,10 @@ def head_goal(target, yaw, pitch, look=None, yaw_max=HEAD_YAW[1], pitch_range=HE
     else:
         y, p = look[d]
         new = (yaw if y is None else y, pitch if p is None else p)
+        if d in ("left", "right") and sign * yaw >= sign * y - 1:      # "look left" again while it looks left:
+            new = (yaw + sign * HEAD_SMALL_DEG, pitch)                  # a step further, never nothing
+        elif d in ("up", "down") and sign * pitch >= sign * p - 1:
+            new = (yaw, pitch + sign * HEAD_SMALL_DEG * 2 / 3)
     y, p = max(-yaw_max, min(yaw_max, new[0])), max(pitch_range[0], min(pitch_range[1], new[1]))
     limited = "yaw" if n not in ("", "small") and y != new[0] else "pitch" if n not in ("", "small") and p != new[1] else None
     return y, p, limited
@@ -618,8 +625,9 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
                    r"|손을? ?(쥐|오므려|닫아)|주먹 ?(을 )?쥐|잡아(?!먹|당)|손 ?close|(그리퍼|집게)(를|을)? ?(좀 )?(닫아|오므려)"),
     ("arm", r"\b(reach out(?! to (?!me\b))|stretch (out )?your (arm|hand)|put your (arm|hand) (out|forward)|hand forward|"
             r"hold out your (arm|hand|gripper|claw|fingers)|extend your (arm|hand|gripper)|give me your hand|offer me your hand|"
+            r"give me (?:a|ur|you) hand(?!\s+(?:with|to|for|in|on|carrying|moving|lifting)\b)|shake (?:my hand|hands)|(?:give me|do|have) a handshake|"
             r"(put|hold|stick) your (arm|hand) out|reach (out )?(to|toward|towards|for) me)\b|팔을? ?(뻗|내밀)"
-            r"|손을? ?(좀 )?(내밀|뻗)(?!었)|^\W*(?:(?:나|저)(?:한테|에게)?\s*)?손 ?(?:을 )?(?:좀 )?(?:줘|주세요|줄래요?|줘 ?봐)\W*$"
+            r"|손을? ?(좀 )?(내밀|뻗)(?!었)|^\W*(?:(?:루미야?|lumi)\W*)?(?:(?:나|저)(?:한테|에게)?\s*)?(?:손|hand) ?(?:을 )?(?:좀 )?(?:줘|주세요|줄래요?|줘 ?봐)\W*$|악수\s*(?:좀\s*)?(?:하자|해|할래|합시다|하실래|하시죠)"
             r"|\bfold (?:up )?your arm\b|\b(?:put|take) your arm (?:down|away|back)\b|\btuck your arm\b|팔을? ?(?:좀 )?(?:접|내려|거둬)"
             r"|\b(?:arm|hand) forward\b|^\W*(?:(?:hey|lumi|robot|okay|ok|please)\W+)*hand out(?=\W*(?:$|,|robot|lumi|please|now))|\breach (?:out )?for my hand\b|\br[ie]{2}ch out\b|"
             r"\barm (?:go )?(?:to|toward|towards) me\b|\b(?:arm|hand|reach)\s*(?:을|를)?\s*(?:좀\s*)?(?:뻗|내밀|해 ?볼래|해 ?줘|해\W*$)|"
@@ -1029,7 +1037,7 @@ def intent(text, markers=()):
             if re.search(r"\bhow do you (know|check|get|find)\b|어떻게 (알|확인)", t):
                 return None                                 # "how do you know the weather?": about Lumi
             place = re.search(r"\bin ([A-Za-z][A-Za-z ]+?)(\?|$|\.| today| tomorrow| right now| now| this)", text)
-            if place:
+            if place and web.asked_day("in " + place.group(1)) is None:   # "in three days" is a day, no place
                 return ("weather", place.group(1).strip())
             ko = next((k for k in sorted(web.KO_PLACES, key=len, reverse=True) if k in text), None)   # "부산 날씨 어때?"
             return ("weather", web.en_place(ko) if ko else "")
@@ -2127,6 +2135,28 @@ REACTION = re.compile(r"^\W*(?:(?:wow|oh|really|huh|whoa)\W+)*(?:i (?:didn'?t|di
                       re.I)   # a reaction to what was found, not a new question
 NOW_Q = re.compile(r"\bwhat time is it\b|\bwhat'?s the time\b|\bwhat(?:'s| is) (?:the date|today)\b|지금 몇 ?시|오늘 며칠",
                    re.I)      # asked of the clock, not of the lookup before
+WEATHER_WORDS = re.compile(r"\b(?:and|so|then|ok(?:ay)?|what|how|about|is|it|the|weather|like|for|on|in|at|will|be|going|"
+                           r"to|forecast|rain|there|that|then|please|sorry|no|i|mean|meant)\b|그럼|그러면|그리고|날씨|어때요|어때|어떤가요|어떨까요|어떻게|돼요|"
+                           r"비|와요|올까요|오나요|알려|줘|주세요", re.I)   # the rest of "and the weather on Friday then?"
+PARTICLES = re.compile(r"^[은는도요의에이가서엔]+$")   # "월요일은요" less the day
+CHECKING = re.compile(r"^\W*(?:let me (?:check|see|look)|one moment|just a moment|확인해 ?볼게요|잠시만요?)\W*$", re.I)
+                               # lumi says it before the lookup: never again inside the answer
+
+
+def weather_follow(text):
+    """A short weather follow-up that names a day and maybe a place ("내일은요?", "and Friday?", "what about Busan
+    tomorrow?", "다음 주 월요일 어때요?"): the place ("" = the one asked before), else None."""
+    if len(text.split()) > 8 or web.asked_day(text) is None:
+        return None
+    rest = web.DAY_PHRASE.sub(" ", text)
+    ko = next((k for k in sorted(web.KO_PLACES, key=len, reverse=True) if k in rest), None)
+    rest = WEATHER_WORDS.sub(" ", rest.replace(ko, " ") if ko else rest)
+    words = [w for w in re.findall(r"[\w'-]+", rest) if not PARTICLES.match(w)]
+    if ko:
+        return web.en_place(ko) if not words else None
+    return " ".join(words) if all(w[0].isupper() and w.isascii() for w in words) else None
+
+
 LOOKUP_ACTION = re.compile(r"^\s*(?:\**ACTION\**\s*:\s*)?(?:search|weather)(?: (?!results)|\s*$)")   # an action line
                              # written instead of the answer (the routing prompt is its system prompt): never said
 NONE_LINE = re.compile(r"\s*(?:\**ACTION\**\s*:\s*)?none\b", re.I)   # "ACTION: none -" (or "none" alone)
@@ -2167,6 +2197,7 @@ class Brain:
         self.last_facts = ""              # ... and what was found for it (a follow-up is answered from it too)
         self.lookup_topic = ""            # what the last lookup that was not a follow-up searched for
         self.weather_at = ""              # the place of the last weather question in this talk ("" = here)
+        self.weather_days = None          # ... and the days it asked (web.asked_day; None = no day named)
 
     def weather_place(self, target, text=""):
         """Where a weather lookup is for: a place not named ("내일 비 와?" after Jeju's weather) is the place of the
@@ -2174,6 +2205,15 @@ class Brain:
         if target or HERE_WORD.search(text):
             self.weather_at = target
         return self.weather_at
+
+    def weather_on(self, text):
+        """The days a weather lookup is for (web.asked_day). Named none, it keeps the day of the turn before: of the
+        weather asked ("what about Busan?" after Monday's) or of a day talked about ("next Monday is the 26th." ->
+        "and the weather?"); "the day after" goes on from it. None (the whole forecast) when nothing before names one."""
+        last_q = self.history[-1][0] if self.history else ""
+        before = self.weather_days if last_q.endswith(WEATHER_ASKED) else web.asked_day(last_q)
+        self.weather_days = web.asked_day(text, before) or before
+        return self.weather_days
 
     def lookup_about(self, target, about, text=""):
         """What lumi.not_online reads for a lookup: right after a lookup (or _after's follow-up of it, "What time does
@@ -2399,6 +2439,10 @@ class Brain:
             d = look.group(1) or look.group(2)
             return {"action": "look", "target": {"위": "up", "아래": "down", "왼쪽": "left", "오른쪽": "right"}.get(d, d.lower()),
                     "say": "네." if language(text) == "Korean" else "Okay."}
+        if last_q.endswith(WEATHER_ASKED) and action in ("none", "unclear", "search", "weather"):
+            place = weather_follow(text)                   # "내일 어때요?", "and Friday?", "what about Busan tomorrow?":
+            if place is not None:                          # the weather again, the day moved (lumi.look_up)
+                return {"action": "weather", "target": place}
         looked_up = before == "search" or (self.last_lookup is not None and last_q == self.last_lookup)
         if not looked_up or action not in ("none", "unclear") or is_backchannel(text) or REACTION.match(text):
             return header                                  # "oh really?", "wow, that many?" ask nothing new
@@ -2498,11 +2542,11 @@ class Brain:
                     continue
                 parts = SENTENCE_END.split(buf)
                 for sentence in parts[:-1]:
-                    if spoken(sentence.strip(), lang):             # no "ACTION: none" copied from the history
+                    if spoken(sentence.strip(), lang) and not CHECKING.match(sentence):   # no "ACTION: none" copied
                         said = True
                         yield spoken(sentence.strip(), lang)
                 buf = parts[-1]
-            if spoken(buf.strip(), lang) and not (not said and LOOKUP_ACTION.match(buf)):
+            if spoken(buf.strip(), lang) and not (not said and LOOKUP_ACTION.match(buf)) and not CHECKING.match(buf):
                 said = True
                 yield spoken(buf.strip(), lang)
             if said:
@@ -2709,6 +2753,7 @@ class Brain:
         self.history = []
         self.last_lookup = None
         self.weather_at = ""
+        self.weather_days = None
 
 
 if __name__ == "__main__":

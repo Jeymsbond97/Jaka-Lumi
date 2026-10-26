@@ -83,6 +83,10 @@ AGAIN = re.compile(r"^(?:(?:just|a|an|bit|little|tiny|some|even|one|1|once|the|s
                    r"the same again|more please|again please|1 more time)(?:\s+(?:please|lumi|then))?$|"
                    r"^(?:루미야\s+)?(?:조금만?|좀|살짝|약간|한 ?번|1 ?번|아까처럼|똑같이)?\s*더"
                    r"(?:\s*(?:가|해|가 ?줘|해 ?줘|가요|해요|가 ?주세요|해 ?주세요))?$|^한 ?번 ?더|^똑같이(?: 해| 한 ?번)?")
+LOOK_MORE = re.compile(r"^(?:(?:look|at|to|the|your|side|a|bit|little|tiny|more|again|further|please|lumi|and|then|now|"
+                       r"once|one|time|okay|ok|left|right|up|down|루미야|좀|조금|조금만|더|약간|살짝|한|번|한번|다시|봐|봐요|봐줘|"
+                       r"줘|주세요|요|(?:왼쪽|오른쪽|위|아래)(?:으로|로|쪽|쪽으로|을|를)?)(?:\s+|$))+$")
+# right after a look, only these words with a "more" / "again" in them: the head a step further that way
 LESS = re.compile(r"^(?:(?:a|bit|little|just|a little|a bit)\s+)*less(?: please)?$|^(?:좀|조금)?\s*덜$")
 JOINED = re.compile(r"\b(?:and|then|after that|and then)\b|그리고|하고|해서|가서|다음에|집어|가져")
 
@@ -164,6 +168,10 @@ def read(t, last=None, talking=False):
     s = 0 if asked else speed(t)                             # "really? that slow?": a reaction, not an order
     if s:
         return ("speed", s)
+    if last and last[0] == "look" and LOOK_MORE.match(t) and re.search(r"\b(?:more|again|further)\b|더|다시|한 ?번", t):
+        side = re.search(r"\b(left|right|up|down)\b|(왼쪽|오른쪽|위|아래)", t)   # "more again", "look at more", "왼쪽으로 더"
+        d = {"왼쪽": "left", "오른쪽": "right", "위": "up", "아래": "down"}.get(side.group(2), side.group(1)) if side else None
+        return ("look", f"{d or last[1].split()[0]} small")
     if AGAIN.search(t) or LESS.search(t):
         if last is None:
             return None if talking else ("ask", "")          # "more" of what?

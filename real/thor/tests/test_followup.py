@@ -10,7 +10,7 @@ import re
 import sys
 from pathlib import Path
 
-from assistant import brain, lumi, seeing
+from assistant import brain, lumi, seeing, web
 from tests.conversation_check import NOW, rules_route
 from tests.followup_cases import CASES
 from vision import scene
@@ -57,7 +57,9 @@ def route(b, text, frames):
     if h["action"] == "search":
         return "search", b.search_query(h["target"])
     if h["action"] != "none":
-        return f"act:{h['action']} {h['target']}" if h["action"] != "weather" else "weather", h["target"]
+        if h["action"] == "weather":                                 # the place kept, the day in the words
+            return "weather", h["target"] or f"weather {b.weather_place('', text)} {text}"
+        return f"act:{h['action']} {h['target']}", h["target"]
     return "llm", ""
 
 
@@ -147,4 +149,23 @@ if __name__ == "__main__":
     b.history = [("what's a lidar?", "ACTION: none -\nA laser scanner.")]
     assert b._after({"action": "quiet", "target": ""}, "에이, 거짓말하지 마")["action"] == "none"
     assert b.again("one more time") == "same" and b._after({"action": "none", "target": ""}, "again")["action"] == "none"
+    from assistant import driving                       # "more" right after a look: the head a step further (live 2026-10-23)
+    looked = driving.last_command([("Look at the left side.", "ACTION: look left")])
+    for said in ("More again.", "Look at more.", "Look at the left side more.", "more", "a bit more", "again", "더", "조금 더",
+                 "한 번 더", "좀 더 봐", "왼쪽으로 더", "look more to the left"):
+        assert driving.read(driving.clean(brain._norm(said)), looked) == ("look", "left small"), said
+    assert driving.read("look right", looked) is None and driving.read("i want more", looked, True) is None
+    assert driving.read("오른쪽으로 더", looked) == ("look", "right small")
+    # the weather asked, then the day moved (live 2026-10-23 15:37: "내일 어때요?" and "다음 주 월요일 어때요?" were
+    # searched, "날씨 어때요?" then gave today's weather): the weather again, the day and place kept
+    b = brain.Brain()
+    b.history = [("오늘 부산 날씨 어때요? (the weather)", "흐려요.")]
+    b.last_lookup, b.weather_at = b.history[0][0], "Busan"
+    for t in ("내일 어때요?", "다음 주 월요일 어때요?", "And Friday?", "how about the day after?", "모레는요?"):
+        for said in ("none", "search"):
+            assert b._after({"action": said, "target": t}, t) == {"action": "weather", "target": ""}, (t, said)
+    assert b._after({"action": "none", "target": ""}, "what about Daegu tomorrow?") == {"action": "weather", "target": "Daegu"}
+    assert b._after({"action": "none", "target": ""}, "Thanks, see you tomorrow!")["action"] == "none"
+    b.history = [("다음 주 월요일 어때요?", "다음 주 월요일은 10월 26일이에요.")]
+    assert b.weather_on("날씨 어때요?") == web.asked_day("다음 주 월요일")
     print("followup ok")

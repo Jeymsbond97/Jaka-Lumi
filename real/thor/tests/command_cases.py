@@ -234,7 +234,7 @@ for t in ["I'll be back", "I'm behind you", "I'll be right back"]:              
 for t in ["can you fly?", "jump", "jump for me!", "dance for me", "can you dance?", "climb the stairs", "open the door",
           "make me a coffee", "lift this table", "pick up that chair", "go upstairs", "do a backflip", "run!", "sit down",
           "날아 봐", "점프해", "춤 춰 줘", "커피 타 줘", "계단 올라가", "문 열어 줘", "이 책상 들어 봐", "앉아", "pick up my phone",
-          "take my laptop", "carry me", "give me a hug", "shake hands with me", "throw the cup", "kick the ball",
+          "take my laptop", "carry me", "give me a hug", "throw the cup", "kick the ball",
           "pick me up", "날 안아 줘", "공 차 봐", "이 의자 옮겨 줘", "pick up the box", "bring me a pizza"]:
     both("cannot", [t], "talk | ask | unclear")
 
