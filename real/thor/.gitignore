@@ -60,3 +60,8 @@ docs/night3/
 docs/night4/
 tests/blind/r9/
 tests/blind/r10/
+docs/night5/
+tests/blind/r11/
+tests/blind/r12/
+tests/blind/r13/
+data/bank_build.lock

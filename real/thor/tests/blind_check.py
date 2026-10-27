@@ -50,6 +50,7 @@ import importlib
 import json
 import pathlib
 import re
+re._MAXCACHE = 50000                   # the readers build many patterns per map: the default 512 recompiles them per case
 import sys
 import time
 from unittest import mock
@@ -73,7 +74,8 @@ SETS = ["commands_go", "commands_move", "commands_turn", "commands_look", "comma
         "commands_stop", "commands_status", "commands_chain", "commands_detour", "speed_short", "commands_sing",
         "commands_missions", "seeing_dialogues", "followup_dialogues", "dialogues_mixed", "unknowns", "silence_noise",
         "hearing", "questions_world", "memory_dialogues", "commands_come", "commands_hand", "commands_point",
-        "commands_voice", "commands_waist", "commands_more", "closing_context", "lookup_dialogues"]
+        "commands_voice", "commands_waist", "commands_more", "closing_context", "lookup_dialogues", "commands_side",
+        "commands_cup", "commands_aside", "commands_short"]
                                         # commands_chain, commands_detour, speed_short, dialogues_mixed: round r2 on;
                                         # questions_world, memory_dialogues: r6 on. Any other file in a round's folder
                                         # is scored too, by the set its name grows ("commands_go_b" as commands_go)
@@ -474,6 +476,8 @@ def score_dialogue(d, old, use_llm, judge=False):
         key = f"{j + 1}|{turn['say']}"
         if turn.get("reply") is not None and not turn.get("scored", True):   # a setup: Lumi said this
             b.history.append((turn["say"], turn["reply"]))
+            if re.match(r"ACTION: (?:pick|receive|fetch)\b", turn["reply"]):
+                state = "holding"                          # r13 arm talks: the cup is held until the give / place
             continue
         if "scene" in turn:
             SCENE["now"] = turn["scene"]
@@ -494,7 +498,7 @@ def score_dialogue(d, old, use_llm, judge=False):
                     rows[-1]["closing"] = turn["closing"]
                 b.history.append((turn["say"], ""))
                 continue
-            if r.startswith("action:give") or r.startswith("action:place"):
+            if r.startswith(("action:give", "action:place", "action:put")):
                 state = "idle"                             # handed over / put down: the hand is empty now
             if r == "none" and reply in FORGOT:
                 r = "forget"                               # memory_dialogues: the talks deleted and said so
@@ -721,8 +725,22 @@ def load(split, name):
     return list(cases.items()) if isinstance(cases, dict) else cases
 
 
+DECIMAL_SPLIT = re.compile(r"\d \d ?(?:미터|m\b|meters?\b)")   # r12 generator defect: "1 2미터" written for 1.2 m
+
+
+def split_decimal(c):
+    """An r12 spoken move whose decimal the generator wrote as two numbers (logs/w6_gen/voice_decimal_split.txt):
+    not scored."""
+    return isinstance(c, dict) and c.get("channel") == "voice" and c.get("intent", "").startswith("move") and \
+        bool(DECIMAL_SPLIT.search(c.get("text", "")))
+
+
 def run_set(split, name, old_rows, use_llm, cached, limit, sample=None):
     cases = load(split, name)
+    mod = importlib.import_module(f"tests.blind.{split}.{name}")
+    tags = {id(c): (lv, ch) for c, lv, ch in zip(cases, getattr(mod, "LEVELS", ()), getattr(mod, "CHANNELS", ()))}
+    # r12 commands_sing: tuples with parallel LEVELS / CHANNELS lists
+    cases = [c for c in cases if not split_decimal(c)]
     if sample and len(cases) > sample:                     # the same N cases every run (seeded by the set's name)
         import random
         cases = random.Random(name).sample(cases, sample)
@@ -754,7 +772,8 @@ def run_set(split, name, old_rows, use_llm, cached, limit, sample=None):
             rows.append(row(str(c)[:200], "error", "-", f"{str(c)[:150]} -> {e!r}"))
         for r in rows[n:]:
             r["lang"] = lang_of(c, r)
-            r["level"] = level_of(c, r)
+            r["level"] = tags[id(c)][0] if id(c) in tags else level_of(c, r)
+            r["channel"] = tags[id(c)][1] if id(c) in tags else channel_of(c, r)
             if r["verdict"] in ("wrong", "motion", "error") and "-v" in sys.argv:
                 print(f"  {r['verdict'].upper():6} {r['show'][:200]}", flush=True)
     return rows
@@ -806,6 +825,34 @@ def level_of(c, r):
     text = turn.get("say") or case.get("text") or case.get("heard") or (c[0] if isinstance(c, (list, tuple)) else "")
     text = (text or "").strip()
     return next((name + "*" for name, rx in LEVEL_GUESS if re.search(rx, text)), "ko_banmal*")
+
+
+def channel_of(c, r):
+    """typed (the Command box) / voice (whisper) of a case or a scored turn (r12 / r13 field "channel"), "-" before."""
+    if isinstance(c, dict) and "turns" in c:
+        j = int(r["key"].split("|", 1)[0]) - 1 if r["key"][:1].isdigit() else -1
+        turn = c["turns"][j] if 0 <= j < len(c["turns"]) else {}
+        return turn.get("channel") or c.get("channel") or "-"
+    case = c if isinstance(c, dict) else c[1] if isinstance(c, (list, tuple)) and len(c) > 1 and \
+        isinstance(c[1], dict) else {}
+    return case.get("channel") or "-"
+
+
+def by_channel(saved):
+    """right / cases per speech level and channel (typed / voice), r12 on; nothing when no row has a channel."""
+    ch = collections.defaultdict(collections.Counter)
+    for name in ordered(saved):
+        for r in saved[name]["rows"]:
+            if r["verdict"] != "-" and r.get("channel", "-") != "-":
+                for k in ((r.get("level", "?"), r["channel"]), ("ALL", r["channel"])):
+                    ch[k][r["verdict"]] += 1
+    if not ch:
+        return []
+    lines = ["", "By speech level and channel (right / cases, motions in brackets):", "", "| level | typed | voice |",
+             "|---|---|---|"]
+    for lv in sorted({k[0] for k in ch}, key=lambda x: (x == "ALL", x)):
+        lines.append(f"| {lv} | {cell(ch[(lv, 'typed')])} | {cell(ch[(lv, 'voice')])} |")
+    return lines
 
 
 def by_level(saved):
@@ -863,7 +910,7 @@ def report(split, saved, secs):
     n = sum(tot.values())
     lines.append(f"| ALL | | {n} | {tot['right']} | {100 * tot['right'] // max(1, n)} | {tot['wrong']} | "
                  f"{tot['motion']} | {tot['llm?']} | {tot['error']} | |")
-    lines += by_lang(saved) + by_level(saved)
+    lines += by_lang(saved) + by_level(saved) + by_channel(saved)
     for name in ordered(saved):
         rows = saved[name]["rows"]
         dl = {}
@@ -876,7 +923,7 @@ def report(split, saved, secs):
                   r["show"].replace("\n", "\n  ") for r in bad] or ["- none"]
     out = ROOT / "logs" / f"blind_{split}.md"
     out.write_text("\n".join(lines) + "\n")
-    print("\n".join(lines[:len(saved) + 7] + by_lang(saved) + by_level(saved)))
+    print("\n".join(lines[:len(saved) + 7] + by_lang(saved) + by_level(saved) + by_channel(saved)))
 
 
 def main(args):
@@ -895,6 +942,7 @@ def main(args):
         tag += "_" + args[args.index("--tag") + 1]         # leaves the shared ones' LLM rows for --cached alone
     files = [f.stem for f in (ROOT / "tests" / "blind" / folder.replace(".", "/")).glob("*.py") if f.stem != "__init__"]
     todo = [n for n in ordered(files) if not names or any(n == a or n.startswith(a) or base(n) == a for a in names)]
+    todo = [n for n in todo if not n.startswith("llm_reasoning") or names]   # r13 llm_reasoning: tests/reasoning_check.py
     if not use_llm:                                        # the mission reader's LLM pass only with the LLM
         steps._ollama = lambda *a: (_ for _ in ()).throw(command_check.NoLLM())
     from assistant import knowledge                        # the whole index read now (dialogue_check does so too)

@@ -102,6 +102,35 @@ def judge(expect, got):
 
 
 ROUNDS = []                                         # --rounds r1,r2: only these blind rounds (r1 = tests/blind/train)
+QUERIES = ROOT / "data" / "bank_check_queries.npz"   # the cases' embeddings, kept between runs (a re-run embeds only
+                                                     # the words it has not seen: minutes instead of an hour)
+
+
+def _cached_embed():
+    """knowledge.embed with the case texts' vectors kept in QUERIES; returns a function that saves them."""
+    import numpy as np
+    from assistant import knowledge
+    real, known = knowledge.embed, {}
+    try:
+        z = np.load(QUERIES)
+        known = dict(zip(z["texts"].tolist(), z["vecs"]))
+    except (OSError, ValueError, KeyError):
+        pass
+    n0 = len(known)
+
+    def embed(texts):
+        new = [t for t in dict.fromkeys(texts) if t not in known]
+        if new:
+            known.update(zip(new, real(new)))
+        return np.array([known[t] for t in texts])
+
+    def save():
+        if len(known) > n0:
+            tmp = QUERIES.with_suffix(".tmp.npz")
+            np.savez(tmp, texts=np.array(list(known)), vecs=np.array(list(known.values())))
+            tmp.replace(QUERIES)
+    knowledge.embed = embed
+    return save
 
 
 def main(args):
@@ -111,12 +140,13 @@ def main(args):
     if "--out" in args:
         OUT = OUT.with_name(args[args.index("--out") + 1])
     marks = markers()
+    save_queries = _cached_embed()
     stress, verbose = "--stress" in args, "-v" in args
     from assistant import steps
     steps._ollama = lambda *a: (_ for _ in ()).throw(command_check.NoLLM())
     real = intent_bank.read
     by = collections.defaultdict(collections.Counter)
-    wrong, hits, times = [], [], []
+    wrong, hits, times, missed = [], [], [], []
     from assistant import detour
     no_stuck = detour.recent
     for name, text, expect, state, mk, before, *goal in cases("--blind" in args):
@@ -143,6 +173,8 @@ def main(args):
         times.append(time.time() - t0)
         if not got:
             by[name]["llm" if ruled in (None, "llm?") else "rules"] += 1
+            if ruled in (None, "llm?") and expect.startswith("action:"):
+                missed.append(f"- [{name}/{state}] {text!r} (want {expect})")
             continue
         g = f"action:{got[0]} {got[1]}".strip()
         verdict = judge(expect, g)
@@ -154,6 +186,7 @@ def main(args):
             by[name][tag] += 1
             hits.append(f"- [{name}/{state}] {text!r} -> {g}")
     detour.recent = no_stuck
+    save_queries()
     for c in by.values():
         c["cases"] = sum(c.values())
     total = sum(by.values(), collections.Counter())
@@ -167,7 +200,8 @@ def main(args):
     for k in sorted(by) + ["ALL"]:
         c = total if k == "ALL" else by[k]
         lines.append(f"| {k} | {c['cases']} | {c['rules']} | {c['hit']} | {c['agree']} | {c['wrong']} | {c['llm']} |")
-    lines += ["", "## Wrong", ""] + wrong + ["", "## Hits", ""] + hits
+    lines += ["", "## Wrong", ""] + wrong + ["", "## Hits", ""] + hits + \
+        ["", "## Left to the LLM, a motion asked (the bank's room to grow)", ""] + missed
     OUT.write_text("\n".join(lines) + "\n")
     print("\n".join(lines[:len(by) + 9]))
     print("\n".join(["", "Wrong:"] + wrong[:80]))

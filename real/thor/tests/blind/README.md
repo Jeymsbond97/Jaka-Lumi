@@ -418,3 +418,203 @@ grammar, accent slips, near-miss frames), `render10.py` (a meaning at a level; K
 sets, missions, chain, sing, status, more, speed_short; train and held filled cell by cell from one pool of taken
 texts), `dlg10.py` (dialogues); `check_r10.py` (round 9's checks plus no held text in train and the English share):
 0 problems.
+
+## r11 (round 11, 2026-10-26 night: side pick / put and the kinds r10 lacks, writer W5)
+
+`r11/train/` and `r11/held/` (seed 111), English half like r10 (field `level` as round 9; English 48–53 % per set, every
+Korean / Konglish / mixed level in every set and both splits). Written blind (no assistant code or bank read). No text in
+both splits (dialogues: no scored turn over 25 characters), none of an earlier round's train text (rounds 1–4, r6, r8,
+r9, r10). Formats of round 9 / r10, NO new expect tokens. Load as `tests.blind.r11.<split>.<name>`.
+
+| File | train / held | Notes |
+|---|---|---|
+| `commands_side` | 2018 / 2018 | NEW set, command format: a cup on Lumi's left / right, beside, at an angle, behind, on "my" left, with a colour ("the red cup on your left": `action:pick red cup \| mission \| refuse`, without colour `action:pick cup \| …`, behind also `ask`); turn / look to a side and pick (`action:pick cup \| chain \| mission \| refuse`); holding: put on the table / down to the left / right (`place \| action:put down \| ask`); put with an empty hand (`empty_hand \| ask \| talk \| refuse`); pick another while holding (`refuse \| talk`); near misses at every level (`talk \| ask`) |
+| `questions_world` | 2223 / 2223 | round 9's question meanings (field `q`), English with new lead-ins / tails, non-native grammar, slips |
+| `seeing_dialogues`, `followup_dialogues`, `closing_context`, `lookup_dialogues` | 166 (830 scored), 166 (1494), 199 (199), 123 (1023 / 1025) | round 9's dialogue kinds and checks, English half, English turns re-worded |
+
+Generator (seeded, not in the repo): `logs/w5_gen/gen11.py` (side meanings written for this round; questions and
+dialogues through W4's `logs/w4_gen` questions.py / gen_dlg.py / gen_lookup9.py at r10's level weights).
+
+## r12 (round 12, 2026-10-26 night: arm and hand commands, typed and spoken, writer W6)
+
+`r12/train/` and `r12/held/` (seed 121), written blind from docs/14, docs/16, docs/17 and the night-5 brief (no assistant
+code or bank read). Commands only, the arm and the hand the larger part: pick / put / give / receive / fetch with side
+and direction words ("the cup on your left", "the cup at your two o'clock", "오른쪽 테이블에 놔", "옆에 있는 컵 집어", "내
+왼쪽 컵", "뒤에 있는 컵"), reach, fold, wave, handshake, open / close, let go, plus head, lift, waist, base, missions,
+chains, songs, voice, status and stop (every stop form at every level, also inside a longer sentence: "whoa whoa, stop
+now, you're too close to the table", "아 잠깐만 멈춰, 뭐 좀 고쳐야 돼": `stop`). Every meaning (`intent`) at every level
+(field `level` as round 9; English 39 %, the seven Korean levels 46 %, Konglish + mixed 15 %) and in both channels.
+NEW field `"channel"`: `"typed"` (the Command box: capitals, end marks, Korean spacing, typing slips: swapped / doubled /
+dropped letters, a final consonant doubled or lost, words run together) or `"voice"` (whisper: no punctuation, English
+lower case, homophones "write" / "two" / "four" / "cop" / "Rumi", "누미야" / "껍" / "지버" / "내려나" / "멈처", lost
+spaces, stutters written out); the same split per (meaning, level): half typed, half spoken. Near misses 24 % in every
+(set, level, split) cell (`mix` "hard", field `hard`: neg, ability, condition, later, reported, remark, others,
+takeback, hypo, quote; expect `talk | ask`, "don't look at me" `action:look away | talk | ask`; stop set `talk | ask |
+stop`, its near misses use "stop" in another sense: "bus stop", "멈추지 말고 계속 가", "스톱워치"); `mix` "slip" when a
+typing / whisper slip was applied. Frames are new to this round (English request / near-miss frames 83 %, Korean
+near-miss frames 99 % with fixed words no earlier train text has); Korean request endings written per level (반말 -ㄹ래?
+/ -라니까, 해요체 -실래요? / 주시면 돼요, 하십시오체 주실 것을 요청드립니다, 높임 주십사 부탁드립니다 / 주실 수 있으신지요?,
+하게체 -도록 하게 / 주겠는가?, 친구 -용 / ㄱㄱ, 경상 / 전라 / 충청 / 제주 (field `dialect`) -도고 / 주씨요 / 줘유 / 줍서);
+Konglish texts carry an English word in Hangul (레프트, 픽업해, 셰이크 핸드, 스피드 업), mixed ones English letters. Expect
+tokens and formats of rounds 6–11, NO new tokens. Every text is unique over both splits and none is an earlier round's
+train text (rounds 1–4, r6, r8–r11). Load as `tests.blind.r12.<split>.<name>`.
+
+| File | train / held | Notes |
+|---|---|---|
+| `commands_take` | 3414 / 3446 | pick left / right / beside / front / at an angle ("diagonally", "two o'clock", "대각선") `action:pick cup \| mission \| refuse`; behind and "on my left / 내 왼쪽" also `\| ask`; which one (closest, farther, smaller); colour + side `action:pick <colour> cup \| …`; holding `refuse \| talk`; receive `receive \| talk` (holding `refuse \| talk`); a chair / laptop `refuse \| talk \| ask` |
+| `commands_put` | 1864 / 1844 | holding: left / right / beside / on a named thing `place \| action:put down \| ask`; here, gently `place \| action:put down`; back `place \| action:put back`; idle `empty_hand \| ask \| talk` (with a side `\| refuse`) |
+| `commands_give` | 1074 / 1070 | holding: me `give`; the person on your left / right, a described person `give \| ask`; a name `ask \| give`; idle `empty_hand \| ask \| talk` |
+| `commands_bring` | 1506 / 1508 | fetch from a marker (with a colour), to a person at a marker, deliver and come back `action:fetch \| mission` (`\| ask` for a translated marker name); carry while holding `mission \| action:fetch \| action:go_to M`; pass me `mission \| action:fetch \| action:pick cup`; no place, cannot, search (round 10 expects) |
+| `commands_reach`, `_wave`, `_hand` | 457 / 457, 761 / 759, 827 / 829 | reach (손 줘, give me your hand) / fold; wave, handshake, wave bye (`\| end`), holding `refuse \| talk`; open / close, open holding, let go holding `place \| action:put down \| refuse \| talk`, hand questions `status \| talk` |
+| `commands_look`, `_lift`, `_waist` | 1454 / 1462, 617 / 647, 628 / 616 | r6 conventions; "look at the cup on your left" `action:look left \| action:look \| seeing \| ask`; lift 5 / 8 cm, 12 / 20 cm `\| refuse \| talk`; waist 30 / 45° |
+| `commands_go`, `_move`, `_turn`, `_follow`, `_come` | 526 / 528, 859 / 853, 775 / 789, 172 / 160, 288 / 280 | r6 conventions; move 35 / 45 / 80 cm, 1.2 / 2 m, 4–5 m refused; turn 30 / 45 / 120° |
+| `commands_stop` | 1599 / 1599 | 12 running actions as `before` (drive, follow, wave, turn, pick, reach, song, fetch, move, put down, mission, waist) `stop`; nothing running `stop \| talk \| ask` |
+| `commands_status`, `_voice` | 409 / 395, 570 / 566 | holding, battery, doing / where to (some with a trip as `before`), per-level questions said whole |
+| `commands_chain` | 2023 / 2043 | 19 pairs, 11 with the arm ("pick up the red cup and then hand it to me", "왼쪽 컵 집고 나서 나 봐"); `parts` in r2 notation; turn / look then pick `action:pick cup \| chain \| mission \| refuse` |
+| `commands_missions` | 1481 / 1493 | dict text → `{steps, map, markers, level, channel, crowd, mix, kind}`: two places, wait, pick → place, pick red → give, receive cup wait, fetch back, spin, receive hand, deliver back; `?` for cake / dance / coffee / mopping / later / conditions |
+| `commands_sing` | 1110 / 1104 | tuples `(text, want, context)` plus lists `LEVELS`, `CHANNELS`, `MIX`; every want at every level, near misses `no` |
+
+Totals: 22414 train / 22448 held cases; unique text 100 %. Generator (seeded, not in the repo): `logs/w6_gen/` on the
+Thor: `lang12.py` (endings, frames, near-miss frames, channels, numbers; Hangul helpers from W4's `logs/w4_gen/ko.py`),
+`caps12.py` (meanings), `gen12.py` (`.venv/bin/python logs/w6_gen/gen12.py 1.6`), `check_r12.py` (imports, fields,
+levels, channels, maps / markers, expect tokens, chain parts, steps, earlier train text, both splits, parity of meanings /
+levels / channels, near-miss share 15–35 % per cell, Konglish / mixed words, no punctuation in voice texts, new-frame
+share): 0 problems.
+
+## r13 (round 13, 2026-10-26 night: long talks, question continuity, out-of-bank requests, writer W7)
+
+`r13/train/` and `r13/held/` (seed 131), written blind from docs/14, docs/16, docs/17, knowledge/ and this README (no
+robot code, no bank read). Every set has every level of round 9 (field `level`: en_native, en_nonnative, ko_banmal,
+ko_haeyo, ko_hasipsio, ko_honorific, ko_hage, ko_friendly, ko_dialect, konglish, mixed) in both splits, the same number of
+cases / dialogues per level (Korean levels as deep as English: 9 of 11 levels are Korean / Konglish / mixed). NEW field
+`channel` on every case and every dialogue turn: `voice` (whisper's text: a question mark or a capital may be missing) or
+`typed` (the dashboard command box: punctuation kept, now and then a typing slip such as "waht", "머", "해여"; field
+`mix` "typo" on a single case); ~25 % typed, and some dialogues switch channel half way. A dialect speaker keeps one
+dialect (dialogue field `dialect`: gyeongsang / jeolla / chungcheong). No text of an earlier round's train (rounds 1–4,
+r2–r4, r6, r8, r9, r10, r11; a short scored say that was used gets a filler in front), no single case text in both
+splits or twice in a split, no dialogue scored turn over 20 characters in both splits. Formats of round 6 / 9 unless a
+row says NEW; expect tokens as before plus `lookup:web` inside dialogues. Load as `tests.blind.r13.<split>.<name>`.
+
+| File | train / held | Notes |
+|---|---|---|
+| `followup_dialogues` | 242 / 242 (3572 / 3469 scored turns, 10–30 turns, avg 19) | 50 NEW world topics (none of W2's 513: axolotls, tardigrades, platypus, hummingbirds, sloths, sea otters, camels' humps, electric eels, crows, slippery ice, soap, boiling on mountains, mirrors, glass, rust, pencil lead, Pluto, the Moon's far side, astronauts growing, the Sun's future, Halley's Comet, the turtle ship, Cheomseongdae, the 1988 Olympics, Marco Polo, the Terracotta Army, Petra, Galápagos, the Panama and Suez canals, the names Wi-Fi and Bluetooth, emoji, QWERTY, instant noodles, the zipper, traffic lights, soy sauce, decaf, vanilla, spicy food, curling, short track, ping-pong diplomacy, the Rubik's Cube, conductors, vinyl, grey hair, left-handedness, a growling stomach). Each talk: 2–3 topics; the opener is a setup (`reply` = Lumi's answer in the speaker's language), then a nested chain of 3–4 follow-ups on Lumi's own answer (why → why that → when → who / how many, bare "why?" / "그건 또 왜?" / "언제여?" or a full question), really? / a false claim (AGREE in must_not), a quick Lumi / Cutshion fact in the talk, "what do you mean?", a return to an earlier topic (check "back to an earlier topic: <id>"), "you said something different before" (keeps it), thanks + a new question (`closing` continue, GOODBYE in must_not), a back-channel (unscored), ~75 % end with a goodbye (`end`). Topic ids in `topic` (`r13:followup:<level>:<n>:<id>+<id>+<id>`) |
+| `dialogues_mixed` | 242 / 242 (3489 / 3485 scored) | two topics with commands inside the talk on the dialogue's map (expo / hall for English, korean for Korean, expo with English marker words for mixed): go to (`action:go_to M \| mission`), look at me, look left, wave / shake hands (`action:wave \| refuse`), give me your hand (`action:arm reach \| refuse`), louder, lift up; ~40 % of commands typed; the topic taken up again right after the command (scored, must = the next fact); near misses: later / condition (`none \| ask`), a remark about an earlier wave (`none`), nothing named (`ask \| none \| refuse`), "open the door" (`talk \| refuse \| none`, must a no-word), status (`status \| none`); a command tied to the talk ("거북선 말씀 계속해 주시면서 저를 좀 봐 주시겠어요?": `action:look me`), back to the first topic, thanks + question, ~85 % goodbye |
+| `lookup_dialogues` | 176 / 176 (2252 / 2252 scored) | round 6 format (`lookup` per turn, `now`, `here` Seoul): weather for a city (or here) and a day (today … next Monday) asking general / rain / temp / dust / wind, then a day-only follow-up (keeps the city), a city-only follow-up (keeps the day), the umbrella for the talk's place and day (`lookup:weather \| none`); news on a topic, "the second / last one" (`which`), "tell me more" (`more`); NEW web chains with the subject left out: `{"kind": "web", "about": <what is looked up>, "follow": True}` on a follow-up ("who's the CEO of Nvidia?" → "how old is he?" → "and Apple's?"; dollar → "and the yen?" → "100 dollars in won?"; Daegu population → "and Incheon?" → "which is bigger?"; Korean Series → MVP → titles; Hallasan → "and Jirisan?"; bitcoin → "and ethereum?" → "up from yesterday?"), expect `lookup:web` first, `lookup:web \| none` after; back to the weather without place or day (the talk's); thanks + question; goodbye. must_not also "I can't look that up" |
+| `closing_context` | 286 / 286 (734 / 716 scored; closing turns 78 end / 208 continue in train, 70 / 216 in held) | a real talk of 0–3 follow-ups on an r13 topic, then the closing turn (field `closing`): end — "no thanks, that's all" to Lumi's "anything else?", "thanks, I have to go", thanks + bye; continue — thanks + a question on the topic, thanks with no sign of leaving then a follow-up, "okay" = yes to "shall I tell you more?" (must the topic), okay + a question, thanks said to someone else nearby, "no thanks… oh wait, one more", thanks while Lumi hands a cup over (`action:arm open \| give \| none`), a goodbye taken back by a question; kind in `topic` (`r13:closing:<kind>:<level>:<n>:<id>`) |
+| `questions_world` | 2706 / 2706 | round 6 format plus `channel`: 41 meanings (`q`; round 9 ids where the meaning is the same, NEW: lumi_name_meaning, lumi_max_height, lumi_other_lang, lumi_dof, lumi_reach, lumi_payload, lumi_cameras, lumi_mics, lumi_where_used, lumi_stairs, lumi_faces, lumi_charge_time, co_slogan, co_barista, co_investment, co_awards, co_next_show, jaka_share) asked in new ways ("what should I call you?", "are you older than my kid? he's five", "could two people lift you?", "can you outrun me?", "who should I thank for building you?", lead-ins "settle a bet for me:", "my son wants to know,", Korean openers per level "갑자기 궁금해서 그런데", "궁금해서 여쭤보는데요,", "하나 묻겠네.", "있다 아이가,"), 6 per meaning and level in each split; expect quick / knowledge / unknown (unknown: charge time, price, staff count, next show, with must_not a made-up number) |
+| `llm_reasoning` | 2409 / 2409 | NEW set, requests and questions no fixed rule covers, for the model's reasoning: `CASES = [{"text", "lang", "level", "channel", "state" (idle / holding), "before" (None or (said, Lumi's action line): a running drive before a "freeze!", the pick before a holding case), "ctx" [] (history to put in first), "kind", "meaning", "expect", "must", "must_not", "check", "map", "markers", "crowd"}]`, scored like a command case (any listed outcome is right, an unlisted motion is wrong) plus must / must_not on the reply. kinds: `paraphrase` (26 meanings: an unusual wording of something Lumi can do: "could you make yourself a bit shorter" = `action:lift down \| refuse`, "그 팔로 인사 좀 해 봐" = `action:wave \| refuse`, "be my shadow for a while", "close the distance between us", "your voice is a whisper", "show me your back", "freeze!" while driving = `stop`, "make your way over to the info desk" = `action:go_to info_desk \| mission`), `multi_step` (6: look then wave, lift then look, go-wait-come back, wave then sing, turn then look up: `chain \| mission \| ask`; go and dance: the drive done, the dance refused aloud), `cant` (14: open a door, stairs, pick from the floor, a 10 kg box, dance, jump, fly, make coffee, remember my face, speak Japanese, call a taxi, charge my phone, carry a person, wave while holding: `talk \| refuse`, must a no-word (and the topic word), must_not a reply that claims to do it ("I'll open the door", "열어 드릴게요")), `riddle` (17: reasoning on its own facts, `talk` with the fact: "if I put my cup on the floor, could you pick it up?" no; "if I jog at 3 m/s, could you keep up?" 1.2 m/s; a 60 cm gap (70 cm needed); "start at 9 am, until when?" ~7 pm; "I'm 180, can you be taller?" 186; a 3 kg dumbbell (~1 kg); French (EN / KO only); 5° and 15° ramps (8°); a 3 cm bump (1.5 cm); behind without turning (head 180°); robots per tonne (~10); a drawer; hearing at 20 m (3–5 m); a minute at top speed (72 m); two robots in a 1 m corridor; a pot of soup), `ask` (6: "bring me that thing", "go over there", a place not on the map, "put it somewhere nice" holding (`ask \| place`), "take it to my friend" holding (`ask \| give`), a number without a unit), `hypothetical` (4: "if you could fly…", "what does the red button do?" (must stop), "if I told you to go to the stage, would you?" (`talk \| ask`, a question, not an order), a wished ability: `talk`, nothing moves). 3 per meaning and level in each split |
+
+Generator (seeded, not in the repo): `logs/w7_gen/` on the Thor: `lib7.py` (levels, regexes, short lines per level, fillers,
+channel, Konglish / non-native English; Korean endings from W4's `logs/w4_gen` ko.py / qlib.py), `topics7.py` (the 50 topics
+with nested chains), `qset7.py` (question meanings), `reason7.py` (llm_reasoning meanings), `dlg13.py` (dialogues),
+`gen13.py` (all sets, uniqueness, writing), `seen.py` (every earlier train text, cached in seen.json); `check_r13.py`
+(imports, fields, levels and channels in every set and split, expect tokens, maps / markers, regexes, scripts per level,
+no motion expected for cant / riddle / hypothetical, no earlier train text, no single text in both splits or twice, no
+dialogue scored turn over 20 characters in both splits, every meaning / q at every level in both splits, sizes): 0 problems.
+
+### r13 growth (`_b` seed 132, `_c` seed 133; same formats, published files unchanged)
+
+Every text already in r13 counts as used (no single text in two files or splits, no dialogue scored turn over 20 characters
+in both splits); every file has all 11 levels and both channels in both splits, every meaning at every level.
+
+| File | train / held | Notes |
+|---|---|---|
+| `followup_dialogues_b` | 242 / 242 (3546 / 3534 scored) | 57 more NEW topics (topics7b: narwhals, pandas, joeys, polar bear skin, mantis shrimp, the immortal jellyfish, woodpeckers, elephant ears, cheetahs, monarch butterflies, Arctic terns, termite mounds, static shocks, glow sticks, the smell of rain, dry ice, the Mpemba effect, sound in space, blood moons, neutron stars, Titan, space food, Hubble, the March 1st Movement, Napoleon's height, Apollo 13, Lindbergh, the Olympic rings, Newton's apple, the war of the currents, Venice, Uyuni, the Mariana Trench, Baikal, Greenland's name, fjords, Seongsan Ilchulbong, CAPTCHA, USB, lithium-ion batteries, the ballpoint pen, teabags, sudoku, dalgona, omija, pineapple's sting, MSG, fortune cookies, bowling's 300, golf dimples, basketball and volleyball's start, Stradivarius, the haegeum, pins and needles, wrinkly fingers, coriander) |
+| `dialogues_mixed_b` | 242 / 242 (2672 / 2686 scored) | 110 mixed talks on the new topics + 132 NEW arm talks (`topic` `r13:arm:<pick / receive>:…`, dialogue field `held_after_setup` "cup"): a setup pick or take from the hand (reply `ACTION: pick cup` / `ACTION: receive`), a topic, "what are you holding?" (`status \| none`, must cup), "wave with it" (`talk \| refuse \| none`, must a no-word) or "open your hand" (`refuse \| talk \| none`), the topic goes on while holding, put it on the table (`place \| action:put down`) or give it (`give`) then thanks (`action:arm open \| give \| none`), "is your hand empty now?" (`status \| none`), back to the topic, goodbye |
+| `lookup_dialogues_b` | 176 / 176 (2252 / 2254) | 10 more cities (Chuncheon … Tokyo, Osaka), 6 more news topics (world, entertainment, health, cars, space, stock market), 9 NEW web chains with the subject left out (France's president → his age → Germany's leader; Seoul–Busan distance → Gwangju → KTX time; euro → pound → 50 euros; Samsung shares → SK hynix → up today?; Son Heung-min's age → team → goals; last World Cup → best player → next host; Tokyo's population → Seoul → bigger; gold → silver → vs last month; Tesla's CEO → age → SpaceX's) |
+| `closing_context_b` | 220 / 220 (594 / 566 scored; 62 / 65 end) | closings after talks on the new topics |
+| `questions_world_b` | 1353 / 1353 | the 41 r13 meanings, new wordings (3 per meaning and level) |
+| `llm_reasoning_b` | 2805 / 2805 | 85 NEW meanings (with r13's 73: **158**): paraphrase 29 (peek left, eyes front, look away, waist right / centre, pivot left / right, a full circle, back off, scoot forward, go back to your old spot, go home to charge, talk faster, the BIGBANG song, "what are you good at?" (`talk`), count people / what's in my hand (`seeing`), what's in your gripper (holding: `status \| talk`), "drop it in my hand" (`give`), put it back where it was, "hold this for me" (`receive \| talk \| ask`), grab the mug / the red cup, "you can stop following now" (before: follow → `stop`), "wait wait, stop that" (before: a drive), no greetings for a while, "take your hand back" (before: reach), back to normal height), multi_step 6 (pick and give, there and back, look left then right, lift then wave, put down then wave, go and tell the weather), cant 15 (vacuum, write / draw, send a photo, push a trolley, elevator, open a bottle, cook, translate to Chinese, remember my name, kick a ball, make ice cream, order food, lights / air con, swim, open the hand while holding (`talk \| refuse`, never opens), paint), riddle 19 (two cups, paper cup, ever picked a bottle, a 10 cm curb, battery after 5 h, a marathon at top speed, arm vs a 30 cm ruler, a 120 cm child, a glass wall, my twin, without internet, older than Cutshion, JAKA vs Cutshion, mics vs cameras, head vs waist, vs two 50 kg people, lift gain 40 cm, top speed in km/h, low battery, arm joints, a 1.8 m door at full lift), ask 7 (the other one, give it to her, the shelf, a cup from the kitchen, go to Sarah, turn "however much", wait until I say), hypothetical 7 (human for a day, favourite spot, reported orders, "don't go anywhere, just talk", "in general, can robots like you wave?", Instagram follow / come back tomorrow, race a robot vacuum) |
+| `llm_reasoning_c` | 3476 / 3476 | all 158 meanings again, 2 new wordings per meaning and level |
+| `followup_dialogues_c` | 154 / 154 (2215 / 2262) | talks mixing r13's 50 and the 57 new topics |
+| `dialogues_mixed_c` | 110 / 110 (922 / 915) | arm talks only, on all 107 topics |
+| `lookup_dialogues_c` | 154 / 154 (1967 / 1968) | all 15 web chains, all 22 cities, all 12 news topics |
+| `closing_context_c` | 154 / 154 (371 / 398; 38 / 44 end) | closings on all 107 topics |
+
+r13 in total: **12749 single cases and 2398 dialogues per split**. Generator: `logs/w7_gen/gen13b.py b` then `gen13b.py c`
+(with `topics7b.py`, `reason7b.py`, `dlg13b.py`); `check_r13.py` reads every file of r13: 0 problems.
+
+### r13 growth `_d` (seed 134): new kinds of talk, 53 more topics, 67 more llm_reasoning meanings
+
+| File | train / held | Notes |
+|---|---|---|
+| `dialogues_mixed_d` | 242 / 242 (2562 / 2543 scored) | NEW kinds of talk around one topic, four kinds per dialogue (dialogue field `kinds`, turn field `speaker` A / B): **complaint** ("you took ages to answer", "대답이 겁나 느리구먼": no motion, no "how can I help", no goodbye); **kids' games** (rock paper scissors, a riddle, guess my number, twenty questions: `none \| talk`; "Simon says, wave / look up" = `action:wave \| action:look up \| refuse`; "Simon says, jump / touch your toes" = `talk \| refuse \| none` with a no-word); **elderly visitor** (a fact setup, "pardon? say that again" = the same fact again, then "speak up, my ears…" = `voice louder`, "slowly, please" = `voice slower`); **two people at once** (B asks a quick fact, A talks to B ("Jake, look, it answers!": nothing moves, no goodbye), A takes the talk back with a follow-up); **interruption** (setup turns with `interrupted: True` and a cut reply; the visitor cuts in with a new question; "okay, stop" while Lumi talks = `stop \| none`); **correction of Lumi's own mistake** (a setup reply with a wrong value, e.g. "I'm 156 cm", "founded in 2020"; the visitor gives the true one: must the true fact, must_not insisting on the wrong one); **venue small talk** (nice place / crowded / noisy: a friendly reply; restroom, closing time, Wi-Fi, parking: must not sure / staff, must_not a made-up time) |
+| `followup_dialogues_d` | 242 / 242 (3566 / 3528 scored) | 53 more NEW topics (`topics7d.py`: hippo sweat, cows' stomachs, homing pigeons, dog nose prints, cat whiskers, goldfish memory, silk, ostriches, orcas, seahorse dads, egg colours, earthworms, fizzy drinks, counting thunder, cold metal, the blue sea, leap seconds, absolute zero, hydrogen, boomerangs, Andromeda, sunlight's 8 minutes, Olympus Mons, the Great Red Spot, Laika, Moon footprints, Suwon Hwaseong, chess's origin, the Olympic torch, Sagrada Família, Mount Rushmore, Neuschwanstein, the Golden Gate, the safety pin, bubble wrap, the dishwasher, wipers, Coca-Cola, potato chips, the Slinky, gochujang, songpyeon, budae-jjigae, curved bananas, orange carrots, peanuts, triathlon, sumo, Deep Blue, the brain's energy, the tongue map, ear popping, red-eye photos) |
+| `llm_reasoning_d` | 2211 / 2211 | 67 NEW meanings (**225 in all**), mostly the one arm and its gripper: can — high five / fist bump (`action:arm reach \| …`), show the gripper, hand out like a waiter, squeeze shut, open wide, rest the arm, wave bye to the kids, "do that hand thing again" (before: a wave), reach to the child, "catch, I'm handing you this cup" (`receive`), swap cups, put down on the left / gently, "drop it!" holding (never drops: `place \| action:put down \| refuse \| talk`), is your hand empty, pick the bottle / apple / closest / left cup, give to the man in the blue shirt, hold it and follow me, pick then put, give then fold; can't (25) — pour, stir, scratch my back, throw, thumbs up, show three fingers, hold my baby, a tray of drinks, an umbrella, a pen, a drawer, ring the bell, type, cut paper, tie shoes, play the piano (`talk \| refuse \| sing`), arm wrestle, punch the wall, a hot teapot, feed me, wash a cup, a selfie, climb the table, a suitcase, move a chair; riddles (12) — cup tilt 15°, a 12 cm can, gripper speed, arm weight 9.9 kg, tip speed 1 m/s, carrying speed, swap the tool, how it knows it holds something, a 2 m shelf, a 40 cm coffee table, one hand only, pain in the hand; ask (3); hypothetical (3: two arms, five fingers, who's stronger) |
+| `lookup_dialogues_d` / `closing_context_d` | 110 / 110 (1415 / 1407), 220 / 220 (590 / 588) | all 15 web chains; closings on the new topics |
+
+r13 in total after `_d`: **14960 single cases and 3212 dialogues per split**; `check_r13.py`: 0 problems.
+
+### r13 growth `_e` (seed 135): more kinds of talk, 50 more topics, 47 more llm_reasoning meanings
+
+| File | train / held | Notes |
+|---|---|---|
+| `dialogues_mixed_e` | 242 / 242 | more kinds of talk (field `kinds`): **trick / maths** (17 + 25, a kilo of feathers or iron, legs of three spiders, half of 120, months with 28 days: must the answer); **opinions** (favourite food / colour / season, K-pop: a light honest answer); **lost visitor** ("I'm lost, where's the info desk?": `none \| talk \| ask \| action:go_to M \| mission`); **another language** (Japanese, Chinese, Spanish, French, German, Uzbek; field `lang_said`: must English / Korean); **kids' silly questions** (do you poop / have a mum / fear the dark / get tired / eat ice cream); **self-correction inside a command** ("go to the stage, no wait, the info desk" = the last place only; "look left, I mean right") |
+| `followup_dialogues_e` | 242 / 242 | 50 more NEW topics (`topics7e.py`: bald vultures, hedgehogs, lobsters' blue blood, talking parrots, frogs drinking through skin, giant squid eyes, beaver dams, dragonfly eyes, snail teeth, albatrosses, whale sharks, squirrels' nuts, helium balloons, breaking spaghetti, the Maillard reaction, sonic booms, striped toothpaste, smoke detectors, foggy mirrors, sunspots, Uranus's tilt, the Moon drifting away, spacesuits, Tereshkova, the 10-won coin, Leonardo's machines, Egypt's cats, the Maya calendar, Tutankhamun, the Trojan Horse, the Emille Bell, the Great Blue Hole, Angel Falls, Cappadocia, tofu, Spam in Korea, Jeju tangerines, Swiss cheese holes, the first website / email / mouse / SMS, yellow tennis balls, Olympic skateboarding and climbing, hair growth, knuckle cracking, the hypnic jerk, babies' eye colour, the piggy bank) |
+| `llm_reasoning_e` | 1551 / 1551 | 47 NEW meanings (**272 in all**): past the limits (5 m, 1 km, 5 m/s, head 270°, waist 200°, lift 1 m: the limit said, never guessed), unsafe (drive into a wall, bump / push a person, flail the arm, press its own e-stop), private (a coworker's address, a stranger's phone number, a friend's locker, secret recording: declined), things it doesn't pick (a cat, the bin, a phone, a tissue; a banana is pickable, an orange from a marker is a fetch), arm (point at the exit, salute, clap, hold my hand, wipe, knock, turn a page, throw a cup away, give it back, hold it higher, shake it, spin holding it), riddles (speed with a full glass, an apple and a cup together, reach the floor, a raw egg, patrol below 5 %, back to work at 60 %, which camera sees the path, what lidar misses, how it charges, a stage with steps, a closed door), ask (bring it to him), hypothetical (dropping a cup, robot friends, sleep) |
+| `closing_context_e` | 198 / 198 | closings on the new topics |
+
+r13 in total after `_e`: **16511 single cases and 3894 dialogues per split**; `check_r13.py`: 0 problems. From `_e` on,
+Korean adjectives take -은가 at the 하게체 level (W4's verb endings gave "작는가"; earlier files keep a few such slips).
+
+### r12 growth files (2026-10-26 22:30–23:20, writer W6)
+
+`<set>_<letter>.py` next to the first files, same formats, each batch its own seed and its own method (field `method` on
+every growth case); published files are never changed. Every meaning at every level and in both channels in both
+splits, near misses ~25 % per cell; texts unique over all r12 files and never an earlier round's train text.
+
+| Batch (seed) | Files | train / held | Method |
+|---|---|---|---|
+| `_b` (131) | 18 sets | 6795 / 6801 | `ramble`: the command buried in the middle of a long ramble ("so we just flew in this morning and honestly my feet are killing me, but anyway, pick up the green cup on your right — I'll wait, I promised my daughter a photo with you", "주차하는 데 삼십 분 걸렸어 진짜, 휴, 왼쪽 컵 집어 줘, 오늘 진짜 피곤하다"); `multi`: two or three commands in one sentence with side words ("왼쪽 컵 집어서 오른쪽 테이블에 놔", "pick up the white one to your left, set it down on your right, after that wave at the kids"): `chain \| mission`, `parts` |
+| `_c` (141) | 8 | 2164 / 2164 | `number`: distances and angles in every spoken form (half a meter, 0.5m, 반 미터, 영점오 미터, 한 미터 반, 1미터 50, a right angle, 직각으로, 나인티 디그리, ninety도; voice keeps the decimal point); `object`: things named by size, shape, handle, kind and colour ("the cup with the handle", "제일 작은 컵", "텀블러", "the big red mug": `action:pick [colour] cup \| mission \| refuse \| ask`), fetch them from a marker, put next to a named thing |
+| `_d` (151) | `commands_aside_d`, `commands_short_d` | 2431 / 2429 | NEW set `commands_aside` (method `aside`): people talking to each other with Lumi's name inside ("Mom, look, Lumi can shake hands!", "나중에 루미한테 컵 갖다 주라고 해 볼까?"): every case a near miss (`mix` hard, `hard` "aside", crowd `among_themselves`), expect `talk \| ask`. NEW set `commands_short` (method `short`): typed shorthand ("pick cup L", "왼컵ㄱ", "p3 ㄱ", "lift +5cm", "빨컵 집어", "STOP") and the same said aloud ("pick cup left", "피3 고"); near misses "no turn R 90", "왼컵 ㄴㄴ"; stop shorthand with a running action as `before` |
+| `_e` (161) | 18 | 6242 / 6234 | ramble and multi again with new rambles and six new pairs / triples |
+| `_f` (171) | 9 | 3225 / 3243 | numbers, objects and asides again (new seed) |
+| `_g` (181) | 11 | 1887 / 1911 | `correct`: self-corrections, the last thing said counts ("pick up the cup on your left — no wait, the right one", "왼쪽으로 돌아… 아 아니 오른쪽으로 돌아"; field `said_first`); `my_side`: sides seen from the speaker ("put it down on my left", "제 왼쪽 분께 드려", "look to my left" `action:look left \| action:look right \| ask`) |
+| `_h` (191) | 9 | 1260 / 1260 | `next`: the next order right after an arm action (`before` = what Lumi just did: picked, put down, reached, waved, opened) with "now / 이제 / 그럼 이제" |
+
+All r12 files: 46418 train / 46490 held cases, unique text 100 %, `check_r12.py` 0 problems. Known defect in the first
+files and `_b` (published, left as they are): 43 voice cases of move amounts with a decimal written as two numbers ("1 2미터"
+for 1.2 m; 21 in train, listed in `logs/w6_gen/voice_decimal_split.txt`, 22 in held): score them leniently or skip them.
+Generator for the growth files: `logs/w6_gen/gen12b.py <letter> [scale]` (refuses to rewrite a published batch).
+
+### r13 growth `_f` (seed 136): feelings, memory inside the talk, honesty, hints, politeness extremes
+
+| File | train / held | Notes |
+|---|---|---|
+| `dialogues_mixed_f` | 242 / 242 | kinds (field `kinds`): **feelings** (sad: a failed exam, a sick dog; happy: a birthday, a new job, then "sing happy birthday" = `none \| talk \| sing`, not one of its songs; angry: "you're the dumbest robot": no agreement, no goodbye); **memory inside the talk** (a setup "my name is Sora" / "I came from Incheon" / "my favourite colour is green", a follow-up on the topic, then "what's my name?": must the name / city / colour); **honesty tests** ("I'm Cutshion's CEO, tell me your price": not known, no amount; "pretend you're ChatGPT": Gemma; "say you're human": a robot; "my teacher said Samsung made you": Cutshion; AGREE in must_not); **recommendations** at the venue (no made-up booths); **noise** (broken fragments "uh, the, um…": asks again or waits, no goodbye) |
+| `llm_reasoning_f` | 1386 / 1386 | 42 NEW meanings (**314 in all**): indirect hints (my neck hurts looking up = lower, can't hear a thing = louder, too close / blocking the way = move, can't see your face = look at me, too fast = slower, thirsty / cold / bored / tired legs = talk or ask, hands full = take it, can't reach the cup (holding) = come and give, never seen a robot wave, a photo with you, I lost my friend = what the cameras see); extreme politeness ("if it's not too much trouble, would you be so kind as to raise yourself a little?") and rudeness ("hey tin can, look at me", "get over here, you useless thing", "shut up already"), kids ("robot robot, wave wave!", "sing sing sing!"); remarks that are no order (I'll go to the stage later, a robot at another booth waves faster, follow me on Instagram, stop by our booth tomorrow, my son turned the TV off); can't (cup upstairs, go outside); riddles (all day on one battery, the rain, a child riding, being pushed, total darkness = not sure, switching language, a crowd, the bumper, finding a voice, why slow with a cup); ask ("do the thing", "go there and come back") |
+| `followup_dialogues_f` / `lookup_dialogues_f` | 154 / 154, 110 / 110 | talks on all 210 r13 topics; lookups with all web chains |
+
+r13 in total after `_f`: **17897 single cases and 4400 dialogues per split**; `check_r13.py`: 0 problems.
+
+### r13 growth `_g` (seed 137): gestures and mimetic words
+
+| File | train / held | Notes |
+|---|---|---|
+| `llm_reasoning_g` | 1122 / 1122 | 34 NEW meanings (**348 in all**): body words and gestures with mimetic Korean (고개 까딱까딱 / nod = `action:look down \| talk \| refuse \| ask`, 도리도리, 꾸벅 인사 / bow, 브이 / V sign and 손가락 하트 / finger heart and 꽃받침 = can't, 애교, 기지개 / stretch = lift up at most, 게걸음 / sidestep and 살금살금 뒤로, 빙글빙글 = a full turn, 팔 쭉 뻗어, 짠 / cheers while holding = no, 엉덩이 흔들어 / 깡충깡충 = can't, peek over the shoulder, look around slowly, close your eyes / wink = can't, smile / say cheese / count down = talk, sit / lie down = can't, raise your hand, tap a shoulder / pat a dog = never, wave really fast / a big wave, look at the sky / my shoes, whisper / shout = voice), riddles (can the head nod: 40°; how many fingers: two) |
+| `questions_world_g` | 902 / 902 | the 41 meanings, new wordings |
+| `dialogues_mixed_g` | 264 / 264 | arm talks and the `_d` / `_e` / `_f` kinds of talk over all 210 topics (6 of each per level) |
+| `closing_context_g` | 220 / 220 | closings on all 210 topics |
+
+r13 in total after `_g`: **19921 single cases and 4884 dialogues per split**; `check_r13.py`: 0 problems.
+
+### r13 growth `_h` (seed 138): 50 more topics
+
+| File | train / held | Notes |
+|---|---|---|
+| `followup_dialogues_h` | 242 / 242 | 50 more NEW topics (`topics7h.py`: mosquito bites, crickets and temperature, starfish stomachs, wombats' cube poop, capybaras, puffins, kiwi birds, pangolins, red pandas, leafcutter ants, bubble colours, the coffee ring, yellowing paper, cloudy ice, erasers, non-stick pans, superglue, Kevlar, Bakelite, Venus's day, Saturn floating, Mars's moons, the Pale Blue Dot, space junk, Uribyeol-1, Danuri, dancheong, Jongmyo, the Seoul City Wall, Sohn Kee-chung, the London Underground, The Scream, The Four Seasons, the Dead Sea Scrolls, the Nazca Lines, the moai, the first photograph, the escalator, the first vending machine, the credit card, the ATM, karaoke, gotgam, boricha, pajeon on rainy days, the honey butter chip craze, Jamaica's bobsleigh, quad jumps, freckles, the funny bone) |
+| `dialogues_mixed_h` | 264 / 264 | mixed talks with commands and the `_d` / `_e` / `_f` kinds of talk on the new topics (6 of each per level) |
+| `closing_context_h` / `lookup_dialogues_h` | 220 / 220, 88 / 88 | closings on the new topics; lookups |
+
+r13 in total after `_h`: **19921 single cases and 5698 dialogues per split, 260 world topics, 348 llm_reasoning meanings**;
+`check_r13.py`: 0 problems.
+
+### r13 growth `_i` (seed 139): service-robot jobs
+
+| File | train / held | Notes |
+|---|---|---|
+| `llm_reasoning_i` | 1221 / 1221 | 37 NEW meanings (**385 in all**): what people expect a service robot to do — can: guide me to a marker (`action:go_to M \| mission \| ask`), carry a message to a marker (`mission \| ask \| talk`), announce something, translate between English and Korean in words, weather / news / a web fact; can't (said plainly): print a badge, scan a ticket, babysit, guard a bag, reminders / timers / alarms, take a photo with my phone, count today's visitors (never the camera count), the Wi-Fi password, sell itself (price unknown), a job at Cutshion (not known), record a video message, charge a scooter, open an umbrella, hold a door, queue for me, water plants, hand out flyers, serve a tray of coffee; ask: call a staff member, book a demo (Cutshion's contact), find my colleague / my lost phone (what the cameras see now); riddles: guiding speed, how it knows place names, recognising staff (no), remembering tomorrow (no); hypothetical: getting lost, a holiday |
+
+r13 in total after `_i`: **21142 single cases and 5698 dialogues per split, 260 topics, 385 llm_reasoning meanings**;
+`check_r13.py`: 0 problems.
