@@ -762,16 +762,18 @@ def checked(waypoints, start_joints):
 def pick_options(obj, start, max_yaw=None):
     """(waypoints, joints above) of every grasp turn (GRASP_YAWS; within `max_yaw` deg when given) and wrist solution
     reachable from `start`: a joint move down to above that stays above it, then straight down and up; the controller
-    confirms each one given. Objects of the wrong width raise."""
+    confirms each one given. Every pick that worked live had J5 > 0: those come first. Objects of the wrong width
+    raise."""
     plan_pick(obj)
     tried = []
-    for seeds in (IK_SEEDS[:1], IK_SEEDS[1:]):         # the proven `ready` configuration at every turn first
-        for yaw in GRASP_YAWS:
+    for wrist, seeds in ((1, IK_SEEDS[:1]), (1, IK_SEEDS[1:]), (-1, IK_SEEDS[:1]), (-1, IK_SEEDS[1:])):
+        for yaw in GRASP_YAWS:                         # the proven wrist (J5 > 0) and `ready` configuration first
             if max_yaw is not None and abs(yaw) > max_yaw:
                 continue
             waypoints = plan_pick(obj, yaw)
             for ja in above_joints(waypoints[0][1], start, seeds):
-                if any(y == yaw and max(abs(a - b) for a, b in zip(t, ja)) <= 1.0 for y, t in tried):
+                if ja[4] * wrist < 0 or any(y == yaw and max(abs(a - b) for a, b in zip(t, ja)) <= 1.0
+                                            for y, t in tried):
                     continue                           # another seed found the same solution
                 tried.append((yaw, ja))
                 rows = ik_chain(waypoints[1:], ja)

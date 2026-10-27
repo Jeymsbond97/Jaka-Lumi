@@ -1135,6 +1135,9 @@ fetch._give = lambda say: (named.append(fetch.held_name()), fetch._set(holding=F
 st = run(fetch.run_steps, [{"do": "give"}])
 fetch._give = real_give
 assert st["status"] == "done" and named == ["the white cup"], (st["log"], named)
+fetch.held_by_skill({"object": "cup", "colour": "white"})                 # a voice pick (skills.pick, not a fetch)
+assert fetch.state()["held_object"] == {"object": "cup", "colour": "white"} and fetch.state()["status"] == "holding"
+assert fetch.held_name() == "the white cup" and skills._held["what"]["object"] == "cup"
 fetch._set(holding=True, held_object={"object": "cup", "colour": "white"})
 assert fetch.held_name("ko") == "흰 컵"
 fetch._set(holding=True, held_object={"object": "bottle", "colour": None})

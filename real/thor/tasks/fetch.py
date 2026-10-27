@@ -98,13 +98,15 @@ SAME_BASE_RAD = 0.035
 WAIST_REACH_STEPS = (0.0, 15.0, -15.0, 30.0, -30.0)   # deg; a pick out of reach: waist turns tried around the one
                              # that brings the object to PICK_ZONE_CENTRE's bearing about the column (the waist carries
                              # the arm round the column: what it reaches beside it, it reaches ahead), before a base move
+GOAL_SLACK_MM = 20.0         # mm; a goal further out must also be reached this much further (the base stops short)
 GOAL_OUT_MM = range(0, 201, 20)   # mm; the pick goal moves this far out from PICK_ZONE_CENTRE when the torso camera
                              # would not see the cup there (a low table at lift 0)
 VIEW_MARGIN_PX = 10          # px; "in view" means this far inside the torso camera's image
 KEPT_MM = 150.0              # mm; after a base move the thing is the one seen this near where its map place says
 TORSO_HALF_DEG = 30.0        # deg; a kept thing further than this to a side of the torso camera's view: the waist turns
 WAIST_FOUND_MM = 80.0        # mm; after that turn the object is looked for this near where it should be seen
-APPROACH_TRIES = 5           # base moves to bring an object out of reach to PICK_ZONE_CENTRE before asking the person
+APPROACH_TRIES = 8           # base moves to bring an object out of reach to PICK_ZONE_CENTRE before asking the person
+                             # (a move cut short by the base stopping at a chair still counts: 5 ran out, X1)
 STRAIGHT_MAX_M = 0.6         # m; a straight drive (after a turn on the spot) at most this long, else navigation
 STANDOFF_M = 0.4             # m; navigation goes to this far back from the pick pose, then straight in
 APPROACH_SIDES = (0, 45, -45, 90, -90, 135, -135, 180)   # deg; ways in to the object tried by navigation, the
@@ -126,6 +128,7 @@ FURNITURE_MAP_M = 0.5                # on the map this near): tables, chairs, bo
 NEAR_GAP_M = 0.4             # m; something this near the base's outline when nothing is seen ahead: back off ...
 NEAR_RING_M = 0.5            # m from the base centre where _near_look probes for something near after a failed search
 NEAR_VIEWS = (0.0, 60.0, -60.0)  # deg; _near_look's views after it turned to what is near
+NEAR_BACKS = 2               # _near_look backs off this many times (a cup on a low table is seen from ~0.7 m only)
 NEAR_BACK_M = 0.3            # ... this much and look again before the whole search (a cup < ~450 mm from the column
                              # is below both cameras, X1's sweep)
 LOST_BACK_M = 0.15           # an object lost after a base move: back off this much (the camera sees more) ...
@@ -1137,10 +1140,14 @@ def _near_look(attempt, holding=False):
     _straight_clear(-NEAR_BACK_M)
     if abs(d) >= TURN_MIN_DEG:
         _turn(d, holding, why="to look at what is near me")
-    for view in NEAR_VIEWS:                           # ahead, then the waist each way once (X1: a cup 60 deg aside)
-        got = _look_at(view, attempt)
-        if got is not None:
-            return got
+    for k in range(NEAR_BACKS):                       # a low table: the cup's middle comes into view only further off
+        if k:
+            _waist_front()
+            _straight_clear(-NEAR_BACK_M)
+        for view in NEAR_VIEWS:                       # ahead, then the waist each way once (X1: a cup 60 deg aside)
+            got = _look_at(view, attempt)
+            if got is not None:
+                return got
     _waist_front()
     return None
 
@@ -1272,8 +1279,9 @@ def _approach(obj, yaw, tried, goal=PICK_ZONE_CENTRE, holding=False):
         x, y, _ = agv.pose()
         g, before = (goal[0] + dx, goal[1]), left()
         move = approach_move(now(), yaw, t, g)
-        if dx and agv.clearance(x, y) < BASE_HALF_M + CLEAR_M + PROBE_STEP_M:
-            break                                     # flush at something: a small turn won't get it in (X1's sweep)
+        if dx and (agv.clearance(x, y) < BASE_HALF_M + CLEAR_M + PROBE_STEP_M or "stood" in tried):
+            break                                     # flush at something, or the base stood still on the straight
+                                                      # way in: a small turn won't get it in (X1's sweep)
         if move is None or abs(move[1]) > STRAIGHT_MAX_M or any(
                 k[0] == "straight" and k[3] == dx and math.hypot(k[1] - x, k[2] - y) < SAME_PLACE_M
                 for k in tried if isinstance(k, tuple)):
@@ -1288,9 +1296,13 @@ def _approach(obj, yaw, tried, goal=PICK_ZONE_CENTRE, holding=False):
             why.append("turning")
             continue
         if abs(s) >= PROBE_STEP_M:
+            p0 = agv.pose()
             _straight_clear(s)
+            if math.hypot(agv.pose()[0] - p0[0], agv.pose()[1] - p0[1]) < PROBE_STEP_M:
+                tried.add("stood")                    # (forgotten again once the base gets elsewhere)
         gain = before - left()
         if gain >= PROGRESS_MM:
+            tried.discard("stood")
             return True
         log(f"that move brought it only {gain:.0f} mm nearer: another way")
         why.append("something in front of me")
@@ -1331,6 +1343,7 @@ def _approach(obj, yaw, tried, goal=PICK_ZONE_CENTRE, holding=False):
         p = agv.pose()
         if math.hypot(p[0] - x, p[1] - y) >= PROGRESS_MM / 1000.0 or \
                 abs((p[2] - th + math.pi) % (2 * math.pi) - math.pi) >= math.radians(TURN_MIN_DEG):
+            tried.discard("stood")
             return True                               # at another side: the straight way in follows from there
         tried.add(("nav", sx, sy))
         log("navigation left me where I was: another side")
@@ -1479,12 +1492,13 @@ def pick_goal(obj):
     to z ~-375 at y 580 only (a cup on a lower table was lost at the pick zone and chased again, X1's sweep). No goal
     both seen and reached: FetchError saying so at once (a low table at lift 0), never a goal out of view."""
     z = obj["top_mm"] - (obj.get("height_mm") or 2 * skills.BELOW_RIM_MM) / 2
-    for dy in GOAL_OUT_MM:
-        g = (PICK_ZONE_CENTRE[0], PICK_ZONE_CENTRE[1] + dy)
-        if at_edge({"x": g[0], "y": g[1]}):
-            break
-        if in_view(g[0], g[1], z) and (not dy or _reach_at(obj, g)):
-            return g
+    for slack in (GOAL_SLACK_MM, 0.0):                # reached a little further too (the base stops short), else just
+        for dy in GOAL_OUT_MM:
+            g = (PICK_ZONE_CENTRE[0], PICK_ZONE_CENTRE[1] + dy)
+            if at_edge({"x": g[0], "y": g[1]}):
+                break
+            if in_view(g[0], g[1], z) and (not dy or _reach_at(obj, (g[0], g[1] + slack))):
+                return g
     raise FetchError("The table is too low for me: where my arm reaches the cup, my camera can't see it.",
                      "테이블이 너무 낮아요. 팔이 닿는 곳에서는 카메라로 컵이 보이지 않아요.")
 
@@ -2257,6 +2271,14 @@ def _forget_held():
     _last_held.update(held_object=_state.get("held_object"), held=dict(skills._held))
     _set(holding=False, **({"status": "idle", "step": ""} if _state["status"] == "holding" else {}))
     skills._held.clear()
+
+
+def held_by_skill(what):
+    """Record a hold made outside a fetch (assistant/lumi.py's voice pick: skills.pick directly): `what` {"object",
+    "colour"} becomes the held object, so the state file, the dashboard and every reply name it ("the white cup")."""
+    with _lock:
+        skills._held["what"] = {"object": what.get("object"), "colour": what.get("colour")}
+        _set(holding=True, held_object=skills._held["what"], status="holding", step="holding")
 
 
 def _hold_again():

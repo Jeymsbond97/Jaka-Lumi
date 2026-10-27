@@ -431,7 +431,8 @@ def _moved(kind, want, before):
     after = W["base"]
     W["rec"]["moves"].append([kind, round(float(want), 3),
                               round(float(math.hypot(after[0] - before[0], after[1] - before[1])), 3),
-                              round(math.degrees((after[2] - before[2] + math.pi) % (2 * math.pi) - math.pi), 1)])
+                              round(math.degrees((after[2] - before[2] + math.pi) % (2 * math.pi) - math.pi), 1),
+                              [round(float(v), 3) for v in before]])
 
 
 def f_go_point(x, y, th):
@@ -750,6 +751,11 @@ def run_scene(sc, cam=1.0):
     rec["still"] = sum(1 for m in mv if m[2] < 0.02 and abs(m[3]) < 2.0)
     rec["repeats"] = sum(1 for a, b in zip(mv, mv[1:]) if a[0] == b[0] and abs(a[1] - b[1]) < 0.02
                          and a[2] < 0.02 and abs(a[3]) < 2.0)
+    nowhere = lambda m: m[2] < 0.02 and abs(m[3]) < 2.0
+    same_spot = lambda a, b: math.hypot(a[4][0] - b[4][0], a[4][1] - b[4][1]) < 0.05 and \
+        abs((a[4][2] - b[4][2] + math.pi) % (2 * math.pi) - math.pi) < math.radians(3)
+    rec["loops"] = sum(1 for k, b in enumerate(mv) if nowhere(b) and any(
+        a[0] == b[0] and abs(a[1] - b[1]) < 0.02 and nowhere(a) and same_spot(a, b) for a in mv[:k]))
     if sc["kind"] == "pick" and rec["result"] != "ok" and sc["cup"]["grip"] >= 72.0:
         lines_kept = list(W["lines"])
         try:
@@ -874,7 +880,9 @@ def report(rows, path, title, mtimes):
                 f"- moves that went nowhere (< 2 cm, < 2 deg): {sum(r['still'] for r in mv)} in "
                 f"{sum(r['still'] > 0 for r in mv)} scenes",
                 f"- the same move repeated after one that went nowhere: {sum(r['repeats'] for r in mv)} in "
-                f"{sum(r['repeats'] > 0 for r in mv)} scenes", ""]
+                f"{sum(r['repeats'] > 0 for r in mv)} scenes",
+                f"- a move that went nowhere tried again later from the same spot: {sum(r.get('loops', 0) for r in mv)} in "
+                f"{sum(r.get('loops', 0) > 0 for r in mv)} scenes", ""]
     if places:
         ok = sum(r["result"] == "ok" for r in places)
         out += [f"## Places: {ok}/{len(places)} ok ({100 * ok / len(places):.1f} %)", "",
@@ -882,7 +890,9 @@ def report(rows, path, title, mtimes):
         table(places, ("beside L", "left", "ahead", "right", "beside R", "behind"),
               ["in reach", "near (< 1 m)", "far"], "sector")
         out += [f"- moves that went nowhere: {sum(r['still'] for r in places)} in "
-                f"{sum(r['still'] > 0 for r in places)} scenes; repeated: {sum(r['repeats'] for r in places)}", ""]
+                f"{sum(r['still'] > 0 for r in places)} scenes; repeated: {sum(r['repeats'] for r in places)}; tried again "
+                f"later from the same spot: {sum(r.get('loops', 0) for r in places)} in "
+                f"{sum(r.get('loops', 0) > 0 for r in places)} scenes", ""]
         rel = [r["released"] for r in places if r.get("released") and r["released"]["above_table_mm"] is not None]
         if rel:
             hz = [x["above_table_mm"] for x in rel]
