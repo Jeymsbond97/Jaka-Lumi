@@ -3456,7 +3456,8 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
         return "quick", rule
     if not rule:
         from assistant import intent_bank
-        rule = intent_bank.read(text, markers, holding)   # the same request in other words, by meaning
+        rule = None if brain_mod.GREET_ONLY.match(text or "") else \
+            intent_bank.read(text, markers, holding)   # the same request in other words, by meaning ("hello robot": no wave)
         if rule and rule[0] not in ("come_back", "weather", "search") and brain_mod.ARM_TALK.search(text):
             rule = None                        # "it'd be cool if you could take your hand back someday": talk (A1)
         if rule:
@@ -3509,7 +3510,9 @@ def read_mission(text, markers):
         return None
     if len(got) > 1 and all(st == got[0] for st in got) and got[0]["do"] in ("arm", "wave", "look", "lift"):
         got = got[:1]                              # "reach out, reach out to me": one reach, said twice
-    plain = not steps.is_mission(got) and (len(got) == 1 or (brain_mod.intent(text, markers) or ("",))[0] == "fetch")
+    one_part = len(steps._split(steps._norm(steps._cut_says(text)[0], markers), markers)) == 1
+    plain = not steps.is_mission(got) and (len(got) == 1 or one_part or (brain_mod.intent(text, markers) or ("",))[0] == "fetch")
+    # ^ "컵 가져와 주셨으면 해요": one part a plain fetch can do stays the fetch, not a mission
     if not unread and (plain or (len(got) == 1 and got[0]["do"] in ("move", "turn", "arm"))):   # "take the cup and put
         return None                                                     # it on the chair": two steps, not a pick
     return got, unread, by

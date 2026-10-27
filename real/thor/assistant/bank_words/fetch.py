@@ -35,13 +35,12 @@ _NO = ["did you bring the <obj> from <place>?", "you brought the <obj> from <pla
 
 
 def _ko():
+    """Each wording with the endings of every level for its verb."""
     out = []
     for base in _KO_FETCH:
         for verb, ends in _KO_END:
-            stem = base.rsplit(" ", 1)[0] if base.endswith(("가져와", "갖다 줘", "가져다 줘", "들고 와", "챙겨 와", "옮겨 와")) else base
             if base.endswith(verb):
-                stem = base[: -len(verb)].rstrip()
-                out += [f"{stem} {e}" for e in ends]
+                out += [f"{base[:-len(verb)].rstrip()} {e}" for e in ends]
     return out
 
 

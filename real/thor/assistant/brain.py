@@ -196,7 +196,8 @@ Facts you know (say the one that is asked, also in a short follow-up; nothing mo
   is known; only how long charging itself takes is not known). On patrol below 5 percent you drive home to charge
   and go on (start again) at 60 percent.
 - You are made for shops, hotels, schools, labs and exhibitions. You cannot dance, walk, jump or fly: say so.
-- Computer ("processor", "chip", "칩", "컴퓨터"): NVIDIA Jetson AGX Thor (its graphics processor: Blackwell, 2070 TOPS).
+- Computer ("processor", "chip", "칩", "컴퓨터"): NVIDIA Jetson AGX Thor (its graphics processor: Blackwell, 2070 TOPS;
+  14 processor cores, 122 GB of memory / 메모리).
 - Detector: YOLOv8 on your graphics processor, 4 to 13 ms per picture. Speech: Whisper, model large-v3-turbo; answers:
   Gemma 4 26b (Google), served by Ollama; voice: Supertonic TTS; first words about 2 s after a question.
 - Cutshion: makes barista, AI drawing, cooking, ice cream, candy ball, welding, palletizing and educational
@@ -410,9 +411,11 @@ Short Korean commands are commands: "컵 가져다 줘" -> fetch cup, "컵 옮�
 - weather <place>: the visitor asks about the weather (place in English; - means here, Seoul).
 - search <query>: you need facts from the internet you do not know (news, prices, opening hours, people...).
   Do not use search for things in the reference notes, the date or the time, nor for opinions, advice, fun
-  facts, recommendations or well-known general knowledge: answer those yourself. How an animal's or plant's body
-  works, how fast or long something grows, sleeps, runs or lives, a famous building's height or floors: none, said
-  at once, in dialect or mixed words too ("부엉이 목 을매나 돌아가노?", "tower height 몇 m예요?").
+  facts, recommendations or well-known general knowledge: answer those yourself. Search only what changes or is
+  new (news, prices, scores, schedules, who holds an office now, the newest products). Everything that stays the
+  same is none, answered at once in any wording, dialect or mixed: what a word, a custom or a thing is ("윤초는
+  뭐예요?"), how it is made or works, why, an animal's or plant's body and life, a famous building's height or floors
+  ("부엉이 목 을매나 돌아가노?", "tower height 몇 m예요?"), and every follow-up on them.
 - Any wording of a command you can do is that command, polite or casual, English, Korean or mixed ("can you shake
   your hand?" -> wave, "고개 왼쪽으로 돌려" -> look left, "뒤로 1미터 가" -> move back 1). What your body can't do
   (jump, dance, fly, climb stairs, open doors, lift heavy things) is none: say plainly that you can't. A person, a
@@ -666,7 +669,7 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
               r"\b(?:turn|swivel|twist|rotate) your trunk\b|허리(?:를)? ?(?:좀 ?)?(?:펴|곧게)|\btorso\b.{0,6}(?:정면|front)"),
     # ^ the waist (upper body) only, never the base: "turn your waist left", "허리 왼쪽으로 돌려", "상체 정면으로"
     ("follow", r"\b(?:follow|following|come with|come along with|come together with|walk with|tag along with)\s+(?:me|us)\b(?!\s+(?:on|at)\b)|"   # not "follow
-               r"\bcome along\b|(?<!말 )(?<!말을 )따라\s?(?:와|오세요|오십시오|올래)|(?<!로 )(?:같이|함께)\s?(?:가자|가요|갑시다|걸어)|"   # me on instagram"
+               r"\bcome along\b|(?<!말 )(?<!말을 )따라\s?(?:와|오세요|오십시오|올래)|(?<!로 )(?:같이|함께)\s?(?:가자|가요|갑시다|걸어|가(?=\W*$))|"   # me on instagram"
                r"\b(?:and|then) follow(?: me| along)?\W*(?:(?:please|plz|thanks|bro|now|okay|ok)\W*)*$|"
                r"\b(?:keep|stay|walk|go) (?:right )?behind me\b|\bi(?:'?ll| will) walk,? (?:and )?you follow\b|"
                r"^\W*(?:\w+\W+){0,2}(?:you )?follow\W*(?:(?:please|plz|thanks|bro|now|okay|ok)\W*)*$|\bfolow me\b|"
@@ -840,6 +843,9 @@ COME_BACK = re.compile(   # the whole sentence asks Lumi back to where it stood 
     r"(?:(?:다시|이제|좀|얼른|어서)\s*)*(?:원래\s*(?:있던|있었던|서 ?있던)\s*(?:자리|곳|데|위치)|왔던\s*(?:길|곳|데|자리))\s*(?:으로|로)\s*"
     r"(?:다시\s*)?(?:(?:되)?돌아\s?)?(?:가|와|가세요|와요|가요|가라|와라)(?:\s*(?:줘요?|주세요|줄래요?|주시겠어요|주십시오|봐))?")
     # "원래 있던 자리로 가 주세요", "왔던 길로 돌아가": back where it stood
+GREET_ONLY = re.compile(   # a hello and a name, nothing asked: never a wave by itself ("hello robot", "안녕 루미야")
+    r"^\W*(?:(?:hi|hello|hey|hiya|howdy|yo|good (?:morning|afternoon|evening)|안녕(?:하세요|하십니까)?|반가워요?|반갑습니다)\W*)+"
+    r"(?:(?:lumi|loomi|robot|there|everyone|buddy|루미야?|루미 ?씨|로봇아?|로봇 ?씨)\W*)*$", re.I)
 CALLING = re.compile(r"^\W*(?:(?:hey|hi|okay|ok|so|um+|uh+|alright|please|well|now|저기요?|혹시|음+|자|야|어+|그럼|이제)\W+)*"
                      r"(?:(?:lumi|루미 ?씨|루미야?|루미|로봇아|로봇 ?씨|robot)\W+)?(?:(?:저기요?|혹시|음+|자|그럼|이제|now)\W+)*", re.I)   # words that call Lumi or fill, before the request itself
 _NOT_A_NAME = (r"Lumi|Okay|Ok|Yes|No|Wait|Well|Hey|Hi|So|Oh|Please|Sorry|Thanks|Now|Look|Wow|Alright|Great|Sure|Right|Hello|"
@@ -1253,7 +1259,7 @@ def intent(text, markers=()):
     text = re.sub(r"(에|로|으로|까지)\s*가서\s*(?:거기서?\s*)?(?:좀\s*)?(?:서|기다려|대기해)\s*(?:있(?:어|게|으십시오|으세요|어요)?)?"
                   r"(?:\s*(?:줘잉|줘|주세요|주라|줄래|주실래요|줄 ?수 ?있어요?|주십시오|주이소|주소))?[\s?.!]*(?:응\??)?$", r"\1 가", text)
     text = re.sub(r"\bgo (?:and )?(?:stand|wait) (?:at|by|near) ", "go to ", text, flags=re.I)   # "go and stand at p10": the trip
-    t = _norm(wording.ko_plain(text), markers)             # "point five" -> "point 5"; every speech level as 반말
+    t = _norm(text, markers)                                # "point five" -> "point 5"
     asks = re.search(r"^\s*(how(?! about (?:you|we) (?!\w+ing\b)\w)|why(?! don'?t you\b)|what if)\b|\b(how do you|how can you|can you carry|are you able)\b|"
                      r"\b(can|could) you (pick( up)?|lift|hold|grab|take) (a|an|any)\b|"   # "can you pick up a bottle?"
                      r"^\s*(what|when|which|at what|do you|does|is it(?! possible)|are you)\b|몇|언제|얼마|"   # "at what level do you go back?"
@@ -1783,7 +1789,8 @@ def _mentions(text, markers):
             out["dest"] = None
     if "dest" not in out and re.search(r"\b(bring|get|fetch|give) (it |that |this )?(to )?me\b|\bto me\b|가져와|가지고 ?와|갖다 ?줘|가져다 ?(?:줘|주세요|줄래)", t):
         out["dest"] = "here"
-    if "dest" not in out and (re.search(r"\b(?:bring|fetch)(?:ing)?\b", t) and not re.search(r"\b(?:to|for) (?!me\b|us\b)\w", t)
+    if "dest" not in out and (re.search(r"\b(?:bring|fetch)(?:ing)?\b", t) and isinstance(out.get("source"), dict)
+                              and not re.search(r"\b(?:to|for) (?!me\b|us\b)\w", t)
                               or re.search(r"(?:갖다|가져다|갖고|가지고)\s*(?:좀\s*)?(?:줘|주|조|드려|드리)", t)
                               and not any(p not in ("나", "저", "내", "제") for p in
                                           re.findall(r"([가-힣]+?)\s*(?:한테|에게|께)(?!서)", t))):
@@ -1978,7 +1985,7 @@ SUPPORTS = {**{c: c for c in objects.COCO if c != "person" and c not in OBJECTS.
             "책상": "dining table", "식탁": "dining table", "의자": "chair", "소파": "couch", "벤치": "bench", "침대": "bed"}   # word -> camera class
 
 
-MISSPELT = {"dinning": "dining", "dinner table": "dining table", "dinining": "dining", "tabel": "table",
+MISSPELT = {"dinning": "dining", "dinner table": "dining table", "dinining": "dining", "tabel": "table", "talbe": "table",
             "tabe": "table", "tabble": "table", "chiar": "chair", "chari": "chair", "char": "chair", "sofaa": "sofa"}
                                                        # typed / heard support words -> the word (place_on)
 PREFER = {"lower": "low", "low": "low", "lowest": "low", "shorter": "low", "smaller": "small", "small": "small",
@@ -2013,7 +2020,7 @@ def pick_prefer(text):
     if m:
         return m.group(2), t[:m.end(1)] + t[m.end():]
     m = re.search(rf"(?:(?:제일|가장|더)\s*)?(작은|큰|왼쪽(?:에\s*있는|의)?|오른쪽(?:에\s*있는|의)?|가까운|가까이\s*있는|먼|"
-                  rf"멀리\s*있는)\s*(?=(?:(?:{_COL})\s*)?(?:{_OBJ}))", t)
+                  rf"멀리\s*있는)\s*(?=(?:(?:{_COL})\s*)?(?:{_OBJ})|(?:거|것|걸)(?![가-힣]))", t)
     if m:
         return next(v for k, v in PICK_PREFER_KO if m.group(1).startswith(k)), t[:m.start()] + t[m.end():]
     return None, text
@@ -2485,12 +2492,22 @@ def correction(text, history):
 def parse_correction(text, task, markers=(), field=None):
     """'no, from p2' / 'not the apple, the cup' / 'to p3' / 'put it on the table' / 'just hold it' -> (task, changed).
     field: the field a bare answer is about ("source" / "dest"), when Lumi just asked for it ("p2" -> that field)."""
-    m, task = _mentions(text, markers), dict(task)
+    m, task, t = _mentions(text, markers), dict(task), _norm(text, markers)
     if field in ("source", "dest") and not {"source", "dest"} & set(m):
-        p = re.search(_place_re(markers), _norm(text, markers))
+        p = re.search(_place_re(markers), t)
         if p:
             m[field] = _as_place(_resolve(p, markers))
-    changed = [k for k, v in m.items() if task.get(k) != v and not (k == "colour" and "object" not in m)]
+    ps = [_as_place(_resolve(p, markers)) for p in re.finditer(_place_re(markers), t)]
+    if not {"source", "dest"} & set(m) and len(ps) == 2 and re.search(r"\bnot\b|말고|아니고|아니라", t):
+        k = next((k for k in ("source", "dest") if task.get(k) == ps[0]), None)   # "not p1, p2": the one it was
+        if k:
+            m[k] = ps[1]
+    col = re.search(rf"(?<![a-z가-힣])({_COL})\s*(?:ones?\b|1\b|거|것|걸|색|으로|로)", t)
+    if col and "object" not in m and "colour" not in m:
+        m["colour"] = COLOURS[col.group(1)]                # "no, the blue one", "아니 파란 거": the same thing in blue
+    if "prefer" not in m and (pr := pick_prefer(re.sub(r"\bthe 1\b", "the one", t))[0]):
+        m["prefer"] = pr                                   # "the one on the left", "왼쪽 거", "the smaller one"
+    changed = [k for k, v in m.items() if task.get(k) != v and not (k == "colour" and "object" not in m and not col)]
     for k in changed:
         task[k] = m[k]
     return task, changed
@@ -2667,7 +2684,8 @@ FRAGMENT_WORDS = 4            # "Which one?", "얼마?", "Where is it used?": a 
 # a fragment that names what it asks ("몇 살이라고요?") gets no hint
 OWN_TOPIC = re.compile(r"살|나이|이름|\bold\b|\bname\b|\bage\b|\btall\b|\bheavy\b|\bweigh", re.I)
 SAME_ABOUT = re.compile(r"^\W*(?:and|so|what about|how about|and what about)\s+(your\s+[a-z]+(?:\s+[a-z]+)?)\W*$", re.I)
-KO_SAME_ABOUT = re.compile(r"^\W*(?:그럼\s*|그리고\s*)?(?:네\s*|너\s*|루미\s*)?(?!(?:너|루미|당신|저|나|그거|이거|그건|여기|거기)(?:은|는))([가-힣]{1,6}?)(?:은|는)요?\s*\?+\s*$")
+KO_SAME_ABOUT = re.compile(r"^\W*(?:그럼\s*|그리고\s*)?(?:네\s*|너\s*|루미\s*)?(?!(?:너|루미|당신|저|나|그거|이거|그건|여기|거기)(?:은|는))([가-힣A-Za-z]{1,8}?)(?:은|는)\s*"
+                           r"(?:요|어때요?|어때유|어떻습니까|어떤가요|어떠세요|어떻노)?\s*\?+\s*$")
                                # the question before asked again about a part of Lumi ("팔은요?")
 FRAGMENT_CHARS = 160           # chars of the last answer's first sentence shown with a fragment
 _PLEASE = r"(?:\W+(?:please|lumi|then|now|해 ?줘|해 ?봐|해요|해 ?주세요|해|요|봐|줘))*\W*$"
@@ -2806,6 +2824,14 @@ LOOKUP_ACTION = re.compile(r"^\s*(?:\**ACTION\**\s*:\s*)?(?:search|weather)(?: (
                              # written instead of the answer (the routing prompt is its system prompt): never said
 NONE_LINE = re.compile(r"\s*(?:\**ACTION\**\s*:\s*)?none\b", re.I)   # "ACTION: none -" (or "none" alone)
 LOOKUP_PEEK = 8                # chars of the line after "ACTION: none" read before it is spoken: "search ..." is the action
+CHANGES = re.compile(r"지금|오늘|요즘|최근|최신|어제|내일|올해|작년|이번|현재|뉴스|가격|시세|환율|주가|점수|결과|날씨|대통령|"
+                     r"대표|회장|장관|감독|우승|이겼|"
+                     r"\b(?:now|today|tonight|latest|newest|current|currently|recent|yesterday|tomorrow|this (?:year|week|month)|"
+                     r"news|price|cost|score|won|weather|president|ceo|minister|coach|champion)\b", re.I)
+                               # words of a question whose answer changes: a model's "search" stands
+LOOKS_UP = re.compile(r"찾아|검색|확인|알아보|살펴|모르|몰라|잠시|잠깐|정보가|\b(?:look|check|search|find|moment|sec|"
+                      r"not sure|don't know|do not know)\b", re.I)
+                               # a first sentence that promises a lookup or doesn't know: the search stands
 SPOKEN_TARGET = re.compile(r"^\W*(?:i\b|i'll|i will|let me|sure|okay|ok\b|one moment|just a moment|잠시|잠깐|찾아|확인)", re.I)
                                # "search I'll look that up": words for the visitor, not the query
 LOOKUP_ANSWER = """Search results found just now on the internet (they may hold ads and unrelated parts):
@@ -2960,7 +2986,7 @@ class Brain:
                                                     f"Visitor: {text}\n\n" + self._fragment_hint(text) + world +
                                                     f"(Reply in {lang}.)"})
         buf, full, header, said, muted = "", "", None, [], False
-        stream, retried, skip_head = _stream(messages), False, False
+        stream, retried, skip_head, held = _stream(messages), False, False, None
         try:
             for piece in iter(lambda: next(stream, None), None):
                 full += piece
@@ -2981,7 +3007,8 @@ class Brain:
                     buf = rest
                     if NONE_LINE.match(first) and LOOKUP_ACTION.match(rest.lstrip()):
                         first = re.search(r"search|weather", rest).group(0)   # read as the action, never said
-                    header = self._after(self._action(first, text, markers), text)
+                    raw = self._action(first, text, markers)
+                    header = self._after(raw, text)
                     if header is None:                     # the model skipped the ACTION line
                         header, buf = self._after({"action": "none", "target": ""}, text), first + " " + buf
                     if header["action"] == "unclear" and not retried and \
@@ -2993,7 +3020,10 @@ class Brain:
                         stream = _stream(messages)
                         continue
                     muted = bool(header.pop("held", None))   # a motion the words did not order: talk only
-                    yield header
+                    if raw and raw["action"] == header["action"] == "search" and not CHANGES.search(text):
+                        held = header                      # "윤초는 뭐예요?" -> "search" with the answer after it:
+                    else:                                  # its first sentence decides (below)
+                        yield header
                     if header.get("say"):                  # the model's words don't fit the action any more
                         said.append(header.pop("say"))
                         yield said[0]
@@ -3004,6 +3034,11 @@ class Brain:
                         yield said[0]
                         buf, full = "", f"{first}\n{said[0]}"
                         break
+                if held:                                   # settled knowledge the model answered anyway: said, not
+                    if len(SENTENCE_END.split(buf)) < 2:   # looked up; "Let me check." keeps the search
+                        continue
+                    header, held = self._settled(held, buf, text), None
+                    yield header
                 if skip_head:                              # the retry's own action line: the header stands
                     if "\n" not in buf:
                         continue
@@ -3032,6 +3067,9 @@ class Brain:
                 yield {"action": "none", "target": ""}
                 header = {}
             buf += " Sorry, could you say that again?"
+        if held:                                           # the whole reply was one sentence
+            header, held = self._settled(held, buf, text), None
+            yield header
         if header is None:                                 # very short reply on a single line (or two)
             first, _, rest = buf.partition("\n")
             header = self._after(self._action(first, text, markers), text)
@@ -3064,6 +3102,18 @@ class Brain:
             full = "ACTION: none -\n" + " ".join(said)
         self.history.append((text, full.strip()))
 
+    @staticmethod
+    def _settled(search, words, text):
+        """The model chose search for words with nothing that changes, then answered in its first sentence ("윤초는
+        지구 자전과 ... 맞추는 1초예요."): that answer is said, action none. A first sentence that promises a lookup or
+        doesn't know ("확인해 볼게요.", "Let me check.") keeps the search."""
+        first = SENTENCE_END.split(words.strip())[0].strip()
+        asked = set(re.findall(r"\w+", text.lower()))
+        echo = len(asked & set(re.findall(r"\w+", first.lower()))) >= 0.6 * len(asked)
+        return search if not first or LOOKS_UP.search(first) or LOOKUP_ACTION.match(first) or echo or \
+            first.endswith("?") or re.search(r"궁금|\bwonder|good question|좋은 질문", first, re.I) \
+            else {"action": "none", "target": ""}   # the query written out, "궁금하시군요." then "잠시만요": a lookup
+
     def _asks_again(self, header, sentence, text):
         """The model talks (action none) but asks to hear clear words again ("I'm not sure what you mean, could you
         say it again?" to "Why the 15th?"): it is asked once more with UNCLEAR_RETRY."""
@@ -3086,12 +3136,14 @@ class Brain:
         """The words (or the question they follow) name a subject of their own that is not Lumi, its parts or the
         companies ("부엉이는 ...?", "How high is Mount Fuji?"): Lumi's notes are left out. A subject that is one of
         Lumi's own things ("속도는 얼마예요?", "이름이 뭐예요?") keeps them. Returns those subjects, the question before first ([] when none)."""
-        q = topic_turn(self.history)[0] if self.history else ""
+        def named(t):
+            return [m.group(0) for m in OWN_SUBJECT.finditer(core(t))] + [m.group(1) for m in EN_SUBJECT.finditer(core(t))]
+        qs = [topic_turn(self.history)[0]] + [h[0] for h in reversed(self.history[-3:])] if self.history else [""]
+        q = next((x for x in qs if named(x)), qs[0])       # "문어 피는?" "왜?" "심장은?": the octopus, two turns back
         both = re.sub(r"(?<=[A-Za-z])(?=[가-힣])", " ", f"{text} {q}")     # "Gemma는": the word for LUMI_TOPIC
         if LUMI_TOPIC.search(both) or COMPANY_TALK.search(both):
             return []
-        subjects = [w for t in (q, text) if t for w in [m.group(0) for m in OWN_SUBJECT.finditer(core(t))] +
-                    [m.group(1) for m in EN_SUBJECT.finditer(core(t))]]
+        subjects = [w for t in (q, text) if t for w in named(t)]
         return list(dict.fromkeys(re.sub(r"[은는가]$", "", w) for w in subjects     # "부엉이" keeps its 이
                                   if not SELF_THINGS.match(w[:-1] if HANGUL.search(w) else w)))
 
@@ -3107,8 +3159,9 @@ class Brain:
             return f"(This follows your answer \"{last[:FRAGMENT_CHARS * 2]}\": if it said you can do something, do it now: its ACTION line is that action (wave, sing, look ...), not none.)\n"
         part = SAME_ABOUT.match(text) or KO_SAME_ABOUT.match(text)
         if last and part:                                  # "What about your cameras?" / "카메라는요?" after "can I wipe you?"
-            return (f"(The visitor's question \"{self.history[-1][0]}\" asked again, now about {part.group(1)}: answer "
-                    f"that question for it, not other facts about it.)\n")
+            return (f"(The visitor's question \"{self.history[-1][0]}\" goes on, now about {part.group(1)}: the same "
+                    f"question for {part.group(1)}, or {part.group(1)} of the thing just talked about (\"height는요?\" "
+                    f"after a tower: its height), whichever fits; not other facts.)\n")
         if self.history:                                   # past a back-channel ("헐 대박") to the answer before it,
                                                            # also past a motion done without words ("are u sure" after a lift)
             last = " ".join(ln for ln in topic_turn(self.history)[1].splitlines() if not re.match(r"\s*\**ACTION", ln)).strip()

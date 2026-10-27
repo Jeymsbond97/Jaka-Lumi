@@ -113,7 +113,7 @@ def plan(text, markers=(), cant=None):
         return None                                      # "turn around and look": the head looks behind
     out = []
     for p in ps:
-        if SELF_PROMISE.search(p) or out and _restated(p, out[-1][1]):
+        if SELF_PROMISE.search(p) or out and _restated(p, out[-1][1]) or brain.GREET_ONLY.match(p):   # "hello robot, …"
             continue                                     # "흰색 머그컵 잡아!, 아 잡아 줄 수 있어요?": the order once
         got, unread = steps.rules(p, markers)
         rule = _rule(p, markers)
