@@ -81,9 +81,14 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
    camera sits on the same link as the arm base, so the lift does not change the camera calibration (checked: lift
    75 → 150 mm moved a cup x +2, y −2, top −76 mm). Every drive to a place is at lift 75 mm; the short base moves of a reach or a search keep the lift. At a put-down the same is done with
    the table in front (`fetch.table_ahead`), and the object goes down at that table's height.
-5. Reach (`_reach`): the pick plan must pass IK. If not, the base moves so the object comes to `PICK_ZONE_CENTRE`
+5. Reach (`_reach`): the pick plan must pass IK. If not, the waist turns first (`_waist_reach`): it carries the arm
+   round the column, so a cup beside Lumi is reached as one ahead is. The turn that brings the cup to
+   `PICK_ZONE_CENTRE`'s bearing about the column (the head's turning centre), and `WAIST_REACH_STEPS` around it, are
+   planned where the cup will be seen (`turned`); the first that passes turns the waist (its sweep checked, Patrol
+   on), the camera looks again (the cup within `WAIST_FOUND_MM` of where it should be) and the pick is planned from
+   that look. Then, if still out of reach, the base moves so the object comes to `PICK_ZONE_CENTRE`
    (−100, 580) mm, then Lumi looks again (lost: the whole search of step 4), fits the lift and plans again; at most
-   `APPROACH_TRIES` 5 moves, never on the charger. One move (`_approach`, geometry in `approach_move` / `side_pose`):
+   `APPROACH_TRIES` 8 moves, never on the charger. One move (`_approach`, geometry in `approach_move` / `side_pose`):
    - Way in at most 0.6 m (`STRAIGHT_MAX_M`): turn on the spot to face it (navigation), then straight with
      `joy_control` at 0.05 m/s (forward when it is too far, backwards when too near). Before the drive the line is
      checked every 5 cm with the base's `/api/map/distance_probe` (lidar + map): the drive ends where the base
@@ -105,17 +110,35 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
    at all → the whole search. The arm base offset is the median of the last 9 measurements (`OFFSET_SAMPLES`).
    An object's width is only trusted within 250 mm of the pick zone (`WIDTH_NEAR_MM`: the tumbler measured 85–88 mm at
    1.14 m, 76–81 mm up close): a too wide / too narrow one further away is approached and measured again.
+   Comfort and order (night 5): a cup that would stay further than `skills.COMFORT_R_MM` (710 mm) from the arm base
+   even after the waist brought it round (`at_edge`) is brought in by the base first while it can; grasp turns up to
+   `skills.TRUSTED_YAW_DEG` (15°) first, larger turns only when the base can't help. The base goal is
+   `pick_goal`: the pick zone, or up to 200 mm further out when the torso camera would not see the cup's middle
+   there (a low table at lift 0). Every move is measured by odometry (`PROGRESS_MM` 40): a way that brought the cup
+   no nearer is not tried again from there; the ways are: straight in, a small turn and in (`GOAL_SHIFTS_MM`, not
+   when flush at something), navigation to each side once (a side where the base can't stand near enough is skipped
+   without driving; a goal that left the base where it was counts as nothing). After every attempt, also a failed
+   one, the cup is looked for where its map place says it is now (`_see_again` / `_kept`, the waist turning the torso
+   camera to it, `KEPT_MM` 150): a plan never uses a spot from before a move. No way left: picked from where it
+   stands when the arm reaches it (any grasp turn), else "I can't get closer to it, something is in my way. Please
+   move it closer to me". Nothing seen ahead with something right at the base: back off 0.3 m and look again before
+   the whole search. Tested offline in `tests/test_fetch_ways.py` with the live positions of 2026-10-26.
    Still out of reach → "I can't reach it, please move it closer to me", look every 2 s for 30 s, go on when it is
    reachable, else task failed.
 6. Pick (`skills.reachable_pick`): the taught grasp turned about the vertical every 15° all the way round
-   (`GRASP_YAWS`, nearest the taught one first; the cup stays upright at every one), each with two IK seeds: `ready`'s
-   arm configuration and the same with the wrist flipped (J4 + 180, −J5, J6 + 180). The first that works: a joint
-   move from `look` to 10 cm above the cup (no joint more than 200°), checked with `kine_forward` at 11 points to
-   never take the gripper more than 2 cm below both ends (`PATH_SAG_MM`), straight down and up passing IK, and the
+   (`GRASP_YAWS`, nearest the taught one first; the cup stays upright at every one), each with the IK seeded from
+   every `IK_SEEDS` pose (`ready`, `look`, `carry`, `give`) and the same with the wrist flipped (J4 + 180, −J5,
+   J6 + 180); J1 / J4 / J6 answers are taken nearest the arm's angles (± 360° is the same pose) before the joint
+   limits are checked. The first that works: a joint move from `look` to 10 cm above the cup (no joint more than
+   200°), checked with `kine_forward` at 21 points like every pose-graph move (`skills.move_ok` =
+   `arm_route.move_problem`: the gripper `HEAD_CLEAR_MM` from the head, never more than 2 cm below both ends,
+   `PATH_SAG_MM`), straight down and up passing IK, and the
    straight line from above to `carry` with the cup passing too (`fetch._carry_ok`: IK at 20 points, ≤ 25° per
    joint between two, lean ≤ 15°), so a pick never ends where the cup can't be carried. Measured with the
-   controller's IK (2026-10-16, top −340 mm): grasps exist only for y ≤ ~700 mm, 1–4 options per spot, about 1 s to
-   plan. Put down tries the held turn first (straight from `look`); when that reaches no spot, every turn and wrist
+   controller's IK at waist 0 with these checks: by the distance of the cup from the column and its bearing (+ left
+   of ahead): 400 mm −15…+75°, 600 mm −15…+30°, 800 mm −30…−15°, nothing past 850 mm (offline kinematics,
+   `robot/kinematics.py`, every 15°; cup top −260 mm at lift 75). The waist turn brings any bearing into that
+   sector. A refused plan takes ~2 s offline. Put down tries the held turn first (straight from `look`); when that reaches no spot, every turn and wrist
    like the pick (step 9). The pick stores the table under the object (`_held["table"]`: from the cup's own bottom,
    else the ring of table around it, `skills.table_near`) and the lift, so put down knows the cup's height.
 6a. Several of the object and no "which one" said: when the chosen one is out of reach (or measured the wrong size
@@ -151,7 +174,13 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
      No spot in reach but a table seen by either camera (`far_table`: level tops on sight lines 0.6–3 m away, ±45° of
      where the torso camera, else the head camera, looks): the base goes to it at once (`_go_to`, `PLACE_GOAL`
      (−160, 670) mm, the point 150 mm in from its nearest edge, `FAR_IN_MM`), then it looks ahead again, going closer
-     up to 5 times; no second whole search.
+     up to 5 times; no second whole search. Before going, the spots of that table the arm reaches from here are tried
+     (`_place_far`: its level points within 850 mm, comfortable ones first, `on_table`, IK; `FAR_SPOTS` 4): live
+     2026-10-26 18:53 the near part of the table in front was hidden at lift 0 ("no table in view") and the base,
+     stopped at the table, "drove" +0.13 m six times. The drives are measured as for the pick (step 5).
+     "Put it on the table" with a big top (`BIG_TOPS`: table, desk, bed): its YOLO box centre moves with the view
+     ((22, 623), then (-349, 647) for one table, 18:55), so it is never aimed at: the top is measured by the grid /
+     the far table, spots are the grid near `PLACE_GOAL` first, then the far table's points.
      A table lower than the proven one at lift 0 logs "table at −457 mm: the lift stays at 0 mm (its end)".
 9a. "Put it on the orange chair" (`brain.place_on`, `fetch._put_on`): the named thing (table words, chair, stool,
     sofa, or any class the cameras name; typed misspellings "dinning", "tabel"; "the table or chair" / "테이블이나
