@@ -7,6 +7,9 @@ point between the fingers where the cup's axis sits 4 cm below the rim. Down fro
     python manipulation/skills.py plan [cup] [--to X Y]     # dry run: object, place spot, every waypoint with IK joints
     python manipulation/skills.py pick cup                  # pick it up and hold it 3 cm above the table
     python manipulation/skills.py move cup [--to X Y]       # pick it up and put it down at X Y (mm, base frame) or a free spot
+    python manipulation/skills.py hover cup [TURN]          # live check: the open hooks 6 cm over the cup's rim, grasp
+                                                            # turned TURN deg; Enter goes back (docs/night5/P2.md)
+    python manipulation/skills.py offset T1 DX1 DY1 T2 DX2 DY2 [...]   # hover readings -> the grasp point's error
 
 Ctrl+C, cancel() (STOP in the API, "stop" by voice) or any motion error stops the arm; the gripper keeps its state.
 The API and the assistant call pick(), put_down(), move_object() and cancel() in their own process.
@@ -27,6 +30,7 @@ from robot import arm
 from vision import calib
 from vision import camview
 from robot import gripper
+from robot import kinematics
 from robot import motion
 from vision import objects
 
@@ -83,6 +87,8 @@ SPOT_DX = (-60, -90, -120, 60, 90, 120)          # mm; candidate offsets from th
 SPOT_DY = (0, -20, -40, 20)
 TABLE_RING_MM = 50.0                             # a place spot is checked at its centre and 8 points this far around
 TABLE_TOL_MM = 25.0                              # ... each must be table: depth within this of the table height
+TABLE_XY_MM = 20.0                               # ... and the sight line aimed at that height meets it this near the
+                                                 # point (X1's sweep: a spot 17 mm off the near edge passed, it fell)
 TABLE_NEAR_RING_MM = 25.0                        # a ring point on the near side the camera can't see (below its view
                                                  # at table height) is checked this far from the centre instead
 LOCATE_MM = 90.0                                 # locate(): looked for this far around where an object was last seen,
@@ -144,8 +150,28 @@ IK_SEEDS = ("ready", "look", "carry", "give")   # taught poses whose arm configu
                                                  # seed, so one seed alone misses cups another configuration reaches
 WRIST_MIN_DEG = 10.0                             # deg; |J5| at least this at above, grasp and lift (estimate: the
                                                  # proven picks had J5 +20; near 0 J4 / J6 swing round)
-RETRIES = 4                                      # the controller now and then answers with nothing: ask again
-RETRY_S = 0.2
+TRUSTED_YAW_DEG = 15.0                           # deg; grasp turns up to this picked live (-10, -15: 3 of 3); -30 and
+                                                 # -45 missed 4 of 4 (2026-10-26, a finger end on the rim). The taught
+                                                 # grasp point's horizontal error turns with the grasp (docs/night5/P2.md):
+                                                 # a waist turn or a base move comes before a larger turn
+COMFORT_R_MM = 710.0                             # mm, cup's horizontal distance from the arm base origin: picks proven
+                                                 # up to here (furthest live success (-68, 703)); further, the base moves
+                                                 # in first when it can (tasks/fetch.py). Estimate until measured live
+CARRY_UP_MM = (100.0, 200.0)                     # holding the cup: when the straight line to carry is refused (a joint
+                                                 # jumps: carry has the elbow almost straight), straight up this much
+                                                 # first, then one checked joint move to carry (carry_up)
+HOVER_MM = 60.0                                  # hover(): the grasp point this far over the top (the fingers lie level
+                                                 # near its height, owner's tape on the tips grasp; TIP_MM is a margin)
+LINE_STEPS = 10                                  # ... that straight up is IK-checked at this many points
+LINE_STEP_DEG = 25.0                             # ... no joint turning more than this between two of them
+OFFLINE_KINE = True                              # kine_forward / kine_inverse answered by robot/kinematics.py (fitted
+                                                 # to the controller, < 0.5 mm): a plan asks hundreds, and the controller
+                                                 # drops its connection under such bursts (2026-10-26 18:46). The
+                                                 # controller confirms only the chosen plan (confirm)
+CONFIRM_MM = 2.0                                 # mm; the controller's forward kinematics of planned joints within this
+CONFIRM_DEG = 2.0                                # deg; its inverse kinematics within this of the offline answer
+RETRIES = 4                                      # the controller now and then answers with nothing: ask again,
+RETRY_S = 0.2                                    # waiting this long, twice as long each time (it drops connections)
 OPEN_AI = gripper.CLOSED_AI                      # AI_1 below this after opening = released
 
 _held = {}                                       # what pick() holds: {"top_mm", "x", "y"} for place() / put_down()
@@ -543,12 +569,23 @@ def on_table(spots_xy, table_mm=None):
     ring = [(0.0, 0.0)] + [(TABLE_RING_MM * math.cos(a), TABLE_RING_MM * math.sin(a)) for a in angles]
     inner = [(0.0, 0.0)] + [(TABLE_NEAR_RING_MM * math.cos(a), TABLE_NEAR_RING_MM * math.sin(a)) for a in angles]
     guess = table_mm if table_mm is not None else -400.0     # only to find the pixels; the depth decides
+
+    def heights(pts):                     # z of the surface at each point: the sight line aimed again at the height
+        first = surface_points(pts, guess)   # it met must meet it at the point itself (a line just past the near
+        aim = [(p[0], p[1], q[2]) for p, q in zip(pts, first) if q is not None]   # edge meets the top further on)
+        second = dict(zip([a[:2] for a in aim], surface_points(aim) if aim else []))
+        out = []
+        for p, q in zip(pts, first):
+            r = None if q is None else second[(p[0], p[1])]
+            out.append(None if r is None or math.hypot(r[0] - p[0], r[1] - p[1]) > TABLE_XY_MM else r[2])
+        return out
+
     out = []
     for x, y in spots_xy:
-        zs = surface_heights([(x + dx, y + dy) for dx, dy in ring], guess)
+        zs = heights([(x + dx, y + dy) for dx, dy in ring])
         again = [i for i, z in enumerate(zs) if z is None and ring[i][1] < -1e-6]
         if again:
-            for i, z in zip(again, surface_heights([(x + inner[i][0], y + inner[i][1]) for i in again], guess)):
+            for i, z in zip(again, heights([(x + inner[i][0], y + inner[i][1]) for i in again])):
                 zs[i] = z
         if None in zs:
             continue
@@ -559,9 +596,18 @@ def on_table(spots_xy, table_mm=None):
 
 
 # ---------- checking with the controller ----------
-def _ask(name, **args):
-    """arm.cmd with retries for empty answers / dropped connections."""
-    for _ in range(RETRIES):
+def _offline():
+    """Plans use the offline kinematics: OFFLINE_KINE and the real controller behind arm.cmd (a test's stand-in arm
+    answers its own kinematics)."""
+    return OFFLINE_KINE and arm.cmd is _ARM_CMD
+
+
+def _ask(name, controller=False, **args):
+    """arm.cmd with retries for empty answers / dropped connections; kine_forward / kine_inverse offline (_offline)
+    unless `controller`."""
+    if not controller and name in ("kine_forward", "kine_inverse") and _offline():
+        return kinematics.ask(name, **args)
+    for i in range(RETRIES):
         try:
             r = arm.cmd(name, **args)
         except (ConnectionError, OSError):
@@ -572,8 +618,32 @@ def _ask(name, **args):
             r["jointPosition"] = r["jointPosition"][:6]       # some answers carry a 7th (external axis) value
         if "errorCode" in r and not empty:
             return r                     # ("0" without the answer happens too: ask again)
-        time.sleep(RETRY_S)
+        time.sleep(RETRY_S * 2 ** i)
     raise SkillError("The arm controller is not answering.")
+
+
+def confirm(waypoints, ja):
+    """The controller agrees with an offline plan (waypoints from `ja`, the joints at the first one): its forward
+    kinematics of `ja` is the first pose (CONFIRM_MM) and its inverse kinematics of the next one from `ja` is the
+    offline answer (CONFIRM_DEG: the same arm configuration). Two asks. True without asking for a plan made by a
+    stand-in (a test's _ask or arm)."""
+    if not _offline() or _ask is not _ASK:
+        return True
+    c = _ask("kine_forward", controller=True, jointPosition=[float(v) for v in ja])["cartPosition"]
+    if np.linalg.norm(np.subtract(c[:3], waypoints[0][1][:3])) > CONFIRM_MM:
+        log(f"the controller puts {[round(v) for v in c[:3]]} for the plan's {[round(v) for v in waypoints[0][1][:3]]}")
+        return False
+    r = _ask("kine_inverse", controller=True, jointPosition=[float(v) for v in ja], cartPosition=list(waypoints[1][1]))
+    mine = _ask("kine_inverse", jointPosition=[float(v) for v in ja], cartPosition=list(waypoints[1][1]))
+    if r["errorCode"] != "0" or mine["errorCode"] != "0" or \
+            max(abs(a - b) for a, b in zip(motion.nearest(r["jointPosition"], mine["jointPosition"]),
+                                           mine["jointPosition"])) > CONFIRM_DEG:
+        log(f"the controller's IK of {waypoints[1][0]} differs from the plan's")
+        return False
+    return True
+
+
+_ASK, _ARM_CMD = _ask, arm.cmd
 
 
 def _joints():
@@ -688,16 +758,24 @@ def checked(waypoints, start_joints):
     return rows
 
 
-def pick_options(obj, start):
-    """(waypoints, joints above) of every grasp turn (GRASP_YAWS) and wrist solution reachable from `start`: a joint
-    move down to above that stays above it, then straight down and up. Objects of the wrong width raise."""
+def pick_options(obj, start, max_yaw=None):
+    """(waypoints, joints above) of every grasp turn (GRASP_YAWS; within `max_yaw` deg when given) and wrist solution
+    reachable from `start`: a joint move down to above that stays above it, then straight down and up; the controller
+    confirms each one given. Objects of the wrong width raise."""
     plan_pick(obj)
+    tried = []
     for seeds in (IK_SEEDS[:1], IK_SEEDS[1:]):         # the proven `ready` configuration at every turn first
         for yaw in GRASP_YAWS:
+            if max_yaw is not None and abs(yaw) > max_yaw:
+                continue
             waypoints = plan_pick(obj, yaw)
             for ja in above_joints(waypoints[0][1], start, seeds):
+                if any(y == yaw and max(abs(a - b) for a, b in zip(t, ja)) <= 1.0 for y, t in tried):
+                    continue                           # another seed found the same solution
+                tried.append((yaw, ja))
                 rows = ik_chain(waypoints[1:], ja)
-                if not rows[-1][3] and wrist_ok([ja] + [r[2] for r in rows]) and move_ok(start, ja):
+                if not rows[-1][3] and wrist_ok([ja] + [r[2] for r in rows]) and move_ok(start, ja) and \
+                        confirm(waypoints, ja):
                     yield waypoints, ja
 
 
@@ -729,7 +807,7 @@ def place_options(x, y, top_mm, start):
         for ja in above_joints(way[0][1], start):
             rows = ik_chain(way[1:], ja)
             if not rows[-1][3] and wrist_ok([ja] + [r[2] for r in rows]) and move_ok(start, ja) and \
-                    tilt_on(start, ja) <= MAX_TILT_DEG:
+                    tilt_on(start, ja) <= MAX_TILT_DEG and confirm(way, ja):
                 yield way, ja
 
 
@@ -741,16 +819,46 @@ def place_turned(way, ja):
     _do_place(way)
 
 
-def reachable_pick(obj, start=None, accept=lambda waypoints, ja: True):
-    """(waypoints, joints above) of the first pick option from `start` (home) that `accept` also takes, else None."""
-    for waypoints, ja in pick_options(obj, home_joints() if start is None else start):
+def carry_up(above, ja):
+    """Another way to carry for a held cup whose straight line from above the pick spot (flange pose `above`, joints
+    `ja`) to carry is refused: straight up CARRY_UP_MM (IK at LINE_STEPS points, no joint turning more than
+    LINE_STEP_DEG between two, J5 off 0), then one joint move to carry, the cup upright, clear of the head, no dip
+    (arm_route.check_moves). (pose up there, carry joints) or None."""
+    from manipulation import arm_route
+    for dz in CARRY_UP_MM:
+        rows = ik_chain([(f"up {k}", up(above, dz * k / LINE_STEPS)) for k in range(1, LINE_STEPS + 1)], ja)
+        if rows[-1][3]:
+            continue
+        js = [list(ja)] + [r[2] for r in rows]
+        if max(abs(b - a) for p, q in zip(js, js[1:]) for a, b in zip(p, q)) > LINE_STEP_DEG or not wrist_ok(js):
+            continue
+        try:
+            return rows[-1][1], arm_route.check_moves(js[-1], [motion.poses()["carry"]], holding=True)[0]
+        except arm_route.RouteError:
+            continue
+    return None
+
+
+def carry_by_joints(plan):
+    """Run a carry_up() plan from above the pick spot: straight up, then the joint move to carry."""
+    _line("up to carry", plan[0])
+    _go_on()
+    log("carry: joint move")
+    motion.move_joints(plan[1], HOLDING_SPEED)
+
+
+def reachable_pick(obj, start=None, accept=lambda waypoints, ja: True, max_yaw=None):
+    """(waypoints, joints above) of the first pick option from `start` (home), grasp turned at most `max_yaw` deg
+    (e.g. TRUSTED_YAW_DEG; None: any), that `accept` also takes, else None."""
+    for waypoints, ja in pick_options(obj, home_joints() if start is None else start, max_yaw):
         if accept(waypoints, ja):
             yaw = round(yaw_of(waypoints[1][1]))
             how = "between the tips" if grip_width(obj) < BELLY_MIN_MM else "in the hooks"
             log(f"grasp {how}, turned {yaw:+d} deg, wrist J5 {ja[4]:+.0f}" if yaw else
                 f"grasp {how}, wrist J5 {ja[4]:+.0f}")
             return waypoints, ja
-    log(f"plan refused: no grasp turn reaches ({obj['x']:.0f}, {obj['y']:.0f})")
+    log(f"plan refused: no grasp turn{'' if max_yaw is None else f' within {max_yaw:.0f} deg'} reaches "
+        f"({obj['x']:.0f}, {obj['y']:.0f})")
     return None
 
 
@@ -935,6 +1043,41 @@ def move_object(name="cup", colour=None, to=None):
     return xy
 
 
+def hover(name="cup", yaw=0.0):
+    """Live check of the grasp point (docs/night5/P2.md): the pick of `name` planned with the grasp turned `yaw` deg,
+    slow, down to the grasp point HOVER_MM above its top (the hooks' ring over the rim, nothing touches, the gripper
+    stays open); Enter: back up and home. The owner reads how far the ring's centre is from the rim's centre."""
+    _cancel.clear()
+    obj = find(name)
+    log(f"found {obj['colour']} {obj['name']} at ({obj['x']:.0f}, {obj['y']:.0f}) top {obj['top_mm']:.0f}")
+    way, ja = next(((w, j) for w, j in pick_options(obj, home_joints()) if round(yaw_of(w[1][1])) == round(yaw)),
+                   (None, None))
+    if way is None:
+        raise SkillError(f"No grasp turned {yaw:+.0f} deg reaches it.")
+    _prepare()
+    _go_on()
+    log(f"above: joint move, grasp turned {yaw:+.0f} deg, wrist J5 {ja[4]:+.0f}")
+    motion.move_joints(ja, HOLDING_SPEED)
+    _line("hover", up(way[1][1], obj["top_mm"] - grasp_height(obj) + HOVER_MM))
+    input(f"hooks {HOVER_MM:.0f} mm over the rim, cup seen at ({obj['x']:.0f}, {obj['y']:.0f}): read the offset, "
+          f"then Enter ")
+    _line("up", way[0][1])
+    _back_home()
+
+
+def offset_fix(reports):
+    """From hover() readings [(grasp turn deg, ring centre minus rim centre (dx, dy) mm, arm frame)] at one cup spot,
+    with at least two turns: (u, e, new tcp_offset_flange). u: the taught grasp point's horizontal error (it turns
+    with the grasp), e: the camera's error at that spot (it does not). Reading = e - Rz(turn) u, least squares."""
+    A, b = [], []
+    for yaw, d in reports:
+        A += list(np.hstack([np.eye(2), -_rz(yaw)[:2, :2]]))
+        b += list(d)
+    e_u = np.linalg.lstsq(np.array(A), np.array(b, float), rcond=None)[0]
+    u = np.array([*e_u[2:], 0.0])
+    return u[:2], e_u[:2], GRASP_OFFSET - calib.rpy_matrix(*GRASP_RPY).T @ u
+
+
 def _dry_run(name, to):
     seen = look()
     for o in seen:
@@ -966,6 +1109,13 @@ if __name__ == "__main__":
             pick(a[1] if len(a) > 1 else "cup")
         elif a[:1] == ["move"]:
             move_object(a[1] if len(a) > 1 else "cup", to=to)
+        elif a[:1] == ["hover"]:
+            hover(a[1] if len(a) > 1 else "cup", float(a[2]) if len(a) > 2 else 0.0)
+        elif a[:1] == ["offset"] and len(a) >= 7 and len(a) % 3 == 1:
+            v = [float(x) for x in a[1:]]
+            u, e, new = offset_fix([(v[i], v[i + 1:i + 3]) for i in range(0, len(v), 3)])
+            print(f"grasp point error {u.round(1)} mm, camera error {e.round(1)} mm; "
+                  f"tcp_offset_flange {[round(float(x), 1) for x in new]} (was {GRASP_OFFSET.tolist()})")
         else:
             sys.exit(__doc__)
     except SkillError as e:

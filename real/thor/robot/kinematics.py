@@ -26,7 +26,7 @@ URDF_JOINTS = (((0, 0, 0), (3.1416, 1.5708, 0)),                   # jaka_lumi.u
                ((0.1303, 0, 0.0185), (-1.5708, 0, -1.5708)),
                ((0, -0.01805, 0.0802), (1.5708, 1.5708, 0)),
                ((-0.1233, 0, 0.01805), (1.5708, 0, -1.5708)))
-IK_ITERS = 60                                    # Newton steps at most
+IK_ITERS = 30                                    # Newton steps at most (a reachable pose took at most 19)
 IK_TOL_MM, IK_TOL_RAD = 0.01, 1e-5               # converged when the pose is this close
 IK_STEP_DEG = 20.0                               # no joint turns more than this in one step (keeps the seed's branch)
 
@@ -70,9 +70,9 @@ def chain(joints, model=None):
     for F, q, off in zip(frames, joints, offsets):
         T = T @ F
         a = math.radians(q) + off
-        Rz = np.eye(4)
-        Rz[:2, :2] = [[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]]
-        T = T @ Rz
+        c, s = math.cos(a), math.sin(a)
+        T = T.copy()
+        T[:, :2] = np.stack([c * T[:, 0] + s * T[:, 1], c * T[:, 1] - s * T[:, 0]], axis=1)   # T @ Rz(a)
         out.append(T)
     return out
 
@@ -115,10 +115,11 @@ def ik(target, seed):
         e = np.concatenate([goal[:3, 3] - T[:3, 3], T[:3, :3] @ _rotvec(T[:3, :3].T @ goal[:3, :3])])
         if np.linalg.norm(e[:3]) < IK_TOL_MM and np.linalg.norm(e[3:]) < IK_TOL_RAD:
             return [float(v) for v in (q + 180.0) % 360.0 - 180.0]   # the same pose; within +-180 like a fresh answer
-        J = np.zeros((6, 6))
-        for i in range(6):
-            z, o = frames[i + 1][:3, 2], frames[i + 1][:3, 3]
-            J[:3, i], J[3:, i] = np.cross(z, T[:3, 3] - o), z
+        F = np.array(frames[1:7])
+        Z, O = F[:, :3, 2], F[:, :3, 3]                                  # each joint's axis and origin
+        d = T[:3, 3] - O
+        J = np.vstack([np.array([Z[:, 1] * d[:, 2] - Z[:, 2] * d[:, 1], Z[:, 2] * d[:, 0] - Z[:, 0] * d[:, 2],
+                                 Z[:, 0] * d[:, 1] - Z[:, 1] * d[:, 0]]), Z.T])   # axis x (flange - origin), axis
         e[3:] *= 100.0                           # 1 rad weighs as 100 mm
         J[3:] *= 100.0
         dq = np.degrees(np.linalg.lstsq(J, e, rcond=None)[0])

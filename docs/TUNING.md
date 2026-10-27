@@ -70,6 +70,15 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `tasks/fetch.py` | `SEARCH_BASE_DEG` | 180°, 90° | Then the base turns towards the busier side, the first of these whose sweep is clear, and all again |
 | `tasks/fetch.py` | `LIFT_TRIES` | 0, 105 mm (`LIFT_RANGE`) | Nothing found: all of it again at the other end |
 | `tasks/fetch.py` | `APPROACH_TRIES` | 5 | Base moves to bring an object into reach before asking the person |
+| `tasks/fetch.py` | `PROGRESS_MM` | 40 mm | A base move that brought the object less than this nearer its goal (odometry) did nothing: that way is not tried again from there |
+| `tasks/fetch.py` | `GOAL_SHIFTS_MM` | 0, −120, +120 mm | The straight way in aims the object at the pick zone, then this far to either side of it (a small turn and in) |
+| `tasks/fetch.py` | `APPROACH_SIDES` | 0, ±45, ±90, ±135, 180° | Then navigation to each of these sides of the object, once; a side where the base can't stand near enough is skipped |
+| `manipulation/skills.py` | `COMFORT_R_MM` | 710 mm | A cup further than this from the arm base (where the waist can bring it) is brought nearer by the base first when it can. Estimate |
+| `manipulation/skills.py` | `TRUSTED_YAW_DEG` | 15° | Grasp turns up to this are tried first; larger ones only when the base can't bring the cup nearer |
+| `tasks/fetch.py` | `KEPT_MM`, `TORSO_HALF_DEG` | 150 mm, 30° | After a base move the object is the one seen this near where its map place says; the waist turns the torso camera to it when it is further than this off the view |
+| `tasks/fetch.py` | `GOAL_OUT_MM`, `VIEW_MARGIN_PX` | 0–200 mm in 20 mm steps, 10 px | The base brings a cup further out than the pick zone when the torso camera would not see its middle there (a low table); "in view" is this far inside the image |
+| `tasks/fetch.py` | `NEAR_GAP_M`, `NEAR_BACK_M` | 0.15 m, 0.3 m | Nothing seen ahead and something this near the base: back off this much and look again before the whole search |
+| `tasks/fetch.py` | `FAR_SPOTS` | 4 | Spots of a table seen further away tried from where the base stands before going closer |
 | `tasks/fetch.py` | `WAIST_REACH_STEPS` | 0, ±15, ±30° | A pick out of reach: waist turns tried around the one bringing the object to the pick zone's bearing, before a base move |
 | `tasks/fetch.py` | `WAIST_FOUND_MM` | 80 mm | After that waist turn the object must be seen this near where it should be |
 | `manipulation/skills.py` | `IK_SEEDS` | ready, look, carry, give | Taught poses whose arm configurations (and wrist flips) seed the pick / place IK |
