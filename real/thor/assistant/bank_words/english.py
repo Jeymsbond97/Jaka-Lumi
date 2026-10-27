@@ -379,6 +379,9 @@ _NO = [
     "lift my spirits", "lift the ban", "lift weights", "take the lift", "where is the lift", "raise the price",
     "raise the bar", "raise a question", "raise your voice", "keep your voice down", "speak up", "cheer up",
     "lighten up", "grow up", "shut up", "hurry up", "stand up for yourself", "stand up comedy", "sit down please, everyone",
+    # things Lumi cannot do, said like a motion
+    "fly up to the ceiling", "fly up", "fly to the ceiling", "fly up to the sky", "fly up high", "jump up to the ceiling",
+    "jump up", "jump up high", "climb up to the ceiling", "float up to the ceiling", "climb the wall", "fly away",
     # someone else's body, reports, talk
     "my kid wants to wave at you", "my son is following me", "the dog follows me", "he moved to the left",
     "the car turned right", "she looked up", "my mom raised her hand", "a robot at the mall waved at me",
