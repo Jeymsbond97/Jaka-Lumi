@@ -190,7 +190,7 @@ QUICK["robot"] += [w + e for w in ["누가 조종해", "누가 조종하노", "�
 QUICK.setdefault("arm_weight", []).extend(["팔 무게가 몇 킬로예요", "팔 무게 몇 kg이야", "팔 무게가 몇 kg입니까", "팔은 몇 kg 나가요", "how heavy is the arm",
                                           "how heavy is this arm", "how much does that arm weigh"])
 QUICK.setdefault("co_hq", []).extend(["쿳션 회사 어디 있어", "쿳션 회사 어디 있노", "쿳션 회사 어디에 있어요", "쿳션 회사 위치가 어디예요",
-                                      "쿳션 어디 있는 회사예요", "쿳션 회사 어딨어", "where is cutshion located", "where's the company located"])
+                                      "where is cutshion located", "where's the company located"])
 QUICK.setdefault("price", []).extend(["가격이 얼마야", "가격이 얼마예요", "가격이 얼맙니까", "가격이 얼마입니까", "가격 얼마노", "가격이 얼마여",
                                       "로봇 가격 얼마예요", "이거 가격 얼마야"])
 QUICK["speed"] += ["빨리 달릴 수 있어", "빨리 달릴 수 있어요", "빨리 갈 수 있어", "빨리 갈 수 있습니까", "얼마나 빨리 달려", "can you go fast",
