@@ -137,7 +137,7 @@ def _save_queries(known):
 
 def _run(job):
     """One share of the cases: (counts by set, wrong, hits, read times, missed, new query vectors)."""
-    part, stress, fast, marks = job
+    part, stress, fast, marks, misses = job
     known = KNOWN                                  # the embed wrapper's own dict (in a forked job: its copy)
     n0 = set(known)
     from assistant import detour, steps
@@ -169,6 +169,14 @@ def _run(job):
         times.append(time.time() - t0)
         if not got:
             by[name]["llm" if ruled in (None, "llm?") else "rules"] += 1
+            if ruled == "llm?" and fast and misses and expect.startswith("action:"):
+                intent_bank.read = lambda *a, **k: None   # --misses: the rules asked only here (true misses)
+                try:
+                    ruled = command_check.rules(text, state, mk, b)
+                except command_check.NoLLM:
+                    pass
+                finally:
+                    intent_bank.read = real
             if ruled in (None, "llm?") and expect.startswith("action:"):
                 missed.append(f"- [{name}/{state}] {text!r} (want {expect})")
             continue
@@ -186,7 +194,8 @@ def _run(job):
 
 def main(args):
     """--fast: the rules are not run (0.8 s a case): wrong and llm are the same, hit and agree are counted together as
-    hit. --jobs N: N processes (the embedding server is shared)."""
+    hit. --misses (with --fast): the rules read only the cases the bank leaves, so the "Left to the LLM" list holds
+    only what nothing but the LLM answers. --jobs N: N processes (the embedding server is shared)."""
     global OUT
     if "--rounds" in args:
         ROUNDS[:] = args[args.index("--rounds") + 1].split(",")
@@ -199,7 +208,7 @@ def main(args):
     jobs = int(args[args.index("--jobs") + 1]) if "--jobs" in args else 1
     intent_bank._load(), intent_bank._codes()                # loaded once, shared by the forked jobs
     every = cases("--blind" in args)
-    parts = [(every[i::jobs], stress, fast, marks) for i in range(jobs)]
+    parts = [(every[i::jobs], stress, fast, marks, "--misses" in args) for i in range(jobs)]
     if jobs > 1:
         import multiprocessing
         with multiprocessing.get_context("fork").Pool(jobs) as pool:

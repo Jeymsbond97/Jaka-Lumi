@@ -159,7 +159,8 @@ HAND = {
     ("put it on that table", True): ("place", {"name": "dining table", "colour": None}),
     ("open your hand", True): ("refuse", brain.REFUSE_OPEN), ("손 펴", True): ("refuse", brain.REFUSE_OPEN),
     ("open your hand", False): None, ("take the cup", False): None, ("give me the cup", False): None,
-    ("grab that cup on the table", False): None, ("give it to Mina", True): None, ("put it back", True): None,
+    ("grab that cup on the table", False): None, ("give it to Mina", True): ("give", None),   # as "미나한테 줘": given here
+    ("put it back", True): None,
     ("take it to p2 and put it on the table", True): None, ("just hold it", True): None,
     ("can you give things to people?", False): None, ("don't give it to him", True): None, ("팔 거둬", True): None,
     ("what happens if I put something in your hand?", False): None, ("I get it", False): None,

@@ -677,7 +677,7 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
     ("follow", r"\b(?:follow|following|come with|come along with|come together with|walk with|tag along with)\s+(?:me|us)\b(?!\s+(?:on|at)\b)|"   # not "follow
                r"\bcome along\b|(?<!말 )(?<!말을 )따라\s?(?:와|오세요|오십시오|올래)|(?<!로 )(?:같이|함께)\s?(?:가자|가요|갑시다|걸어|가(?=\W*$))|"   # me on instagram"
                r"\b(?:and|then) follow(?: me| along)?\W*(?:(?:please|plz|thanks|bro|now|okay|ok)\W*)*$|"
-               r"\b(?:keep|stay|walk|go) (?:right )?behind me\b|\bi(?:'?ll| will) walk,? (?:and )?you follow\b|"
+               r"\b(?:keep|stay|walk|go|come) (?:right )?behind me\b|\bi(?:'?ll| will) walk,? (?:and )?you follow\b|"
                r"^\W*(?:\w+\W+){0,2}(?:you )?follow\W*(?:(?:please|plz|thanks|bro|now|okay|ok)\W*)*$|\bfolow me\b|"
                r"\bafter me\b(?! (?:please )?(?:say|repeat))|(?:나|저) ?(?:를|을)? ?따라서? (?:walk|와|걸어)"),
     # ^ "keep behind me and follow", "I'll walk, you follow", "Lumi, after me walk please", "나 따라서 walk 해"
@@ -846,7 +846,7 @@ COME_BACK = re.compile(   # the whole sentence asks Lumi back to where it stood 
     r"(?:come (?:on )?back|return|(?:go|head|drive) back(?= ))(?: to)?(?: (?:where you (?:were|was|started|came from|were standing)"
     r"(?: before)?|the way you came|(?:your|the) (?:start(?:ing)? (?:point|place|spot|position)|start|original (?:spot|place|position)|"
     r"old (?:spot|place)|spot|place)))?(?: (?:now|please|lumi|again|for me))*|"
-    r"(?:(?:다시|이제|좀|얼른|어서)\s*)*(?:(?:원래|아까|처음)\s*(?:있던|있었던|서 ?있던)?\s*(?:자리|곳|데|위치|장소)\s*(?:으로|로|에)\s*|"
+    r"(?:(?:다시|이제|좀|얼른|어서)\s*)*(?:(?:(?:원래|아까|처음|그)\s*)+(?:있던|있었던|서 ?있던)?\s*(?:자리|곳|데|위치|장소)\s*(?:으로|로|에)\s*|"
     r"제자리로\s*)?(?:다시\s*)?(?:되)?돌아\s?(?:와|가|오세요|가세요|와요|가요|와라|가라|올래|갈래)"
     r"(?:\s*(?:줘요?|주세요|줄래요?|봐))?|"
     r"(?:(?:다시|이제|좀|얼른|어서)\s*)*(?:원래\s*(?:있던|있었던|서 ?있던)\s*(?:자리|곳|데|위치)|왔던\s*(?:길|곳|데|자리))\s*(?:으로|로)\s*"
@@ -1121,6 +1121,7 @@ def direct_order(text):
     short fragment command ("booth A", "faster", "left a bit", "회전"). Only then may a keyword rule act; anything else
     (a statement, a story, a plan between people, a question about ability or habit) is read by the LLM with the talk
     before it. Each sentence / clause is checked; one order in it is enough (not_an_order weeds out the rest)."""
+    text = re.sub(r"\b(can|could|would|will) (?:ya|yah|yu)\b", r"\1 you", text or "", flags=re.I)   # "could ya grab it"
     t = re.sub(_LEAD, "", unfill(wording.ko_plain(_MAY_NOT.sub(" 줘", text or ""))).strip(), flags=re.I)   # every
     # speech level as 반말
     t = re.sub(r"[\s~]*(?:[ㅋㅎ]{2,}|ㅠ+|ㅜ+)[\s~]*$|~+(?=\s*[?!.]*\s*$)", "", t)   # "가 줄래~?", "고개 내려 ㅎㅎ"
@@ -1285,6 +1286,11 @@ def intent(text, markers=()):
         plain = re.sub(r"줘\s*\?+\s*$", "줘", wording.ko_plain(_MAY_NOT.sub(" 줘", text)))   # "놔 줘?": a request asked
         if plain != text:
             rule = _intent(plain, markers)
+    if rule is None:
+        prefer, cut = pick_prefer(text or "")
+        if prefer and cut != text:
+            rule = _intent(cut, markers)                # "grab the smaller cup": the pick (which one: the reader's prefer)
+            rule = rule if rule and rule[0] in ("pick", "fetch") else None
     return rule
 
 
@@ -1534,7 +1540,7 @@ def _intent(text, markers=()):
         if action == "put":
             return ("put", "back" if re.search(r"\bback\b|\breturn\b|\bwhere (?:it was|you)\b|\bits (?:spot|place)\b|제자리|다시|원래|원위치|있던|도로", t)
                     else "down")
-        if action == "pick" and re.search(r"\b(?:grab|get|fetch|pick up|take) me\b", t):
+        if action == "pick" and re.search(r"\b(?:grab|get|fetch|pick up|take) me\b|\bgimme\b", t):
             return ("fetch", text)                        # "go grab me a cup": brought to me, not only picked
         if action in ("pick", "move_object") and far:
             return ("fetch", text)                        # "get me an orange at gate one": a trip there, not a pick here
@@ -1762,8 +1768,8 @@ def unfill(t):
 
 KO_SLIPS = [   # Konglish, dialect and whisper's spellings of the cup / delivery verbs, as the readers know them
     (r"(?:테이크|픽업|그랩|(?<![가-힣])픽)\s?해서", "집어서"), (r"(?:테이크|픽업|그랩|(?<![가-힣])픽)\s?하고", "집고"),
-    (r"(?:드랍|드롭)\s?해", "놔"), (r"기달려", "기다려"), (r"기달리", "기다리"), (r"(?<![가-힣])들구(?=\s|$)", "들고"),
-    (r"가저(?=와|다|가|오)", "가져"), (r"(?<![가-힣])날라(?=\s*(?:줘|주|다|$))", "옮겨"), (r"((?:갖다|가져다)\s?)도(?=\W*$)", r"\1줘"), (r"놓(?:그라|거라)", "놔"),
+    (r"(?:드랍|드롭)\s?해", "놔"), (r"기달려", "기다려"), (r"기달리", "기다리"), (r"기다리(?=\W*$)", "기다려"), (r"(?<![가-힣])들구(?=\s|$)", "들고"),
+    (r"가저(?=와|다|가|오)", "가져"), (r"((?:몸|손|팔|고개)(?:을|를)? )내러(?=\s|$)", r"\1내려"), (r"(?<![가-힣])날라(?=\s*(?:줘|주|다|$))", "옮겨"), (r"((?:갖다|가져다)\s?)도(?=\W*$)", r"\1줘"), (r"놓(?:그라|거라)", "놔"),
 ]
 
 
@@ -1854,6 +1860,8 @@ def _mentions(text, markers):
             # ^ "and go exit point", "exit 가서", "exit 까지 가 줘": a drive there, said without "to" / 로
             out["dest"] = _as_place(place)
     for m in re.finditer(r"\bfrom (?:the )?([a-z]+)", t):   # "from the kitchen": a place not on the map
+        if m.group(1) in ("left", "right", "table", "desk", "front", "back", "top", "side", "middle", "center", "shelf"):
+            continue                                         # "from the right table": a side here, no place
         if not re.match(_place_re(markers), t[m.start(1):]) and "source" not in out:
             out["source"] = None
     for m in re.finditer(r"(?:^|\s)([가-힣a-z0-9]+?)\s?에서(?![가-힣])", t):   # "2층에서", "주방에서": not on the map
@@ -2006,7 +2014,9 @@ ASKS_AGAIN = re.compile(r"\bdidn'?t (?:quite )?(?:catch|understand|get)\b|\b(?:c
                         r"(?:that|it|them)\b|\bsay (?:that|it) again\b|\bnot sure what you(?:'re| are)? (?:mean|referring)|"
                         r"\bplease clarify\b|\bcould you (?:please )?clarify\b|잘 ?못 알아들|다시 (?:한 ?번 ?)?말씀해|"
                         r"\bwhat do you mean by\b|\bwhich \w+ do you mean\b|이해하지 못했|무슨 말씀이신지|무슨 뜻인지 (?:잘 )?모르|"
-                        r"(?:어떤|무슨|어느) \S+(?:을|를)? 말씀하시는|불분명", re.I)
+                        r"(?:어떤|무슨|어느) \S+(?:을|를)? 말씀하시는|불분명|말씀하시는 (?:건|것)(?:가요|인가요|이죠)|"
+                        r"\bare you (?:referring|asking) (?:to|about)\b|궁금하신가요\W*$", re.I)
+                               # (also "무엇이 걸리는 시간을 말씀하시는 건가요?", "Are you referring to the book ...?")
                                # a reply that asks to hear the words again
 UNSURE_ANSWER = re.compile(r"^\W*(?:maybe|perhaps|not really|kind of|sort of|i don'?t know|글쎄요?|아마(?:도)?|몰라요?|모르겠어요?)\W*$",
                            re.I)   # an answer to Lumi's question, not filler
@@ -2031,7 +2041,8 @@ def spoken(sentence, lang):
     return sentence
 
 
-HELD_GIVE = re.compile(r"\b(give|hand)\b|\bbring it\b|줘|주세요|건네", re.I)
+HELD_GIVE = re.compile(r"\b(give|hand|pass)\b|\bbring it\b|\b(?:can|could|may) i (?:have|get|take)\b|\b(?:lemme|let me) have\b|"
+                       r"\bgimme\b|줘|주세요|주십시오|주시|주면|주실|드려|드리|건네|내놔|내놓|이리 내", re.I)
 HELD_PLACE = re.compile(r"\b(put|place|set)\b|\b(?:drop|leave) (?:it|that|this|the \w+)(?: off| down)? (?:at|on|by)\b|놔|놓|둬", re.I)
 
 
@@ -2110,6 +2121,13 @@ def pick_prefer(text):
                   rf"(?!\s+(?:{_SUP_WORDS})\b)", t)
     if m:
         return m.group(2), t[:m.end(1)] + t[m.end():]
+    m = re.search(rf"(?<![a-z])((?:{_OBJ})s?|ones?)\s+(?:on|from|off)\s+the\s+(left|right)\s+(?:table|desk)s?\b|"
+                  rf"(왼쪽|오른쪽)\s*(?:테이블|탁자|책상)(?:\s*위)?(?:에|에서)\s*(?:있는\s*)?(?=(?:(?:{_COL})\s*)?(?:{_OBJ}))", t)
+    if m and m.group(1) and re.search(r"\b(?:put|place|set|leave|drop)\b", t[:m.start()]):
+        m = None                                           # "put the cup on the left table": where it goes
+    if m:                                                  # "the cup on the left table", "왼쪽 테이블에 있는 컵": that side
+        side = m.group(2) or {"왼쪽": "left", "오른쪽": "right"}[m.group(3)]
+        return side, (t[:m.end(1)] + t[m.end():]) if m.group(1) else t[:m.start()] + t[m.end():]
     m = re.search(rf"(?:(?:제일|가장|더)\s*)?(작은|큰|왼쪽(?:에\s*있는|의)?|오른쪽(?:에\s*있는|의)?|가까운|가까이\s*있는|먼|"
                   rf"멀리\s*있는)\s*(?=(?:(?:{_COL})\s*)?(?:{_OBJ})|(?:거|것|걸)(?![가-힣]))", t)
     if m:
@@ -2150,6 +2168,10 @@ def place_on(text):
 def held_command(text):
     """While holding: 'give' / 'place' for "give it to me", "put it on the table", "줘", "테이블에 놔". A thing to put
     it on wins ("bring it to p5 and put it on the table" is a place)."""
+    if re.search(r"들고\s*(?:계속\s*)?있|\bkeep (?:holding|it|hold of it)\b|\b(?:just )?hold (?:it|on to it|onto it)\b", text, re.I):
+        return None                                   # "계속 들고 있어 주세요", "keep holding it": nothing to do with it
+    if re.search(r"내놔|내놓(?:아|으)|이리 내", text):
+        return "give"                                 # "내놔": hand it over, not a put
     if HELD_PLACE.search(text) and place_on(text):
         return "place"
     if HELD_GIVE.search(re.sub(r"(?:놔|놓아|둬|올려|내려|(?<![갖다])가|가져가|들고 가|옮겨|와|이동해)\s*(?:좀\s*|쫌\s*)?(?:줘|주|드려|드리)", "놔", text)):   # "그거 놔 줘": 줘 helps the put
@@ -2173,7 +2195,7 @@ RECEIVE_EN = re.compile(
     rf"|\b(?:take|grab|get|accept|receive)\s+(?:(?:the|this|that|a|an|my)\s+)?(?:\w+\s+)?\w+\s+(?:from (?:me|my hands?)|out of my hands?|i'?m holding|in my hand)\b"
     rf"|\b(?:take|grab)\s+my\s+(?:(?:{_COL})\s+)?(?:{_OBJ})s?\b|\b(?:take|hold|catch)\s+this\s+(?:(?:{_COL})\s+)?(?:{_OBJ})s?\b(?!\s+(?:on|from|off|over)\b)"
     rf"|(?:^|[\s,.!])hold\s+(?:{_IT}|this \w+|my \w+)\b(?!\s+(?:up|out|on|thought)\b)(?! for me while)"
-    rf"|\bhang on to (?:{_IT})\b|\bhere(?: you go| it is|'?s (?:the|a|my|your) \w+(?: \w+)?)\b|^\W*here\W+(?:take|hold|catch)\b"
+    rf"|\bhang on to (?:{_IT})\b|\bhere(?: you go| it is|'?s (?:the|a|my|your) (?!(?:task|job|order|plan|question|answer|chance|turn|problem|deal|thing:)\b)\w+(?: \w+)?)\b|^\W*here\W+(?:take|hold|catch)\b"
     rf"|\bi(?:'ll| will|'m going to| want to| wanna|'d like to| would like to)\s+(?:give|hand)\s+you\b"
     r"(?!\s+(?:a|an|some) (?:tip|hint|call|ring|ride|hand|hug|break|second|minute|chance|clue|idea)\b)"
     rf"|\bi(?:'m| am)\s+(?:giving|handing)\s+you\b|\bi (?:have|got|brought) (?:something|a \w+|this|it) for you\b", re.I)
@@ -2189,7 +2211,8 @@ PAID_Q = re.compile(r"(?<![가-힣])(?:월급|연봉|급여|보너스|월세|세
                     r"훈련|충전|수리|검사|업데이트)(?:을|를|은|는|도|이|가)?\s*(?:많이 |잘 |자주 |얼마나 )?받|"
                     r"^\W*(?:너|넌|너는|루미는?|당신은?)\s.*받(?:아|아요|니|나요|냐|았어|으세요)?\s*\?\s*$")   # a question about Lumi
 GIVE_EN = re.compile(
-    rf"\b(?:give|hand|pass|bring|deliver)\s+(?:{_IT}|the \w+|that \w+|this \w+)(?:\s+(?:back|over))?(?:\s+(?:to|for)\s+{_WHO})?(?:\s+(?:here|over here|over there|there|back))*{_TAIL}"
+    rf"\b(?:give|hand|pass|bring|deliver)\s+(?:{_IT}|the \w+|that \w+|this \w+)(?:\s+(?:back|over))?(?:\s+(?:to|for)\s+(?:{_WHO}|"
+    rf"(?!(?:the|a|an|my|your|his|her|their|our|table|floor|ground|it|that|this)\b)[a-z][a-z'-]+))?(?:\s+(?:here|over here|over there|there|back))*{_TAIL}"
     rf"|\b(?:give|hand|pass)\s+(?:{_WHO})\s+(?:{_IT}|the \w+|that \w+|that|this \w+|what you(?:'re| are) holding)\b"
     rf"|\bhand (?:{_IT} )?over\b|\bpass (?:{_IT} )?over\b|\bcan i (?:have|get|take) (?:{_IT}|the \w+)\b|\bi'?ll take (?:{_IT}|(?:that|the|this) \w+)\b(?! from here)|"
     rf"\blet me (?:have|take) (?:{_IT})\b|^\W*(?:okay,? )?give (?:{_IT})\W*$|^\W*gimme(?: (?:{_IT}))?{_TAIL}", re.I)
@@ -2248,7 +2271,7 @@ GIVE_LOOSE = re.compile(   # with something in the hand, the whole sentence asks
     rf"{_POL}\W*|\W*(?:me|to me)\W+(?:please\W+)?give{_POL}\W*|\W*i want (?:it|that|this|that one)(?: back)?{_POL}\W*|"
     rf"\W*(?:that'?s|it'?s) mine{_POL}\W*|\W*could i trouble you to (?:hand|give|pass) (?:it|that|this)(?: over| to me)?\W*|"
     rf"\W*(?:(?:나|저|우리|나한테|저한테|우리한테|이리|그거|이거|그것|이것|저거|내 거야|내 거|제 거예요|그|이|좀|빨리|어서|얼른|"
-    rf"(?:그|이|저) \S+)\W*)*(?:줘|주게|주세요|주라|줄래요?|줘요|내놔|내놓으세요|건네 ?줘|건네 ?주세요)(?:\W+(?:줘|주세요))*{_POL}\W*",
+    rf"(?:그|이|저) \S+)\W*)*(?:줘|주게|주세요|주라|줄래요?|줘요|내놔|내놓으세요|건네 ?줘|건네 ?주세요|(?<=이리 )내)(?:\W+(?:줘|주세요))*{_POL}\W*",
     re.I)
 IN_MY_HAND = re.compile(r"\b(?:in|into|on) my (?:hands?|palm)\b|(?:제|내|나의|저의) 손(?:에|위에|바닥에|으로)", re.I)
 REFUSE_PICK = ("I'm holding something already. Tell me where to put it first.",
@@ -2417,7 +2440,8 @@ def held_place(text, markers=()):
 
 CARRY_HELD = re.compile(r"\b(?:take|bring|carry|move|get) (?:it|that|this|them|the \w+)(?: over| along)? (?:to|towards?) |"
                         r"\b(?:drop|leave|put|set) (?:it|that|this|them|the \w+)(?: off| down)? (?:at|by|near|on) |"
-                        r"(?:으로|로|에|까지)\s*(?:좀\s*)?(?:가져가|가지고 ?가|갖고 ?가|들고 ?가|옮겨|가져다 ?놔|가 ?줘|가)", re.I)
+                        r"(?:으로|로|에|까지)\s*(?:좀\s*)?(?:가져가|가지고 ?가|갖고 ?가|들고 ?가|옮겨|가져다 ?놔|가 ?줘|가)|"
+                        r"(?:테이블|탁자|책상)?\s*(?:위)?\s*에\s*(?:좀\s*)?(?:놔|놓아|둬|올려)", re.I)   # "p5 테이블에 놔"
 
 
 def object_ko(name):
@@ -2471,9 +2495,10 @@ def held_give(text, markers=()):
         return False
     if any(_resolve(m, markers) not in (None, "here") for m in re.finditer(_place_re(markers), t)):
         return False                                    # a marker named: a carry there (the mission reader's)
-    if re.search(r"\b(?:give|hand|pass|bring)\s+(?:it|that|this)\s+to\s+(?!me\b|him\b|her\b|them\b|us\b|my\b|his\b|our\b|"
+    if re.search(r"\bbring\s+(?:it|that|this)\s+to\s+(?!me\b|him\b|her\b|them\b|us\b|my\b|his\b|our\b|"
                  r"your\b|that\b|the\b|this\b|whoever\b|someone\b|a\b|an\b)[a-z]+\s*[.!?]*$", t):
-        return False                                    # "give it to Mina": a named person, the mission reader's
+        return False                                    # "bring it to Mina": a trip to her, the mission reader's; "give /
+        #                                                 hand it to Mina" is given here, as "민수한테 줘"
     if GIVE_HELD_EN.search(t):
         return True
     for m in GIVE_HELD_KO.finditer(t):
@@ -2987,6 +3012,11 @@ _PRONOUN_KO = r"그거|이거|저거|그것|이것|저것|거기|여기|저기|�
 OWN_SUBJECT = re.compile(rf"(?<=\S )(?!I\b|Lumi\b|OK\b|Okay\b)[A-Z][a-z]+|(?<![가-힣A-Za-z])(?!(?:{_PRONOUN_KO})(?:은|는|이|가)(?![가-힣]))"
                          r"[가-힣A-Za-z]{2,}(?:은|는|이|가)(?=[\s?!.~,]|요|$)")
                                # a short question that names its own subject ("BTS는 언제 데뷔했어요?", "Who was Sejong?")
+BACK_TO = re.compile(r"\b(?:back to|go(?:ing)? back to|return(?:ing)? to|again about)\b|돌아가서|돌아와서|돌아가면|"
+                     r"(?:다시|아까) \S+ ?(?:얘기|이야기|토크|말씀)", re.I)    # a return to an earlier topic
+BACK_TO_STOP = re.compile(r"(?i:back|go|going|return|returning|again|about|what|you|your|said|say|the|did|tell|"
+                          r"me|that|this|talk|topic|part)$|다시|아까|얘기|이야기|말씀|돌아|뭐라|했지|했죠|하셨|토크|루미|그거|그건")
+KO_PARTICLE_END = r"(?<=[가-힣])(?:으로|로|이라는|라는|에|은|는|이|가|을|를|의)(?=\s|$|[,.?!])"
 NOT_SUBJECT_KO = re.compile(r"(?:으로|적으로|에서|에|까지|부터|보다|한테|에게)는$")
                                # "공식적으로는", "옛날에는", "서울에서는": a time / place / manner, not the subject
 WHAT_IS = re.compile(r"(?:뭐|무엇|뭔|머)(?:예요|에요|야|이야|입니까|인가요|이에요|가요|죠|지|냐|고|여|임|래요|래)?\W*$|"
@@ -2996,6 +3026,10 @@ THAT_ONE_KO = re.compile(rf"(?<![가-힣A-Za-z])(?!(?:{_PRONOUN_KO})\s)([가-힣
 OF_THING_KO = re.compile(rf"(?<![가-힣A-Za-z])(?!(?:{_PRONOUN_KO})(?:의)?\s)([가-힣A-Za-z]{{2,}}?)(?:의)?\s+"
                          r"(?:이름|나이|키|높이|무게|속도|가격|크기|색|색깔|모양|뜻)(?:은|는|이|가|도)?(?![가-힣])")
                                # "블루투스 이름은 왜 그렇게 지었나?": Bluetooth's name, not Lumi's
+TOPIC_OF_TALK = re.compile(rf"(?<![가-힣A-Za-z])(?!(?:{_PRONOUN_KO}|아까|그런|이런|저런|무슨|다른|재밌는|재미있는|옛날|"
+                           r"딴|그|이|저|제|내|네|니)\s)([가-힣A-Za-z]{2,})\s*(?:얘기|이야기|토크)|"
+                           r"\b(?i:tell me about|talk about|talking about|back to)\s+(?:the\s+|an?\s+)?([a-z]{3,})")
+                               # "emoji 얘기 좀 해 줘요", "tell me about mirrors": the talk's subject
 EN_SUBJECT = re.compile(r"\b(?i:do|does|did|can|could|are|is|were|was|will|would)\s+(?:the\s+|an?\s+)?"
                         r"(?!(?:you|i|we|they|he|she|it|people|there|this|that|these|those|your|my|our|me|not|so|very)\b)"
                         r"([a-z]{3,})\b")   # "Why do whales sing?": the whales (world_talk; lower case, so not OWN_SUBJECT)
@@ -3277,7 +3311,8 @@ class Brain:
         def named(t):                                  # "공식적으로는 언제로 쳐요?" names no subject (an adverb + 는)
             return [m.group(0) for m in OWN_SUBJECT.finditer(core(t)) if not NOT_SUBJECT_KO.search(m.group(0))] + \
                 [m.group(1) for m in EN_SUBJECT.finditer(core(t))] + [m.group(1) for m in THAT_ONE_KO.finditer(core(t))] + \
-                [m.group(1) for m in OF_THING_KO.finditer(core(t))]
+                [m.group(1) for m in OF_THING_KO.finditer(core(t))] + \
+                [m.group(1) or m.group(2) for m in TOPIC_OF_TALK.finditer(core(t))]
         qs = [topic_turn(self.history)[0]] + [h[0] for h in reversed(self.history[-3:])] if self.history else [""]
         q = next((x for x in qs if named(x)), qs[0])       # "문어 피는?" "왜?" "심장은?": the octopus, two turns back
         if named(text) and WHAT_IS.search(core(text)):
@@ -3289,9 +3324,27 @@ class Brain:
         return list(dict.fromkeys(re.sub(r"[은는가]$", "", w) for w in subjects     # "부엉이" keeps its 이
                                   if not SELF_THINGS.match(w[:-1] if HANGUL.search(w) else w)))
 
+    def _back_to(self, text):
+        """ "Back to the hydrogen: what did you say?", "다시 페트라 얘기로 돌아가서, 뭐라고 했지?": the earlier turn of this
+        talk that named that topic, as a hint, else "". Late in a talk that turn is out of the window and the model
+        answered the topic just before (r13 train, 2026-10-27)."""
+        if not BACK_TO.search(text) or len(self.history) < 2:
+            return ""
+        words = {w for w in re.findall(r"[가-힣]{2,}|[A-Za-z]{3,}", re.sub(KO_PARTICLE_END, "", text))
+                 if not BACK_TO_STOP.match(w)}
+        for q, a in reversed(self.history):
+            said = " ".join(ln for ln in a.splitlines() if not re.match(r"\s*\**ACTION", ln)).strip()
+            if said and any(w.lower() in f"{q} {said}".lower() for w in words):
+                return (f"(They go back to an earlier topic: to \"{q[:80]}\" you said \"{said[:FRAGMENT_CHARS * 2]}\". "
+                        f"Answer about that topic, with those facts.)\n")
+        return ""
+
     def _fragment_hint(self, text):
         """For a bare fragment ("얼마?", "Which one?", "Where is it used?"): what it follows, so the model reads it
         as about the last answer's subject, not about itself or a price."""
+        back = self._back_to(text)
+        if back:
+            return back
         last = self._last_said() if self.history else ""
         done = self._redo(text)
         if done:                     # "do it again" / "한 번 더" after a wave, "more" after a look

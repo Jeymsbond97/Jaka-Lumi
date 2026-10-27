@@ -171,14 +171,16 @@ def plan(text, held=False):
                          for st in r["steps"]) + (" !" + r["problems"][0] if r["problems"] else "")
     if a == "fetch":
         t = r["task"]
-        return " ".join(x for x in ("fetch", t["colour"], t["object"], f"{where(t['source'])}>{where(t['dest'])}", t["finish"]) if x)
+        return " ".join(x for x in ("fetch", t.get("prefer"), t["colour"], t["object"], f"{where(t['source'])}>{where(t['dest'])}",
+                                    t["finish"]) if x)
     if a in ("place", "give"):
         return a + (" on " + where(r["task"]["on"]) if (r.get("task") or {}).get("on") else "")
     if a == "carry":
         return f"carry {where(r['task']['dest'])} {r['task'].get('then') or 'hold'}"
     if a == "command":
         return "stop" if r["sentence"] == "Stop." else "chain" if "parts" in r else \
-            "rule " + " ".join(x for x in r["rule"] if x) if "rule" in r else "talk"
+            "rule " + " ".join(x for x in r["rule"] if x) if "rule" in r else \
+            "talk:status" if r.get("talk") == "status" else "talk"
     p = r.get("problems") or []
     return "empty" if p and "hand is empty" in p[0] else "ask: " + p[0] if p else \
         "ask: " + r["sentence"] if r.get("talk") == "refuse" else "talk"
@@ -330,7 +332,47 @@ READ = [   # the owner's Korean cup / delivery list (2026-10-26 18:40), then mor
     ("excuse me robot, first look me, then follow me", False, "chain"), ("야 루미, 오른쪽 보고 손 흔들어라", False, "chain"),
     ("hello robot, first turn left, then lower yourself", False, "chain"),
     ("악수하고 lower yourself 해 주세요", False, "chain"), ("오늘 날짜 알리고 look left 해 주세요", False, "chain"),
-    ("wave 하고 look left 해 줘", False, "chain"),
+    ("wave 하고 look left 해 줘", False, "chain"), ("루미 님, 손 흔드시고 몸 내러 주시길 부탁드립니다", False, "chain"),
+    ("몸내리고오른쪽으로돌아주라", False, "chain"), ("컵들고exit가서기다려", False, "pick cup; go exit; wait"),
+    ("컵들고p5가서민수한테줘", False, "pick cup; go p5; give 민수"), ("컵 들구 p5 가서 기다리", False, "pick cup; go p5; wait"),
+    ("wait at p5 with the cup", False, "pick cup; go p5; wait"), ("lemme see you go charge", False, "go home"),
+    ("let me see you wave", False, "rule wave"), ("okay see you", False, "talk"), ("you come behind me", False, "rule follow"),
+    ("here's your task: get over here", False, "talk"), ("Mina, what are you doing over there?", False, "talk"),
+    ("민수야, 너 거기서 뭐 하고 있어?", False, "talk"), ("루미야 뭐 하고 있어?", False, "talk:status"),
+    ("계속 들고 있어 주세요", True, "talk"), ("keep holding it", True, "talk"), ("just hold it", True, "talk"),
+    ("give it back", True, "give"), ("돌려줘", True, "give"), ("hand it back to me", True, "give"), ("그거 다시 줘", True, "give"),
+    ("put it back where you found it", True, "place"), ("원래 있던 데 놔 주세요", True, "place"),
+    ("할머니께 이거 전해 드려", True, "give"), ("이거 저분께 드리세요", True, "give"), ("사장님께 드려 주십시오", True, "give"),
+    ("그 컵 저 주시면 돼요", True, "give"), ("저한테 주시겠어요?", True, "give"), ("내놔", True, "give"), ("그거 이리 내", True, "give"),
+    ("pass it to me", True, "give"), ("could I have it please", True, "give"), ("lemme have it", True, "give"),
+    ("give it to that lady", True, "give"), ("테이블에 놔 주시면 돼요", True, "place on table"), ("내려놔 주십시오", True, "place"),
+    ("p5로 가 주시겠어요?", True, "carry p5 hold"),
+    ("gimme the cup", False, "pick cup; give"), ("could ya grab the cup", False, "pick cup"),
+    ("can ya bring the cup to p5", False, "fetch cup here>p5 hold"), ("컵 줘요 빨리", False, "pick cup; give"),
+    ("would you be a dear and fetch the cup from p1", False, "fetch cup p1>here hold"),
+    ("kindly deliver the cup to p5", False, "pick cup; go p5; give"),
+    # which one and which side
+    ("왼쪽 컵 집어", False, "pick cup left"), ("pick up the cup on the left", False, "pick cup left"),
+    ("오른쪽에 있는 컵 집어 줘", False, "pick cup right"), ("grab the cup on your right", False, "pick cup right"),
+    ("grab the smaller cup", False, "pick cup small"), ("작은 컵 집어 줘", False, "pick cup small"),
+    ("제일 가까운 컵 집어", False, "pick cup near"),
+    ("컵 p3 왼쪽 테이블에 놔", False, "pick cup; go p3; place left table"),
+    ("put the cup on the left table at p3", False, "pick cup; go p3; place left table"),
+    ("p3 왼쪽 테이블에 놔", True, "go p3; place left table"), ("put it on the left table at p3", True, "go p3; place left table"),
+    ("오른쪽 테이블에 내려놔", True, "place right table"), ("오른쪽 테이블에 내려놔", False, "empty"),
+    ("왼쪽 테이블에 있는 컵 가져와", False, "fetch left cup here>here hold"),
+    ("bring me the cup from the right table", False, "fetch right cup here>here hold"),
+    # holding: the box reads the hand as voice does (E1's parity run, 2026-10-27): no motion on talk about it
+    ("give me a shake", True, "talk"), ("you wave hand please", True, "talk"), ("로봇아, 핸드 오픈 해 주세요", True, "talk"),
+    ("컵 내려놓지 마", True, "talk"), ("제자리에 놓지 마~", True, "talk"), ("탁자 위에 놓지 마 ㅋㅋ", True, "talk"),
+    ("옆 테이블에 놓지 마세요", True, "talk"), ("루미는 나한테 건네줄 수 있대", True, "talk"), ("루미가 나한테 건네주는 걸 봤나", True, "talk"),
+    ("mira mira put ur phone away honey", True, "talk"), ("캘리브레이션 보게, 아까 컵 내려어놓는 거 봤어?", True, "talk"),
+    ("애들 재우고 싶다, 루미, 내놔 제발", True, "talk"), ("우리 루미, 이리 내놔 봐", True, "give"),
+    ("로봇 씨, 나한테 지금 주십시오", True, "give"), ("할머니께 드려 봐", True, "give"), ("Lumi, I want you pass it to me", True, "give"),
+    ("저한테 주실 수 있으신가요?", True, "give"), ("선생님께 드리세요", True, "give"), ("lower it down", True, "place"),
+    ("you putt dawn that", True, "place"), ("lay it on this table lay it on this table please", True, "place"),
+    ("왼쪽에 내려놓고 오른편 컵 잡아 줘", True, "chain"), ("put it back", True, "place"), ("제자리에 갖다 놔", True, "place"),
+    ("pick up the cup on the left table", False, "pick cup left"), ("오른쪽 테이블에 있는 빨간 컵 집어 줘", False, "pick cup red right"),
     ("컵이랑 같이 p5로 가", False, "fetch cup here>p5 hold"), ("컵 하고 같이 exit 가 줘", False, "fetch cup here>exit hold"),
     ("컵 가지고 p5에서 기다려", False, "pick cup; go p5; wait"), ("컵 들고 p5에 가 있어", False, "pick cup; go p5; wait"),
     ("이 컵 p5까지 좀 날라 줘", False, "fetch cup here>p5 hold"), ("컵 좀 p5로 옮겨 줘", False, "fetch cup here>p5 hold"),

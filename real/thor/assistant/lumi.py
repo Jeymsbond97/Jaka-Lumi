@@ -1789,7 +1789,10 @@ class Lumi:
             target = f"{colour} {name}" if colour else name
             if action == "pick":
                 said, done = (f"Okay, I'll pick up the {target}.", "네, 집어 볼게요."), ("I've got it.", "잡았어요.")
-                run = lambda: skills.pick(name, colour)
+                def run():                                   # the held name for the dashboard and the replies
+                    from tasks import fetch
+                    skills.pick(name, colour)
+                    fetch.held_by_skill({"object": name, "colour": colour})
             else:
                 said, done = (f"Okay, I'll move the {target}.", "네, 옮겨 볼게요."), ("Done.", "다 옮겼어요.")
                 run = lambda: skills.move_object(name, colour)
@@ -3345,8 +3348,8 @@ def status_question(text):
 def says_goodbye(text):
     """A goodbye whatever was said before: "okay, bye", "I have to go", "수고하세요", "you can go" alone (not "bye, but
     where is...?", not an order with it, not said to a child nearby)."""
-    if brain_mod.to_someone_else(text):
-        return False                                       # "Okay kids, say bye to the robot."
+    if brain_mod.to_someone_else(text) or re.search(r"\b(?:let me|lemme|wanna|want to|like to|love to|let'?s) see you\b", text, re.I):
+        return False                                       # "Okay kids, say bye to the robot."; "lemme see you go charge"
     return bool(RELEASE.match(text) or CLEAR_BYE.search(text) and not ASKS_MORE.search(text)
                 and len(text.split()) <= 10 and not brain_mod.intent(text) and not brain_mod.hand_request(text, False)
                 and not COMMAND_START.search(brain_mod.CALLING.sub("", text)))   # "grab the cup, bye": an order
@@ -3409,8 +3412,11 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
         return "detour", how
     plan = chain_ok and not brain_mod.not_an_order(text, asked=False) and brain_mod.direct_order(text) and \
         chain.plan(text, markers, NOT_A_STEP)   # not "when the show starts, go to the stage", "Jake, wave"
-    if plan and any(k == "steps" and any(st.get("do") == "pick" for st in w) or k == "quick" and w[0] in ("pick", "move_object")
-                    for k, _, w in plan) and (holding() if callable(holding) else holding):
+    picks = [i for i, (k, _, w) in enumerate(plan or []) if k == "steps" and any(st.get("do") == "pick" for st in w) or
+             k == "quick" and w[0] in ("pick", "move_object")]
+    frees = [i for i, (k, _, w) in enumerate(plan or []) if k == "steps" and any(st.get("do") in ("place", "give") for st in w)
+             or k == "quick" and w[0] in ("put", "give")]   # "왼쪽에 내려놓고 오른편 컵 잡아 줘": the hand is free first
+    if picks and not (frees and frees[0] < picks[0]) and (holding() if callable(holding) else holding):
         plan = None                            # "그 cup 들고 wave 해" with a cup in the hand: no second pick; the LLM
     if plan:
         return "chain", plan
@@ -3419,7 +3425,7 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     got = seen(text) if seen and not held_order else None                              # the hand, not "I put it down, now?"
     if got:
         return "seeing", got
-    if status_question(text):
+    if status_question(text) and not brain_mod.to_someone_else(text):   # not "Mina, what are you doing over there?"
         return "status", None
     if (holding() if callable(holding) else holding) and not brain_mod.held_back(text) and \
             not brain_mod.ARM_TALK.search(text) and brain_mod.held_put_back(text, markers):

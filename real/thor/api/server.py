@@ -1097,8 +1097,8 @@ def task_parse(body: ParseBody):
         if hand[0] == "receive" and not held:
             got = [{"do": "receive", "object": hand[1], "from_hand": True}]
             return {"action": "steps", "steps": got, "lang": lang, "sender": None, "read_by": "rules", **_steps_said(got, markers)}
-        if hand[0] in ("give", "place"):
-            return _held_parse(body, markers) if held else _talk("–", ["My hand is empty, I'm not holding anything."])
+        if hand[0] in ("give", "place"):              # voice's reading of the hand (brain.hand_request), not a second one
+            return _held_parse(body, markers, hand[0]) if held else _talk("–", ["My hand is empty, I'm not holding anything."])
         return _talk(hand[1][0] if hand[0] == "refuse" else "–", kind="refuse")
     if kind == "mission":
         got, unread, by = data
@@ -1114,13 +1114,16 @@ def task_parse(body: ParseBody):
     if kind == "quick" and data[0] == "fetch":
         return _fetch_parse(body, markers)
     if kind == "quick" and data[0] == "put":
-        return _held_parse(body, markers) if held else _talk("–", ["My hand is empty, I'm not holding anything."])
+        return _held_parse(body, markers, "place") if held else _talk("–", ["My hand is empty, I'm not holding anything."])
     if kind == "quick" and data[0] in ("weather", "search"):
         return _answer(fixed, "Look it up and answer.", "lookup")
     if kind == "quick":
         if held and data[0] == "go_to":
             return _held_parse(body, markers)                 # holding: a carry there
         got = _rule_steps(data)
+        prefer = data[0] == "pick" and got and brain.pick_prefer(fixed)[0]
+        if prefer:
+            got[0]["prefer"] = prefer                 # "왼쪽 컵 집어", "the smaller cup": which of several (fetch picks it)
         if got:
             return {"action": "steps", "steps": got, "lang": lang, "sender": None, "read_by": "rules",
                     **_steps_said(got, markers)}
@@ -1129,9 +1132,9 @@ def task_parse(body: ParseBody):
     problem = brain.place_problem(fixed, markers)
     if problem:                                       # quick_command says it: "I don't have a place called p12"
         return _talk(problem[0], kind="refuse")
-    if held and kind is None and (brain.held_command(fixed) and brain.direct_order(fixed) and not brain.not_an_order(fixed)
-                                  or brain.held_carry(fixed, markers)):   # "p5로 가져가": a carry there
-        return _held_parse(body, markers)
+    if held and kind is None and brain.held_carry(fixed, markers) and not brain.ARM_TALK.search(fixed) and \
+            not brain.to_someone_else(fixed):         # "p5로 가져가": a carry there. Nothing else the rules left is done
+        return _held_parse(body, markers)            # with the hand here: as by voice, the LLM reads it (no motion)
     if kind is None and body.llm:                     # the rules leave it: the LLM, one call, as by voice
         gen = brain.Brain().respond_stream(fixed, markers)
         head = next(gen)
@@ -1236,10 +1239,11 @@ def _choices():
             "then": [t for t in fetch.THEN if t]}
 
 
-def _held_parse(body, markers):
+def _held_parse(body, markers, said=None):
     """A command while something is held: what to do with it, read by the rules only (fast; the object named in it is
     the held one, so "give me the cup" is a give, not a new fetch). A marker named anywhere in the text is where to
-    bring it, else the dialog's To; then put it on a table, hand it over or keep holding it."""
+    bring it, else the dialog's To; then put it on a table, hand it over or keep holding it. said: what voice's reader
+    (lumi.route: the hand, the put rule) already made of the words, "give" or "place"."""
     from assistant import brain, steps
     from tasks import fetch
     held, text = fetch.held_name(), brain.give_clause(body.text)   # not where the person it is for goes
@@ -1251,7 +1255,7 @@ def _held_parse(body, markers):
     named = [p for p in named if isinstance(p, dict)]
     dest = named[0] if named else (body.dest if body.dest not in (None, "here") else None)
     on = brain.place_on(text)                         # "on the orange chair": what to put it on
-    then = "place" if on else brain.held_command(text) or ("place" if m.get("finish") == "place" else None)
+    then = said or ("place" if on else brain.held_command(text) or ("place" if m.get("finish") == "place" else None))
     if then == "give" and named and not re.search(r"\b(give|hand)\b|줘|주세요|건네", t):
         then = None                                   # "bring it to p2" is a carry, not a hand-over
     table = "dining table" if re.search(r"\bdin+(?:n|i)?ing\b|\bdinner table\b", t) else "table"   # as it was said

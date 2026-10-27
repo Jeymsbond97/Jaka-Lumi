@@ -51,6 +51,8 @@ NEVER = [   # no motion at all from the bank
     ("shake your head", False), ("pick up the pace", False), ("give it up for lumi", False),
     ("thanks for the wave", False), ("악수해 줘서 고마워요", False), ("close your eyes", False), ("의자 들어 줄래?", False),
     ("the kids want to wave at you", False), ("can my son shake your hand", False),
+    ("shaking hands is fun", False), ("you folded your arm earlier", False), ("손 펴도 돼?", False),
+    ("팔 접는 게 좋아", False), ("you're good at opening your hand", False),
 ]
 
 

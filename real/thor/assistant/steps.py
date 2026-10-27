@@ -40,6 +40,7 @@ _FILL = (r"(?:(?:저기 |그 )?(?:이보게(?: 루미)?|어이(?: 로봇아?| �
          r"번거로우시겠지만)|"   # calls of every level ("이보게 루미", "루미 님께서") before "루미" alone
          r"please|let'?s|lets|hey lumi|hi lumi|hey|hi|lumi|loomi|rumi|okay|ok|alright|all right|so|well|real quick|if you can|if you could|자|저기|저기요|혹시|instead|um+|uh+|er|hmm|thank you|thanks|now|then|and|also|first|next|"
          r"finally|after that|there|for me|for us|again|carefully|slowly|could you|can you|would you|will you|could u|can u|would u|will u|"
+         r"could ya|can ya|would ya|will ya|"
          r"pls|plz|yo|would it be possible to|is it possible to|could i ask you to|would you mind|lumi야|루미야|루미|음|응|어|야 로봇|로봇아|로봇야|"
          r"감사합니다|고마워요|고마워|고맙습니다|좀|먼저|우선|일단|그다음|그 다음|마지막으로|다시|lastly|first of all|"
          r"(?:i'?d|i would) like you to|i want you to|i need you to|you should|kindly|go ahead and|maybe|possibly|"
@@ -58,6 +59,8 @@ def _norm(text, markers=()):
     "0.5 m", "오십 센치" -> "0.5 m", "table front" -> "table_front" on a map with it), titles without their dot."""
     t = re.sub(r"\b(mr|mrs|ms|dr|prof)\. ", r"\1 ", wording.durations(brain.unfill(brain.ko_slips(wording.norm(text, markers)))) + " ")
     t = re.sub(r"\b(?:take|pick up|pick|grab)\s?(?:해서|하고)", "집어서", t)   # "컵 take해서": mixed
+    t = re.sub(r"(?:(?<=들고)|(?<=집고)|(?<=잡고)|(?<=가서)|(?<=와서)|(?<=챙겨서)|(?<=가지고)|(?<=받아서)|(?<=집어서)|(?<=갔다가))"
+               r"(?=[가-힣a-z0-9])", " ", t)            # "컵들고exit가서기다려" (typed or heard run together): its parts
     t = re.sub(r"(?<=[가-힣])고\s*나서(?=[\s,]|$)", "고", t)                     # "가고 나서" = "가고"
     t = re.sub(r"(?<![가-힣])(집었|잡았)다가(?=[\s,]|$)", lambda m: m.group(1)[0] + "고", t)   # "컵 집었다가" = "컵 집고"
     for said, same in _SAME:                                                      # "get yourself to" = "go to"
@@ -77,6 +80,7 @@ _SAME = [   # wordings read as the plain one (the blind mission sets, 2026-10-22
     (r"\b((?:take|bring|carry) (?:it|that|this|the \w+|a \w+)) (?:with you|along)\b", r"\1"),   # "take the cup with you to p5"
     (r"^(?:go|head|drive)(?: over)? to (\S+) with (the|a|this|that) ((?:\w+ )?\w+)\s*$", r"take \2 \3 to \1"),   # "go to
     # exit with the cup": the cup taken there
+    (r"^(?:wait|stay)(?: for me)? (?:at|by) (\S+) with (the|a|this|that) ((?:\w+ )?\w+)\s*$", r"take \2 \3 to \1 and wait there"),
     (r"\bcome back to where (?:i am|you are|we are)\b", "come back"),
     (r"\buntil (?:someone|somebody|they|i|we) (?:says?|tells? you)(?: to)? (?:go on|continue|move on)\b"
      r"|\buntil you(?:'re| are) told to (?:go on|continue|move on)\b", "until i tell you to go on"),
@@ -739,7 +743,7 @@ def _clause_steps(c, markers, after=None):
     if m and (got := _clause_steps(m.group(1), markers, after)) and got[-1]["do"] == "receive":
         return got + [{"do": "go", "to": "here"}]         # "사라한테 컵 받아 와": taken from her, then brought back here
     c = re.sub(r"^go (?:and )?(?=(?:grab|get) me\b)", "", c)   # "go grab me a cup"
-    m = re.fullmatch(rf"(?:(?:pass|hand|give|get|grab|bring|fetch) me|(?:can|could|may) i (?:have|get|grab|take)|lemme have|let me have|"
+    m = re.fullmatch(rf"(?:(?:pass|hand|give|get|grab|bring|fetch) me|gimme|(?:can|could|may) i (?:have|get|grab|take)|lemme have|let me have|"
                      rf"(?:would you )?mind (?:passing|handing|giving) me) (?:the |that |this |a |an |one )?"
                      rf"(?:({COL}) )?({OBJ})s?(?: (?:on|from|off) the table| over(?: here)?| there| please)?"
                      rf"|(?:(?:나|저)(?:한테|에게)?\s*)?(?:({COL})\s*)?({OBJ})\s*(?:을|를)?\s*(?:하나만?\s*)?(?:(?:나|저)(?:한테|에게)\s*)?"
@@ -845,9 +849,14 @@ def _place_at(c, markers, after=None):
         thing, where = m["a"] or m["b"], m["where"]
         verb = "put" if re.fullmatch(_PUT_KO, m["verb"]) else "deliver"
     on = None
-    sup = re.fullmatch(rf"(.+?)\s+((?:(?:{COL})\s*)?(?:{_SUP_KO}))(?:\s*위)?|((?:(?:{COL}) )?(?:{_SUP})s?) (?:at|in|by|near) (?:the )?(.+)", where)
-    if sup and verb == "put":                                # "exit 테이블에 놔", "put it on the table at p3": there, on that
-        where, on = sup.group(1) or sup.group(4), _support("on the " + sup.group(3) if sup.group(3) else sup.group(2))
+    sup = re.fullmatch(rf"(.+?)\s+((?:(?:왼쪽|오른쪽)\s*)?(?:(?:{COL})\s*)?(?:{_SUP_KO}))(?:\s*위)?|"
+                       rf"((?:(?:left|right) )?(?:(?:{COL}) )?(?:{_SUP})s?) (?:at|in|by|near) (?:the )?(.+)", where)
+    if sup and verb == "put":                                # "exit 테이블에 놔", "put it on the left table at p3": there,
+        side = re.match(r"(왼쪽|오른쪽|left|right)\s*", sup.group(3) or sup.group(2))   # on that (on its side)
+        what = (sup.group(3) or sup.group(2))[side.end() if side else 0:]
+        where, on = sup.group(1) or sup.group(4), _support("on the " + what if sup.group(3) else what)
+        if on and side:
+            on["side"] = {"왼쪽": "left", "오른쪽": "right"}.get(side.group(1), side.group(1))
     to = _places(where, markers)
     if not to or len(to) != 1 or to == ["here"]:
         return None

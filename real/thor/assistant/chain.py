@@ -88,6 +88,8 @@ def parts(text):
     text = re.sub(r"(?<![\w가-힣])([\w가-힣]+)[—–-]+\s*(?=\1)", "", text)   # a stutter: "go ah— ahead", "센— 센티"
     cut, says = steps._cut_says(text)
     cut = re.sub(r"(?<=[가-힣])고\s*나서(?=[\s,]|$)", "고", cut)            # "-고 나서" = "-고"
+    cut = re.sub(r"(?<=[가-힣]{2}고)(?=(?:오른쪽|왼쪽|앞으로|뒤로|위로|아래로|손|고개|몸|팔|허리|나를?|저를?|이리|여기|저기|"
+                 r"p\d|[a-z]{3}))", " ", cut)   # whisper's run-together "몸내리고오른쪽으로돌아주라": the next order apart
     out = []
     for p in _SPLIT.split(cut):
         out += [q for q in steps._SPLIT_KO.split(p) if q.strip()]
