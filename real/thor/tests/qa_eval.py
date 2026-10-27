@@ -155,6 +155,81 @@ NEG += ["내일 며칠이야?", "어제 무슨 요일이었어?", "what's the da
         "그거 몇 킬로야?", "that one, how heavy?", "저 로봇 이름 뭐야?", "옆에 로봇은 몇 살이야?", "what's the name of that robot?"]
 
 
+# night 5, rounds 6-7: new phrasings written apart from the bank (every Korean level), and new "no" risks
+POS_a = {
+ "name": ["I didn't catch your name, what was it?", "Sorry, your name again?", "Got a name, little guy?", "What should I call you, robot?",
+          "니 이름이 뭐였더라?", "이름이 뭐라 그랬지?", "이름을 여쭤봐도 될까요?", "로봇님 존함이 어떻게 되십니까?", "이름 뭐라카노?",
+          "이름이 뭐시여?", "너 이름 뭐냐고", "네임 좀 알려 주세요", "what's ur name lol", "이름 있으세요?"],
+ "age": ["How long ago were you built?", "Are you old or new?", "When's your birthday?", "how many years old is lumi",
+         "너 태어난 지 얼마나 됐어?", "몇 살이나 먹었니?", "연식이 어떻게 돼요?", "나이 좀 물어봐도 돼요?", "니 몇 살이고?",
+         "몇 살이당가?", "올해로 몇 살 되셨어요?", "your age, please?"],
+ "maker": ["Who's behind you, which company?", "Who built this robot?", "What company are you from?", "Who created you?",
+           "누가 널 만든 거야?", "어디서 만든 로봇이에요?", "제작사가 어디죠?", "만든 곳이 어디예요?", "누가 맹글었노?", "어디 제품인교?",
+           "who's your creator?", "너 누구 작품이야?"],
+ "height": ["How tall do you stand?", "What's your height exactly?", "Are you taller than a person?", "키가 어느 정도 돼요?",
+            "몇 센티나 돼?", "키가 몇 센치야?", "신장이 어떻게 되십니까?", "키 얼마나 되노?", "키가 몇이여?", "how tall r u lumi"],
+ "weight": ["How much do you weigh exactly?", "Are you heavy?", "What's your weight in kilograms?", "무게가 어느 정도 돼요?",
+            "몇 키로 나가?", "몸무게 몇 키로예요?", "중량이 얼마입니까?", "무게 우째 되노?", "얼마나 무거워요?", "how heavy is lumi"],
+ "battery_life": ["How long can you run before charging?", "How many hours does a full battery give you?", "What's your runtime on battery?",
+                  "충전 한 번에 몇 시간 일해요?", "배터리 몇 시간 버텨요?", "한 번 충전하면 하루 종일 가요?", "배터리가 몇 시간이나 갑니까?",
+                  "배터리 오래가노?", "배터리 지속 시간이 어떻게 되세요?"],
+ "languages": ["What languages do you understand?", "Do you understand Korean?", "Can I talk to you in Japanese?", "Do you speak French?",
+               "한국어로 말해도 돼?", "영어도 알아들어요?", "일본어 돼요?", "몇 개 언어 하세요?", "중국말 할 줄 아나?", "외국어 할 수 있습니까?"],
+ "chatgpt": ["Is this ChatGPT talking?", "Are you powered by OpenAI?", "Do you use GPT-4?", "챗GPT로 대답하는 거야?", "너 GPT 기반이야?",
+             "오픈AI 거 써요?"],
+ "model": ["What brain do you use to talk?", "Which AI answers me?", "What's the name of your language model?", "너 무슨 모델로 대답해?",
+           "어떤 인공지능으로 말해요?", "언어 모델 이름이 뭐예요?", "LLM 뭐 쓰세요?"],
+ "robot": ["Are you a person in a costume?", "Is there a human inside?", "Do you have a soul?", "Can you feel pain?", "너 사람이니 로봇이니?",
+           "안에 사람 들어 있어요?", "감정이 있으세요?", "아픈 거 느껴?", "너 기계 맞아?", "are you conscious?"],
+ "speed": ["How fast do you drive?", "What's your top speed in km/h?", "Can you go quickly?", "속도가 얼마나 나와요?", "최고 속력이 얼마예요?",
+           "얼마나 빨리 움직여?", "빠르게 갈 수 있어요?", "속도 우째 되노?"],
+ "time_now": ["Do you know what time it is?", "What's the time please?", "Time check?", "지금 몇 시예요?", "몇 시쯤 됐어요?", "시간 좀 알려 주시겠어요?",
+              "지금 몇 시나 됐노?", "현재 시각 알려 줘"],
+ "date_today": ["What's today's date?", "What day is it today?", "Which day of the week is today?", "오늘 날짜 좀 알려 주세요", "오늘 무슨 요일이에요?",
+                "오늘이 며칠이죠?", "오늘 몇 월 며칠이고?", "today date?"],
+ "hello": ["Hi there, Lumi!", "Good afternoon!", "Hey robot!", "안녕하십니까!", "하이~", "반가워 루미!"],
+ "how_are_you": ["How's your day been?", "Are you having a good day?", "오늘 기분 좋아?", "잘 지내셨어요?", "컨디션 괜찮아?"],
+}
+NEG_a = ["Can you see my hand?", "What's on the table?", "Where did my friend go?", "How old is my son?", "What am I holding?",
+       "Come with me please", "Turn to the left", "Bring me the cup", "Sing me a song", "Tell me a story",
+       "What's the weather tomorrow?", "Who won the game yesterday?", "What's the capital of France?", "How tall is BTS Jungkook?",
+       "How old is the CEO?", "When does the exhibition close?", "What time does the bus come?", "Where is the restroom?",
+       "내 손 보여?", "책상 위에 뭐 있어?", "우리 아들 몇 살로 보여?", "왼쪽으로 돌아", "컵 가져와", "노래 불러 줘", "이야기 해 줘",
+       "내일 날씨 어때?", "어제 경기 누가 이겼어?", "프랑스 수도가 어디야?", "대표님 나이가 어떻게 돼요?", "전시회 몇 시에 끝나요?",
+       "버스 몇 시에 와요?", "화장실 어디예요?", "고마워", "잘 가", "그래서?", "진짜야?", "왜?", "알았어", "음...", "그럼 이건?",
+       "이 컵 무게 얼마야?", "how heavy is this cup?", "how tall is the table?", "책상 높이 얼마야?", "이거 몇 살짜리 장난감이야?",
+       "how old is this building?", "what's your favorite food?", "좋아하는 음식 뭐야?", "do you love me?", "나 좋아해?"]
+POS_b = {
+    "co_what": ["쿳션은 어떤 회사입니까?", "쿳션 뭐 하는 회사여?", "Tell me a bit about Cutshion", "쿳션이 뭐 하는 곳이에요?"],
+ "co_founded": ["When was your company set up?", "쿳션은 몇 년도에 생겼어요?", "회사 설립이 언제입니까?", "쿳션 창업한 지 얼마나 됐어?"],
+ "co_ceo": ["Who runs Cutshion?", "쿳션 사장님이 누구세요?", "쿳션 대표님 이름이 뭐예요?", "Who's the boss of Cutshion?"],
+ "co_hq": ["Where is Cutshion's office?", "쿳션 사무실이 어디 있어요?", "회사가 어디에 있습니까?", "쿳션 본사가 어디고?"],
+ "co_contact": ["How do I contact Cutshion?", "쿳션 이메일이 뭐예요?", "회사 전화번호 좀 알려 주세요", "쿳션에 연락하려면 어떻게 해요?"],
+ "safety": ["Is it safe for my kids to be near you?", "로봇 옆에 있어도 위험하지 않나요?", "너 위험한 로봇이야?", "Can you hurt someone?"],
+ "cameras": ["How many cameras are on you?", "카메라가 몇 개 달려 있어요?", "What camera do you have in your head?", "카메라 어떤 거 쓰세요?"],
+ "mics": ["Do you have a microphone?", "마이크가 몇 개 있어요?", "How far away can you hear people?", "멀리서도 들려요?"],
+ "stt": ["How do you understand my words?", "말을 어떻게 알아들어요?", "음성 인식 뭐 써요?", "Do you use Whisper?"],
+ "tts": ["How do you make your voice?", "목소리는 어떻게 내세요?", "What speech synthesis do you use?", "TTS 뭐 씁니까?"],
+ "internet": ["Are you connected to the internet?", "인터넷 연결돼 있어요?", "Can you work without wifi?", "와이파이 써?"],
+ "computer": ["What computer is inside you?", "안에 무슨 컴퓨터 들어 있어요?", "Do you use an NVIDIA chip?", "컴퓨터 사양이 어떻게 돼요?"],
+ "stairs": ["Can you climb stairs?", "계단 올라갈 수 있어요?", "Can you go over a step?", "턱 넘을 수 있어?"],
+ "doors": ["Can you open a door?", "문 열 수 있어요?", "문 열 줄 아니?"],
+ "lidar": ["Do you have a lidar?", "라이다 있어요?", "How far does your lidar see?"],
+ "gripper": ["What gripper do you have?", "그리퍼 뭐 써요?", "How many fingers do you have?", "손가락 몇 개야?"],
+ "payload": ["How much can your arm carry?", "팔 가반하중이 얼마예요?", "What's your payload?"],
+ "dance": ["Can you dance?", "춤출 수 있어요?", "Can you walk?", "걸을 수 있어?"],
+ "touch": ["Can I touch you?", "만져 봐도 돼요?", "Is it okay to touch the robot?"],
+}
+NEG_b = ["Where can I buy a robot like you?", "쿳션 주식 살 수 있어요?", "Is Cutshion's CEO married?", "대표님 몇 살이에요?",
+       "Can you open the window?", "문 좀 열어 줘", "Climb the stairs now", "계단으로 가", "Dance for me!", "춤 춰 봐", "Touch my hand",
+       "내 손 만져 봐", "Show me your camera", "카메라 보여 줘", "Turn on the internet", "와이파이 비밀번호 뭐야?", "What's the wifi password?",
+       "Pick up the bottle", "병 집어 줘", "How heavy is this bottle?", "이 병 몇 킬로야?", "Is the floor safe?", "여기 안전해?"]
+for _p in (POS_a, POS_b):
+    for _k, _t in _p.items():
+        POS.setdefault(_k, []).extend(_t)
+NEG += NEG_a + NEG_b
+
+
 def run():
     ok = bad = miss = 0
     lines = []

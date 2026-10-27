@@ -3,17 +3,19 @@
     python tests/qa_sweep.py                    # first words (commands: 'text' with no 'before'; dialogues: first turn
                                                 # 'say') of train, r2-r4, r6, r8, r9, r10: the hits, for review
     python tests/qa_sweep.py r9 r10             # only these rounds' train sets
+    python tests/qa_sweep.py --sample 3000      # at most 3000 first words per round (seeded, the same each run)
     python tests/qa_sweep.py --questions r6 r8 r9   # questions_world: want-quick answered at once, and every quick
                                                 # answer that misses the case's must / says its must_not (wrong)
     python tests/qa_sweep.py --questions -v r9  # ... and the questions left to the LLM
 
 The words are embedded in batches first (the embedding server is shared), then read from memory.
 """
-import glob, importlib, re, sys
+import glob, importlib, random, re, sys
 sys.path.insert(0, __file__.rsplit("/tests/", 1)[0])
 from assistant import knowledge, quick_answers as qa
 QUESTIONS, VERBOSE = "--questions" in sys.argv, "-v" in sys.argv
-ROUNDS = [a for a in sys.argv[1:] if not a.startswith("-")] or \
+SAMPLE = int(sys.argv[sys.argv.index("--sample") + 1]) if "--sample" in sys.argv else None
+ROUNDS = [a for a in sys.argv[1:] if not a.startswith("-") and not a.isdigit()] or \
     (["r6", "r8", "r9"] if QUESTIONS else ["train", "r2", "r3", "r4", "r6", "r8", "r9", "r10"])
 _embed, _known = knowledge.embed, {}
 
@@ -45,6 +47,7 @@ def sets(r, questions):
 def first_words():
     seen, todo = set(), []
     for r in ROUNDS:
+        mine = []
         for f, m in sets(r, False):
             texts = [(c["text"], c.get("expect") or c.get("kind")) for c in getattr(m, "CASES", [])
                      if isinstance(c, dict) and c.get("text") and not c.get("before") and not c.get("ctx")]
@@ -53,7 +56,8 @@ def first_words():
             for t, e in texts:
                 if t not in seen:
                     seen.add(t)
-                    todo.append((t, e, f"{r}/{f.rsplit('/', 1)[1][:-3]}"))
+                    mine.append((t, e, f"{r}/{f.rsplit('/', 1)[1][:-3]}"))
+        todo += random.Random(1).sample(mine, SAMPLE) if SAMPLE and len(mine) > SAMPLE else mine
     embed([p for t, _, _ in todo for p in pieces(t)])
     hits = 0
     for t, e, where in todo:
@@ -61,7 +65,7 @@ def first_words():
         if k:
             hits += 1
             print(f"{k:12} {where:22} {t!r} want={e}")
-    print("texts", len(seen), "quick", hits)
+    print("texts", len(todo), "quick", hits)
 
 
 def questions():
@@ -69,10 +73,15 @@ def questions():
     cases = [c for r in ROUNDS for _, m in sets(r, True) for c in m.CASES]
     embed([p for c in cases for p in pieces(c["text"])])
     want = hit = wrong = 0
+    levels = {}
     for c in cases:
         k = qa.kind_of(c["text"])
         quick = c["expect"] == "quick"
         want += quick
+        if quick:
+            lv = levels.setdefault(c.get("level") or c["lang"], [0, 0])
+            lv[0] += 1
+            lv[1] += k is not None
         if k is None:
             if quick and VERBOSE:
                 print(f"miss  [{c['q']}] {c['text']!r}")
@@ -86,6 +95,7 @@ def questions():
         if probs:
             wrong += 1
             print(f"WRONG [{c['q']}, {c['expect']}] {c['text']!r} -> {k} {probs[:2]}")
+    print("want quick answered at once, by level: " + ", ".join(f"{lv} {h}/{n}" for lv, (n, h) in sorted(levels.items())))
     print(f"{' '.join(ROUNDS)}: cases {len(cases)}, want quick {want}, answered at once {hit}, wrong quick answers {wrong}")
 
 

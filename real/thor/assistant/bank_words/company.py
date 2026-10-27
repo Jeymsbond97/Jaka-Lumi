@@ -316,3 +316,9 @@ QUICK["no"] += [
     "엔비디아 대표 누구야", "테슬라 대표 누구예요", "삼성 회장 누구야", "who's the boss of openai", "who runs google",
     "1달러에 원화로 얼마야", "1달러 원화로 얼만가", "환율 얼마예요", "달러 환율 알려 줘", "엔화 얼마야", "how much is a dollar in won",
     "what's the exchange rate", "배터리 얼만가", "배터리 얼마예요", "배터리 얼마야", "배터리 얼마 남았는가"]
+QUICK["co_what"] = QUICK.get("co_what", []) + ["tell me a bit about cutshion", "tell me a little about cutshion", "a few words about cutshion",
+                                               "what is cutshion like", "cutshion 소개 좀", "쿳션 소개 부탁해요", "쿳션 얘기 좀 해 줘"]
+QUICK["co_founded"] += _ko(["쿳션 창업한 지 얼마나 됐", "회사 창업한 지 얼마나 됐", "쿳션 설립된 지 얼마나 됐", "쿳션 세워진 지 몇 년 됐"],
+                           ["어", "어요", "니", "습니까", "나요", "노", "어유", "는가"])
+QUICK["co_hq"] += ["where is cutshion's office", "where's cutshion's office", "where is the cutshion office", "cutshion office location",
+                   "where is your company's office", "쿳션 오피스 어디예요"]

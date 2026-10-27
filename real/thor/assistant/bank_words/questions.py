@@ -738,3 +738,42 @@ QUICK["no"] += ["한 번에 몇 초 걸려", "몇 초 걸려", "몇 초나 걸�
                 "how long does it take", "얼마나 걸려요", "시간 얼마나 걸려"]
 QUICK["mics"] += ["clip mic 있어요", "클립 마이크 있어요", "무선 마이크 있어요", "시끄러우면 마이크 써", "시끄러우면 마이크 씀", "do you have a clip mic",
                   "is there a wireless microphone", "can i use a microphone", "마이크 따로 있어요"]
+# what Lumi can do is assistant/abilities.py's: "기능" asked is never what it is used for (used_where)
+QUICK["no"] += _ko(["기능 ", "너 기능 ", "기능이 ", "루미 기능 ", "할 수 있는 기능 ", "니 기능 "], _WHAT) + [
+    "what are your functions", "what functions do you have", "your functions what", "what features do you have", "기능 뭐 있어",
+    "무슨 기능 있어요", "어떤 기능 있어요", "기능 좀 알려 줘", "function 뭐 있어"]
+QUICK["battery_life"] += _ko(["배터리 타임 ", "배터리 time ", "battery 타임 "], ["얼마나 돼", "얼마나 돼요", "얼마나 되세요", "얼마야", "얼마예요",
+                                                                         "몇 시간이야", "몇 시간이에요", "얼마나 가요", "어떻게 돼요"])
+# round 5 (first-words sweep): commands and status questions that came out as fact kinds
+QUICK["no"] += [
+    "손", "손!", "손 다시 넣어", "손 넣어", "팔 넣어", "집게 열어", "집게 닫아", "손가락 펴", "손가락 여시면 좋겠어요", "손 펴 주시겠어요", "손 펴",
+    "open your fingers", "could you open your fingers", "close your gripper", "please you can grip", "you can grip", "grip it", "grip please",
+    "바닥에 놔", "바닥에 놓으시겠어요", "바닥 체크", "바닥 봐", "바닥에 내려놔", "put it on the floor",
+    "where is your arm", "where's your arm now", "팔 지금 어디야", "팔 지금 어디예요", "팔 어디 있어", "arm where now",
+    "고개 원위치로 돌려 주세요", "고개 돌려 주세요", "머리 원위치", "허리 왼쪽으로 틀어 주세요", "turn your head ten degrees down",
+    "가까이 오시게", "이리 오시게", "가까이 와", "가까이 와 주세요", "come closer", "홀로 가시지요", "홈으로 가", "go plug yourself in",
+    "go charge yourself", "충전하러 가", "lumi what's your battery", "what's your battery level", "배터리 몇이야",
+    "would you raise your height", "raise your height a little", "키 좀 높여 주시겠어요", "make yourself taller", "키 높여 줘"]
+# round 6 (own new phrasings, 135 written apart from the bank)
+QUICK["maker"] += _ko(["너 누구 작품", "누구 작품", "이 로봇 누구 작품", "어디 작품"], ["이야", "이에요", "이니", "입니까", "인가요", "이고", "인교", "이여"]) + [
+    "whose work are you", "who's your creator", "who is behind this robot", "which company is behind you"]
+QUICK["height"] += ["are you taller than a person", "are you as tall as a man", "are you taller than me", "사람보다 커", "사람보다 키 커요",
+                    "어른만 해요", "사람만 해", "are you bigger than a person"]
+QUICK["weight"] += _ko(["몸무게 몇 ", "무게 몇 ", "너 몇 "], ["키로예요", "키로야", "키로", "키로입니까", "키로고", "킬로예요", "킬로야", "kg이에요", "kg이야"])
+QUICK["battery_life"] += ["how long can you run before charging", "how long before you need to charge", "how long can you go without charging",
+                          "how long until your battery is empty", "충전 안 하고 얼마나 버텨", "충전 없이 몇 시간 가요"]
+QUICK["model"] += ["what brain do you use to talk", "what's your brain", "what thinks for you", "what ai thinks for you", "which ai do you have inside",
+                   "무슨 두뇌로 말해", "어떤 머리로 생각해요"]
+QUICK["robot"] += ["are you a person in a costume", "is someone wearing you", "are you a costume", "is there a person in there",
+                   "사람이 들어가 있는 거야", "탈 쓴 사람이에요", "사람이 인형 옷 입은 거예요"]
+QUICK["time_now"] += ["time check", "time check please", "현재 시각 알려 줘", "현재 시각이 어떻게 돼요", "현재 시각 좀", "시각 좀 알려 주세요",
+                      "do you know what time it is", "can you tell me what time it is"]
+QUICK["how_are_you"] += _ko(["오늘 기분 좋", "기분 좋", "기분 괜찮", "오늘 컨디션 좋"], ["아", "아요", "니", "으세요", "습니까", "나", "노"])
+QUICK["no"] += ["이거 몇 살짜리 장난감이야", "몇 살짜리가 쓰는 거야", "몇 살부터 탈 수 있어", "몇 살 이상 이용 가능해요", "what age is this toy for"]
+QUICK["hello"] = QUICK.get("hello", []) + ["hi there lumi", "hello there lumi", "hey there lumi", "hi there robot", "hello there robot",
+                                           "hi lumi nice to meet you", "안녕 로봇아", "안녕하세요 로봇님", "루미 반가워요", "하이 로봇"]
+QUICK["safety"] += _ko(["너 위험한 로봇", "위험한 로봇", "이 로봇 위험한 거"], ["이야", "이에요", "이니", "입니까", "인가요", "이고", "임"])
+QUICK["tts"] += ["what speech synthesis do you use", "what voice synthesis do you use", "which speech synthesizer do you use", "음성 합성 엔진 뭐예요"]
+QUICK["no"] += ["can you open the window", "open the window", "창문 열어 줘", "창문 열 수 있어", "turn on the internet", "인터넷 켜 줘",
+                "connect to the wifi", "와이파이 연결해 줘", "여기 안전해", "is it safe here", "이 동네 안전해요", "is this area safe",
+                "바닥 안전해", "is the floor safe"]

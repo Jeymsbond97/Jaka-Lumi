@@ -57,6 +57,10 @@ def main():
             ("", "블루투스 이름은 왜 그렇게 지었나?", ["블루투스"]),
             ("", "에펠탑의 높이는 얼마예요?", ["에펠탑"]),
             ("", "너 이름은 뭐야?", []),
+            ("emoji 얘기 좀 해 줘요", "Hey, 실례지만 처음 만든 해 언제인지 알려 주시겠습니까", ["emoji"]),
+            ("", "tell me about mirrors", ["mirrors"]),
+            ("", "아까 그 얘기 다시 해 줘", []),
+            ("", "네 얘기 좀 해 봐", []),
             ("", "루미 이름은 누가 지었어?", []),
             ("문어는 피가 무슨 색이야?", "심장은 몇 개고?", ["문어", "심장"])]:
         b = brain.Brain()
@@ -69,6 +73,16 @@ def main():
     assert b._after(none, "윤초는 뭐예요?") == none
     assert b._after(none, "몇 살이야?")["action"] == "search"
     assert b._after(none, "그게 뭐예요?")["action"] == "search"
+
+    b = brain.Brain()                                  # back to an earlier topic: that turn's answer as a hint
+    b.history = [("페트라가 뭐야?", "ACTION: none -\n요르단에 있는 바위를 깎아 만든 도시예요."),
+                 ("물곰은 얼마나 작아?", "ACTION: none -\n0.5mm 정도예요."), ("그거 사실이야?", "ACTION: none -\n네.")]
+    assert "요르단" in b._back_to("다시 페트라 얘기로 돌아가서, 뭐라고 했지?")
+    assert "요르단" in b._fragment_hint("다시 페트라 얘기로 돌아가서, 뭐라고 했지?")
+    assert b._back_to("물곰은 왜 안 죽어?") == ""
+    b.history = [("Tell me about hydrogen", "ACTION: none -\nHydrogen is the most common element."),
+                 ("What is salt for?", "ACTION: none -\nSeasoning."), ("ok", "ACTION: none -\nSure.")]
+    assert "most common" in b._back_to("again about hydrogen, what did you say?")
 
     picked = []
     talk_examples.pick = lambda said, lang, k=4, bank=None: picked.append(bank) or []
