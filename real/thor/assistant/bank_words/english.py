@@ -155,7 +155,8 @@ _CLOSE = ["close your hand", "close your gripper", "close the gripper", "close y
           "clench your fist", "clench your fingers", "squeeze your fingers", "squeeze your hand shut", "shut your hand",
           "shut your gripper", "shut the gripper", "curl your fingers", "close the fingers", "hand closed", "fist please",
           "gripper close", "fingers close", "close the claw", "tighten your grip", "tighten your hand",
-          "pinch your fingers together", "bring your fingers together"]
+          "pinch your fingers together", "bring your fingers together", "grip", "grip it", "grip now", "grip tight",
+          "grip hard", "grip firmly", "grip with your hand", "grip with your fingers", "close your grip"]
 _CLOSE_HAND = ["you close hand", "close you hand", "clos your hand", "close ur hand", "hand close please",
                "you make fist", "gripper close please", "close hand pls", "you close gripper", "close da gripper"]
 
@@ -379,6 +380,13 @@ _NO = [
     "lift my spirits", "lift the ban", "lift weights", "take the lift", "where is the lift", "raise the price",
     "raise the bar", "raise a question", "raise your voice", "keep your voice down", "speak up", "cheer up",
     "lighten up", "grow up", "shut up", "hurry up", "stand up for yourself", "stand up comedy", "sit down please, everyone",
+    # remarks about the grip, giving back, the waist, a place pointed at (not the bank's: the rules / LLM)
+    "nice grip", "good grip", "what a grip", "your grip is strong", "you have a good grip", "strong grip",
+    "grip is good", "great grip on that cup", "return the cup", "can you return the cup", "return my phone",
+    "return the bottle to the table", "give back the cup", "give me back my phone", "straighten your waist",
+    "straighten your back", "straighten your body", "straighten up", "stand up straight", "sit up straight",
+    "drive over there", "go over there", "go over there where i'm pointing", "drive to where i'm pointing",
+    "go where i'm pointing", "move over there", "go that way", "head over there",
     # things Lumi cannot do, said like a motion
     "fly up to the ceiling", "fly up", "fly to the ceiling", "fly up to the sky", "fly up high", "jump up to the ceiling",
     "jump up", "jump up high", "climb up to the ceiling", "float up to the ceiling", "climb the wall", "fly away",

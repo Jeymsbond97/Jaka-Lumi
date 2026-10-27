@@ -1129,7 +1129,8 @@ def task_parse(body: ParseBody):
     problem = brain.place_problem(fixed, markers)
     if problem:                                       # quick_command says it: "I don't have a place called p12"
         return _talk(problem[0], kind="refuse")
-    if held and kind is None and brain.held_command(fixed) and brain.direct_order(fixed) and not brain.not_an_order(fixed):
+    if held and kind is None and (brain.held_command(fixed) and brain.direct_order(fixed) and not brain.not_an_order(fixed)
+                                  or brain.held_carry(fixed, markers)):   # "p5로 가져가": a carry there
         return _held_parse(body, markers)
     if kind is None and body.llm:                     # the rules leave it: the LLM, one call, as by voice
         gen = brain.Brain().respond_stream(fixed, markers)
@@ -1239,7 +1240,7 @@ def _held_parse(body, markers):
     """A command while something is held: what to do with it, read by the rules only (fast; the object named in it is
     the held one, so "give me the cup" is a give, not a new fetch). A marker named anywhere in the text is where to
     bring it, else the dialog's To; then put it on a table, hand it over or keep holding it."""
-    from assistant import brain
+    from assistant import brain, steps
     from tasks import fetch
     held, text = fetch.held_name(), brain.give_clause(body.text)   # not where the person it is for goes
     m, t = brain._mentions(text, markers), brain._norm(text)
@@ -1258,6 +1259,11 @@ def _held_parse(body, markers):
         (on or {}).get("prefer"))                     # "the lower one": which of several
     on_words = " ".join(w for w in (which, on.get("colour"), " or ".join(n.replace("dining table", table) for n in
                                                                     [on["name"]] + on.get("alts", []))) if w) if on else "table"
+    side = steps._side(t) if then == "place" else None  # "왼쪽 테이블에 놔", "put it on the right side": the mission's
+    if dest is None and side:                         # place step turns to that side first (fetch.place does not)
+        got = [{"do": "place", "on": {"name": "dining table", "colour": None, **(on or {}), "side": side}}]
+        return {"action": "steps", "steps": got, "lang": "ko" if brain.HANGUL.search(text) else "en", "sender": None,
+                "read_by": "rules", **_steps_said(got, markers)}
     if dest is None:
         if then:
             return {"action": then, "task": {"on": on}, "problems": [], "choices": _choices(),

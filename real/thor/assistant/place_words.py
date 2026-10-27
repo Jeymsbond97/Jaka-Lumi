@@ -1,6 +1,7 @@
-"""Marker names said in other ways than wording.py reads them: the other language ("information desk" for 안내데스크,
-"레지스트레이션" for Registration), the words of a two-word name the other way round ("에이 부스" for booth_A, "삼 번 부스"
-for 부스3), letters and numbers as said ("booth bee", "부스 십이", "gate won"), and whisper's spellings ("hole A", "카패").
+"""Marker names said in other ways than wording.py reads them: as they sound in the other language ("인포 데스크"
+for info_desk, "레지스트레이션" for Registration; never a translation: 출구 is no "exit"), the words of a two-word
+name the other way round ("에이 부스" for booth_A, "삼 번 부스" for 부스3), letters and numbers as said ("booth bee",
+"부스 십이", "gate won"), and whisper's spellings ("hole A", "카패").
 
 apply(t, markers) writes them as the marker's written name (wording.written) in text already normalised by
 wording.norm, so every reader after it (brain.named_place, the go rules, the intent bank) sees the marker.
@@ -14,23 +15,22 @@ import sys
 
 from assistant import wording
 
-EN_KO = {   # an English word of a name -> how it is said in Korean, and other spellings
-    "registration": ["레지스트레이션", "레지스트레이숀", "등록"], "gallery": ["갤러리", "겔러리", "갤러리이"],
-    "information": ["인포메이션", "안내"], "info": ["인포", "information", "인포메이션", "안내"],
+EN_KO = {   # an English word of a name -> how it sounds in Korean, and other spellings. Never a translation: "출구" is
+    # not "exit" (the owner, 2026-10-26: a word that only means the place is asked about, never mapped to a marker)
+    "registration": ["레지스트레이션", "레지스트레이숀"], "gallery": ["갤러리", "겔러리", "갤러리이"],
+    "information": ["인포메이션"], "info": ["인포", "information", "인포메이션"],
     "desk": ["데스크", "대스크", "데스끄"], "cafe": ["카페", "카패", "까페", "café"], "coffee": ["커피", "코피"],
-    "corner": ["코너"], "elevator": ["엘리베이터", "엘레베이터", "엘베"], "lift": ["리프트"], "entrance": ["엔트런스", "입구"],
-    "exit": ["엑시트", "엑싯", "출구"], "stage": ["스테이지", "무대"], "main": ["메인"], "booth": ["부스", "boot", "bootH"],
-    "hall": ["홀", "hole", "hol"], "gate": ["게이트", "gait"], "photo": ["포토", "foto", "사진"], "zone": ["존", "zon"],
-    "lounge": ["라운지", "휴게실"], "lobby": ["로비"], "bar": ["바"], "table": ["테이블", "table"], "front": ["프론트", "프런트", "앞"],
-    "restroom": ["화장실"], "toilet": ["화장실"], "meeting": ["미팅", "회의"], "room": ["룸", "실"], "shop": ["샵", "숍"],
-    "gift": ["기프트", "기념품"], "dock": ["도크", "독"], "demo": ["데모"], "lab": ["랩"], "office": ["오피스", "사무실"],
+    "corner": ["코너"], "elevator": ["엘리베이터", "엘레베이터", "엘베"], "lift": ["리프트"], "entrance": ["엔트런스"],
+    "exit": ["엑시트", "엑싯", "엑짓", "이그짓", "익싯", "익시트", "에그짓"], "stage": ["스테이지"], "main": ["메인"], "booth": ["부스", "boot", "bootH"],
+    "hall": ["홀", "hole", "hol"], "gate": ["게이트", "gait"], "photo": ["포토", "foto"], "zone": ["존", "zon"],
+    "lounge": ["라운지"], "lobby": ["로비"], "bar": ["바"], "table": ["테이블", "table"], "front": ["프론트", "프런트"],
+    "restroom": ["레스트룸"], "toilet": ["토일렛"], "meeting": ["미팅"], "room": ["룸"], "shop": ["샵", "숍"],
+    "gift": ["기프트"], "dock": ["도크", "독"], "demo": ["데모"], "lab": ["랩"], "office": ["오피스"],
 }
-KO_EN = {   # a Korean word of a name -> how it is said in English
-    "안내": ["information", "info", "인포", "인포메이션"], "데스크": ["desk", "대스크"], "커피": ["coffee"], "코너": ["corner"],
-    "포토": ["photo", "foto"], "존": ["zone"], "입구": ["entrance", "엔트런스"], "출구": ["exit", "엑시트"],
-    "무대": ["stage", "스테이지"], "휴게실": ["lounge", "break room", "rest area", "라운지"], "회의실": ["meeting room", "conference room"],
-    "화장실": ["restroom", "toilet", "bathroom", "washroom"], "앞": ["front"], "부스": ["booth"], "라운지": ["lounge"],
-    "기념품점": ["gift shop", "souvenir shop"], "로비": ["lobby"], "카페": ["cafe", "café", "카패"], "갤러리": ["gallery"],
+KO_EN = {   # a Korean word of a name -> how it sounds in English (and its spellings); never a translation
+    "인포": ["info"], "인포메이션": ["information"], "데스크": ["desk", "대스크"], "커피": ["coffee"], "코너": ["corner"],
+    "포토": ["photo", "foto"], "존": ["zone"], "엔트런스": ["entrance"], "스테이지": ["stage"], "라운지": ["lounge"],
+    "부스": ["booth"], "로비": ["lobby"], "카페": ["cafe", "café", "카패"], "갤러리": ["gallery"], "홀": ["hall"],
 }
 LETTER = {"a": ["a", "에이", "ay", "에이에"], "b": ["b", "bee", "be", "비", "삐"], "c": ["c", "see", "sea", "씨"],
           "d": ["d", "dee", "디"], "e": ["e", "이"]}
@@ -74,7 +74,8 @@ def _patterns(markers):
             continue
         parts = ["(?:" + "|".join(sorted({re.escape(a).replace(r"\ ", r"\s?") for a in _alts(t, len(toks) == 1)},
                                          key=len, reverse=True)) + ")" for t in toks]
-        orders = [parts] + ([parts[::-1]] if len(parts) == 2 else [])
+        orders = [parts] + ([parts[::-1]] if len(parts) == 2 else [parts[1:] + parts[:1]] if len(parts) > 2 else [])
+        # ^ "에이 부스" for booth_A, "비 세븐 게이트" for Gate_B7: the first word said last
         body = "|".join(SEP.join(p) for p in orders)
         out.append((m, re.compile(rf"(?<![a-z0-9_가-힣])(?:the )?(?:{body})(?![a-z0-9_])(?:(?<=[a-z0-9])|{wording._KO_END})")))
     return out

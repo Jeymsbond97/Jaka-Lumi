@@ -1477,6 +1477,9 @@ def answer(text, lang="en", frames=None, slow_line=None):
         elif _last["thing"] is None or last not in SEE_KINDS or re.search(r"\bit\s+(?:to|from)\b", t, re.I) or \
                 not (IT.search(t) or FAR_BARE.match(t)):
             return None                                    # "how far is Seoul?": not about the cameras
+    from assistant import quick_answers
+    if not last and quick_answers.kind_of(text):
+        return None                                        # "머리에 컴퓨터 있어?", "Is it safe to stand next to you?": a fact
     _last["kind"], _last["asked"], _last["at"] = kind, (kind, t), time.time()
     frames = _look(frames, asked_at)
     if not frames:

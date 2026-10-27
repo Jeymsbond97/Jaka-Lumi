@@ -134,7 +134,8 @@ WAKE = re.compile(rf"\b(hi|hey|hello|okay|ok|hai|high|{WAKE_UP_EN})?[\s,.!]*(lum
 WAKE_REPLY = {"en": "Yes? How can I help?", "ko": "네? 무엇을 도와드릴까요?"}
 NAME_ONLY = re.compile(r"^\s*(hi |hey |hello )?(lumi|loomi|rumi|루미)[\s,.!?]*$", re.I)
 FETCH_STOP = re.compile(r"\b(sto+pp?|stob|halt|freeze|don'?t move)\b|^\W*(?:lumi\W+)?stopped\W*$|스탑|스텁|멈추(?:세요|십시오)|^\W*abort\W*$|\babort (?:the |this |your )?(?:mission|task|trip)\b|\bcancel (?:the |this |your )?(?:mission|task|trip)\b|"
-                        r"머+엄*춰|머+엄*추(?:세요|십시오)|멈춰|그만|정지|스톱|미션 ?취소|작업 ?취소|거기 ?서(?=[\s!.~,]*$)|움직이지 ?마|"
+                        r"머+엄*춰|머+엄*추(?:세요|십시오)|멈춰|멈추(?:게|시게|게나|시오|어라)|그만|정지|스톱|스땁|스떱|미션 ?취소|작업 ?취소|"
+                        r"거기 ?서(?: ?봐| ?있어)?(?=[\s!.~,]*$)|움직이지 ?마|\bemergency stop\b|\b(?:stay|hold|keep) still\b|"
                         r"^\W*(?:wait|잠깐|잠깐만|기다려)\W*$", re.I)   # not "거기서 기다려"
 FETCH_GIVE = re.compile(r"\bgive (it|that|this|the \w+)( to me)?\b|\bhand (it )?(over|to me)\b|줘|주세요|건네", re.I)
 FETCH_PLACE = re.compile(r"\b(put|place|set) (it|that|this|the \w+) (down|on the table)\b|테이블에 ?(놔|놓|둬)|내려 ?(놔|놓)", re.I)
@@ -3241,7 +3242,7 @@ NOT_STOP = re.compile(   # a stop word that orders no stop: negated, about someo
     r"\bstop-motion\b|\bone-stop\b|\bwhy(?:'d| did| do| does)? (?:you|it|lumi) (?:freeze|stop|halt)|\b(?:would|should|could|might|will) stop\b|\blet'?s stop (?:at|for|by)\b|"
     r"\bstop (?:for|at the|at a) (?:coffee|lunch|a (?:bit|while|break)|the \w+ (?:place|shop|store|cafe))|"
     r"\b(?:when|if|once|whenever|after) [^,]{1,40},?\s*(?:you )?stop\b|"
-    r"그만(?:두|뒀|둘)|그만 ?(?:먹|마시|자|놀|울|웃|싸우|뛰)|"
+    r"그만(?:두(?!세요|십시오|시오|어라|라|게)|뒀|둘)|그만 ?(?:먹|마시|자|놀|울|웃|싸우|뛰)|"   # "회사 그만뒀어"; "그만두세요" stops
     r"(?<![가-힣])(?!루미|로봇|누미|아야|말이야|얘야)(?:엄마|아빠|얘들아|형|언니|누나|오빠|[가-힣]{1,3}야|[가-힣]{1,3}아)\s+(?:좀\s+|거기\s+)?(?:그만|멈춰|정지)|"
     r"(?-i:\b(?!(?:Lumi|Loomi|Rumi|Robot|Hey|Hi|Okay|Ok|No|Please|Now|Wait|Hello|So|Oh|Yo)\b)[A-Z][a-z]+), stop \w+ing\b", re.I)
     # also: another meaning, someone else told off ("엄마 그만 찍어", "Jake, stop touching the robot!"), a condition
@@ -3273,7 +3274,7 @@ STOP_PAD = re.compile(r"^(?:\W*(?:hey|hi|yo|oh|okay|ok|so|um+|uh+|listen|right|a
                       r"(?:\W*\b(?:please|plz|pls|bro|now|right now|real quick|thanks|thank you|okay|ok|would you|will you|"
                       r"right|already|lumi|robot|빨리|좀|제발|당장|루미야?)\b)+\W*$", re.I)
 STOP_ONLY = re.compile(   # a whole sentence that only says stop / enough / stay (after calls and fillers): stop at once
-    r"(?:(?:sto+p|stahp|stob|top it|enough|that'?s enough|that is enough|no more|quit it|cut it out|knock it off|whoa,? there|whoa(?:,? whoa)+|kill it|abort|"
+    r"(?:(?:sto+p|stahp|stob|top it|emergency stop|enough|that'?s enough|that is enough|no more|quit it|cut it out|knock it off|whoa,? there|whoa(?:,? whoa)+|kill it|abort|"
     r"stop (?:everything|driving|moving|it|that|the robot|right there|right now)|enough (?:music|of that)|"
     r"hold it(?: (?:right )?(?:there|here))?|stop 해|그만|그만해|그만해요|그만하세요|그만하십시오|그만해 ?줄래요?|"
     r"그만해 ?주세요|그마내|그만둬|멈춰|멈쳐|멈처|멈추라고|멈춰 ?봐|거기까지|고마 ?(?:서라|해라|해|하이소)|서|don'?t go|가지 ?마|그마+안|"
@@ -3502,7 +3503,7 @@ def read_mission(text, markers):
     if unread and got and ({s["do"] for s in got} & steps.MISSION_ONLY or steps.is_mission(got)):
         got, unread, by = steps.read(text, markers)          # clearly several steps: the LLM may read it
     elif unread and got and any((brain_mod.intent(u, markers) or ("",))[0] not in ("", "weather", "search", "fetch")
-                                or NOT_A_STEP.match(u) for u in unread):
+                                or NOT_A_STEP.match(u) or brain_mod.place_problem(u, markers) for u in unread):
         return got, unread, by                     # "go to the stage and wave": no task step, asked, never half done
     elif unread:
         return None                                # "come here, I need help": the old paths (rules, the LLM) answer it

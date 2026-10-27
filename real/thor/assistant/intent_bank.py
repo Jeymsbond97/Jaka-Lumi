@@ -63,7 +63,8 @@ NOT_TO_LUMI = re.compile(
     r"are asked|are requested)\b|\bare (?:kindly )?(?:asked|requested) to\b|안내 ?말씀|(?<![가-힣])여러분(?!한테|에게|께)|"
     r"관람객|방문객|승객|"                                                                               # announcements
     r"\bso (?:well|nicely|smoothly|fast|good)\b|\b(?:really|very) (?:well|nicely|smoothly)\b|\bthe way you\b|"
-    r"\blove how\b|[가-힣](?:네|네요|구나|군요|더라|던데)\s*[!.~]*$|[가-힣](?<!니)다\s*[!.~]*$", re.I)
+    r"\blove how\b|[가-힣](?:네|네요|구나|군요|더라|던데)\s*[!.~]*$|[가-힣](?<!니)다\s*[!.~]*$|"
+    r"(?:좋|멋지|예쁘|이쁘|귀엽|크|작|길|세|대단하|신기하|웃기)(?:네|네요|구나|군요)(?=[\s,.!~])", re.I)
     # plans, hypotheticals, announcements, praise and remarks: nobody asked Lumi to do anything now
 QUESTION = re.compile(r"^\W*(?:(?:hey|so|um+|uh+|lumi|okay|ok)\W+)*(?:what|where|why|how|when|who|whose|which|is|are|was|"
                       r"were|do(?=\s+(?:you|i|we|they|robots?)\b)|does|did|have|has|had|should|shall i|may i|can i|could i)\b(?! about\b)|"
@@ -89,6 +90,9 @@ SEVERAL = re.compile(r"\b(?<!hundred )and\b(?! a half\b)|\bwait\w*|\bcorrection\
                      # several requests or a stay ("go to p3 and wait", "가서 기다려", "p3에 가 있어"): steps.read's
 HAND_WORDS = re.compile(r"\byou(?:'re| are) holding\b|\b(?:in|from) my hand\b|\bhere'?s\b|\bhanding\b|\bi'?ll give\b|"
                         r"\bhold this\b|\bfrom me\b|\bmy hand\b|\bhand ?에|\bhand it (?:over|to me)\b|\bhand over\b|내 손|제 손|손에 ?(?:줘|놔|주세요|쥐어)|\bi'?m holding\b|\bi am holding\b|들고 있는|손에 있는|받아|드릴게|줄게|가져가세요", re.I)   # the hand reader's (brain.hand_request)
+GROUP_CALL = re.compile(r"(?:^|[,:;.!?]\s*)(?:(?:hey|ok|okay|alright|so|come on)\s+)?(?:(?:you )?guys|folks|y'?all|"
+                        r"you all|everyone|everybody|team|kids|people|ladies|gentlemen)\s*(?:[,:;!.]|$)|"
+                        r"얘들아|애들아|친구들아|여러분[,\s]", re.I)   # "guys, get me the bottle": said to the people around
 NAME_CALL = re.compile(r"^\W*(?:(?:ah|oh|hey|hi|okay|ok|so|um|uh|look|and)\W+)?([A-Z][a-z]+)\s*,")      # "Jake, follow me": said to Jake
 NOT_A_NAME = {"lumi", "loomi", "rumi", "okay", "ok", "please", "hey", "hi", "hello", "so", "well", "now", "alright",
               "yes", "yeah", "no", "sorry", "um", "uh", "oh", "wait", "look", "then", "first", "also", "and", "but",
@@ -750,7 +754,7 @@ def guarded(text):
         return "length"
     for name, rx in (("negation", NEGATION), ("later", LATER), ("ability", ABILITY), ("question", QUESTION),
                      ("self", SELF_TALK), ("several", SEVERAL), ("hand", HAND_WORDS), ("other sense", OTHER_SENSE),
-                     ("repeat", REPEAT), ("past", PAST_EN), ("tag", TAG), ("wonder", WONDER), ("not to lumi", NOT_TO_LUMI)):
+                     ("repeat", REPEAT), ("group", GROUP_CALL), ("past", PAST_EN), ("tag", TAG), ("wonder", WONDER), ("not to lumi", NOT_TO_LUMI)):
         if rx.search(t):
             return name
     if brain.LATER.search(t):
@@ -859,6 +863,7 @@ CARRY = (r"\b(?:bring(?! yourself)|fetch|deliver|carry)\b|\bget me\b|\b(?:to|for
 COME_SAID = (r"\bcome\b|\bcum\b|\bkum\b|\bget over\b|\bapproach|\bcloser\b|\bhither\b|\bnear me\b|"
              r"\bget closer\b|\broll over\b|\bdrive over\b|\bmy side\b|\bnext to me\b|\bto me\b|와|오세요|오십시오|오시|올래|"
              r"(?<![가-힣])컴(?= ?히어|(?![가-힣]))")   # Konglish "컴 히어 해 줘", "이리 컴"
+HOME_SAID = r"\b(?:home|dock|charger|charging)\b|집|충전|도크|홈"   # brain.named_place also reads a bare "go back" as home
 LIFT_SAID_MAX_M = 0.3   # m; a longer lift amount said is no lift request ("grow to three meters tall")
 LIFT_BODY = (r"\b(?:yourself|your (?:body|torso|upper body)|body|make you|taller|shorter|smaller|small|tall|high|lift|rise|grow|"
              r"shrink|come down|go up|go down|move up|move down|raise up|lower down|come up|sink down|elevate|squat|height|"
@@ -867,13 +872,13 @@ LIFT_BODY = (r"\b(?:yourself|your (?:body|torso|upper body)|body|make you|taller
 
 
 MOVE_VERB = (r"\b(?:move|go|step|back up|backup|scoot|slide|shift|drive|roll|reverse|inch|come|forward|backward|ahead|"
-             r"moov|moove|bak)|가|이동|물러|비켜|후진|와|빠져|걸음|발짝|move|back|go")   # a bare "왼쪽으로" may be a look
+             r"moov|moove|bak)|가|이동|움직|물러|비켜|후진|와|빠져|걸음|발짝|move|back|go")   # a bare "왼쪽으로" may be a look
 
 
 LOOK_DIR = {"left": r"\bleft|왼|레프트|(?:^|\s)좌로|좌측", "right": r"\bright|\brite\b|오른|라이트|(?:^|\s)우로|우측",
             "up": r"\bup|\bupward|\bceiling|\bsky\b|\bhigher\b|천장|하늘|(?<!원)위", "down": r"\bdown|\bfloor|\bground|\bfeet\b|바닥|땅|아래|밑"}
 LOOK_ME = (r"\b(?:at|on|to|toward|towards) (?:me|us|나)\b|\bthis way\b|\bover here\b|\bmy way\b|\bhere\b|\bwatch me\b|"
-           r"\bme in the eye|\bmy face\b|나한테|저한테|쳐다봐|(?:^|\s)(?:여기|이쪽|저|나|날|절)(?:를|을)?\s*(?:(?:좀|한 ?번|잠깐|잠시|다시)\s*)*(?:바라|쳐다)?(?:봐|보세요|look)")
+           r"\bme in the eye|\bmy face\b|(?:제|내) 얼굴|나한테|저한테|쳐다봐|(?:^|\s)(?:여기|이쪽|저|나|날|절)(?:를|을)?\s*(?:(?:좀|한 ?번|잠깐|잠시|다시)\s*)*(?:바라|쳐다)?(?:봐|보세요|look)")
 
 
 EN_NUM = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen "
@@ -1016,7 +1021,8 @@ def _slot(kind, text, markers, holding):
                 not re.search(rf"(?<![a-z0-9]){re.escape(named[0].lower())}(?![0-9])", said):
             return None                                # "exit a" with only Exit_B, "booth 13" with Booth_12: asked
         return ("go_to", named[0])
-    if kind == "come" and (re.search(CARRY + r"|따라", t) or not re.search(COME_SAID, t)):
+    if kind == "come" and (re.search(CARRY + r"|따라|\bover there\b|\bpoint(?:ing|ed)?\b|\bthat way\b|저기|저쪽|거기|가리키", t) or
+                           not re.search(COME_SAID, t)):
         return None                                    # "나한테 가져와", "이리 줘": not a trip to the person
     if kind == "come" and re.search(r"\bwith (?:me|us)\b|함께|같이", t):
         return ("follow", "")                          # "just come with me": walk along
@@ -1024,9 +1030,10 @@ def _slot(kind, text, markers, holding):
         n, exact = driving.amount(t)                                                  # drive (A2)
         return ("move", f"forward {n:g}") if exact and driving.MOVE_MIN_M <= n <= brain.MOVE_MAX_M else None
     if kind == "come_back" and (re.search(r"\bpose\b|\barm\b|\bhead\b|팔|고개|\bpick|\bput\b|\bit\b|그거|놓|놔", t) or
-                                any(brain.named_place(text, m, markers) for m in markers)):
+                                any(brain.named_place(text, m, markers) for m in markers
+                                    if m != "home" or re.search(HOME_SAID, t))):
         return None                                    # "go back to your dock", "go back to your look pose": not here
-    if kind == "come_back" and re.search(r"\bhere\b|\bto me\b|이리|여기|나한테|저한테", t):
+    if kind == "come_back" and re.search(r"\b(?:back|over|right|come|get) here\b|\bto me\b|이리|여기|나한테|저한테", t):
         return ("come", "")                            # "come back here": to the person, not to the old spot
     if kind == "follow" and (re.search(r"\bfollow (?:you|him|her|them|it|that)\b", t) or not re.search(FOLLOW_WORD, t)):
         return None                                    # "follow you": not "follow me"; "가자 이제": let's go, where?
@@ -1062,7 +1069,7 @@ def _slot(kind, text, markers, holding):
                 not re.search(r"\bface\b|\bother (?:side|way)\b|\d+\s*(?:degrees?|도)", t.replace("360", "")) and \
                 said_amount(text)[1] in (None, 360):
             return ("turn", ("right" if re.search(r"\bright\b|오른쪽", t) else "left") + " 360")
-        if re.search(r"\baround\b|\bu-?turn\b|유턴|뒤로 (?:(?:좀|한 ?번|얼른|빨리)\s*)?돌|뒤돌|\bother way\b|\babout face\b|한 바퀴", t):
+        if re.search(r"\baround\b|\bu-?turn\b|유턴|뒤로 (?:(?:좀|한 ?번|얼른|빨리)\s*)?(?:돌|회전)|뒤돌|\bother way\b|\babout face\b|한 바퀴", t):
             return None if re.search(r"\bleft|\bright\b|왼|오른", t) else ("turn", "around 180")
         d = [x for x in _dirs(t) if x in ("left", "right")]
         if not d and said_amount(text)[1] == 180:
@@ -1130,8 +1137,9 @@ def _slot(kind, text, markers, holding):
                                               r"\b(?:throw|toss|kick|break|eat|drink|wash|clean|buy|sell|"
                                               r"put|place|set|drop|leave|this|hold (?:this|my|it|on)|my)\b|놔|놓|내려", t) or \
                 not re.search(CARRY, t) and re.search(r"\bfrom\b|\bgo get\b|에서", t) or \
-                (holding() if callable(holding) else holding):
-            return None                                # "put the banana on the table", "hold this apple": the hand's
+                (holding() if callable(holding) else holding) or re.search(r"\breturn\b|돌려|반납|반환", t):
+            return None                                # "put the banana on the table", "hold this apple": the hand's;
+                                                       # "return the cup", "컵 돌려줘": give back, not a pick
         if re.search(r"\b(?:give|hand|pass)\b|건네", t) or \
                 re.search(r"줘|주세요|주실|줄래", t) and not re.search(r"집|잡|들어|쥐|픽|pick|grab|take|" + CARRY, t):
             return None                                # "컵 좀 줘": bring it to me, a mission (pick, then give)
@@ -1142,8 +1150,11 @@ def _slot(kind, text, markers, holding):
                 return None                            # "from the cafeteria" (not on the map), "go home, bring it": asked
             return ("fetch", text)
         if got.get("source") or got.get("dest") or any(brain.named_place(text, m, markers) for m in markers) or \
-                re.search(r"\b(?:to|at|ask|tell|say|pass\w*|want|need|is on|are on)\b|있는|옮겨|에게|한테|께", t):
-            return None                                # "take the cup to p4", "I want the mug, the one at the entrance"
+                re.search(r"\b(?:to|at|ask|tell|say|pass\w*|want|need|is on|are on)\b|(?<!테이블에 )(?<!위에 )(?<!저기 )"
+                          r"(?<!거기 )(?<!^)있는|옮겨|에게|한테|께", t) or got.get("prefer"):
+            return None                                # a side or size said ("왼쪽 컵", "the smaller one"): the
+                                                       # quick pick takes none, the rules / LLM read it;
+                                                       # "take the cup to p4", "I want the mug, the one at the entrance"
         return ("pick", f"{got['colour']} {got['object']}" if got.get("colour") else got["object"])
     if kind == "put":
         if not (holding() if callable(holding) else holding):
@@ -1174,7 +1185,7 @@ def read(text, markers=(), holding=False):
     return ("fetch", said) if got and got[0] == "fetch" else got
 
 
-PICK_VERB = re.compile(r"집|잡|들어|들고|가져|갖다|챙겨|\b(?:pick|grab|take|get|fetch|bring|hold)\b", re.I)
+PICK_VERB = re.compile(r"집|잡|들어|들고|가져|갖다|갖고|챙겨|픽업|\b(?:pick|grab|take|get|fetch|bring|hold)\b", re.I)
 LOOK_VERB = re.compile(r"봐|보세|쳐다|바라|\b(?:look|see|watch)\b", re.I)
 PUT_VERB = re.compile(r"놓|놔|둬|두|내려|\b(?:put|place|drop|set|leave)\b", re.I)
 BACK_VERB = re.compile(r"돌아|복귀|컴백|리턴|가|와|\b(?:return|go|come|head|back)\b", re.I)
@@ -1198,6 +1209,13 @@ def _verb_conflict(kind, text, holding):
         return True                                    # "라이트로 살짝 가 줘": a drive
     if kind == "arm_reach" and (HAND_SHAPE.search(text) or COME_VERB.search(text) and not ARM_WORD.search(text)):
         return True                                    # "손 펴 주시겠어요" (open), "할머니한테 와 줘" (come)
+    if kind == "look" and re.search(r"\bcome\b(?! on\b)|오세요|오십시오|(?<![가-힣])와(?: ?줘| ?주|\s|$)", text, re.I) and \
+            not HEAD_WORD.search(text):
+        return True                                    # "I'd love to see you come this way": come, not a look
+    if kind in ("arm_reach", "arm_fold") and BODY_WORD.search(text) and not ARM_WORD.search(text):
+        return True                                    # "you must straighten your waist": the waist, not the arm
+    if kind == "arm_open" and not OPEN_WORD.search(text) or kind == "arm_close" and not CLOSE_WORD.search(text):
+        return True                                    # "grip immediately": no open word, no gripper opening
     if kind == "wave" and not WAVE_VERB.search(text):
         return True                                    # "손 벌려 줘", "손 쥐어 빨리", "손 좀 주이소"
     return holding and kind in ("arm_open", "arm_fold", "arm_reach", "arm_close")
@@ -1209,7 +1227,12 @@ GO_VERB = re.compile(r"(?<![가-힣])가(?: ?줘| ?주|$|\s)|이동|움직|무�
 HAND_SHAPE = re.compile(r"펴|펼|쥐|주먹|넣|접|내려|오므|놔|놓|\b(?:open|close|fist|tuck|fold|lower)\b", re.I)
 COME_VERB = re.compile(r"(?<![가-힣])와(?![가-힣])|와 ?(?:줘|주)|오세요|오십시오|\bcome\b", re.I)
 ARM_WORD = re.compile(r"손|팔|\b(?:hand|arm)\b", re.I)
-WAVE_VERB = re.compile(r"흔들|흔드|악수|인사|빠이|바이|웨이브|하이|\b(?:wave|waving|hello|hi|hey|shake|greet|bye)\b", re.I)
+WAVE_VERB = re.compile(r"흔들|흔드|악수|인사|빠이|바이|웨이브|하이|\b(?:wave|waving|hello|hi|hey|shake|greet|bye)\b|"
+                       r"handshake|shaking|goodbye", re.I)
+OPEN_WORD = re.compile(r"펴|펼|벌려|벌리|열|오픈|풀어|놔|놓|\b(?:open|release|let go|loosen|unclench|spread|relax|widen|"
+                       r"opn|apart)", re.I)
+CLOSE_WORD = re.compile(r"쥐|닫|오므|모아|모으|주먹|클로즈|꽉|잡|\b(?:close|clos|shut|grip|clench|fist|squeeze|tighten|grasp|curl|"
+                        r"pinch|together)", re.I)
 
 
 if __name__ == "__main__":

@@ -57,12 +57,15 @@ def _restated(words, before):
     if not said or len(said) > 3 or not re.fullmatch(r"[가-힣]{2,}|[가와]", said[-1]):
         return False
     last = said[-1]
-    return any(last == w or len(w) > 1 and (w.startswith(last) or last.startswith(w))
+    return any(last == w or len(w) > 1 and len(last) > 1 and (w.startswith(last) or last.startswith(w))   # "가" is no "가지고"
                for w in re.findall(r"\w+", wording.ko_plain(before)) if re.fullmatch(r"[가-힣]+", w))
 
 
 def _rule(words, markers):
     """brain.intent of a part, also of a Korean -고 form ("나 보고" read as "나 봐")."""
+    words = re.sub(r"^\W*(?:first(?:ly)?|then|next|after that|and then|and|lastly|finally|먼저|그다음에?|그리고)\W+", "", words,
+                   flags=re.I) or words                  # "first look me, then follow me"
+    words = re.sub(r"\blook me\b", "look at me", words, flags=re.I)
     rule = brain.intent(words, markers)
     ko = _KO_AND.sub(lambda m: _KO_ORDER[m.group(1)], words.strip())
     if not rule and ko != words.strip():
@@ -95,6 +98,10 @@ def parts(text):
     return [p for p in out if p and not re.fullmatch(rf"(?:{_FILL.pattern}|\W)+", p, re.I)]
 
 
+CALL_ONLY = re.compile(r"\W*(?:(?:excuse me|hey|hi|hello|yo|okay|ok|lumi|robot|buddy|루미 ?씨|루미야?|로봇아?|야|어이|저기요?|"
+                      r"이보게)\W*)+", re.I)
+
+
 def plan(text, markers=(), cant=None):
     """See the module's doc. cant: a regex of orders Lumi can't do ("dance", "jump"): answered, the rest done."""
     from assistant import intent_bank
@@ -113,7 +120,8 @@ def plan(text, markers=(), cant=None):
         return None                                      # "turn around and look": the head looks behind
     out = []
     for p in ps:
-        if SELF_PROMISE.search(p) or out and _restated(p, out[-1][1]) or brain.GREET_ONLY.match(p):   # "hello robot, …"
+        if SELF_PROMISE.search(p) or out and _restated(p, out[-1][1]) or brain.GREET_ONLY.match(p) or CALL_ONLY.fullmatch(p):
+            # "hello robot, …", "야 루미, …", "excuse me robot, …": the call, no part
             continue                                     # "흰색 머그컵 잡아!, 아 잡아 줄 수 있어요?": the order once
         got, unread = steps.rules(p, markers)
         rule = _rule(p, markers)
