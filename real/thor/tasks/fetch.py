@@ -1887,6 +1887,7 @@ def _place_near(top0, tried):
             return True
         if got is None or i == APPROACH_TRIES or _charging():
             return False
+        _too_low(got)
         log(f"a table at {got['table']:.0f} mm further away ({got['camera']} camera), at ({got['x']:.0f}, "
             f"{got['y']:.0f}): going closer ({i + 1}/{APPROACH_TRIES})")
         _go_to(got, PLACE_GOAL, tried, holding=True)
@@ -2040,14 +2041,10 @@ def _put_down(say=None, on=None):
     if got is not None and arm_yaw() is not None and not _charging():
         log(f"a table at {got['table']:.0f} mm further away ({got['camera']} camera), at ({got['x']:.0f}, "
             f"{got['y']:.0f}): going closer")
-        try:
-            _go_to(got, PLACE_GOAL, tried, holding=True)
-            if _place_near(top, tried):
-                return
-        except FetchError as e:
-            _too_low(got, e)
-            raise
-        _too_low(got)
+        _too_low(got)                                 # said at once: going closer can't help (X1: 24-31 moves)
+        _go_to(got, PLACE_GOAL, tried, holding=True)
+        if _place_near(top, tried):
+            return
     _lift_to(LIFT_DRIVE_MM)
     raise FetchError("I can't find a free place on a table around me.", "주변에 내려놓을 빈 자리를 못 찾았어요.")
 

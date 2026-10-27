@@ -193,6 +193,14 @@ skills.place_turned(way, ja)
 assert moved[0] == ("line", way[0][1]) and moved[1] == ("down",), moved
 skills.motion.move_linear, skills.motion.move_joints, skills._do_place = real_lin, real_jm, real_place
 
+# the live puts of 2026-10-26 18:51-18:56 (lift 0, cup top -186 on a table at -336): put down at (-43, 618) with no
+# turn, as live; (-349, 647) beside it and the far table point (-213, 797) are out of reach from where it stood
+skills._held.update(top_mm=-186.0, yaw=0.0, tips=False, below=40.0)
+got = next(skills.place_options(-43.0, 618.0, -183.0, list(LOOK)), None)
+assert got and abs(skills.yaw_of(got[0][1][1])) < 1, got
+for xy in ((-349.0, 647.0), (-213.0, 797.0)):
+    assert next(skills.place_options(*xy, -183.0, list(LOOK)), None) is None, xy
+
 # ---------- the controller confirms only the chosen plan (a stand-in behind arm.cmd here) ----------
 asked, shift = [], {"mm": 0.0}
 def controller(name, **a):
