@@ -65,3 +65,4 @@ tests/blind/r11/
 tests/blind/r12/
 tests/blind/r13/
 data/bank_build.lock
+data/bank_check_queries.npz

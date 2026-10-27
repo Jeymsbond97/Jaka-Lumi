@@ -63,6 +63,9 @@ def _norm(text, markers=()):
                r"(?=[가-힣a-z0-9])", " ", t)            # "컵들고exit가서기다려" (typed or heard run together): its parts
     t = re.sub(r"(?<=[가-힣])고\s*나서(?=[\s,]|$)", "고", t)                     # "가고 나서" = "가고"
     t = re.sub(r"(?<![가-힣])(집었|잡았)다가(?=[\s,]|$)", lambda m: m.group(1)[0] + "고", t)   # "컵 집었다가" = "컵 집고"
+    m = re.match(r"([^,]{3,60}),\s*so,?\s+(.+)$", t)                             # "my hands are full, so could you ...":
+    if m and not re.search(_STEP_VERB, m.group(1)):                                # the reason before the order
+        t = m.group(2)
     for said, same in _SAME:                                                      # "get yourself to" = "go to"
         t = re.sub(said, same, t)
     for honour, plain in _HON_KO:                                                 # "가셔서" = "가서", "받으시고" = "받고"

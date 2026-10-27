@@ -131,7 +131,9 @@ def plan(text, markers=(), cant=None):
             continue                                     # "흰색 머그컵 잡아!, 아 잡아 줄 수 있어요?": the order once
         got, unread = steps.rules(p, markers)
         rule = _rule(p, markers)
-        if got and not unread and not (rule and rule[0] in ("look", "lift", "wave", "come", "come_back", "follow")):
+        back = rule and rule[0] in ("come", "come_back") and out and out[-1][0] == "steps" and got == [{"do": "go", "to": "here"}]
+        if got and not unread and (back or not (rule and rule[0] in ("look", "lift", "wave", "come", "come_back", "follow"))):
+            # "deliver the cup to exit and come back": back here is the mission's last step (one mission, read back)
             out.append(["steps", p, got])
         elif rule and rule[0] == "fetch" or FETCHING.search(p):
             return None                                  # "go to the exit and bring an orange back": a fetch, whole
