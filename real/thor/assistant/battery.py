@@ -15,11 +15,11 @@ ON_CHARGE = re.compile(r"\b(on|per|with) (a |one |the )?(full |single )?charge\b
                        r"\bgo (back )?(to )?(re)?charg|한 ?번 충전(?:으로|하면)|완충(?:으로|하면|되면)|충전하면 ?(?:얼마나|몇)|"
                        r"충전하러", re.I)   # how long it lasts (10 hours), when it goes to charge: the LLM
 LASTS = re.compile(r"\b(last|life|lifetime|capacity|volt|amp|ah|kind|type|made|hours?)\b|얼마나 ?가|몇 ?시간|오래 ?가|"
-                   r"지속|용량|종류|볼트|수명|뭐\s*들어|무슨\s*배터리|어떤\s*배터리|\bwhat (?:kind of |type of )?battery\b|사용 ?시간|쓸 ?수 ?있는 ?시간|런타임|\bruntime\b|\bhow long\b", re.I)    # how long it lasts, what it is: the reference notes
+                   r"지속|용량|종류|볼트|수명|뭐\s*들어|무슨\s*배터리|어떤\s*배터리|\bwhat (?:kind of |type of )?battery\b|사용 ?시간|쓸 ?수 ?있는 ?시간|런타임|\bruntime\b|\bhow long\b|타임|\btime\b", re.I)    # how long it lasts, what it is: the reference notes
 LEVEL = re.compile(
     r"\bbattery\b.*\b(level|percent(age)?|left|status|charged|full|low|now|remaining|state|at|much|look)\b|"
     r"\b(level|percent(age)?|how much)\b.*\bbattery\b|^\W*(and |so |what about |how about )?(your |the )?battery\W*$|"
-    r"배터리.{0,8}(?:몇|남|상태|퍼센트|프로|충분|얼마|어때|괜찮|있어|많|부족|없어)|^\W*(?:그럼 |그리고 )?배터리[는은요]?\W*$", re.I)
+    r"배터리.{0,8}(?:몇|남|상태|퍼센트|프로|충분|얼마|얼만|어때|괜찮|있어|많|부족|없어)|^\W*(?:그럼 |그리고 )?배터리[는은요]?\W*$", re.I)
 CHARGING = re.compile(
     r"\bare you (still |now |currently )?(charging|on (the |your )?charger|plugged in)\b|"
     r"\bis (it|the battery|your battery) (still |now )?charging\b|^\W*(and |so |what about |how about )?charging\W*$|"

@@ -45,7 +45,8 @@ LONG = {"en": "I talk with you in English and Korean, and when I don't know some
               "따라가요. 그리고 손을 흔들거나 판타스틱 베이비, 러브 어택 같은 제 노래도 불러 드려요."}
 
 
-NOT_LUMI = re.compile(r"\b(?:cutshion|company|jaka)\b|쿳션|회사|자카|안전", re.I)   # "쿳션은 무슨 일 해?", "안전 기능 뭐 있어?"
+NOT_LUMI = re.compile(r"\b(?:cutshion|company|jaka|languages?)\b|쿳션|회사|자카|안전|랭귀지|언어|외국어|영어|한국어|일본어|중국어", re.I)
+    # "쿳션은 무슨 일 해?", "안전 기능 뭐 있어?", "랭귀지 뭐 할 수 있어?" (the languages: quick_answers)
 
 
 def asked(text):

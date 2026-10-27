@@ -427,7 +427,7 @@ def guarded(text, history=()):
         return "event time"
     if re.search(r"타워|빌딩|건물|(?<![가-힣])탑|에펠|남산|한라산|백두산|\b(?:tower|building|mountain|bridge|skyscraper)\b", t, re.I):
         return "another thing"                         # "롯데타워 하이트 얼마야?": not Lumi's height
-    if re.search(r"날씨|날시|웨더|뉴스|소식|비 ?(?:와|오|올|온)|눈 ?(?:와|오|올)|미세 ?먼지|황사|우산|기온|덥|춥|\b(?:weather|rain|raining|snow|"
+    if re.search(r"날씨|날시|웨더|뉴스|소식|예보|일기 ?예보|눈 ?(?:내려|쌓|소식)|비 ?(?:와|오|올|온)|눈 ?(?:와|오|올)|미세 ?먼지|황사|우산|기온|덥|춥|\b(?:weather|rain|raining|snow|"
                  r"forecast|temperature|umbrella|sunny|cloudy|news|headlines?)\b", t, re.I):
         return "weather or news"                       # "오늘 미세먼지 어때?", "투데이 뉴스 뭐야?": the lookups
     if re.search(r"충전\S*\s*(?:\S+\s+)?(?:얼마나|몇\s*시간|몇\s*분)\s*(?:\S+\s+)?걸|완충|충전\s*시간|"

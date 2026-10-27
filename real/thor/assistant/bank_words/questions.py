@@ -792,3 +792,6 @@ QUICK["teach"] = QUICK.get("teach", []) + ["can i teach you something new", "can
 QUICK["no"] += ["여기 어느 나라야", "여기 어느 나라예요", "이 나라 어디야", "what country is this", "which country are we in", "where are we",
                 "what does cutshion mean", "쿳션이 무슨 뜻이야", "쿳션 뜻이 뭐예요", "cutshion 이름 뜻", "추석 며칠 남았어", "설날 며칠 남았어요",
                 "how many days until new year", "how many days to chuseok", "생일까지 며칠 남았어"]
+QUICK["languages"] += _ko(["랭귀지 뭐 ", "랭귀지 몇 개 ", "language 뭐 ", "언어 뭐 ", "무슨 언어 "], ["할 수 있어", "할 수 있어요", "할 줄 알아", "할 수 이써",
+                                                                         "할 수 있으세요", "할 수 있습니까", "할 줄 아노"]) + [
+    "랭귀지뭐할수있어", "랭귀지 뭐 해", "랭귀지 뭐 돼요"]

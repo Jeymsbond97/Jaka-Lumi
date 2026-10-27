@@ -197,5 +197,6 @@ QUICK["speed"] += ["빨리 달릴 수 있어", "빨리 달릴 수 있어요", "�
                    "can you drive fast", "are you fast", "can you run fast"]
 QUICK.setdefault("obstacles", []).extend([
     "팔이 사람 치면 어떡해요", "팔에 사람이 맞으면 어떻게 돼요", "팔이 부딪히면 어떻게 돼", "what if your arm hits someone", "will your arm hit me",
-    "is it safe to stand next to you", "are you safe around kids", "옆에 서 있어도 안전해",
-    "가까이 가도 안전합니까", "애들 옆에 둬도 괜찮아요"])
+])
+QUICK.setdefault("safety", []).extend(["is it safe to stand next to you", "are you safe around kids", "옆에 서 있어도 안전해",
+                                       "가까이 가도 안전합니까", "애들 옆에 둬도 괜찮아요"])

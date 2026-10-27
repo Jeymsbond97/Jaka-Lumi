@@ -39,7 +39,8 @@ KIND = {   # words (no talk before) -> kind
     "아이들 옆에 있어도 안전해?": "safety", "what cameras do you have?": "cameras", "얼굴 인식 돼요?": "faces",
     "컴퍼니 오픈 언제예요?": "co_founded", "참, 로봇 양반, 이름이 무슨 뜻이야?": "name_meaning", "Your voice, what program?": "tts", "들어 있는 인공지능 무엇인지 알려 주십시오": "model",
     "실례합니다. 네 이름 무엇인지 알려 주십시오": "name", "바퀴 몇 개야?": "wheels", "do you have eyes?": "cameras",
-    "스피커 어디 있어요?": "tts", "Is it safe for kids to be near you?": "safety",
+    "스피커 어디 있어요?": "tts", "배터리 타임 얼마나 돼요?": "battery_life", "랭귀지 뭐 할 수 있어?": "languages",
+    "Is it safe to stand next to you?": "safety", "Is it safe for kids to be near you?": "safety",
 }
 IN_TALK = {   # words after TALK -> kind or None
     "how old are you?": "age", "who made you?": "maker", "what's your name?": "name",
