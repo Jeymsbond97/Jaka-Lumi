@@ -247,9 +247,8 @@ QUICK = {
         # a greeting with a question after it: the question decides
         "안녕 루미 상 받은 거 있어", "안녕하세요 화장실 어디예요", "안녕 루미 날씨 어때",
         "안녕 오늘 뭐 해",
-        # not known: the battery's lifetime in years, being another company's robot
-        "battery 수명 몇 년이에요", "배터리 수명이 몇 년이에요", "배터리 몇 년 써요", "배터리 교체 주기가 어떻게 돼요",
-        "how many years does the battery last", "when does the battery need replacing", "너 자카 로봇이야", "자카 거야",
+        # not known: being another company's robot (the battery's lifetime in years: quick_answers' guard)
+        "너 자카 로봇이야", "자카 거야",
         "jaka에서 만들었어", "are you a jaka robot", "are you made by jaka", "너 중국 회사 로봇 맞지", "hello where is the toilet", "hi what's the weather",
         "hello can you help me", "안녕하세요 질문 있어요", "hi i have a question",
     ],
@@ -477,3 +476,183 @@ QUICK["name_meaning"] = QUICK.get("name_meaning", []) + [
     for e in ["이에요", "이야", "이니", "입니까", "이고", "이여", "인가요", "이죠"]] + [
     "why is your name lumi", "why are you named lumi", "what does the name lumi mean", "why the name lumi",
     "왜 루미라고 불러", "왜 이름이 루미야", "왜 루미예요", "왜 루미라고 지었어요"]
+
+# night 5: guesses the answer puts right ("You're Siri, aren't you?", "너 2미터지?"); a Korean "맞지 / 아니야" check is
+# quick_answers.OTHER's (the LLM), the "-지?" guess is this kind's
+_GUESS = {
+    "name": ["you're siri aren't you", "your name is alexa right", "are you siri", "are you alexa", "is your name siri",
+             "you must be siri", "you're bixby right", "your name is bob isn't it", "they call you robbie right",
+             "your name's wall-e isn't it", "you're r2d2 right", "is it siri", "are you called alexa",
+             "너 시리지", "너 시리야", "너 빅스비지", "니 이름 알렉사지", "이름이 시리예요", "너 이름이 철수지", "너 이름 로봇이지",
+             "너 시리니", "혹시 시리세요", "시리십니까", "니 시리제", "니 이름 빅스비 아이가", "이름이 알렉사예요", "너 빅스비야",
+             "you siri yes", "you are alexa yes", "니 이름 siri지"],
+    "maker": ["samsung made you right", "you're made by samsung aren't you", "lg made you didn't it", "did samsung make you",
+              "are you a samsung robot", "are you made by lg", "were you made in china", "did google build you",
+              "you're a tesla robot right", "is this an lg robot", "you are from samsung yes", "hyundai made you right",
+              "너 LG 로봇이지", "너 삼성 거지", "삼성이 만들었지", "LG가 만들었지", "너 삼성 로봇이야", "삼성에서 만들었어요",
+              "LG 제품이에요", "현대가 만들었나요", "구글이 만들었어", "중국에서 만들었지", "삼성 로봇입니까", "니 삼성 끼가",
+              "삼성 꺼 아이가", "LG에서 만드셨어요", "너 테슬라 로봇이지", "samsung이 만들었어", "LG 꺼야"],
+    "age": ["you're brand new like a week old", "you must be at least ten years old", "you're about five right",
+            "are you one year old", "you're new aren't you", "are you older than ten", "you're very young right",
+            "are you a baby robot", "you look new are you", "are you ten years old",
+            "너 열 살쯤 됐지", "너 나보다 나이 많아", "너 나보다 어려", "너 한 살이지", "너 신상이지", "너 새로 나왔지", "너 열 살 넘었지",
+            "다섯 살쯤 됐어요", "너 아기 로봇이지", "갓 나온 로봇이에요", "올해 나온 거예요", "작년에 만들었어요", "니 열 살 넘었제",
+            "한 살이세요", "몇 년 안 됐지", "만든 지 얼마 안 됐지", "나온 지 오래됐어"],
+    "height": ["you're two meters tall right", "are you taller than two meters", "you must be about 180 cm", "are you over 2 m",
+               "you're shorter than me right", "are you as tall as a person", "you're like 1 meter right", "are you 150 cm",
+               "너 2미터지", "너 2미터 넘지", "너 180 넘지", "키 2미터예요", "키가 1미터쯤 돼요", "사람만 해", "키 150이야",
+               "니 2미터 넘제", "키가 2미터 되십니까", "너 키 크지", "키 180쯤 돼", "키가 사람만 해요", "너 1미터 넘어"],
+    "weight": ["you weigh like 20 kilos right", "over 200 kilos i bet", "are you heavier than 100 kg", "you're light aren't you",
+               "are you very heavy", "do you weigh a ton", "you must weigh 50 kg", "are you lighter than a person",
+               "200킬로 넘지", "너 100킬로 넘지", "너 가볍지", "너 엄청 무겁지", "너 20킬로야", "무게 50킬로예요", "너 1톤이야",
+               "사람보다 무거워요", "100킬로 넘습니까", "니 무겁제", "무게 100kg 넘어", "너 몸무게 많이 나가지"],
+    "speed": ["you're slower than a snail", "are you fast", "you can't go very fast can you", "are you faster than a person",
+              "you're pretty slow right", "can you go 10 km per hour", "do you go fast", "are you quick",
+              "너 빨리 달릴 수 있어", "시속 10킬로 나오지", "너 느리지", "너 빨라", "너 달팽이보다 느리지", "사람보다 빨라요",
+              "너 빨리 갈 수 있어요", "빨리 움직일 수 있으세요", "니 빠르나", "속도 빠르십니까", "너 엄청 느리네", "빨리 달릴 수 있나요"],
+    "battery_life": ["your battery dies after an hour right", "do you last a whole day", "can you run all day", "does your battery last long",
+                     "you need charging every hour right", "can you go a week without charging", "does the battery last all day",
+                     "일주일 동안 충전 안 해도 되지", "하루 종일 가나", "하루 종일 버텨요", "배터리 금방 닳지", "한 시간이면 배터리 다 닳지",
+                     "배터리 오래 가요", "배터리 하루 가요", "하루 종일 움직일 수 있어요", "배터리 오래가나", "배터리 오래 가십니까",
+                     "배터리 빨리 닳아", "배터리 하루는 가제", "온종일 일할 수 있어"],
+    "languages": ["you speak ten languages right", "do you speak many languages", "you only speak english right", "are you bilingual",
+                  "can you speak every language", "do you speak japanese too", "are you multilingual",
+                  "너 영어만 하지", "너 외국어 잘하지", "너 다섯 개 언어 하지", "일본어도 하지", "외국어 몇 개 해", "너 중국어도 해",
+                  "영어 잘하세요", "외국말도 하십니까", "니 영어 할 줄 아나", "어떤 말을 알아듣습니까", "어떤 말 알아들어", "무슨 말 알아들어요",
+                  "어떤 언어 알아들으세요", "말 몇 개 국어 알아들어"],
+    "robot": ["you're just a toy right", "you're remote controlled aren't you", "is someone controlling you", "are you a toy",
+              "is this a remote control toy", "someone's driving you right",
+              "너 리모컨으로 조종하는 장난감이지", "너 장난감이지", "누가 조종하지", "리모컨으로 움직이는 거지", "사람이 조종해요",
+              "누가 원격으로 조종하나요", "니 장난감 아이가", "원격 조종입니까"],
+    "date_today": ["today is christmas right", "today is monday right", "is it monday today", "is today the 23rd", "is it october already",
+                   "is it the weekend", "is it saturday", "it's friday today isn't it",
+                   "오늘 월요일이지", "오늘 23일이지", "벌써 10월이야", "오늘 주말이야", "오늘 크리스마스예요", "오늘 금요일입니까",
+                   "오늘 토요일이제", "오늘 월요일이죠", "벌써 시월이에요"],
+    "time_now": ["it's midnight isn't it", "is it noon", "is it late", "is it morning now", "is it already evening", "it's about 3 right",
+                 "지금 자정이지", "지금 점심때야", "지금 오전이에요", "벌써 저녁이야", "지금 세 시쯤 됐지", "지금 밤이에요", "지금 새벽이야"],
+}
+for _k, _w in _GUESS.items():
+    QUICK[_k] = QUICK.get(_k, []) + _w
+
+# the month (the date answer names it), and "배터리 수명" = how long it lasts on a charge (years: quick_answers' guard)
+QUICK["date_today"] = QUICK.get("date_today", []) + [
+    "what month is it now", "which month are we in", "remind me what month it is", "month please", "what's the month",
+    "do you know what month it is", "current month", "what month 이야", "month 뭐야 지금", "몇 월 date야"] + [
+    s + e for s in ["이번 달 ", "이번 달이 몇 월", "지금 몇 월", "오늘이 몇 월", "몇 월", "요번 달이 몇 월", "이번 달이 무슨 달"]
+    for e in ["알려 줘", "알려 주세요", "이야", "이에요", "이지", "입니까", "이고", "이여", "이니", "인가요", "이죠"]] + [
+    "오늘 무신 요일이고", "오늘 무슨 요일이고", "오늘 무신 요일이여", "오늘 머 요일이야", "오늘 뭔 요일", "요일 좀 알려 줘",
+    "what day of the week might it be", "what day of the week would it be", "which weekday is today", "day of the week please",
+    "date please", "today's date", "the date please", "date?", "today date what", "today is what date", "what date today"]
+QUICK["time_now"] = QUICK.get("time_now", []) + [
+    s + e for s in ["시간이 어떻게 ", "지금 시간이 어떻게 ", "현재 시간이 어떻게 ", "몇 시나 "]
+    for e in ["됐어", "됐어요", "됐니", "됐습니까", "됐나요", "되나", "됐노", "됐어유", "됐지", "되셨어요"]] + [
+    "몇 시나 됐을까", "지금 몇 시쯤이야", "현재 몇 시입니까", "시간 좀 여쭤봐도 될까요", "지금 몇 시인가", "시방 몇 시여", "지금 멧 시고",
+    "what's the time now please", "got the time", "time now please", "what hour is it", "time?", "what time it is now"]
+QUICK["days_to_christmas"] = QUICK.get("days_to_christmas", []) + [
+    s + e for s in ["크리스마스까지 며칠 남았", "크리스마스 며칠 남았", "성탄절까지 며칠 남았", "크리스마스까지 몇 일 남았", "크리스마스 얼마나 남았",
+                    "성탄절 며칠 뒤", "크리스마스 며칠 뒤", "크리스마스까지 얼마나 남았"]
+    for e in ["어", "어요", "니", "습니까", "나요", "노", "어유", "지", "야", "예요", "이야"]] + [
+    "how many days till christmas", "how many days to christmas", "christmas in how many days", "how far is christmas",
+    "how soon is christmas", "how long is it until christmas", "days until christmas", "christmas countdown", "christmas 얼마나 남았어요",
+    "christmas 며칠 남았어", "크리스마스 d-day 며칠이야", "크리스마스 디데이 며칠이에요"]
+QUICK["battery_life"] = QUICK.get("battery_life", []) + [
+    s + e for s in ["배터리 수명이 ", "배터리 수명 ", "배터리 수명은 "]
+    for e in ["어떻게 돼", "어떻게 돼요", "어떻게 되세요", "어떻게 됩니까", "어떻게 되노", "얼마야", "얼마예요", "얼마나 돼", "얼마나 돼요",
+              "얼마나 되세요", "얼마나 됩니까", "얼마나 되나요", "얼마나 되는가", "얼마고", "얼마여", "얼만가", "몇 시간이야", "몇 시간이에요",
+              "얼마인지 알려 주세요", "얼마인지 알려 줘", "얼마나 가", "얼마나 가요"]] + [
+    "how long do you keep going on a full charge", "how long can you keep going", "how long do you last", "how long do you run on one charge",
+    "how long can you work without charging", "how many hours do you work", "what's your runtime", "what's your operating time",
+    "battery life?", "battery life please", "how long does a full battery last", "how long before your battery runs out",
+    "배터리 얼마나 가는가", "배터리 몇 시간 가는가", "충전하면 얼마나 가는가", "배터리 얼마나 가노", "배터리 얼마나 가유",
+    "배터리 얼마나 버텨", "배터리 몇 시간 버티세요", "배터리 다 닳으면 얼마나 가", "한 번 충전에 몇 시간 일하십니까", "배터리 runtime 얼마예요",
+    "battery 몇 시간 가요", "배터리 지속 시간 얼마고", "완충하면 몇 시간 써"]
+QUICK["name_meaning"] += [
+    s + e for s in ["이름이 무슨 뜻", "이름 무슨 뜻", "이름 뜻이 뭐", "네 이름 무슨 뜻", "니 이름 뜻이 뭐", "이름은 무슨 뜻", "이름에 무슨 뜻"]
+    for e in ["이야", "이에요", "이니", "입니까", "인가요", "이고", "이여", "이죠", "이냐", "임"]] + [
+    "이름은 어디서 왔어", "이름은 어디서 왔어요", "이름 누가 지었어", "이름 누가 지어 줬어요", "이름 왜 그렇게 지었어", "이름 유래가 뭐예요",
+    "이름의 의미가 뭐예요", "이름에 담긴 뜻이 뭐예요", "이름 어디서 따 왔어", "이름은 어떻게 지어졌습니까", "이름 무신 뜻이고", "이름 뭔 뜻이여",
+    "where does your name come from", "what does your name mean", "what's the meaning of your name", "how did you get your name",
+    "who named you", "why are you called that", "what's the story behind your name", "name meaning?", "your name means what",
+    "이름 meaning이 뭐야", "lumi 무슨 뜻이야"]
+# the clock in 하게체 / short forms ("이보게 루미, 지금 몇 시인가?" was read as the age)
+QUICK["time_now"] += [s + e for s in ["몇 시", "지금 몇 시", "현재 몇 시", "시방 몇 시"]
+                      for e in ["인가", "인가요", "임", "이야", "예요", "냐", "니", "인고", "이여", "일까", "인지 알려 줘"]] + [
+    "몇씨야", "몇 씨야", "지금 몇씨야", "멧 시야", "몇 시게", "몇 시나 됐나", "시간 몇 시인가"]
+QUICK["date_today"] += [s + e for s in ["오늘 며칠", "오늘 무슨 요일", "오늘 요일이 뭐", "오늘 날짜가 뭐", "오늘이 며칠", "오늘 몇 월 며칠", "무슨 요일"]
+                        for e in ["인가", "인가요", "임", "이냐", "인고", "이여", "일까", "인지 알려 줘", "이니"]]
+# what Lumi holds or does now (status), commands and fragments heard in the train sets' first words: never a fact kind
+QUICK["no"] += [
+    s + e for s in ["손에 뭐 ", "손에 뭘 ", "그리퍼에 뭐 ", "집게에 뭐 ", "지금 손에 뭐 ", "손에 들고 있는 거 뭐"]
+    for e in ["있어", "있어요", "있니", "있나요", "있습니까", "있노", "이써", "들었어", "들고 있어", "쥐고 있어", "잡고 있어", "야", "예요"]] + [
+    "what's in your hand", "whats in you hand", "what do you have in your hand", "what you have in hand", "what is in the gripper",
+    "do you have anything in your hand", "are you holding something", "what did you pick up", "what did you grab", "what have you got there",
+    "핸드폰 어느 손에 있어", "phone 어느 손에 있어", "내 폰 어느 손에 있어", "what are you doing", "wat u doin", "what u doing", "지금 뭐 해",
+    "뭐 하는 중이야", "지금 뭐 하고 있어요", "what's your battery", "how's your battery", "배터리 어때", "배터리 괜찮아",
+    "how do you know", "how do you know that", "어떻게 알아", "어떻게 알았어", "어떻게 아세요", "언제", "언제요", "언제야", "when", "when is it",
+    "위험해", "위험하다", "조심해", "조심해요", "위험해요 비켜", "watch out", "careful",
+    "360도 돌아", "한 바퀴 돌아", "turn around 360", "spin around", "raise yourself", "lift yourself up", "lift up", "올라가", "리프트 올려",
+    "please wave hello", "wave hello", "say hello", "손 흔들어", "손 좀 흔들어 주세요", "손 내밀어", "손 줘", "악수하자", "stop the robot",
+    "stop", "멈춰", "그만", "speak slower", "please speak more slowly", "please you speak more slow", "천천히 말해", "speak louder",
+    "let's walk together", "같이 걸어요", "같이 가요", "같이 걷자", "선물 받았어요", "선물이에요", "take the elevator", "엘리베이터 타고 가",
+    "can you take the elevator", "엘리베이터 탈 수 있어", "2층으로 올라갈 수 있어", "can you go to the second floor"]
+
+# night 5, round 2: Konglish nouns (에이지, 웨이트, 스피드, 하이트, 메이커, 필링 ...), 하게체 / dialect endings and
+# non-native English frames ("now time what?", "you how heavy?"), from the r9 / r8 train misses
+_ASK_N = ["야", "예요", "에요", "니", "입니까", "인가요", "인가", "고", "여", "임", "유", "이야", "이에요", "인데", "일까요"]
+_HOW_MUCH = ["얼마야", "얼마예요", "얼마니", "얼마입니까", "얼만가", "얼마고", "얼마여", "얼마임", "얼마유", "몇이야", "몇이에요", "몇이니",
+             "몇입니까", "몇인가", "몇이고", "몇이여", "몇임", "how much", "얼마나 돼", "얼마나 돼요", "얼마나 되세요", "얼마나 되는가"]
+_WHAT = ["뭐야", "뭐예요", "뭐에요", "뭐니", "뭡니까", "무엇입니까", "뭔가요", "뭔가", "무엇인가", "뭐고", "뭐꼬", "뭐여", "뭐임", "머야",
+         "뭔데", "뭐유", "뭔지 알려 줘", "무엇인지 알려 주십시오", "무엇인지 알려 주시겠습니까", "어떻게 되세요", "어떻게 돼"]
+QUICK["age"] += _ko(["에이지가 ", "에이지 ", "너 에이지 ", "니 에이지 ", "너 age ", "age가 "], _HOW_MUCH) + _ko(
+    ["너 에이지 몇 살", "에이지 몇 살", "너 몇 살", "나이가 몇 살", "몇 살"], ["이에요", "이야", "인가", "인가요", "이유", "이고", "입니까", "이여", "임"]) + [
+    "your age is", "you age is", "your age what", "how many year you", "how many years you are", "you how old", "age please",
+    "나이 무엇입니까", "나이가 어떻게 되는가", "몇 살이신가", "몇 살 잡수셨어요", "연세가 어떻게 되시는가"]
+QUICK["weight"] += _ko(["웨이트가 ", "웨이트 ", "너 웨이트 ", "너 weight ", "weight가 ", "너 무게 ", "무게가 ", "몸무게 ", "몸무게가 "], _HOW_MUCH) + _ko(
+    ["몇 킬로", "너 몇 킬로", "몇 kg", "너 몇 키로"], ["유", "야", "예요", "인가", "입니까", "고", "여", "임", "이야", "이에요"]) + [
+    "how heavy 해요", "how heavy 해", "how heavy 이에요", "you how heavy", "how heavy you", "your weight how much", "weight please",
+    "you weight how much", "how many kilo you", "how many kilogram you are"]
+QUICK["speed"] += _ko(["스피드가 ", "스피드 ", "맥스 스피드 ", "너 speed ", "speed가 ", "너 스피드 ", "최고 속도 ", "최고 속도가 ", "속도 ", "속도가 "],
+                      _HOW_MUCH) + [
+    "your speed how much", "you speed how much", "how fast you go", "you how fast", "how fat can you drive", "how fat do you move",
+    "how fsat do you move", "max speed please", "speed?", "your speed what", "how fast 해요", "how fast 가요", "how fast 이에요"]
+QUICK["height"] += _ko(["하이트가 ", "하이트 ", "너 하이트 ", "너 height ", "height가 ", "키 ", "키가 ", "너 키 ", "니 키 "], _HOW_MUCH) + _ko(
+    ["너 몇 센티", "몇 센티", "키가 몇 센티", "몇 cm"], ["유", "야", "예요", "인가", "입니까", "고", "여", "임", "이야", "이에요"]) + [
+    "how tall 이에요", "how tall 이야", "how tall 해요", "키 how much", "키 how tall", "you how tall", "your height how much",
+    "your height what", "what is height of you", "height please", "how much tall you"]
+QUICK["name"] += _ko(["네임이 ", "네임 ", "너 네임 ", "니 네임 ", "이룸이 ", "이룸 ", "이름이 ", "이름 ", "너 이름 ", "네 이름 ", "니 이름 "], _WHAT) + [
+    "you name is", "your name is", "name of you", "what is name of you", "your name what", "you name what", "what you name",
+    "이름이 what이에요", "name이 뭐야", "너 name 뭐야"]
+QUICK["maker"] += _ko(["메이커가 ", "메이커 ", "너 메이커 ", "너 메이드 바이 ", "메이드 바이 ", "너 만든 회사 ", "너 만든 외사 ", "너 만든 company ",
+                       "만든 회사 ", "만든 데가 ", "제조 회사 ", "제조사 "], ["어디야", "어디예요", "어디니", "어디입니까", "어딘가", "어디고", "어디여",
+                                                                         "어디임", "어디유", "어디당가", "어디요", "어디인가요", "어디 있어"]) + _ko(
+    ["누가 너를 만들었", "누가 널 만들었", "어느 회사가 너를 만들었", "어느 회사가 널 만들었", "누가 너 만들었"],
+    ["어", "어요", "니", "습니까", "나요", "나", "냐", "는교", "남유", "노", "어유", "는가", "지"]) + [
+    "who make you", "you made by which company", "made by which company", "which company make you", "who is your maker",
+    "made by who", "you made by who", "who makes you", "maker?", "your maker what"]
+QUICK["robot"] += _ko(["리얼 휴먼", "너 리얼 휴먼", "진짜 사람", "너 진짜 사람"], ["이야", "이에요", "이니", "입니까", "인가", "이유", "이고", "임"]) + _ko(
+    ["필링 있", "너 필링 있", "감정 있", "너도 감정 있", "필링이 있"], ["어", "어요", "니", "나요", "으세요", "습니까", "는가", "는교", "나"]) + _ko(
+    ["살아 있", "너 살아 있", "혹시 살아 있"], ["는가", "는교", "나", "어", "어요", "니", "습니까", "남유"]) + [
+    "are you a rela person", "are you a real person", "you are alive", "you have feeling", "you have feelings", "you are human",
+    "are you real human", "you real person", "you alive"]
+QUICK["model"] += _ko(["너 AI ", "너 AI가 ", "쓰는 AI 모델 ", "들어 있는 인공지능 ", "들어있는 인공지능 ", "탑재된 인공지능 ", "들어 있는 AI ",
+                       "너 인공지능 ", "니 AI ", "쓰는 인공지능 "], _WHAT) + [
+    "your ai what", "you use which ai", "which ai you use", "your ai is what", "ai model what"]
+QUICK["chatgpt"] += ["yuor ai is chatgpt", "your ai is chatgpt", "you are chatgpt", "you use chatgpt", "chatgpt inside you",
+                     "you chatgpt", "inside is chatgpt"]
+QUICK["languages"] += _ko(["할 수 있는 언어 ", "말할 수 있는 언어 ", "하는 언어 ", "할 줄 아는 언어 ", "알아듣는 언어 ", "너 언어 "], _WHAT) + [
+    "you speak which language", "which language you speak", "you speak what language", "language you speak what",
+    "korean 알아들어", "english 알아들어", "korean 할 줄 알아", "한국말 알아들어", "영어 알아들어요"]
+QUICK["battery_life"] += _ko(["한 번 충전하면 사용 시간 ", "배터리 사용 시간 ", "충전하면 사용 시간 ", "사용 시간 "], _HOW_MUCH + ["얼마인지 알려 주시겠어요"]) + [
+    "battery how long", "batetry how long", "your battery how long", "battery how many hours", "how long battery", "how long 베터리 가요",
+    "how long 배터리 가요", "battery life 얼마야", "battery 얼마나 가요", "how many hurs can you run on one charge"]
+QUICK["time_now"] += ["do you have the time", "what time now", "now time what", "time now what", "now what time", "what is time now",
+                      "tell me time now", "time what now", "지금 타임 몇 시야"]
+QUICK["date_today"] += ["today what day", "today what date", "what day today", "today day what", "date today what", "what is date today"]
+# round 3: Konglish date / day, dialect -유 for the clock, words run together
+QUICK["date_today"] += _ko(["투데이 데이트 ", "투데이 date ", "today 데이트 ", "오늘 데이트 ", "투데이 무슨 데이", "투데이 무슨 요일", "오늘 무슨 데이"],
+                           ["며칠이야", "며칠이에요", "뭐야", "뭐예요", "몇 일이야", "언제야", "야", "예요", "입니까", "고", "임"]) + [
+    "today date what", "tody date what", "tday date what", "date of today what", "today is which date", "today day what"]
+QUICK["time_now"] += _ko(["몇 시", "지금 몇 시", "시방 몇 시"], ["유", "여유", "래유", "인감", "이당가"]) + [
+    "몇시입니까", "지금몇시야", "몇시임", "지금몇시예요", "몇시야", "지금몇시입니까", "몇시예요"]
+QUICK["height"] += ["몇센티임", "너몇센티임", "키얼마유", "키가얼마유", "키 얼마나 된당가", "너 키 얼마나 된당가", "키howmuch"]
+QUICK["weight"] += ["howheavy해요", "너무게얼마인지알려주시겠어요", "무게얼마인지알려주세요"]

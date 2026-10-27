@@ -161,10 +161,10 @@ QUICK_KINDS = {
         "자율주행 어떻게 해요", "자율주행 돼요", "자율주행 하니", "혼자 다닐 수 있어요", "길은 어떻게 찾아요", "길 어떻게 찾아", "위치는 어떻게 알아요",
         "어디 있는지 어떻게 알아", "지도 있어요", "지도 써요", "지도를 어떻게 만들어요", "GPS 써요", "내비게이션 어떻게 해요", "자율 주행입니까",
         "길 우째 찾노", "길 어떻게 찾아유", "혼자 길 찾아가세요", "navigation 어떻게 해요", "자율주행 how", "map 있어요", "SLAM 써요",
-    ], {"en": ["I drive with a map of the room made with my lidar. I compare what the lidar sees with the map to know where I am, to within about 5 cm, and plan a path around people and obstacles.",
-               "With a lidar map: I know where I am on it to about 5 cm, and I drive to named places on my own, around people and obstacles."],
-        "ko": ["라이다로 만든 지도에서 제 위치를 약 5cm 정확도로 알고, 지도 위의 장소까지 사람과 장애물을 피해 경로를 짜서 가요.",
-               "라이다 지도로 다녀요. 지도에서 제 위치를 5cm 정도로 알고, 이름 붙은 장소까지 혼자 장애물을 피해서 가요."]}),
+    ], {"en": ["I drive with a map of the room made with my lidar. I compare what the lidar sees with the map to know where I am, to within about 5 cm, and plan a path around people and obstacles. A separate small computer in my base runs the navigation.",
+               "With a lidar map: I know where I am on it to about 5 cm, and I drive to named places on my own, around people and obstacles. A separate small computer in my base runs the navigation."],
+        "ko": ["라이다로 만든 지도에서 제 위치를 약 5cm 정확도로 알고, 지도 위의 장소까지 사람과 장애물을 피해 경로를 짜서 가요. 내비게이션은 베이스 안의 별도 컴퓨터가 돌려요.",
+               "라이다 지도로 다녀요. 지도에서 제 위치를 5cm 정도로 알고, 이름 붙은 장소까지 혼자 장애물을 피해서 가요. 내비게이션은 베이스 안의 별도 작은 컴퓨터가 맡아요."]}),
     "obstacles": ([
         "how do you avoid obstacles", "how do you avoid people", "do you avoid obstacles", "will you bump into people",
         "do you crash into things", "what if someone is in your way", "what happens if someone stands in front of you",
@@ -227,9 +227,9 @@ QUICK_KINDS = {
         "ko": ["제 팔을 손으로 움직여서 가르치거나, 프로그램을 짜거나, VR 헤드셋으로 원격 조종해서 새 일을 가르칠 수 있어요. 시범을 보고 기술을 배울 수도 있어요."]}),
     "touch": ([
         "is it ok to touch you", "is it safe to touch you", "can people touch you", "may we touch you", "can kids touch you",
-        "can you be pushed", "is it okay to push you", "are you dangerous", "is it safe near you", "are you safe for kids",
+        "can you be pushed", "is it okay to push you",
         "만져도 돼", "만져도 돼요", "만져도 되니", "만져도 됩니까", "만져도 되나요", "만져 봐도 되세요", "만져도 괜찮아요", "만지면 안 돼요",
-        "밀어도 돼요", "밀어도 되나", "애들이 만져도 돼요", "아이들 옆에 있어도 안전해요", "만져도 되나", "만지도 되나",
+        "밀어도 돼요", "밀어도 되나", "애들이 만져도 돼요", "만져도 되나", "만지도 되나",
         "만져도 되노", "만져도 돼유", "touch 해도 돼요", "만져도 OK예요",
     ], {"en": ["You may touch me, but please keep your hands away from my gripper fingers when they close, and please don't push me: I'm heavy.",
                "Yes, gently. Keep your hands away from my gripper fingers when they close, and don't push my base while I'm switched on."],
@@ -453,3 +453,60 @@ QUICK["no"] += [
     "drive 3 meters ahead", "종이컵 집어 줘", "종이컵 잡아 줘", "pick up the paper cup", "grab my paper cup", "종이컵 가져와",
     "팔 들어", "팔 내려", "raise your arm", "대통령 연세가 어떻게 됩니까", "대통령 몇 살이에요", "엄마 연세가 어떻게 되세요", "how old is the president",
     "오픈AI는 누가 이끌고 있습니까", "오픈AI CEO가 누구야", "who runs openai", "who leads openai"]
+
+# night 5: is it safe near Lumi (the touch kind answers touching only)
+QUICK_KINDS["safety"] = ([
+    "is it safe to stand next to you", "is it safe near you", "are you safe for kids", "are you dangerous", "are you safe",
+    "is this robot safe", "is it safe to be around you", "can you hurt someone", "could you hurt me", "will you hit me",
+    "can kids stand near you", "is it safe for children to be near you", "how do you keep people safe", "what about safety",
+    "are you safe around people", "is lumi safe", "is it dangerous to stand here", "do you have safety features",
+    "what safety features do you have", "you won't run me over will you", "safe to be near?"] + [
+    s + e for s in ["아이들 옆에 있어도 안전", "옆에 있어도 안전", "가까이 가도 안전", "너 옆에 서 있어도 안전", "로봇 옆에 있어도 안전",
+                    "애들 옆에 둬도 안전", "사람 옆에서 안전", "너 안전", "이 로봇 안전"]
+    for e in ["해", "해요", "하니", "합니까", "한가요", "하세요", "하나", "하노", "해유", "하지"]] + [
+    s + e for s in ["너 위험", "이 로봇 위험", "옆에 있으면 위험", "가까이 가면 위험", "아이들한테 위험"]
+    for e in ["해", "해요", "하니", "합니까", "한가요", "하지 않아", "하지 않아요", "하나", "하노"]] + [
+    "사람 다치게 할 수 있어", "사람 칠 수도 있어요", "부딪히면 어떡해요", "아이들이 가까이 가도 돼요", "옆에 서 있어도 돼요",
+    "안전장치 있어요", "안전 기능 뭐 있어요", "안전은 어떻게 지켜요", "안전하게 만들어졌어요", "다칠 위험 없어요", "safety 괜찮아요",
+    "너 안전한 로봇이야", "안전한 로봇입니까", "안전하긴 하나", "옆에 있어도 괜찮아요",
+], {"en": ["Yes. I drive slowly and stop for people in my way, and my arm is a collaborative arm: it detects collisions and stops. "
+           "There are red emergency stop buttons on my body and in my base. Please keep your hands away from my gripper fingers.",
+           "I'm made to work near people: I stop for people in my way, my arm stops when it bumps into something, and pressing "
+           "one of my red emergency stop buttons stops my arm and lift at once. Just don't push me, I'm heavy."],
+    "ko": ["네, 안전해요. 천천히 움직이고 앞에 사람이 있으면 멈춰요. 팔은 협동 로봇 팔이라 충돌을 느끼면 멈추고, 몸과 베이스에 "
+           "빨간 비상 정지 버튼도 있어요. 그리퍼 손가락에는 손을 가까이 대지 마세요.",
+           "사람 곁에서 일하도록 만들어졌어요. 길에 사람이 있으면 멈추고, 팔은 부딪히면 멈춰요. 빨간 비상 정지 버튼을 누르면 "
+           "팔과 리프트가 바로 멈춰요. 저는 무거우니까 밀지는 말아 주세요."]})
+
+# night 5: the cameras and face recognition as facts (quick_answers.SPEC lets these past the camera guard)
+_CAM_KO = ["카메라 몇 개", "카메라가 몇 개", "카메라 몇 대", "카메라는 몇 개", "카메라 뭐 쓰", "카메라 어떤 거 쓰", "카메라 기종이 뭐", "카메라 모델이 뭐",
+           "카메라 종류가 뭐", "카메라 사양이 어떻게 되", "카메라 스펙이 뭐", "카메라 무슨 제품"]
+QUICK_KINDS["cameras"] = ([
+    "what cameras do you have", "what camera do you use", "how many cameras do you have", "which cameras do you use",
+    "what kind of camera do you have", "what type of cameras are in you", "what camera model do you use", "what's your camera model",
+    "what depth camera do you use", "do you use orbbec cameras", "what camera brand do you use", "how many cameras does lumi have",
+    "what camera is in your head", "what cameras does this robot use", "camera model?", "how many camera you have",
+    "카메라 몇 개야", "카메라 몇 개예요", "카메라 몇 개니", "카메라 몇 개입니까", "카메라 몇 개 달려 있어", "카메라 몇 대 있어요", "카메라 뭐 써",
+    "카메라 뭐 써요", "카메라 뭐 쓰세요", "카메라 뭐 쓰십니까", "카메라 뭐 쓰노", "카메라 어떤 거 써요", "카메라 기종이 뭐예요", "카메라 모델이 뭐야",
+    "카메라 종류가 뭐예요", "카메라 사양이 어떻게 돼요", "카메라 스펙이 뭐야", "카메라 무슨 제품이에요", "너 카메라 몇 개야", "루미 카메라 몇 개예요",
+    "카메라는 몇 개 달렸노", "카메라 몇 개 있어유", "camera 몇 개야", "camera 뭐 써요", "카메라 model 뭐야",
+], {"en": ["I have three cameras that see colour and depth: an Orbbec Gemini 2 L in my head, another on my body, and a 3D camera "
+           "at the front of my base. They see from very close up to about 10 metres.",
+           "Three: two Orbbec Gemini 2 L depth cameras, one in my head and one on my body, and a 3D camera at the front of my base."],
+    "ko": ["카메라는 세 대예요. 머리와 몸에 오비벡(Orbbec) Gemini 2 L 깊이 카메라가 하나씩 있고, 베이스 앞에 3D 카메라가 하나 있어요. "
+           "아주 가까이에서 약 10m까지 봐요.",
+           "모두 세 대예요. 오비벡 Gemini 2 L 깊이 카메라 두 대(머리, 몸)와 베이스 앞의 3D 카메라 하나예요."]})
+QUICK_KINDS["faces"] = ([
+    "can you recognize faces", "can you recognise faces", "do you recognize faces", "do you have face recognition",
+    "do you use face recognition", "can you remember faces", "do you remember who people are", "can you recognize people",
+    "is there face recognition", "face recognition?", "can lumi recognize faces",
+    "얼굴 인식 돼", "얼굴 인식 돼요", "얼굴 인식 되니", "얼굴 인식 됩니까", "얼굴 인식 되나요", "얼굴 인식 하세요", "얼굴 인식 기능 있어요",
+    "얼굴 알아볼 수 있어", "얼굴 알아볼 수 있어요", "얼굴 알아보니", "얼굴 알아봐요", "얼굴 기억해", "얼굴 기억할 수 있어요", "얼굴 인식 되노",
+    "얼굴 인식 돼유", "face recognition 돼요", "얼굴 인식 기능 있으십니까",
+], {"en": ["No, I don't recognise faces or remember who people are. I can see that someone is there, but not who it is.",
+           "I don't do face recognition: I find people with my cameras, but I can't tell who they are or remember them."],
+    "ko": ["아니요, 저는 얼굴을 알아보거나 사람을 기억하지 못해요. 사람이 있는 건 보지만 누구인지는 알아보지 못해요.",
+           "얼굴 인식은 안 해요. 카메라로 사람은 찾지만, 누구인지 알아보거나 기억하지는 않아요."]})
+QUICK["no"] += ["what can your camera see", "what do you see with your camera", "카메라로 뭐 보여", "카메라에 뭐 보여요", "카메라 켜 줘",
+                "camera on", "카메라 돌아가고 있어요", "do you recognize me", "나 알아봐", "내 얼굴 기억해", "remember my face",
+                "카메라 고장 났어", "is your camera on", "카메라 켜져 있어요"]

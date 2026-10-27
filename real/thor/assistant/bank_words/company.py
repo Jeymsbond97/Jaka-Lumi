@@ -292,3 +292,27 @@ for _en, _ko_, _a in ROBOTS.values():     # where it stands, or asked to work: t
                                            "i want to see the {r}", "show me the {r}"] for r in _en]
     QUICK["no"] += [f.format(r=r) for f in ["{r} 어디 있어", "{r} 어디 있어요", "{r} 어디예요", "{r}한테 데려가 줘", "{r} 보여 줘", "{r} 여기 있어요"]
                     for r in _ko_]
+
+# night 5: Konglish / 하게체 / non-native ways of asking the founding year and the office ("컴퍼니 오픈 언제예요?",
+# "company made which year?", "회사 사무실 어딘가?"); in quick_answers.KINDS by the loop above's kinds
+QUICK["co_founded"] = [
+    "company made which year", "company founded which year", "company start when", "your company open when", "company since when",
+    "which year company start", "when company made", "cutshion made which year", "cutshion start what year", "company birthday when",
+    "company how many years", "company how old"] + _ko(
+    ["컴퍼니 오픈 언제", "회사 오픈 언제", "쿳션 오픈 언제", "회사 설립 언제", "쿳션 설립 언제", "회사 창립 언제", "회사 창업 언제",
+     "회사 생긴 게 언제", "회사 세운 게 언제", "쿳션 생긴 게 언제", "컴퍼니 설립 언제", "회사 몇 년도 설립"],
+    ["예요", "야", "니", "입니까", "인가요", "인가", "고", "여", "임", "이에요", "일까요"]) + _ko(
+    ["회사 몇 년 됐", "회사 생긴 지 몇 년 됐", "쿳션 생긴 지 얼마나 됐", "회사 차린 지 얼마나 됐"],
+    ["어", "어요", "니", "습니까", "나요", "노", "어유", "는가"])
+QUICK["co_hq"] = _ko(
+    ["회사 사무실 어디", "회사 사무실 어딘", "쿳션 사무실 어디", "회사 위치 어디", "회사 주소 어디", "본사 어디",
+     "회사는 어디", "쿳션 본사 어디", "컴퍼니 어디", "회사 오피스 어디"],
+    ["야", "예요", "에요", "니", "입니까", "인가요", "인가", "고", "여", "임"]) + _ko(
+    ["회사 어디 있", "쿳션 어디 있", "회사 사무실 어디 있"], ["어", "어요", "니", "나요", "습니까", "노", "는가", "으세요"]) + [
+    "where is company", "company where", "company office where", "where your company", "company location please",
+    "office where", "where is the office of cutshion", "where's your company's office", "company address"]
+QUICK["no"] += [
+    "오픈AI 대표 누구야", "오픈AI 대표 누군가", "오픈AI 대표 누구임", "오픈AI 대표 어떤 분이세요", "구글 대표 누구예요", "애플 CEO 누구야",
+    "엔비디아 대표 누구야", "테슬라 대표 누구예요", "삼성 회장 누구야", "who's the boss of openai", "who runs google",
+    "1달러에 원화로 얼마야", "1달러 원화로 얼만가", "환율 얼마예요", "달러 환율 알려 줘", "엔화 얼마야", "how much is a dollar in won",
+    "what's the exchange rate", "배터리 얼만가", "배터리 얼마예요", "배터리 얼마야", "배터리 얼마 남았는가"]

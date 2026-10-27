@@ -268,6 +268,11 @@ NO = [t for t in NO if t not in _said]                              # a wording 
 
 CAMERA = re.compile(r"\b(?:see|seeing|saw|look(?:s|ing)?|watch|camera|wearing|holding|in front of|behind|colou?r|"
                     r"recogni[sz]e|remember)\b|보여|보이|보니|(?<!해 )(?<!해)(?<!쭤 )(?<!쭤)(?<!여쭈어 )봐(?!도 ?(?:돼|되|될|괜찮))|봤|입었|들고|색|카메라|앞에|뒤에|알아봐|기억", re.I)
+SPEC = re.compile(r"\b(?:what|which|how many|what kind of|what type of|what sort of) (?:depth )?cameras?\b|\bcameras? (?:do you (?:have|use)|"
+                  r"model|brand|type|range|resolution)\b|\b(?:recogni[sz]e|remember) (?:faces|people|anyone|who people are)\b|"
+                  r"\bface recognition\b|카메라(?:가|는|를)? ?(?:몇 ?개|몇 ?대|뭐 ?써|뭘 ?써|뭐 ?쓰|어떤 ?거|기종|모델|종류|제품|사양|스펙)|"
+                  r"얼굴 ?(?:인식|알아보|알아봐|기억)", re.I)
+    # the cameras and face recognition as facts ("what cameras do you have?", "얼굴 인식 돼요?"), not what they see now
 ABOUT_ME = re.compile(r"\b(?:(?<!can )(?<!could )(?<!may )i(?! (?:call|address) you\b)(?! (?:talk|speak|chat) (?:to|with) you\b)|i'm|am i|my|"
                       r"(?<!tell )(?<!give )(?<!let )(?<!show )me|mine)\b|(?:^|\s)(?:나|내|제|저|난|전)(?:는|가|를|의)?\s", re.I)
 FRAGMENT = re.compile(r"^\W*(?:and|so|but|then|or|also|why|really|seriously|wait|what about|how about|how come|are you sure)\b|"
@@ -275,18 +280,39 @@ FRAGMENT = re.compile(r"^\W*(?:and|so|but|then|or|also|why|really|seriously|wait
                       r"\b(?:that|(?<!is )(?<!was )(?<!is it )(?<!how's )(?<!how is )it(?! is (?:now|today))|they|them|"
                       r"(?<!hello )(?<!hi )(?<!hey )(?<!is )(?<!are )there(?! (?:is|are)\b)|this one)\b|"
                       r"그거|그건|거기|그분|그 회사|걔", re.I)   # not the clock's "it": "what day is it?"
-OTHER = re.compile(r"\b(?:lift|carry|hold|items?|(?<!this )things?|stuff|price|cost)\b|들 ?수|(?<!만)(?<!알아)(?<!뭐 )들어|물건|"
-                   r"^(?!.*(?:키|무게|체중|신장|속도|시간|나이|높이|길이|크기)).*얼마(?:야|예요)|"
+OTHER = re.compile(r"\b(?:lift|carry|hold|items?|(?<!this )things?|stuff|price|cost)\b|들 ?수|(?<!만)(?<!알아)(?<!뭐 )들어(?! ?있)|물건|"
+                   r"^(?!.*(?:키|무게|체중|신장|속도|시간|나이|높이|길이|크기|수명|배터리|하이트|웨이트|스피드|에이지|height|weight|speed|age|battery|life))"
+                   r".*얼마(?:야|예요)|"
                    r"맞(?:아|지|죠|나|습니까)|아니(?:야|에요|죠)", re.I)   # what it can hold, the price, a check: the LLM
 SEVERAL = re.compile(r"\band\b(?!\s+(?:built|made|\w+ed)\s+(?:you|lumi|this robot)\b)|\bthen\b|그리고|[?？].+\S|하고\s|랑\s|"
                      r"[가-힣](?<![최광참사창공경재원라])(?<!그리)고\s+(?!싶|있|계)", re.I)   # "고개 숙이고 몇 시야?", "보고 시간 알려 줘"
 EVENT_TIME = re.compile(r"\b(?:what time|what day|which day|what date) (?:does|do|did|will|is|are|was|were|should|can)\b"
                         r"(?!\s+(?:it|today)\b)|몇 ?시(?:에|부터|까지|쯤에)|며칠(?:에|까지|부터)|무슨 요일(?:에|까지|부터)|"
                         r"\b(?:open|close)\b(?!\s+(?:a|the|my|your|this|that|doors?)\b)|\b(?:start|end|begin|finish)\b|열어요|닫아요|시작|끝나", re.I)   # an event's time: the LLM
+OTHER_FIRM = re.compile(r"\b(?:openai|google|samsung|apple|lg|microsoft|tesla|nvidia|hyundai|naver|kakao|meta|amazon|sony)\b|"
+                        r"오픈 ?ai|오픈에이아이|구글|삼성|애플|엘지|마이크로소프트|테슬라|엔비디아|현대|네이버|카카오|메타|아마존|소니", re.I)
+OTHER_ROBOT = re.compile(r"\b(?:jaka|jacka|k1[wl]?|kargo|peitian|tusk)\b|자카|작카|节卡|페이톈|페이티엔|터스크", re.I)
 NAMES_LUMI = re.compile(r"\b(?:you|your|yourself|u|ur|lumi)\b|(?:^|\s)(?:너|넌|니|네|당신|루미|본인|자기)", re.I)
 
 _bank = None
-_named = None        # (kind names, int code per bank row) for intent_bank._top
+_named = None
+_exact_kinds = None
+
+
+def _squeezed(t):
+    return re.sub(r"[\s,.!?~]", "", t).lower()
+
+
+def _exact():
+    """{wording without spaces: kind} of the wordings only one kind has: speech written without spaces (whisper does it
+    in Korean) found as the wording it is."""
+    global _exact_kinds
+    if _exact_kinds is None:
+        seen = {}
+        for t, k in examples():
+            seen.setdefault(_squeezed(t), set()).add(k)
+        _exact_kinds = {t: ks.pop() for t, ks in seen.items() if len(ks) == 1}
+    return _exact_kinds        # (kind names, int code per bank row) for intent_bank._top
 
 
 def examples():
@@ -307,20 +333,54 @@ def _load():
 ASKING = re.compile(r"^\W*(?:(?:hang on|wait|okay|ok|so|um+|uh+|hey|excuse me|sorry|just out of curiosity|out of curiosity|"
                     r"i(?:'m| am) curious|quick question|one question|let me ask(?: (?:it|you|him|her))?|i bet (?:it'?s|you'?re) \w+|"
                     r"(?:may|can|could|might) i (?:ask|know)(?: you)?|i(?:'d| would) like to know|i want(?:ed)? to (?:ask|know)|"
-                    r"i wonder|do you mind (?:telling me|if i ask)|(?:(?:can|could|would|will) you )?tell me|might i trouble you for|could i trouble you for|잠깐(?:만)?|저기(?:요|유|예)?|이보게|자네|보소|"
+                    r"i wonder|i was wondering|i'?m wondering|i'?d love to know|(?:would|do) you mind (?:telling me|if i ask)|"
+                    r"(?:could|can|would) you let me know|let me know|i have a question|may i know|please tell me|tell me please|(?:(?:can|could|would|will) you )?tell me|might i trouble you for|could i trouble you for|잠깐(?:만)?|저기(?:요|유|예)?|이보게|자네|보소|"
                     r"야야|궁금한 ?게 있는데(?:요)?|하나 여쭤봐도 될까요\??|여쭤봐도 될까요\??|궁금한데(?:요)?|궁금해서(?:요)?|"
                     r"하나 물어봐도 (?:돼|될까)요?|여쭤봐도 될까요|물어볼게(?:요)?|질문(?: 하나)?(?: 있어요| 있는데요?)?)"
                     r"\b[\s,.!?~:-]*)+", re.I)
     # "May I ask your age?", "Hang on, let me ask it. What's your name?", "궁금한데, 몇 살이에요?": the question after
+OPENER = re.compile(r"^\W*(?:(?:hello|hi|hllo|helo|hey|excuse me|well|okay|ok|oh|ah|g'?day|oppa|grabe|so like|dear|buddy|mate|"
+                    r"sir|ma'?am|my (?:new )?friend|little robot|big robot|mr\.? robot|"
+                    r"어이|이보게|여보게|야야|아야|우리|애기야|브로|bro|큰 로봇아|(?:오빠|언니|이쁜이|선배님|사장님|기사님|아가씨|로봇 양반|양반)(?=\s*,)|"
+                    r"얘|쟤|마|야|저기|저기요|잠깐(?:만)?|대박|사와디캅|참|아 맞다|맞다|"
+                    r"(?:야|아야|우리|이보게|어이|야야) ?(?:루미야|루미|로봇아|로봇)|실례합니다|실례지만|실례할게요|하나 묻겠습니다|하나 물을게(?:요)?|루미루미|누미야|"
+                    r"루미 ?(?:님|군|상|씨|언니|오빠|누나|형)|루미야|루미|로봇(?:아|님|씨)?|robot|lumi)(?![\w가-힣])[\s,.!?~:-]*)+", re.I)
+    # calling words before the question ("hello robot, ...", "루미 님, ...", "실례합니다. ..."): left out of the meaning
+REMARK = re.compile(r"(?:quick question|just (?:curious|wondering|asking)|(?:i'?m )?curious|i want to know|i'd like to know|"
+                    r"please|thanks?|thank you|tell me(?: please)?|any idea|ㅎ+|ㅋ+|\^+|그냥 궁금해서(?:요)?|궁금하다|궁금해(?:요)?|"
+                    r"궁금하네(?:요)?|궁금합니다|알고 싶어(?:요)?|알고 싶습니다|(?:좀 )?(?:알려|말해|가르쳐) ?(?:줘|줄래|줄래요|주세요|"
+                    r"주실래요|주시겠어요|주시겠습니까|주십시오|봐)|진짜 궁금해(?:요)?|"
+                    r"(?:하나 ?|뭐 ?하나 ?|질문 ?하나 ?)?(?:여쭤|여쭈어|물어) ?(?:봐|바|보)도 ?(?:될까요|돼요|되나요|됩니까|될까|돼)|"
+                    r"질문 ?(?:하나 ?)?(?:해도 ?(?:될까요|돼요|되나요)|있어요|있습니다|있는데요?)|궁금한 ?게 ?있(?:는데요?|어요|습니다)|"
+                    r"하나 ?묻겠습니다|실례합니다|실례지만|(?:may|can|could) i ask (?:you )?(?:something|a question)|"
+                    r"i have a question|one question)", re.I)
+    # a sentence that only asks to be told or says why: "Christmas 얼마나 남았어요? 알고 싶어요."
+SENTENCES = re.compile(r"(?<=[?？!])\s*|(?<=\.)\s+")
+
+
+def _tidy(text):
+    """Stutters and words said twice taken out ("키가 얼— 얼마예요?", "너 너 몇 살이야"), laughs at the end."""
+    t = re.sub(r"(?<![\w])(\w{1,4})[—–-]+\s*(?=\1)", "", text or "")
+    t = re.sub(r"\b(\w+)(?:[\s,]+\1\b)+", r"\1", t)
+    return re.sub(r"(?<=\S)[\s~^ㅎㅋ]+(?=[?？!.]*$)|(?<=[?？!.])[\s~^ㅎㅋ]+$", "", t).strip()
 
 
 def _core(text):
     from assistant import brain
-    t = ASKING.sub("", brain.CALLING.sub("", brain.unfill(text or "")).strip()).strip() or text or ""
+    t = brain.unfill(text or "")
+    rest = OPENER.sub("", t)
+    if len(rest.split()) >= 2 or re.search(r"[가-힣]{4}", rest):   # "hello there", "hi lumi" stay whole
+        t = rest
+    t = ASKING.sub("", brain.CALLING.sub("", t).strip()).strip() or text or ""
     if not re.search(r"\b(?:is|was|name|named|called)\s+lumi\W*$", t, re.I):   # the subject: "How wide is Lumi?"
         t = re.sub(r"[\s,]*(?:lumi|루미야|루미)?[\s,.!?~]*$", "", t, flags=re.I).strip()
     if re.fullmatch(r"(?:무슨|뭔|무엇의?) ?뜻\S*", t) and "루미" in (text or ""):
         t = "루미 " + t                                 # "루미 무슨 뜻이에요?": what the name means
+    t = re.sub(r"\b(?:do|have) you (?:have|got) the time\b", "what time is it", t, flags=re.I)   # the clock, not "free?"
+    t = re.sub(r"([가-힣])인지 (?:궁금|알고 싶|알려|말해|알 수 있|여쭤)\S*(?: \S+)?$",
+               lambda m: m.group(1) + ("이에요" if (ord(m.group(1)) - 0xAC00) % 28 else "예요"), t)
+    t = re.sub(r"(?<=[가-힣])는지 (?:궁금|알고 싶|알려|말해|알 수 있|여쭤)\S*(?: \S+)?$", "나요", t)   # "몇 살인지 궁금해요"
+    t = re.sub(r"(?:뭔가|무엇인가)$", "뭐예요", re.sub(r"(?<=[가-힣])(?:는교|남유|는감)$", "나요", t))       # 하게체, dialect
     t = re.sub(r"얼만가$", "얼마예요", re.sub(r"(?<=[가-힣])는가$", "나요", re.sub(r"(?<=[가-힣])인가$", "인가요", t)))
     return t or (text or "").strip(" ,.!?~")                # 하게체 questions ("키 얼만가", "얼마나 되는가") as 해요체
 
@@ -333,7 +393,7 @@ def guarded(text, history=()):
         return "length"
     if re.search(r"\b(?:good ?bye|bye|see you|farewell)\b|잘 ?가|안녕히|다음에 봐", t, re.I):
         return "closing"                               # "goodbye" is never a hello
-    if CAMERA.search(t):
+    if CAMERA.search(SPEC.sub(" ", t)):
         return "camera"
     if ABOUT_ME.search(t):
         return "about the visitor"
@@ -351,13 +411,72 @@ def guarded(text, history=()):
         return "other"
     if EVENT_TIME.search(t) and not re.search(r"\bwhen did\b", t, re.I):   # "when did Cutshion start?": a founding
         return "event time"
+    if re.search(r"타워|빌딩|건물|(?<![가-힣])탑|에펠|남산|한라산|백두산|\b(?:tower|building|mountain|bridge|skyscraper)\b", t, re.I):
+        return "another thing"                         # "롯데타워 하이트 얼마야?": not Lumi's height
+    if OTHER_ROBOT.search(t):
+        return "another robot"                         # JAKA's / PEITIAN's: the LLM with its notes
+    if OTHER_FIRM.search(t) and re.search(r"대표|사장|회장|창업자|설립자|\b(?:ceo|boss|founder|chairman|president|head)\b", t, re.I):
+        return "another company"                       # "오픈AI 대표 누군가?": a lookup, never Lumi's model or maker
+    if re.search(r"환율|달러|원화|엔화|유로|위안|비트코인|주가|\b(?:dollars?|euros?|yen|exchange rate|bitcoin|stocks?)\b", t, re.I):
+        return "lookup"                                # "1달러에 원화로 얼만가?": not the price of Lumi
+    if re.search(r"배터리|battery", t, re.I) and re.search(r"몇 ?년|\byears?\b|교체|replace", t, re.I):
+        return "battery lifetime"                      # how many years it lasts is not known; "배터리 수명" alone is hours
     if history and not NAMES_LUMI.search(t):
         return "in a talk, not naming Lumi"            # "how old?" / "몇 살이에요?" after the company: about that
     return None
 
 
-def kind_of(text, history=()):
-    """The kind of question, when sure; else None."""
+ASKS = re.compile(r"[?？]\W*$|\b(?:what|who|whom|whose|how|where|when|why|which)\b|^\W*(?:can|could|do|does|did|are|is|was|"
+                  r"will|would|may|have|has)\b|뭐|뭔|무엇|무슨|누구|누가|어디|언제|왜|몇|얼마|어떻게|어떤|어느|"
+                  r"(?:까|니|냐|나요|가요|래|죠)\W*$", re.I)       # words that ask something
+ORDER = re.compile(r"^\W*(?:please\s+)?(?:go|come|turn|take|bring|pick|put|give|follow|wave|look|move|lift|raise|lower|stop|sing|"
+                   r"dance|fold|reach|grab|show|open|close|hold|drive|walk|fly|speak|say|tell|let'?s|wait|stand|sit)\b|"
+                   r"(?:줘|줘요|주세요|주십시오|주시오|주라|해라|하자|가자|와라|봐라|내밀어|흔들어|돌아|돌려|들어|내려|접어|펴|가|와|멈춰|그만)\s*[!.~…]*$", re.I)
+    # a command (said before a question, or as one sentence of several): never left out for the question
+CORRECTION = re.compile(r"(?:^|[\s,.])(?:아 아니|아니 아니|아니 그러니까|아니다|아니 잠깐|no wait|wait no|i mean|scratch that|sorry i mean)"
+                        r"(?=[\s,.])[\s,.]*", re.I)
+CONNECT = re.compile(r"^\W*(?:(?:아|어|오|음|oh|ah|um+|uh+)\W+)?(?:그리고|그러면|그럼|근데|그런데|그건 그렇고|그나저나|참|아 맞다|맞다|"
+                     r"and|so|then|but|also|anyway|by the way|btw|next test|quick one|one more)\b[\s,.:!-]*", re.I)
+    # a connective at the start of a first question: "그러면 키가 몇이에요?", "아 그리고 몇 개 국어 해?"
+
+
+def kind_of(text, history=(), _whole=True):
+    """The kind of question, when sure; else None. Several sentences: those that only call Lumi, ask to be told or say
+    something without asking are left out; what is left must be one question, or the same question said twice ("Do
+    robots have names? What's yours?" stays with the LLM, "얘 몇 살일까? 너 몇 살이야?" is the age). Not sure of the
+    whole: the question after a connective ("그러면 키가 몇이에요?") or after the last comma when the words before it
+    ask nothing ("셀카 찍을 거니까, 너 몇 살이야?", "형 비켜 봐, 키가 몇이에요?")."""
+    text = _tidy(text)
+    fix = list(CORRECTION.finditer(text))
+    if fix and len(text[fix[-1].end():].split()) >= 2:
+        text = text[fix[-1].end():]                    # "배터리, 아 아니, 지금 뭐 해?": what is said after the correction
+    parts = [p for p in SENTENCES.split(text) if p.strip() and not REMARK.fullmatch(p.strip(" ,.!?？~"))
+             and OPENER.sub("", p).strip(" ,.!?？~")]
+    if len(parts) > 1:
+        if any(ORDER.search(p) for p in parts):
+            return None                                # "fold it! your arm!", "손! 손 내밀어!": a command, the rules'
+        asked = [p for p in parts if ASKS.search(p)]
+        kinds = {kind_of(p, history) for p in asked}
+        return kinds.pop() if len(kinds) == 1 else None
+    if parts and parts[0] != text:
+        return kind_of(parts[0], history)
+    got = _kind(text, history)
+    if got or not _whole:
+        return got
+    m = CONNECT.match(text)
+    rest = text[m.end():] if m else text
+    if rest != text and len(rest.split()) >= 2 and ASKS.search(rest):
+        got = kind_of(rest, history, False)
+        if got:
+            return got
+    head, comma, tail = rest.rpartition(",")
+    if comma and len(tail.split()) >= (2 if re.search(r"[가-힣]", tail) else 3) and ASKS.search(tail) and \
+            not ASKS.search(head) and not ORDER.search(head):     # "Your voice, what program?": the head is the topic
+        return kind_of(tail, history, False)
+    return None
+
+
+def _kind(text, history):
     if guarded(text, history):
         return None
     from assistant import knowledge
@@ -374,7 +493,10 @@ def kind_of(text, history=()):
         _named = ([str(n) for n in names], codes)
     best, top, margin, agree, _ = intent_bank._top(vecs @ q, _named, k=AGREE_K)
     sure = top >= SIM_MIN and margin >= MARGIN or agree and top >= SIM_AGREE and margin >= MARGIN_AGREE
-    if best == "no" or not sure:
+    core = _core(text)
+    if not sure:                                       # "누가너를만들었습니까": a wording run together (whisper)
+        best = _exact().get(_squeezed(core)) if re.fullmatch(r"\S*[가-힣]{4}\S*", core) else None
+    if best in (None, "no"):
         return None
     if best == "hello" and history:
         return None                                    # hello in the middle of a talk: the LLM
