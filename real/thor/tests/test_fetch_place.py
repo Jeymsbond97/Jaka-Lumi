@@ -57,7 +57,7 @@ ROUND = {"c": (-160.0, 1020.0), "r": 400.0}           # the round table, arm fra
 
 def depth(pts, guess_z=-400.0):
     out = []
-    for x, y in pts:
+    for x, y, *_ in pts:
         on = math.hypot(x - ROUND["c"][0], y - ROUND["c"][1]) <= ROUND["r"]
         out.append(None if y < VIEW_Y else TABLE_Z if on else -1000.0)      # the floor beyond the table
     return out
@@ -67,7 +67,7 @@ FLAT_REAL = skills.flat_points
 
 
 def flat(pts, guess_z=-400.0, camera="torso", T=None):
-    return [None if z is None else (x, y, z) for (x, y), z in zip(pts, depth(pts))]
+    return [None if z is None else (p[0], p[1], z) for p, z in zip(pts, depth(pts))]
 
 
 skills.surface_heights, skills.flat_points = depth, flat

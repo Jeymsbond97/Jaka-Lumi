@@ -69,7 +69,7 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `tasks/fetch.py` | `WAIST_SCAN_MAX` | 120° | The waist turns up to this in the search (body limit ±140° absolute), the head turns the rest |
 | `tasks/fetch.py` | `SEARCH_BASE_DEG` | 180°, 90° | Then the base turns towards the busier side, the first of these whose sweep is clear, and all again |
 | `tasks/fetch.py` | `LIFT_TRIES` | 0, 105 mm (`LIFT_RANGE`) | Nothing found: all of it again at the other end |
-| `tasks/fetch.py` | `APPROACH_TRIES` | 5 | Base moves to bring an object into reach before asking the person |
+| `tasks/fetch.py` | `APPROACH_TRIES` | 8 | Base moves to bring an object into reach before asking the person |
 | `tasks/fetch.py` | `PROGRESS_MM` | 40 mm | A base move that brought the object less than this nearer its goal (odometry) did nothing: that way is not tried again from there |
 | `tasks/fetch.py` | `GOAL_SHIFTS_MM` | 0, −120, +120 mm | The straight way in aims the object at the pick zone, then this far to either side of it (a small turn and in) |
 | `tasks/fetch.py` | `APPROACH_SIDES` | 0, ±45, ±90, ±135, 180° | Then navigation to each of these sides of the object, once; a side where the base can't stand near enough is skipped |

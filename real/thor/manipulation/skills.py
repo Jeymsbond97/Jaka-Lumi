@@ -458,7 +458,7 @@ def surface_points(points_xy, guess_z=-400.0, camera=objects.CAMERA, T=None):
 
 
 def flat_points(points_xy, guess_z=-400.0, camera=objects.CAMERA, T=None):
-    """Like surface_points, but only where the camera sees a level surface (a table top, a seat, the floor): the depth
+    """Like surface_points (also (x, y, z) given whole), but only where the camera sees a level surface (a table top, a seat, the floor): the depth
     pixels around the sight line's pixel (FLAT_PATCH) lie on a plane leaning less than FLAT_DEG. (x, y, z) mm, arm base
     frame, is the middle of that patch; None where it is not level (a chair's back, a table's edge, a person), out of
     view or without depth."""
@@ -469,7 +469,7 @@ def flat_points(points_xy, guess_z=-400.0, camera=objects.CAMERA, T=None):
         return [None] * len(points_xy)
     K = np.array([[intr["fx"], 0, intr["cx"]], [0, intr["fy"], intr["cy"]], [0, 0, 1]])
     dist, Ti = np.array(intr["dist"]), np.linalg.inv(T)
-    P = np.array([[p[0], p[1], guess_z] for p in points_xy], float)
+    P = np.array([[p[0], p[1], p[2] if len(p) > 2 else guess_z] for p in points_xy], float)
     cam = (Ti[:3, :3] @ P.T + Ti[:3, 3:4]).T
     uv = np.round(cv2.projectPoints(cam, np.zeros(3), np.zeros(3), K, dist)[0].reshape(-1, 2)).astype(int)
     step, half = FLAT_PATCH
@@ -562,8 +562,8 @@ def table_near(obj):
 
 
 def on_table(spots_xy, table_mm=None):
-    """The (x, y) spots where the torso depth camera sees table: the centre and TABLE_RING_MM around it, each within
-    TABLE_TOL_MM of `table_mm` (None: of each other). Points the camera can't see count as not table, but one on the
+    """The (x, y) spots where the torso depth camera sees level table (flat_points): the centre and TABLE_RING_MM
+    around it, each within TABLE_TOL_MM of `table_mm` (None: of each other). Points the camera can't see count as not table, but one on the
     near side (y below the centre's) is checked again at TABLE_NEAR_RING_MM: the camera sees a table only from
     y ~640 on, where the arm hardly reaches past y 700."""
     angles = np.linspace(0, 2 * math.pi, 8, endpoint=False)
@@ -571,10 +571,10 @@ def on_table(spots_xy, table_mm=None):
     inner = [(0.0, 0.0)] + [(TABLE_NEAR_RING_MM * math.cos(a), TABLE_NEAR_RING_MM * math.sin(a)) for a in angles]
     guess = table_mm if table_mm is not None else -400.0     # only to find the pixels; the depth decides
 
-    def heights(pts):                     # z of the surface at each point: the sight line aimed again at the height
-        first = surface_points(pts, guess)   # it met must meet it at the point itself (a line just past the near
-        aim = [(p[0], p[1], q[2]) for p, q in zip(pts, first) if q is not None]   # edge meets the top further on)
-        second = dict(zip([a[:2] for a in aim], surface_points(aim) if aim else []))
+    def heights(pts):                     # z of the level surface at each point: the sight line aimed again at the
+        first = flat_points(pts, guess)      # height it met must meet it at the point itself (a line just past the
+        aim = [(p[0], p[1], q[2]) for p, q in zip(pts, first) if q is not None]   # near edge meets the top further
+        second = dict(zip([a[:2] for a in aim], flat_points(aim) if aim else []))   # on, or the edge's face)
         out = []
         for p, q in zip(pts, first):
             r = None if q is None else second[(p[0], p[1])]

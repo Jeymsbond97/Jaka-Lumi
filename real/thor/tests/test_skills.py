@@ -324,17 +324,20 @@ assert np.allclose((np.array(fixed[:3]) + Rt @ new)[:2], np.array([-100.0, 600.0
 print("skills offset ok")
 
 # on_table: a spot whose near ring point is just off the table's near edge is not table, though that sight line, aimed
-# a little too high, meets the top a bit further on at table height (X1's sweep, a cup put down 17 mm off the edge)
+# a little too high, meets the top a bit further on at table height, or the top's edge face (not level) (X1's sweep:
+# cups put down 3-10 mm inside the edge)
 CAM, EDGE_Y, TOP = np.array([-258.0, 14.0, -41.0]), 600.0, -420.0
-def cast(pts, guess_z=-400.0):
+def cast(pts, guess_z=-400.0):                               # flat_points' answer: level top / floor, None on the face
     out = []
     for p in pts:
         p = np.array([p[0], p[1], p[2] if len(p) > 2 else guess_z])
         d = (p - CAM) / np.linalg.norm(p - CAM)
         q = CAM + d * (TOP - CAM[2]) / d[2]                    # where the line meets the table's plane
-        out.append(tuple(q) if q[1] >= EDGE_Y else tuple(CAM + d * (-900.0 - CAM[2]) / d[2]))   # else the floor
+        face = CAM + d * (EDGE_Y - CAM[1]) / d[1]              # ... and the plane of its near face
+        out.append(tuple(q) if q[1] >= EDGE_Y else None if TOP - 30.0 <= face[2] <= TOP
+                   else tuple(CAM + d * (-900.0 - CAM[2]) / d[2]))
     return out
-skills.surface_points = cast
+skills.flat_points = cast
 assert skills.on_table([(-100.0, 700.0)], -400.0) == [(-100.0, 700.0)]       # well on it, table read 20 mm high
 assert skills.on_table([(-100.0, 620.0)], -400.0) == []                      # its near ring point 5 mm off the edge
 assert skills.on_table([(-100.0, 700.0)]) == [(-100.0, 700.0)]               # table height not given
