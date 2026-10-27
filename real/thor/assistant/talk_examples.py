@@ -687,8 +687,15 @@ _BANK = {
             ("Can you come here?", "I can come when called. Just tell me and step back a little."),
             ("Can you hand me something?", "Yes, I can hand things over and take them back from you, too."),
             ("Can you do more than one thing at once?", "I can do a mission of several steps, like pick up a cup, drive somewhere and hand it over."),
+            ("What's your payload?", "About 1 kg in my hand."),
+            ("Top speed?", "1.2 metres a second at most; I usually drive at 0.6."),
         ],
         "ko": [
+            # Konglish wordings of its own numbers (r9: "맥스 웨이트 몇 킬로예요?" was answered "정보가 없어요")
+            ("맥스 웨이트 몇 킬로까지 돼요?", "손으로는 1킬로 정도까지 들 수 있어요."),
+            ("탑 스피드 얼마임?", "최고 초속 1.2미터예요. 보통은 0.6미터로 다녀요."),
+            ("배터리 라이프 얼마나 가요?", "한 번 충전하면 10시간쯤 가요."),
+            ("하이트가 어떻게 되십니까?", "146센티미터이고, 리프트를 올리면 186센티미터까지 됩니다."),
             ("자기소개 해 줘", "저는 쿳션 컴퍼니에서 만든 로봇 비서 루미예요. 두 살이고, 영어랑 한국어를 해요."),
             ("너 누구야?", "저는 루미예요, 쿳션 컴퍼니에서 만든 이동형 로봇 비서예요."),
             ("넌 뭐야?", "바퀴 달린 로봇 비서예요. 팔 하나에 카메라도 있어요."),
@@ -1915,6 +1922,30 @@ FOLLOWUPS += [
      "How strong is the arm, I mean the trunk?", "Very strong: an elephant's trunk can lift a few hundred kilograms."),
     ("en", "Why do whales sing?", "Mostly to find mates and to keep in touch over long distances.",
      "Can you hear it?", "People hear it with underwater microphones called hydrophones."),
+    # English bare follow-ups as short as the Korean ones (r13: EN 58 % vs KO 72 %), native and non-native; each
+    # takes a word of the answer ("why prison?", "and the book?") or asks how / who / when / what it means
+    *_on("en", "Who invented the printing press?", "Johannes Gutenberg, around 1440 in Mainz, with movable metal type.",
+         ("and how?", "He cast single letters in metal, set them in rows, inked them and pressed paper on them."),
+         ("why metal?", "Metal letters were hard enough to print thousands of pages without wearing out."),
+         ("meaning what?", "Each letter was its own small block, so the same letters could be reused for every page."),
+         ("what is meaning, movable?", "The letters could be moved and set again for the next page."),
+         ("and the first book?", "The Gutenberg Bible, finished around 1455."),
+         ("really true?", "Yes: Gutenberg, around 1440, with movable metal type."),
+         ("before you say different", "No, I said the same: Gutenberg, around 1440 in Mainz.")),
+    *_on("en", "Why do penguins not fly?", "Their wings became flippers for swimming; diving well mattered more than flying.",
+         ("since when?", "For tens of millions of years: the oldest penguin fossils are about 60 million years old."),
+         ("who found that?", "Scientists who dug up penguin fossils in New Zealand and Antarctica."),
+         ("then how deep?", "Emperor penguins can dive more than 500 metres."),
+         ("why flippers?", "Short stiff wings push hard against water, like a fish's fin."),
+         ("is that so?", "Yes: their wings turned into flippers for swimming."),
+         ("and the chicks?", "Chicks can't swim at first; they grow waterproof feathers after a few months.")),
+    *_on("en", "Who built the Eiffel Tower?", "Gustave Eiffel's company built it for the 1889 World's Fair in Paris.",
+         ("why 1889?", "It marked 100 years since the French Revolution of 1789."),
+         ("and how tall?", "About 330 metres with its antennas."),
+         ("people liked it?", "Not at first: many artists called it ugly; now it's loved."),
+         ("when was that?", "In 1887, when the work began, artists wrote a letter against it."),
+         ("so who owns it?", "The city of Paris."),
+         ("hmm, sure?", "Yes: Eiffel's company built it for the World's Fair of 1889.")),
 ]
 
 def pick_followup(said, before_q, before_a, lang, k=2):

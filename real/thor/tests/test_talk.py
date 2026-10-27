@@ -84,6 +84,12 @@ def main():
                  ("What is salt for?", "ACTION: none -\nSeasoning."), ("ok", "ACTION: none -\nSure.")]
     assert "most common" in b._back_to("again about hydrogen, what did you say?")
 
+    h = [("남극은 얼마나 추워?", "ACTION: none -\n영하 89도까지 내려가요."),     # "really?" after a refused order:
+         ("춤 좀 춰 봐", "ACTION: none -\n저는 바퀴로 움직여서 춤은 못 춰요.")]   # the talk before it; "why not?": the refusal
+    assert brain.topic_turn(h, "어이, 진짜?")[0] == "남극은 얼마나 추워?"
+    assert brain.topic_turn(h, "저기 루미 왜 안 돼?")[0] == "춤 좀 춰 봐"
+    assert brain.topic_turn(h)[0] == "춤 좀 춰 봐"
+
     picked = []
     talk_examples.pick = lambda said, lang, k=4, bank=None: picked.append(bank) or []
     brain._examples("윤초는 뭐예요?", world=True)
