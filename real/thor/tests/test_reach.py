@@ -121,6 +121,15 @@ for r, b in ((600, 60), (600, -60), (550, 90), (600, -100), (730, 7), (720, 25))
 for r, b in ((1000, 0), (950, 40)):                         # too far for any waist turn: the base has to move
     o = around(r, b)
     assert all(trusted(fetch.turned(o, d)) is None for d in fetch.waist_for(o)), (r, b)
+# the live cases of 2026-10-26 with trusted turns only: from here, after a waist turn, or the base moves (none)
+LIVE = (((262, 774, -189), "base"), ((267, 763, -188), "base"), ((260, 722, -186), "base"),   # missed at -45 / -30
+        ((300, 621, -191), "waist"), ((-99, 738, -181), "waist"),       # missed at -30 / carry line jumped at -30
+        ((-141, 869, -186), "base"), ((-117, 960, -186), "base"),       # across the table / far
+        ((-104, 694, -186), "here"), ((-73, 588, -186), "here"), ((-96, 598, -260), "here"))   # carried / picked
+for (x, y, top), how in LIVE:
+    o = cup(x, y, top)
+    got = "here" if trusted(o) else "waist" if any(trusted(fetch.turned(o, d)) for d in fetch.waist_for(o)) else "base"
+    assert got == how, ((x, y, top), got, how)
 body["waist"] = 100.0                                       # the waist near its limit (140): no turn past it
 assert all(body["waist"] + d <= 140.0 for d in fetch.waist_for(around(600, 80)))
 body["waist"] = -20.31
@@ -168,6 +177,22 @@ calls.clear()
 scene["cup"] = around(600, -70)                             # the cup was moved away while the waist turned
 skills.look = lambda *a, **k: []
 assert fetch._waist_reach(task, scene["cup"], None) is None and any(c[0] == "waist" for c in calls)
+# ---------- put down: where no joint move from look keeps the cup upright, a straight line to above the spot does
+skills._held.clear()
+skills._held.update(top_mm=-300.0, yaw=0.0, tips=False, below=40.0)
+opts = list(skills.place_options(200.0, 500.0, -300.0, list(LOOK)))
+assert opts and all(w[0][0] == "above place (straight)" for w, _ in opts), [w[0][0] for w, _ in opts]
+way, ja = opts[0]
+assert np.allclose(kinematics.pose(ja)[:3], way[0][1][:3], atol=0.05)
+moved = []
+real_lin, real_jm, real_place = skills.motion.move_linear, skills.motion.move_joints, skills._do_place
+skills.motion.move_linear = lambda **k: moved.append(("line", k["target"]))
+skills.motion.move_joints = lambda j, s: moved.append(("joints", j))
+skills._do_place = lambda w: moved.append(("down",))
+skills.place_turned(way, ja)
+assert moved[0] == ("line", way[0][1]) and moved[1] == ("down",), moved
+skills.motion.move_linear, skills.motion.move_joints, skills._do_place = real_lin, real_jm, real_place
+
 # ---------- the controller confirms only the chosen plan (a stand-in behind arm.cmd here) ----------
 asked, shift = [], {"mm": 0.0}
 def controller(name, **a):

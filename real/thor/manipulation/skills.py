@@ -162,7 +162,8 @@ CARRY_UP_MM = (100.0, 200.0)                     # holding the cup: when the str
                                                  # first, then one checked joint move to carry (carry_up)
 HOVER_MM = 60.0                                  # hover(): the grasp point this far over the top (the fingers lie level
                                                  # near its height, owner's tape on the tips grasp; TIP_MM is a margin)
-LINE_STEPS = 10                                  # ... that straight up is IK-checked at this many points
+LINE_STEPS = 10                                  # ... that straight up is checked at this many points (line_joints)
+LINE_POINTS = 20                                 # points checked on a longer straight line with the cup (line_joints)
 LINE_STEP_DEG = 25.0                             # ... no joint turning more than this between two of them
 OFFLINE_KINE = True                              # kine_forward / kine_inverse answered by robot/kinematics.py (fitted
                                                  # to the controller, < 0.5 mm): a plan asks hundreds, and the controller
@@ -799,41 +800,74 @@ def tilt_on(j0, j1):
 def place_options(x, y, top_mm, start):
     """(waypoints, joints above) of every grasp turn (GRASP_YAWS, the held turn first) and wrist solution that puts
     the held object down at (x, y) with its top at `top_mm`: a joint move from the joints `start` to above the spot
-    that stays above it and keeps the cup upright (MAX_TILT_DEG), then straight down and up. An upright cup turned
-    about its own axis stands the same: any turn will do, as for the pick."""
+    that stays above it and keeps the cup upright (MAX_TILT_DEG), then straight down and up; after all of those, a
+    straight line from where the hand is to above the spot (first waypoint "above place (straight)": line_joints).
+    An upright cup turned about its own axis stands the same: any turn will do, as for the pick."""
     held = _held.get("yaw", 0.0)
-    for yaw in sorted(GRASP_YAWS, key=lambda a: abs((a - held + 180.0) % 360.0 - 180.0)):
+    yaws = sorted(GRASP_YAWS, key=lambda a: abs((a - held + 180.0) % 360.0 - 180.0))
+    for yaw in yaws:
         way = plan_place(x, y, top_mm, yaw=yaw)
         for ja in above_joints(way[0][1], start):
             rows = ik_chain(way[1:], ja)
             if not rows[-1][3] and wrist_ok([ja] + [r[2] for r in rows]) and move_ok(start, ja) and \
                     tilt_on(start, ja) <= MAX_TILT_DEG and confirm(way, ja):
                 yield way, ja
+    c0 = _ask("kine_forward", jointPosition=[float(v) for v in start])["cartPosition"]
+    for yaw in yaws:                              # a joint move from look leans the cup where a line keeps it upright
+        way = plan_place(x, y, top_mm, yaw=yaw)
+        way[0] = ("above place (straight)", way[0][1])
+        ja = line_joints(c0, start, way[0][1])
+        if ja is None:
+            continue
+        rows = ik_chain(way[1:], ja)
+        if not rows[-1][3] and wrist_ok([ja] + [r[2] for r in rows]) and confirm(way, ja):
+            yield way, ja
+
+
+def line_joints(c0, j0, target, steps=LINE_POINTS):
+    """Joints at the end of the straight move with the held cup from the flange pose `c0` (joints `j0`) to `target`:
+    IK at `steps` points, no joint turning more than LINE_STEP_DEG between two, J5 off 0, the cup leaning at most
+    MAX_TILT_DEG, the gripper HEAD_CLEAR_MM from the head (its place measured); None when not."""
+    from manipulation import arm_route
+    centre = arm_route.head_cam.head_centre()
+    c0 = np.array(c0, float)
+    d = np.array(target, float) - c0
+    d[3:] = (d[3:] + 180.0) % 360.0 - 180.0
+    rows = ik_chain([(f"line {k}", [float(v) for v in c0 + d * k / steps]) for k in range(1, steps + 1)], j0)
+    if centre is None or rows[-1][3]:
+        return None
+    js = [list(j0)] + [r[2] for r in rows]
+    axis = calib.rpy_matrix(*GRASP_RPY).T @ [0.0, 0.0, 1.0]           # cup axis in the flange frame
+    if max(abs(b - a) for p, q in zip(js, js[1:]) for a, b in zip(p, q)) > LINE_STEP_DEG or not wrist_ok(js[1:]) or \
+            any((calib.rpy_matrix(*r[1][3:]) @ axis)[2] < math.cos(math.radians(MAX_TILT_DEG)) for r in rows) or \
+            min(arm_route.flange_clearance(r[1], centre) for r in rows) < arm_route.HEAD_CLEAR_MM:
+        return None
+    return js[-1]
 
 
 def place_turned(way, ja):
-    """Put down along a place_options() option: joint move to above the spot, then down, open, up and home."""
+    """Put down along a place_options() option: to above the spot (a joint move, or the straight line it was planned
+    with), then down, open, up and home."""
     _go_on()
-    log(f"above place: joint move, grasp turned {yaw_of(way[0][1]):+.0f} deg, wrist J5 {ja[4]:+.0f}")
-    motion.move_joints(ja, HOLDING_SPEED)
+    log(f"{way[0][0]}: grasp turned {yaw_of(way[0][1]):+.0f} deg, wrist J5 {ja[4]:+.0f}")
+    if way[0][0].endswith("(straight)"):
+        motion.move_linear(target=way[0][1], speed=HOLDING_SPEED, path_checked=True)
+    else:
+        motion.move_joints(ja, HOLDING_SPEED)
     _do_place(way)
 
 
 def carry_up(above, ja):
     """Another way to carry for a held cup whose straight line from above the pick spot (flange pose `above`, joints
-    `ja`) to carry is refused: straight up CARRY_UP_MM (IK at LINE_STEPS points, no joint turning more than
-    LINE_STEP_DEG between two, J5 off 0), then one joint move to carry, the cup upright, clear of the head, no dip
-    (arm_route.check_moves). (pose up there, carry joints) or None."""
+    `ja`) to carry is refused: straight up CARRY_UP_MM (line_joints at LINE_STEPS points), then one joint move to
+    carry, the cup upright, clear of the head, no dip (arm_route.check_moves). (pose up there, carry joints) or None."""
     from manipulation import arm_route
     for dz in CARRY_UP_MM:
-        rows = ik_chain([(f"up {k}", up(above, dz * k / LINE_STEPS)) for k in range(1, LINE_STEPS + 1)], ja)
-        if rows[-1][3]:
-            continue
-        js = [list(ja)] + [r[2] for r in rows]
-        if max(abs(b - a) for p, q in zip(js, js[1:]) for a, b in zip(p, q)) > LINE_STEP_DEG or not wrist_ok(js):
+        j = line_joints(above, ja, up(above, dz), LINE_STEPS)
+        if j is None:
             continue
         try:
-            return rows[-1][1], arm_route.check_moves(js[-1], [motion.poses()["carry"]], holding=True)[0]
+            return up(above, dz), arm_route.check_moves(j, [motion.poses()["carry"]], holding=True)[0]
         except arm_route.RouteError:
             continue
     return None

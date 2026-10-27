@@ -799,7 +799,8 @@ def _why_class(r):
             return "knocked over: cup wider than ~88 mm (its chord does not pass the hooks' neck)"
         return "knocked over (finger landed on the cup)"
     w = r.get("why") or r["result"]
-    for key, name in (("too small", "cup too small (physical)"), ("too big", "cup too big (physical)"),
+    for key, name in (("too low for me", "table too low for the camera at lift 0 (physical)"),
+                      ("too small", "cup too small (physical)"), ("too big", "cup too big (physical)"),
                       ("too thin", "cup too thin (physical)"), ("can't see", "not seen"),
                       ("looked all around", "not seen"), ("still can't reach", "out of reach after every way"),
                       ("way to get close", "no way to get close"), ("not answering", "controller not answering"),

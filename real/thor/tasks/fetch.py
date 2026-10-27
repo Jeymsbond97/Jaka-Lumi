@@ -124,6 +124,8 @@ FURNITURE_RANGES = (0.6, 1.0, 1.4)   # ... and m from the base centre where the 
 FURNITURE_HIT_M = 0.3                # ... the lidar sees now (closer than this) and the map does not have (nothing
 FURNITURE_MAP_M = 0.5                # on the map this near): tables, chairs, boxes, where an object most likely stands
 NEAR_GAP_M = 0.4             # m; something this near the base's outline when nothing is seen ahead: back off ...
+NEAR_RING_M = 0.5            # m from the base centre where _near_look probes for something near after a failed search
+NEAR_VIEWS = (0.0, 60.0, -60.0)  # deg; _near_look's views after it turned to what is near
 NEAR_BACK_M = 0.3            # ... this much and look again before the whole search (a cup < ~450 mm from the column
                              # is below both cameras, X1's sweep)
 LOST_BACK_M = 0.15           # an object lost after a base move: back off this much (the camera sees more) ...
@@ -1116,6 +1118,33 @@ def _go_to(thing, goal, tried, holding=False):
     _approach({"x": float(x), "y": float(y)}, arm_yaw(), tried, goal=goal, holding=holding)
 
 
+def _near_look(attempt, holding=False):
+    """The whole search found nothing, but the lidar sees something near the base on some side (NEAR_RING_M from its
+    centre, within NEAR_GAP_M): a cup on it, or the table to put on, is below both cameras' view, and beside Lumi a
+    turn there is refused while the arm is over it. Back off NEAR_BACK_M, turn to the middle of what is near (sweep
+    checked) and look ahead and to each side once (NEAR_VIEWS; X1's sweep: cups 450-720 mm beside on tables 0.2-0.4 m
+    from the base). None when nothing is near or nothing is seen."""
+    if stay_put or _charging():
+        return None
+    x, y, th = agv.pose()
+    near = [math.radians(d) for d in np.arange(-157.5, 180.1, 22.5)
+            if agv.clearance(x + NEAR_RING_M * math.cos(th + math.radians(d)),
+                             y + NEAR_RING_M * math.sin(th + math.radians(d))) <= NEAR_GAP_M]
+    if not near:
+        return None
+    d = round(math.degrees(math.atan2(sum(map(math.sin, near)), sum(map(math.cos, near)))))   # the middle of it (a
+    log(f"something near me at {d:+d} deg: backing off and turning to it to look")           # table, not one leg)
+    _straight_clear(-NEAR_BACK_M)
+    if abs(d) >= TURN_MIN_DEG:
+        _turn(d, holding, why="to look at what is near me")
+    for view in NEAR_VIEWS:                           # ahead, then the waist each way once (X1: a cup 60 deg aside)
+        got = _look_at(view, attempt)
+        if got is not None:
+            return got
+    _waist_front()
+    return None
+
+
 def _see(task, say=None):
     """Find the object (_look_around: the torso camera, else the head camera, which shows where to go: the base goes
     there and they look again), fit the lift to its table and look once more."""
@@ -1130,7 +1159,7 @@ def _see(task, say=None):
                 _straight_clear(-NEAR_BACK_M)
                 obj = _look_at(0.0, attempt)
         if obj is None and i == 0:
-            obj = _look_around(attempt, say=say)      # one whole search
+            obj = _look_around(attempt, say=say) or _near_look(attempt)     # one whole search
         if obj is None:
             break
         if not obj.get("head"):
@@ -1990,7 +2019,8 @@ def _put_down(say=None, on=None):
         _put_on(top, on, say)                       # a chair, or "the white table": that thing, by colour
         return
     tried = set()
-    got = _look_around(lambda: _place_view(top), holding=True, say=say)
+    got = _look_around(lambda: _place_view(top), holding=True, say=say) or \
+        _near_look(lambda: _place_view(top), holding=True)
     if got is True:
         return
     if got is not None and arm_yaw() is not None and not _charging():

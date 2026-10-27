@@ -388,4 +388,20 @@ assert not cups()
 st = run(fetch.start, TASK)
 assert any("backing off" in l for l in st["log"]) and st["status"] == "holding", st["log"]
 assert not any("look around" in l.lower() for l in st["log"]), st["log"]
+# ---------- X1 round 5: a cup beside Lumi on a table at its side, below both cameras: after the whole search, back
+# off, turn to what is near and look ----------
+for edge, cup in ((0.42, (0.15, 0.6)), (0.7, (0.15, 0.85))):
+    setup(None, table=(-0.4, 0.5, edge, edge + 0.8))
+    room["cups"].append({"id": 1, "map": np.array(cup)})
+    assert not cups()
+    st = run(fetch.start, TASK)
+    assert st["status"] == "holding", st["log"]
+    print("beside, table", edge, "m:", [l.split(" ", 1)[1] for l in st["log"] if "near me" in l or "front of me" in l])
+real_around = fetch._look_around                         # the whole search sees nothing (waist turns refused)
+fetch._look_around = lambda *a, **k: None
+setup(None, table=(-0.4, 0.5, 0.7, 1.5))
+room["cups"].append({"id": 1, "map": np.array([0.15, 0.85])})
+st = run(fetch.start, TASK)
+fetch._look_around = real_around
+assert st["status"] == "holding" and any("near me at +90 deg" in l for l in st["log"]), st["log"]
 print("fetch ways ok")
