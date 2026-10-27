@@ -1,8 +1,11 @@
 """Self-check of the skills.py geometry, no robot: python tests/test_skills.py"""
 import numpy as np
 
-from vision import calib
+from vision import calib, head_cam
 from manipulation import skills
+
+head_cam.head_centre = lambda: np.array([-92.97, -19.87, 356.12])   # the head's turning centre (head_cam fit 2026-10-19;
+                                                                     # its file stays on the Thor)
 
 cup = {"name": "cup", "colour": "white", "x": -126.5, "y": 613.0, "top_mm": -261.0, "width_mm": 76.0}
 R = calib.rpy_matrix(*skills.GRASP_RPY)
@@ -308,3 +311,31 @@ got = {o["name"]: o for o in skills.look(frames=2)}
 assert got["bottle"]["shoulder_mm"] == prof["shoulder_mm"] and got["bottle"]["body_mm"] == prof["body_mm"], got
 assert got["cup"]["shoulder_mm"] is None and got["cup"]["body_mm"] is None
 print("skills bottle ok")
+
+# offset_fix: hover readings at one spot (ring centre - rim centre) = e - Rz(turn) u; the error u of the taught grasp
+# point turns with the grasp, the camera's e does not
+u, e = np.array([12.0, -7.0]), np.array([3.0, 2.0])
+reads = [(t, e - skills._rz(t)[:2, :2] @ u) for t in (0.0, -30.0, -45.0)]
+got_u, got_e, new = skills.offset_fix(reads)
+assert np.allclose(got_u, u) and np.allclose(got_e, e)
+fixed = skills.flange_for(-100.0, 600.0, -300.0, -30.0)       # with the new offset the ring lands on the cup at any turn
+Rt = calib.rpy_matrix(*fixed[3:])
+assert np.allclose((np.array(fixed[:3]) + Rt @ new)[:2], np.array([-100.0, 600.0]) - skills._rz(-30.0)[:2, :2] @ u)
+print("skills offset ok")
+
+# on_table: a spot whose near ring point is just off the table's near edge is not table, though that sight line, aimed
+# a little too high, meets the top a bit further on at table height (X1's sweep, a cup put down 17 mm off the edge)
+CAM, EDGE_Y, TOP = np.array([-258.0, 14.0, -41.0]), 600.0, -420.0
+def cast(pts, guess_z=-400.0):
+    out = []
+    for p in pts:
+        p = np.array([p[0], p[1], p[2] if len(p) > 2 else guess_z])
+        d = (p - CAM) / np.linalg.norm(p - CAM)
+        q = CAM + d * (TOP - CAM[2]) / d[2]                    # where the line meets the table's plane
+        out.append(tuple(q) if q[1] >= EDGE_Y else tuple(CAM + d * (-900.0 - CAM[2]) / d[2]))   # else the floor
+    return out
+skills.surface_points = cast
+assert skills.on_table([(-100.0, 700.0)], -400.0) == [(-100.0, 700.0)]       # well on it, table read 20 mm high
+assert skills.on_table([(-100.0, 620.0)], -400.0) == []                      # its near ring point 5 mm off the edge
+assert skills.on_table([(-100.0, 700.0)]) == [(-100.0, 700.0)]               # table height not given
+print("skills on_table ok")

@@ -13,8 +13,24 @@ from manipulation import arm_route, skills
 from tasks import fetch
 
 # ---------- the offline kinematics: the controller's own answers ----------
-mm, deg = kinematics.errors()
-assert mm < 0.5 and deg < 0.1, (mm, deg)
+SAMPLES = (                                                 # joints, the flange pose the controller reported (calibration
+    ([87.074, -80.539, -21.134, 0.608, -113.653, -47.948],  # samples of the torso and the head camera; the samples
+     [47.777, 320.575, -20.839, 86.777, 45.757, -57.042]),  # themselves stay on the Thor)
+    ([69.322, -78.233, -38.969, -5.131, -100.011, -69.562],
+     [6.08, 270.561, -123.566, 77.877, 51.571, -62.655]),
+    ([101.531, -72.825, 6.01, 5.321, -102.275, -53.297],
+     [174.924, 414.109, 93.127, 72.719, 64.842, -115.343]),
+    ([-272.27, -100.091, -8.001, 234.453, 83.508, 134.594],
+     [-9.389, 400.198, 107.353, 31.332, 18.372, -113.47]),
+    ([-260.075, -97.103, -25.513, 228.746, 69.866, 129.55],
+     [-66.288, 354.894, 170.458, 37.788, 29.511, -109.309]),
+    (skills.TEACH["joints"], skills.TEACH["flange"]))       # the taught grasp
+for j, p in SAMPLES:
+    T = kinematics.fk(j)
+    R = skills.calib.rpy_matrix(*p[3:])
+    assert np.linalg.norm(T[:3, 3] - p[:3]) < 0.5 and np.degrees(np.arccos(min(1.0, (np.trace(T[:3, :3].T @ R) - 1) / 2))) < 0.1, j
+HEAD = np.array([-92.97, -19.87, 356.12])                  # the head's turning centre (vision/head_cam.py fit 2026-10-19)
+arm_route.head_cam.head_centre = lambda: HEAD
 for name, j in motion.poses().items():                     # IK from a seed 8 deg off: the same flange pose
     p = kinematics.pose(j)
     s = kinematics.ik(p, [a + 8.0 for a in j])
@@ -30,11 +46,36 @@ fetch.log = skills.log = arm_route.log = lambda *a: lines.append(" ".join(str(x)
 cup = lambda x, y, top=-260.0: {"name": "cup", "colour": "grey", "x": float(x), "y": float(y), "top_mm": top,
                                 "width_mm": 76.0, "seen": 8, "spread": 1.0}
 reach = lambda o: skills.reachable_pick(o, accept=fetch._carry_ok)
+trusted = lambda o: skills.reachable_pick(o, accept=fetch._carry_ok, max_yaw=skills.TRUSTED_YAW_DEG)   # fetch's first try
 
 plan = reach(cup(-96, 598))                                  # picked live 2026-10-2x 15:39 (J5 +20, no turn)
 assert plan and abs(skills.yaw_of(plan[0][1][1])) < 1, plan
 for xy in ((-171, 697), (-395, 629), (-480, 652)):          # refused live from where it stood: still out of reach
     assert reach(cup(*xy)) is None, xy                      # of the arm alone at waist 0 (base moved then)
+
+# 2026-10-26 18:40 at lift 0: (260, 722) top -186 was planned turned -30 deg, J5 +26 (missed live, as every turn
+# over 15 deg): offline the same; within the trusted turns there is none from here (the waist or the base first)
+plan = reach(cup(260, 722, -186))
+assert plan and round(skills.yaw_of(plan[0][1][1])) == -30 and 20 < plan[1][4] < 30, plan
+assert skills.reachable_pick(cup(260, 722, -186), accept=fetch._carry_ok, max_yaw=skills.TRUSTED_YAW_DEG) is None
+
+# 17:57 / 18:45: (-104, 694) and (-99, 738) top -186: every straight line to carry refused (a joint jumps); straight up
+# and one joint move to carry takes the cup there instead (upright, clear of the head)
+def line_ok(w, ja):                                         # the straight line alone (fetch._carry_ok also takes carry_up)
+    try:
+        fetch._line_rows(kinematics.pose(motion.poses()["carry"]), "to carry", start=(w[0][1], ja))
+        return True
+    except fetch.FetchError:
+        return False
+for xy in ((-104, 694), (-99, 738)):
+    assert skills.reachable_pick(cup(*xy, -186), accept=line_ok) is None, xy
+    plan = skills.reachable_pick(cup(*xy, -186), accept=lambda w, ja: skills.carry_up(w[0][1], ja) is not None)
+    assert plan, xy
+    via, carry = skills.carry_up(plan[0][0][1], plan[1])
+    assert via[2] > plan[0][0][1][2] and np.allclose(kinematics.pose(carry)[:3], kinematics.pose(motion.poses()["carry"])[:3], atol=0.1)
+plan = skills.reachable_pick(cup(-104, 694, -186), accept=lambda w, ja: skills.carry_up(w[0][1], ja) is not None,
+                             max_yaw=skills.TRUSTED_YAW_DEG)
+assert plan and abs(skills.yaw_of(plan[0][1][1])) <= 15.5, plan
 
 # a held IK answer with J4 one turn round (the same pose) is not a joint-limit or flip refusal
 real_ask = skills._ask
@@ -72,14 +113,14 @@ assert np.allclose([fetch.turned(t, -30.0)[k] for k in "xy"], [o[k] for k in "xy
 
 for r, b in ((600, 60), (600, -60), (550, 90), (600, -100), (730, 7), (720, 25)):   # beside it and the live ones
     o = around(r, b)
-    assert reach(o) is None, (r, b)                         # not from here ...
+    assert trusted(o) is None, (r, b)                         # not from here ...
     turns = fetch.waist_for(o)
-    assert turns and any(reach(fetch.turned(o, d)) for d in turns), (r, b, turns)   # ... after a waist turn
+    assert turns and any(trusted(fetch.turned(o, d)) for d in turns), (r, b, turns)   # ... after a waist turn
     assert abs(turns[0] - (b - math.degrees(math.atan2(-(fetch.PICK_ZONE_CENTRE[0] - C[0]),
                                                        fetch.PICK_ZONE_CENTRE[1] - C[1])))) < 1e-6
 for r, b in ((1000, 0), (950, 40)):                         # too far for any waist turn: the base has to move
     o = around(r, b)
-    assert all(reach(fetch.turned(o, d)) is None for d in fetch.waist_for(o)), (r, b)
+    assert all(trusted(fetch.turned(o, d)) is None for d in fetch.waist_for(o)), (r, b)
 body["waist"] = 100.0                                       # the waist near its limit (140): no turn past it
 assert all(body["waist"] + d <= 140.0 for d in fetch.waist_for(around(600, 80)))
 body["waist"] = -20.31
@@ -127,4 +168,20 @@ calls.clear()
 scene["cup"] = around(600, -70)                             # the cup was moved away while the waist turned
 skills.look = lambda *a, **k: []
 assert fetch._waist_reach(task, scene["cup"], None) is None and any(c[0] == "waist" for c in calls)
+# ---------- the controller confirms only the chosen plan (a stand-in behind arm.cmd here) ----------
+asked, shift = [], {"mm": 0.0}
+def controller(name, **a):
+    asked.append(name)
+    r = kinematics.ask(name, **a)
+    if name == "kine_forward":
+        r["cartPosition"][0] += shift["mm"]
+    return r
+real_cmd = skills.arm.cmd
+skills.arm.cmd = skills._ARM_CMD = controller
+skills._ask = skills._ASK                                    # planning offline, only confirm() asks the "controller"
+skills.home_joints = lambda: list(LOOK)
+assert reach(cup(-96, 598)) and sorted(asked) == ["kine_forward", "kine_inverse"], asked
+shift["mm"] = 5.0                                           # the controller disagrees with the offline model: no plan
+assert reach(cup(-96, 598)) is None and any("the controller puts" in l for l in lines)
+skills.arm.cmd = skills._ARM_CMD = real_cmd
 print("reach ok")

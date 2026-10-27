@@ -71,6 +71,9 @@ def flat(pts, guess_z=-400.0, camera="torso", T=None):
 
 
 skills.surface_heights, skills.flat_points = depth, flat
+POINTS_REAL = skills.surface_points
+skills.surface_points = lambda pts, guess_z=-400.0, **kw: [None if z is None else (p[0], p[1], z)   # never live depth
+                                                           for p, z in zip(pts, depth([q[:2] for q in pts]))]
 skills.FRESH_WAIT_S = 0.0
 fetch.head_cam.base_from_head = lambda yaw, pitch: None                     # the torso camera only (head: below)
 fetch.head.status = lambda: [0.0, -20.0, 0.0, 0.0]          # lift 0 (its bottom), as in the log
@@ -119,7 +122,7 @@ camview.depth, camview.intrinsics = lambda name, max_age=None: REC["depth"], lam
 objects.base_from_camera = lambda: REC["T"]
 fetch.head.status = lambda: [63.0, -20.3, 0.0, 0.0]
 TABLE_LIVE = -386.0                                                             # its level top, checked by eye
-skills.flat_points = FLAT_REAL
+skills.flat_points, fake_points, skills.surface_points = FLAT_REAL, skills.surface_points, POINTS_REAL
 assert abs(fetch.table_ahead() - TABLE_LIVE) < 10.0, fetch.table_ahead()
 far = fetch.far_table()
 assert far and abs(far["table"] - TABLE_LIVE) < 10.0, far
@@ -129,7 +132,7 @@ grid = [(r * math.cos(math.radians(90 + b)), r * math.sin(math.radians(90 + b)))
 zs = [q[2] for q in skills.surface_points(grid, fetch.TABLE_PROVEN_Z) if q is not None and band[0] <= q[2] <= band[1]]
 assert abs(np.median(zs) - TABLE_LIVE) > 60.0, np.median(zs)                    # the old way: chairs pull it down
 camview.depth, camview.intrinsics, objects.base_from_camera = real_depth, real_intr, real_T
-skills.flat_points = flat
+skills.flat_points, skills.surface_points = flat, fake_points
 
 # ---------- a table seen further away (the live case: its near edge ~1 m ahead, lift 0, chairs before it): go to it,
 # the place grid then lies on its top ----------
