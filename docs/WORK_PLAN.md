@@ -7,7 +7,76 @@ replies always polite); Lumi is presented as developed by Cutshion Company (쿳�
 
 Update this file when a part is done. A new session: read this, then docs/17_MISSIONS.md, then ROADMAP.
 
-## Big night test 5 (2026-10-26 19:00 →) — PLANNED
+## Big night test 5 (2026-10-26 21:30 → 2026-10-27 09:30) — ENDED 08:55
+
+Started 21:25 by the owner ("ha boshla") in the night-2 / night-4 lead session (tmux `lumi`). Brief:
+docs/night5/COMMON.md; status docs/night5/<id>.md. Agents: P1, P2, L1, B2, T1, W5 as below, plus X1 (offline
+pick / place sweep: thousands of cup and place positions left / right / ahead, the owner's 21:20 request: reach turned
+left and turned right, not only straight, for pick and for put). **A session taking over:** read the Progress lines
+below, then every docs/night5/<id>.md "Left", resume each unfinished agent with docs/night5/COMMON.md.
+Morning: the lead runs all tests, commits per finished piece (~07:30–09:20), pushes spaced (never on the hour),
+without assistant/bank_words/english.py until B2 clears it; report to the owner at 09:30–10:00.
+
+Progress (lead):
+- 21:25 main clean at 5b11c25 (+ runtime data/fetch_calib.json), battery 90 % charging. Owner's stop-word decision
+  in job 5. Agents started.
+- 21:50 owner: no usage limit today — more tests, more banks, more agents. Added H1 (arm / hand wordings:
+  bank_words/arm.py, arm_more.py), Q1 (quick answers: quick_answers.py, questions.py, facts.py, company.py; taken
+  from B2), W6 (blind r12: commands typed + voice, EN = KO every level, arm heavy, side words), W7 (blind r13:
+  dialogues, Q&A continuity, quick questions, llm_reasoning set), E1 (typed = voice and EN = KO parity checker,
+  tests/parity_check.py). 12 agents. Bank builds only under `flock data/bank_build.lock`.
+- Pushes (owner): 5 spaced pushes until 06:00 (23:17, 00:48, 02:26, 03:53, 05:34) and 3 until 09:30 (07:12, 08:21,
+  09:17): at each the lead runs all tests, commits the finished pieces, pushes with logs/push_night5.sh (leaves out
+  bank_words/english.py until B2 clears it; KEEP_ENGLISH=1 then). Then the analysed report and the live test.
+- 22:30 W7 published r13 (946 dialogues + 5115 cases per split, 11 levels, typed / voice, new set llm_reasoning);
+  T1 writes tests/reasoning_check.py for it; W7 grows r13 (_b / _c) until 05:00. r11–r13 git-ignored.
+- 22:40 W7 grew r13 to 12749 cases + 2398 dialogues per split (158 llm_reasoning meanings, arm talks while holding);
+  keeps growing (_d …) until 04:00. W6 published r12: 22414 / 22448 command cases, 100 % unique, ~54 % arm / hand,
+  side words, stop set 1599 (also inside sentences), field `channel` typed / voice, every level; grows with new
+  methods until 04:00. E1 now also owns tests/blind_check.py (adds --round r11–r13, report by level and channel).
+- 23:15 writers done: r12 = 46418 / 46490 command cases (ramble, multi with sides, numbers, object traits, asides,
+  shorthand, self-corrections, next order after an arm action; 43 voice decimal cases to skip, logs/w6_gen/
+  voice_decimal_split.txt). r13 = 21142 cases + 5698 dialogues per split, 260 topics, 385 llm_reasoning meanings
+  (things the arm can't do, gestures / mimetic words, indirect hints, Simon says, two speakers, interruptions).
+  Fixers now work through r12 / r13 train; more writing only if the fixers run out.
+- 00:21 push 1 (late: the full test run took 60 min at load ~38): main b53fabb..0af24e9 (pick / put from the side,
+  quick answers, Korean / English commands + wake-up words, parity / dialogue checks) = Gitea d72eb52, without
+  english.py. All tests/test_*.py passed (4 flaky under concurrent edits, passed on rerun). W5 had stopped at 21:41
+  waiting on its own shells; resumed. Next pushes 02:26, 03:53, 05:34, 07:12, 08:21, 09:17.
+- 00:30 P2 round done (turned grasps land off-centre: taught grasp offset error grows with the turn; trusted turns
+  ≤ 15°, then waist, then base; live hover check needed before trusting more, P2.md). Sent to a put-down round.
+- 02:11 push 2: main af57edb..8014313 = Gitea 3f39234 (all tests passed; test_detour flaky, passed on rerun).
+- 03:40 E1 parity round 2: typed != voice in 208 cases, all in api/server.py held parse (box gives / places on
+  near misses: wrong motions; "내놔" read as place; polite give only talks; chain while holding). Given to L1.
+- 03:52 push 3: main 0cbeefa (side put-down checks only; the rest changed during the test run, held for push 4)
+  = Gitea ac13ced; fetch / reach tests passed in a clean copy of the commit.
+- 04:15 L1 round done (box KO = voice; owner's 18:40 misses; E1 held faults; 105 stop forms; place translation
+  aliases 출구/무대… removed — owner to confirm). H1 round done (arm bank 43k -> 62k wordings incl. others).
+  Both sent on; H1's guard list to B2, side words / backpack to L1, voice-pick held name to P1.
+- 05:03 push 4: snapshot of 04:25 tested as a copy (only test_followup / test_scene fail there: local data
+  missing in a copy, as on night 4), committed from the copy: main b6dfec8..fb3420e = Gitea 5d1422b.
+  Pushes left: 07:12 (or earlier ~06:30), 08:21, 09:17.
+- 06:10 P1 round done: X1 sweep picks 73 % -> 93 % (every sector 92–93 %), too-near cups 8 -> 84 %, turns > 15°
+  206 -> 1, places 76 -> 79 % (rest: tables too low at lift 0, said before driving).
+- 06:30–07:00 all agents stopped at the 5-hour session limit; resumed 07:01.
+- 07:05 Q1 done: r9 want-quick 1876 -> 2280 / 2284, wrong quick answers 0; every Korean level 91–93 % = English.
+- 07:09 push 5: the 06:01 snapshot had test_route_words failing ('너 팔 접을 수 있지?' -> fold, from uncommitted
+  brain.py; L1 / B2 fixing), so only the quick answers + fetch.py were committed (tested on HEAD + those files):
+  main ee1219b..82f6baa = Gitea 122e7de. Pushes left 08:21, 09:17.
+- 07:15–08:00 final reports: T1, P2, H1, E1, X1, W5, Q1, P1 (numbers in their docs/night5/<id>.md). X1 final:
+  picks 73 -> 93 %, places 76 -> 74 % (P1's early "too low"; fixed 08:10, X1 re-sweep running).
+  E1: typed != voice 417 -> 30 of 19393; every Korean level 87–92 % = English 89 %. W5 held (vs 10-24):
+  r6 commands 54 -> 59 %, r8 43 -> 49 % (motions 226 -> 16), r8 questions 48 -> 70 %; English still below Korean.
+- 08:14 push 6: snapshot of 07:55, all tests passed (test_followup fails only in a copy): main 4eb32ec..00b6000 =
+  Gitea 5754de3. Stop words with a call before them ("루미 님, 멈춰 주실 수 있겠습니까?" …) checked in the commit.
+- 08:55 push 7 (last): main cf1438e = Gitea fa9c1e7, now WITH english.py (B2 final stress: 27 wrong of 109990,
+  baseline 58). All tests passed. Night 5 ENDED: 7 pushes (00:21, 02:11, 03:52, 05:03, 07:09, 08:14, 08:55; one
+  fewer than asked, the 23:17 one slipped to 00:21). Every agent finished; status files docs/night5/<id>.md final.
+  Owner decisions waiting: place translation aliases (출구→exit, 무대→stage removed by L1), "just hold it" while
+  holding = stop, receive-wait notation (docs/17 vs r6), "who is the CEO?" quick answer, JAKA quick kinds,
+  MAX_WIDTH 92 vs 88 (measure the hooks' neck), live hover check before grasp turns > 15°, "go to p5 and dance",
+  Command box talk history (needs the assistant to share its last turns). Next: restart lumi-api (base idle) and
+  the live test, P1.md "Live test plan" (4 scenes) + P2.md hover check, slow, owner at the STOP.
 
 Asked by the owner 2026-10-26 11:05. Starts 19:00 from a new lead session: read this section, docs/night4/COMMON.md
 and every docs/night4/<id>.md "Left" / "In progress" / "For others".
@@ -17,13 +86,198 @@ and every docs/night4/<id>.md "Left" / "In progress" / "For others".
   owning agent (EN + KO, every level, new cases for each).
 - Measure on r10 (W5, half English) as well as r6 / r8 / r9; English must score as well as Korean.
 
-Unfinished at 13:30:
-- (filled at 14:00)
+### START HERE (remote session, 2026-10-26 night): what Lumi must do with things, and who does what
+
+The owner starts this from home over Tailscale with "Big night test 5 ni boshla". The lead reads this section,
+"Tonight's jobs, in order" below (every live fault with its numbers), docs/night4/COMMON.md (rules: no robot, no
+service restarts, no git, held-out exams closed, one owner per file, bank builds once and alone), then starts the
+agents below in parallel, each with its files, its part of the faults and the goal. The lead commits per finished
+piece in the morning; Gitea pushes without assistant/bank_words/english.py until B2 clears it.
+
+**The goal for pick and place (owner, 2026-10-26 evening, in their words: "from every side, find its own way, never
+stand still").** Once the owner names a thing to take and a place to put it, Lumi:
+1. **Focuses on that thing and remembers it.** The thing seen once is kept with its position in the map (base
+   frame from the base pose, updated by the base's odometry and the waist / head angles), not only in the camera's
+   current frame. While Lumi turns, drives, turns its waist or (later) lifts, the head and the waist turn against
+   the motion so the head or the torso camera keeps it in view. Coming within reach, the arm goes to the kept
+   position at once (one fresh look to correct it), no new search. "I can't see it" only after the kept spot was
+   looked at and is empty.
+2. **Reaches from every side.** The arm tries every grasp turn and both wrists, the waist turns as far as it can
+   when that brings the thing into reach (beside Lumi, left or right), and the base moves when the arm alone can't:
+   nearer when the thing is at the far edge of reach (the arm almost straight knocks cups over: pick from a
+   comfortable distance, near PICK_ZONE_CENTRE, the no-turn grasp first until turned grasps are proven live),
+   back when it is too near, round the table to another side when the near side is blocked.
+3. **Finds its own way.** A move that did not bring the thing nearer (the base stood still: an obstacle, its own
+   safety stop) is never repeated; the next way is tried (a small turn and in, another side by navigation,
+   further round). It asks the person only when every way was tried, and says what blocked it.
+4. **Never stands still while the thing is seen.** Every refusal (no IK, carry line jumps, head clearance, base
+   blocked) leads to the next attempt, not to a stop; a stop comes only from STOP / the owner, or after all
+   attempts with a clear sentence.
+5. **Puts down the same way, from every side.** The table seen (also further away) is a place at once when the
+   arm reaches it; otherwise the base goes nearer / round as for the pick; it turns towards the table, never away
+   from it; it puts down from the side it reaches best, the cup upright.
+6. **Names what it holds.** "Putting the white cup down", "컵을 내려놓을게요", never "something", however it
+   was picked (voice, dashboard fetch, dashboard "Take the cup" steps, received from a hand).
+7. **Talks to the controller sparingly.** Plans with the offline kinematics (robot/kinematics.py, < 0.5 mm) and asks
+   the controller only to confirm the chosen plan, so the controller never drops connections in the middle.
+Each point gets offline tests with today's live positions (below) and fakes for base / camera / arm; nothing is
+live until the owner runs it slowly with the STOP in hand.
+
+**Agents tonight (files owned; nobody else edits them):**
+- **P1 approach & search** — tasks/fetch.py (and tests/test_fetch*.py): points 1, 3, 4, 5 (base moves, way round,
+  kept position and head/waist tracking, table approach, turn sign for "face the table"), the held name in fetch
+  (point 6, fetch side). Faults (a), (b), (c), (d), (g), (h), (i) below.
+- **P2 reach & grasp** — manipulation/skills.py, manipulation/arm_route.py, robot/kinematics.py, tests/test_reach.py,
+  tests/test_skills.py: point 2 and 7 (comfort reach limit as a constant P1 reads, offline IK planning, carry line
+  without refusals, why turned grasps land off-centre: fault (e), (f)); test_reach / test_skills without the
+  Thor-only calibration files. P1 and P2 agree the interface in docs/night5/P1.md / P2.md before coding.
+- **L1 command box = voice, KO as EN** — assistant/brain.py, assistant/steps.py, api/server.py (+ tests
+  test_command_box, test_fetch_words, test_steps): the Korean 55-sentence list grown to hundreds at every speech
+  level, EN the same; the held name in the dashboard's held parse (point 6, api side). Job 3 below.
+- **B2 bank wrongs** — assistant/bank_words/*.py, assistant/intent_bank.py: the 9 new wrongs of the English bank,
+  the stress check again (alone), job 2.
+- **T1 talk** — assistant/lumi.py prompt parts, assistant/brain.py SYSTEM text only through L1 (ask L1): the wrong
+  date ("October 12"), unrelated answers to fragments, job 4; A4's dialogue regression (r6 mixed_i 111 -> 92).
+- **W5 measure** — tests/blind_check.py runs only: r10 first full run, r6 / r8 / r9 after the others' fixes, the
+  English vs Korean table for the morning report.
+Each agent writes docs/night5/<id>.md (done, numbers before -> after, left), the lead sums up in this file by 07:00.
+
+### Tonight's jobs, in order (the owner starts the agents remotely over Tailscale)
+
+State at 18:45: main has 7d67106 (lift held at 0) and 4c00708 (place names without "to", stood-still approach goes
+round, arm reply check) plus the uncommitted 18:40 give wording / Korean place fixes (committed by the lead once the
+full test run passes). Gitea has everything up to de6830e plus, at 18:54 / 19:03, 7d67106 and 4c00708 + 5b11c25 replayed without the English bank (gitea branch 1b3f456); bcbee5d (assistant/bank_words/english.py) is NOT pushed (wrongs 58 -> 65): a push of main's tree would carry it, so until it is fixed push a tree without that file.
+lumi-api was restarted by the owner at ~17:50 (before 7d67106): the evening fixes are live only after the next restart.
+Agents: no robot, no service restarts, no git; one file owner per file; bank builds once, alone, before any check.
+
+1. PICK (fetch.py / skills.py owner; the live faults below): (a) a pick at the far edge of the arm's reach is not
+   tried from where it stands: the base drives closer first, then picks near PICK_ZONE_CENTRE. Live 18:30: white cup
+   at (262, 774) top -189, "grasp in the hooks, turned -45 deg, wrist J5 -11", above (276, 534, -10), grasp
+   (276, 534, -110): the arm almost fully out, the fingers came down with the tips on the cup instead of the belly
+   and knocked it over; AI_1 4084 "I missed it", then the same again at (267, 763). Add a comfort limit (distance from
+   the arm base / from PICK_ZONE_CENTRE, a constant with its reason, estimate until measured live) above which the
+   base moves in first when it can; a pick the base can't improve still goes as now. (b) The carry line refusal and
+   the 5 identical approaches (faults below). (c) Never lose the thing while moving (owner's 18:20 item below).
+   (e) Off-centre grasps at a turned grasp (owner 18:45: "not the middle, one finger end lands on top of the cup and
+   knocks it over", also after coming nearer): 18:40:11 grey cup (260, 722) top -186, "in the hooks, turned -30 deg,
+   wrist J5 +26", above (336, 494, -7), grasp (336, 494, -107), AI_1 4155 missed; 18:40:57 (300, 621) top -191,
+   turned -30, J5 +25, grasp (376, 393, -112), missed. Every live success so far was without a turn (J5 +20, cups
+   near x -100). Suspects, in order: the turned grasp (flange_for: GRASP_OFFSET rotated about the vertical; a small
+   error of the taught belly point grows sideways with the turn), the torso camera's arm-frame error at x +250..300
+   (side of the view), the cup's measured centre (top rim vs body). Find it offline from the numbers, then a live
+   check with the owner (slow, at the STOP): the same cup at (-100, 580) with no turn, then at (+260, 700) turned,
+   the owner says on which side the finger landed and by how much. Until it is found: prefer the no-turn grasp
+   and a base move that brings the cup to PICK_ZONE_CENTRE over a turned grasp.
+   (f) 18:45-18:46, the cup straight in front at (-99, 738) top -181: no grasp without a turn (carry line jumps
+   31-32 deg), a -15 deg turn found, then "The arm controller is not answering" (18:46:17): skills._ask's 3 quick
+   tries all hit closed connections (the controller drops connections under a burst of kine_inverse; 60 fast IK
+   asks by hand at 18:50 closed it too). The R1 seeds x grasp turns x carry checks ask far more IK than before.
+   Fix: plan with the offline kinematics (robot/kinematics.py, fitted < 0.5 mm) and ask the controller only for the
+   chosen plan, or back off longer between tries. And the base should have driven in: 738 mm straight ahead is
+   the far-reach case (a).
+   (g) PLACE, live 18:51-18:56 (owner: picked fine near, backed up a little, "put it": "can't find a place" with
+   the table right in front; moved it a little, then it placed): 18:51:49 cup (-73, 588) picked without a turn, fine.
+   18:53:20 and 18:54:30 fetch_place: "table height not measured", "no table in view", "a table at -328 mm further
+   away at (-213, 797): going closer", "straight +0.13 m" five times, the table never nearer (-213, 796..799 every
+   time): the base did not move and the same move was repeated (the 4c00708 _straight_went check covers only
+   _approach, not this table approach), then "I can't find a free place on a table around me". Same fix as the
+   pick: measure the move, go round / another way, never repeat a move that did nothing. Also "no table in view"
+   with the table in front at lift 0: the torso camera's table view at this lift (holding in look) must be checked
+   (CLAUDE.md: at table height it sees only y >= ~640 mm); use the table seen further away as the place directly
+   when the arm reaches it.
+   (h) Turning away from a table it sees (owner): 18:55:05 "white table at (22, 623): turning -14 deg to face it",
+   then the table at (-349, 647) (370 mm sideways for a 14 deg turn: not the same table or a wrong sign / centre),
+   the spot unreachable, turned +14 back, then placed at (-43, 618). Check the sign and the turning centre of
+   "turn to face it" for tables (fetch approach_move with the waist / arm offset), offline with these numbers.
+   (i) Put names the thing (owner, again): after a pick, "put it down" answers "putting something" instead of
+   "putting the cup down": the held name (fetch.held_name, held_object) is lost on the mission pick path
+   (dashboard "Take the cup" = steps pick, 18:51:46) or in the dashboard's held parse (api/server.py _held_parse).
+   Every reply about the held thing names it ("the white cup"), EN and KO ("컵을 내려놓을게요"); a test that picks by
+   steps, by fetch and by voice and then asks put / give / what are you holding.
+   (d) Never stop while the thing is seen: next grasp / waist / way round, ask only at the end. Offline tests with
+   every live position of today.
+2. B1 bank wrongs: the 9 new wrongs of the English bank (below, B1 entry), then the stress check again; when it is
+   not above 58, the lead pushes bcbee5d with the night's work.
+3. Command box = voice, Korean as English (below, 18:40 item): the 55-sentence Korean cup / delivery list as a test,
+   grown to hundreds at every speech level, EN the same; the open misses listed there.
+4. Talk faults seen live 18:30: "What is the time?" answered "Monday, October 12, 2026" (web.now_text gives
+   26 October: the model's own date; find why, the date must come from now_text); fragments "지금 몇..." answered
+   with the microphone ring, "저는 오후 6시 반이에요" with the lidar, "서울의 지구" with "JAKA made me": an unclear
+   fragment gets "sorry, again?" or nothing, never an unrelated self-description.
+5. Stop words — DECIDED by the owner (2026-10-26 21:10): safety first. "stop", "stop it" and every Korean word with
+   that meaning (멈춰, 멈춰요, 멈추세요, 멈춰 주세요, 그만, 그만해, 정지, 스톱, 스탑, 서, 거기 서, 움직이지 마 …, every
+   speech level and slips) stop the task wherever they come, also inside a longer sentence (a bystander's too). Keep
+   that behaviour; check every Korean / English stop form is caught (tests), never weaken it.
+6. Then the 13:30 left work per agent (below), r10 measured (W5), A4's dialogue regression.
+7. Lead: test_reach / test_skills without the Thor-only calibration; README EN + KO for the waist reach and the lift
+   hold after the live test; one push per finished piece in the morning, tests first.
+
+Unfinished at 13:30 (details in docs/night4/<id>.md "Left" / "For others"):
+- A4: r6 dialogues_mixed_i fell 111/175 (06:28) -> 92 (12:53): the model picks search more often (first search turns
+  14 -> 29 on the same talks); cause not found (not A4's search line). First job tonight: diff the 06:28 prompt with
+  today's on "윤초는 뭐예요?", re-run r6 (tag a4n4n6e) and the own talks. "이름은 와 그래 지었노?" after 경복궁 (KO only).
+- B1: 15103 English wordings in (bank 22565 -> 42998), no Korean yet; the blind --stress before / after on r6 / r8 / r9
+  (logs/bank_check_b1_*_blind.md) done 16:57: wrong 58 -> 65 of 109990 (9 new, 2 fixed), so bcbee5d is NOT pushed.
+  New wrongs to fix first: "grip immediately" -> arm open; "you must straighten your waist" -> arm reach; "grip 이 좋네
+  이 컵" / "can u return the cup" -> pick; "since you're here, come back" -> come; "drive over there, where I'm
+  pointing" -> come; "I'd love to see you come this way" -> look me; "fly up to the ceiling" -> look up; "review time:
+  guys, get me the bottle" -> fetch. Then re-run the stress check and push bcbee5d. Next: the same depth for Korean levels. intent_bank wave verb check lacks "handshake" /
+  "shaking" / "goodbye"; brain.named_place reads "your spot" / "where you were" as home.
+- A3: blind r9 / r8 --rules --sample re-measure (tag a3n4r3) and bank_check r8 stress, killed by the embedding jam.
+  15 ko_levels misses (C's readers): waist / charge / put polite forms ("…주셨으면 해요", "…주시면 감사하겠습니다",
+  "…주면 안 될까요?"), Konglish "차지하러 가 줘"; "put that cup down" (hand reader); "아까 그 자리로 돌아가 줄래?".
+- C: "고개 끄덕이고 손 흔들어" (nod lost), "go grab me a cup" (only a pick), "chin up, buddy" (looks up); ko_plain dialect
+  endings (드시게, -그라, -라잉, 보소); "-주시면 안 될까요?" on the LLM path; r6 motion sets measure. Song stops "그만
+  하시겠습니까?", "cut the music, please" (A5's note).
+- F1: route-level r8 bring / take / put / give re-measure; receive step colour; Korean names of English markers
+  ("갤러리 투", "부스 십이", "비 세븐 게이트"); fetch_dialog asking where a named person is; hand reader EN / KO parity
+  ("hand it to Minsu" -> LLM, "민수한테 줘" -> give), idle "그거 놔 줘" opens the arm (C).
+- A5: company_check / web_check (LLM) not run; 201 r8 sing requests left to the LLM (side remark before); "배터리 수명";
+  openers / remarks / stutters before questions (A3, 67 of 528 missed r9 questions); seeing takes knowledge questions.
+- A7: r6 / r8 rules4 not run (one at a time); "배터리 얼만가?" (하게체) misses battery.asked; r6 d94 shared talks.
+- R1: offline only; the live waist-reach test with the owner (docs/night4/R1.md plan); README EN + KO after it.
+- W5: r10 not yet measured (first full run tonight); r10 has no seeing / follow-up / closing / lookup / questions_world.
+- Lead: bank builds must run once, alone, before any check (the 11:05-12:11 jam); the push checks now copy the caches.
+- R1 / tests: test_reach and test_skills read the Thor-only calibration (data/camera_extrinsics*.json,
+  data/calib_samples*/) and fail in a clean checkout (Mac, Gitea); the push check copies them since 16:40. Make the
+  tests use fixed values instead.
 
 Faults from the live test:
-- (owner, before 19:00)
+- 2026-10-26 17:57, "Take the cup from here, bring it to exit and hold it" (dashboard): the cup seen at (-117, 960),
+  the base drove +0.38 m to bring it to (-100, 580) but it ended at (-104, 694) (top -186); there every grasp was
+  refused by _carry_ok ("straight move to carry: a joint jumps 30-34 deg"), replayed offline the same (fine at y 598 /
+  640). Then a "stop by voice" from people talking nearby ("동물을 멈춰버린 거랑 안해") ended the task.
+  Owner's rule: once Lumi sees the cup it keeps trying until it has it, never stands still: every grasp turn and
+  wrist, the arm reaching from every side; the waist turned as far as it can when that helps; when the base fell short
+  or the arm can't reach, a new base move (find a way, closer / around) and try again. Fix: when the carry line
+  jumps, another carry route (via above, the pose graph, joint moves) instead of a refusal; a short base drive is
+  measured again and corrected; each refusal leads to the next attempt, not to a stop; offline test with the live
+  positions (-104, 694) and (-117, 960).
+- 2026-10-26 18:13, the same order again: the cup at (-141, 869) across the table, every grasp refused (carry line
+  jumps 28-34 deg); "moving to reach it" 3/5, 4/5, 5/5 each planned straight +0.29 m, cut to +0.15 m by "an
+  obstacle 0.30 m from the way" (the table), and the cup stayed at y 869 every time: the base did not move at all and
+  the same move was tried again three times; then "asking to move it closer", failed after 40 s. Fix: a move that
+  did not bring the cup nearer is not repeated; go round the table to another side (navigation, APPROACH_SIDES)
+  before asking; the arm's reach across a table edge (~870 mm) checked offline with the waist.
+- Dashboard: the arm state flickers "idle" / "power off" while Cobo π shows the arm on (during a fetch). Likely the
+  controller answering get_robot_state with another command's reply (not reproduced idle: 40 of 40 right);
+  robot/arm.py now asks a read again when the reply's cmdName differs. Check after the restart.
+- Owner (2026-10-26 18:40): Korean typed in the Command box must be read as clearly and rightly as by voice and as
+  English. A 55-sentence Korean cup / delivery check (scratchpad ko_box.py, rules only) after the 18:40 fixes:
+  still to the LLM or wrong: "컵 챙겨서 exit 가서 기다려", "컵 들고 p5 가서 기다려" (box talk, voice fetch),
+  "exit에 컵 갖다 놔" (read as the cup at exit), "컵 놔", "컵 가지고 출구로 가" (출구 is not a marker name: ask, never
+  map it). Make it a test (tests/test_command_box.py KO list, every speech level) and grow it to hundreds, EN the same.
+- Owner (2026-10-26 18:20): the thing to pick is lost while Lumi moves to reach it. Seen in earlier live tests: a
+  base turn / drive, a waist turn or a lift move takes the cup out of the camera's view, then "I can't see the cup" or
+  a whole new search. Once a pick-and-place order is given, Lumi stays on that thing: it keeps where the thing is (map
+  / base frame, from the last sighting, moved along with the base's odometry and the waist / head angles) and keeps it
+  in view while it moves: the head (and the waist, when the base turns) turn against the motion so the head or the
+  torso camera never loses it. Arriving where the arm can reach, it reaches at once to the kept position (checked
+  with a fresh look), no new search; "not seen" only after the kept spot was looked at and is empty. Offline test: a
+  base turn / drive / waist turn with a fake camera, the cup kept and picked without _look_around.
+- Stop words inside a long sentence of bystanders ("…멈춰버린…") stop a task: owner decided 21:10 — keep it (job 5).
 
-## Big night test 4 (2026-10-26 00:15 → 10:00) — RUNNING
+## Big night test 4 (2026-10-26 00:15 → 10:00) — ended (morning commits ac4211c, b547f61, b3604af at 09:49)
 
 Night 3 stopped 2026-10-24 22:51 (weekly usage limit; reset 2026-10-25 20:00, nobody restarted it): its work stayed
 uncommitted, and night 2's five commits were never pushed (logs/gitea_night3.sh waited on the old hashes). Started
@@ -72,6 +326,10 @@ Progress (lead):
   tasks/fetch.py reach parts, offline tests only).
 - 11:00 owner: all agents stop by 13:30, report at 14:00; this work goes to Gitea as 5 pushes spaced until 17:00
   (e.g. 14:15, 14:55, 15:35, 16:15, 16:55), by a push script like logs/gitea_night4c.sh.
+- 14:55 all 62 tests pass; committed 56cac99 (commands, cup tasks, talk), 2131e38 (quick answers, songs), da078f2
+  (memory), de6830e (waist reach), bcbee5d (English bank). logs/gitea_day4.sh pushes them 15:30 … 16:55 (the bank only
+  with logs/b1_ok). ac4211c was skipped at 12:00 (its worktree had no embedding cache: every test embedded the whole
+  bank and timed out); the checks now copy data/intent_bank.npz and quick_answers.npz into the worktree.
 
 ## Big night test 3 (2026-10-24 18:30 → 2026-10-25 10:00) — stopped 2026-10-24 22:51 (weekly limit)
 
