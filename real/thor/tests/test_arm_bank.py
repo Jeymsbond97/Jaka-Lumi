@@ -31,6 +31,10 @@ READS = [   # (words, holding, (action, target))
     ("컵 집으시게", False, ("pick", "cup")),
     ("fetch me that cup", False, ("fetch", "fetch me that cup")),
     ("컵 챙겨 와 주세요", False, ("fetch", "컵 챙겨 와 주세요")),
+    ("손 흔들어 줍서", False, ("wave", "")),
+    ("팔 거두시구려", False, ("arm", "fold")),
+    ("손내밀어봐", False, ("arm", "reach")),
+    ("your job now is to fold your arm", False, ("arm", "fold")),
 ]
 NOT = [   # (words, holding, motions it must not be): a side word or a hand word is never a drive / turn / look
     ("pick up the cup on your left", False, ("turn", "move", "look", "go_to", "wave", "arm")),
@@ -45,6 +49,8 @@ NEVER = [   # no motion at all from the bank
     ("the cup on your left is mine", False), ("왼쪽에 컵 있어", False), ("you picked the wrong cup", False),
     ("팔이 어디까지 닿아?", False), ("why are you waving", False), ("아까 악수했잖아", False),
     ("shake your head", False), ("pick up the pace", False), ("give it up for lumi", False),
+    ("thanks for the wave", False), ("악수해 줘서 고마워요", False), ("close your eyes", False), ("의자 들어 줄래?", False),
+    ("the kids want to wave at you", False), ("can my son shake your hand", False),
 ]
 
 

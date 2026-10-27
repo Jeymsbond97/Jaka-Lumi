@@ -1177,7 +1177,7 @@ class Lumi:
         status = self.fetch_status()
         if status == "holding":
             from tasks import fetch
-            self.fetch_say(f"I'm holding {fetch.held_name()}, where should I put it first?", "뭔가 들고 있어요. 먼저 어디에 둘까요?")
+            self.fetch_say(f"I'm holding {fetch.held_name()}, where should I put it first?", f"{brain_mod.object_ko(fetch.held_name('ko'))} 들고 있어요. 먼저 어디에 둘까요?")
             return
         if status == "running":
             self.end_run(text)
@@ -1510,12 +1510,13 @@ class Lumi:
                       f"try another way, or go back.",
                       f"{name}(으)로 가다가 길이 막혀서 멈췄어요. 다시 가거나, 다른 길로 가거나, 돌아갈 수 있어요.")
         elif held:
-            en, ko = f"I'm holding {held} and waiting for what to do with it.", "물건을 들고 다음 지시를 기다리고 있어요."
+            en, ko = f"I'm holding {held} and waiting for what to do with it.", f"{brain_mod.object_ko(fetch.held_name('ko'))} 들고 다음 지시를 기다리고 있어요."
         else:
             return ("I'm talking with you. I'm not doing any task right now, and my hand is empty.",
                     "지금은 이야기하고 있어요. 하고 있는 일은 없고, 손도 비어 있어요.")
         if held and (running or self.traveling()):
             en += f" I'm holding {held}."
+            ko += f" {brain_mod.object_ko(fetch.held_name('ko'))} 들고 있어요."
         return en, ko
 
     # ---------- several commands in one sentence (assistant/chain.py) ----------
@@ -1685,7 +1686,7 @@ class Lumi:
         from tasks import fetch
         ko = fetch.OBJECTS.get(name, "물건")
         if held:
-            self.fetch_say(f"My hand is full, I'm holding {fetch.held_name()}.", "손에 이미 물건을 들고 있어요.")
+            self.fetch_say(f"My hand is full, I'm holding {fetch.held_name()}.", f"손에 이미 {brain_mod.object_ko(fetch.held_name('ko'))} 들고 있어요.")
             return
         if self.arm_off():
             return
@@ -1764,7 +1765,12 @@ class Lumi:
             return
         if action == "put":
             back = target == "back"
-            said = ("Okay, putting it back.", "네, 제자리에 놓을게요.") if back else ("Okay, putting it down.", "네, 내려놓을게요.")
+            from tasks import fetch                          # the held thing named when it is known ("the white cup")
+            what = (fetch.held_name(), fetch.held_name("ko")) if (safe(fetch.state) or {}).get("holding") else ("it", "")
+            what = what if what[0] != "something" else ("it", "")
+            ko = brain_mod.object_ko(what[1]) + " " if what[1] else ""
+            said = (f"Okay, putting {what[0]} back.", f"네, {ko}제자리에 놓을게요.") if back else \
+                (f"Okay, putting {what[0]} down.", f"네, {ko}내려놓을게요.")
             done = ("Done.", "다 했어요.")
             run = lambda: skills.put_down(back=back)
         else:

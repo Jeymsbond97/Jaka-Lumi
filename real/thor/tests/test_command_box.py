@@ -329,6 +329,8 @@ READ = [   # the owner's Korean cup / delivery list (2026-10-26 18:40), then mor
     ("put it on the white table on your right", True, "place right white table"), ("set it down on your left", True, "place left table"),
     ("excuse me robot, first look me, then follow me", False, "chain"), ("야 루미, 오른쪽 보고 손 흔들어라", False, "chain"),
     ("hello robot, first turn left, then lower yourself", False, "chain"),
+    ("악수하고 lower yourself 해 주세요", False, "chain"), ("오늘 날짜 알리고 look left 해 주세요", False, "chain"),
+    ("wave 하고 look left 해 줘", False, "chain"),
     ("컵이랑 같이 p5로 가", False, "fetch cup here>p5 hold"), ("컵 하고 같이 exit 가 줘", False, "fetch cup here>exit hold"),
     ("컵 가지고 p5에서 기다려", False, "pick cup; go p5; wait"), ("컵 들고 p5에 가 있어", False, "pick cup; go p5; wait"),
     ("이 컵 p5까지 좀 날라 줘", False, "fetch cup here>p5 hold"), ("컵 좀 p5로 옮겨 줘", False, "fetch cup here>p5 hold"),

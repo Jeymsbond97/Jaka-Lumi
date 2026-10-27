@@ -54,6 +54,10 @@ def main():
             ("", "부엉이 그거 목 을매나 돌아가노?", ["부엉이"]),
             ("", "너 그거 할 수 있어?", []),
             ("", "루미 그거 뭐야?", []),
+            ("", "블루투스 이름은 왜 그렇게 지었나?", ["블루투스"]),
+            ("", "에펠탑의 높이는 얼마예요?", ["에펠탑"]),
+            ("", "너 이름은 뭐야?", []),
+            ("", "루미 이름은 누가 지었어?", []),
             ("문어는 피가 무슨 색이야?", "심장은 몇 개고?", ["문어", "심장"])]:
         b = brain.Brain()
         b.history = [(before, "ACTION: none -\n네.")] if before else []
@@ -72,6 +76,15 @@ def main():
     assert picked[-1] and all(e[0] in brain.WORLD_EXAMPLES for e in picked[-1]), "world: world examples only"
     brain._examples("이름이 뭐예요?")
     assert any(e[0] == "name" for e in picked[-1])
+    import io
+    import json
+    from assistant import llm_direct                    # the model's own empty thought block is never said
+    def sse(pieces):
+        return io.BytesIO(b"".join(b"data: " + json.dumps({"content": p}).encode() + b"\n" for p in pieces))
+    assert list(llm_direct._pieces(sse(["<|channel>", "thought", "\n", "<channel|>", "No, ", "she didn't."]))) == \
+        ["No, ", "she didn't."]
+    assert list(llm_direct._pieces(sse(["<|channel>thought\n<channel|>Yes."]))) == ["Yes."]
+    assert list(llm_direct._pieces(sse(["ACTION: none -\n", "Hi."]))) == ["ACTION: none -\n", "Hi."]
     print("talk: ok")
 
 

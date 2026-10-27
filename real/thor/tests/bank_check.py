@@ -8,6 +8,7 @@ leaves to the LLM. Nothing moves; only the embedding server is asked.
     .venv/bin/python tests/bank_check.py --blind         # tests/blind/train/*.py and tests/blind/r2/train/*.py too
     .venv/bin/python tests/bank_check.py -v              # print every hit too, not only the wrong ones
     .venv/bin/python tests/bank_check.py --blind --rounds r4,r6 --out bank_check_a3.md   # some rounds, own report
+    .venv/bin/python tests/bank_check.py --blind --stress --fast --jobs 4 --rounds r6,r8,r9   # the bank alone, quick
 
 A case reaches the bank when command_check's rules (lumi.route without the bank) leave it to the LLM.
 -> logs/bank_check.md
@@ -102,12 +103,13 @@ def judge(expect, got):
 
 
 ROUNDS = []                                         # --rounds r1,r2: only these blind rounds (r1 = tests/blind/train)
+KNOWN = {}
 QUERIES = ROOT / "data" / "bank_check_queries.npz"   # the cases' embeddings, kept between runs (a re-run embeds only
                                                      # the words it has not seen: minutes instead of an hour)
 
 
 def _cached_embed():
-    """knowledge.embed with the case texts' vectors kept in QUERIES; returns a function that saves them."""
+    """knowledge.embed with the case texts' vectors kept in QUERIES; returns the dict of known vectors."""
     import numpy as np
     from assistant import knowledge
     real, known = knowledge.embed, {}
@@ -116,40 +118,34 @@ def _cached_embed():
         known = dict(zip(z["texts"].tolist(), z["vecs"]))
     except (OSError, ValueError, KeyError):
         pass
-    n0 = len(known)
 
     def embed(texts):
         new = [t for t in dict.fromkeys(texts) if t not in known]
         if new:
             known.update(zip(new, real(new)))
         return np.array([known[t] for t in texts])
-
-    def save():
-        if len(known) > n0:
-            tmp = QUERIES.with_suffix(".tmp.npz")
-            np.savez(tmp, texts=np.array(list(known)), vecs=np.array(list(known.values())))
-            tmp.replace(QUERIES)
     knowledge.embed = embed
-    return save
+    return known
 
 
-def main(args):
-    global OUT
-    if "--rounds" in args:
-        ROUNDS[:] = args[args.index("--rounds") + 1].split(",")
-    if "--out" in args:
-        OUT = OUT.with_name(args[args.index("--out") + 1])
-    marks = markers()
-    save_queries = _cached_embed()
-    stress, verbose = "--stress" in args, "-v" in args
-    from assistant import steps
+def _save_queries(known):
+    import numpy as np
+    tmp = QUERIES.with_suffix(".tmp.npz")
+    np.savez(tmp, texts=np.array(list(known)), vecs=np.array(list(known.values())))
+    tmp.replace(QUERIES)
+
+
+def _run(job):
+    """One share of the cases: (counts by set, wrong, hits, read times, missed, new query vectors)."""
+    part, stress, fast, marks = job
+    known = KNOWN                                  # the embed wrapper's own dict (in a forked job: its copy)
+    n0 = set(known)
+    from assistant import detour, steps
     steps._ollama = lambda *a: (_ for _ in ()).throw(command_check.NoLLM())
     real = intent_bank.read
     by = collections.defaultdict(collections.Counter)
     wrong, hits, times, missed = [], [], [], []
-    from assistant import detour
-    no_stuck = detour.recent
-    for name, text, expect, state, mk, before, *goal in cases("--blind" in args):
+    for name, text, expect, state, mk, before, *goal in part:
         mk = mk or marks
         stuck = {"goal": goal[0]} if state == "stuck" and goal else None   # right after a blocked drive
         detour.recent = lambda: stuck
@@ -158,9 +154,9 @@ def main(args):
             b.history.append(tuple(before))
         brain.FORCED_LANG["lang"] = "ko" if brain.HANGUL.search(text) else "en"
         intent_bank.read = lambda *a, **k: None      # the rules alone first
-        how = stuck and detour.read(text, mk, stuck["goal"])
         try:
-            ruled = f"detour {how}" if how else command_check.rules(text, state, mk, b)
+            how = stuck and not fast and detour.read(text, mk, stuck["goal"])
+            ruled = "llm?" if fast else f"detour {how}" if how else command_check.rules(text, state, mk, b)
         except command_check.NoLLM:
             ruled = "llm?"
         finally:
@@ -185,13 +181,47 @@ def main(args):
         else:
             by[name][tag] += 1
             hits.append(f"- [{name}/{state}] {text!r} -> {g}")
-    detour.recent = no_stuck
-    save_queries()
+    return by, wrong, hits, times, missed, {t: v for t, v in known.items() if t not in n0}
+
+
+def main(args):
+    """--fast: the rules are not run (0.8 s a case): wrong and llm are the same, hit and agree are counted together as
+    hit. --jobs N: N processes (the embedding server is shared)."""
+    global OUT
+    if "--rounds" in args:
+        ROUNDS[:] = args[args.index("--rounds") + 1].split(",")
+    if "--out" in args:
+        OUT = OUT.with_name(args[args.index("--out") + 1])
+    marks = markers()
+    global KNOWN
+    known = KNOWN = _cached_embed()
+    stress, verbose, fast = "--stress" in args, "-v" in args, "--fast" in args
+    jobs = int(args[args.index("--jobs") + 1]) if "--jobs" in args else 1
+    intent_bank._load(), intent_bank._codes()                # loaded once, shared by the forked jobs
+    every = cases("--blind" in args)
+    parts = [(every[i::jobs], stress, fast, marks) for i in range(jobs)]
+    if jobs > 1:
+        import multiprocessing
+        with multiprocessing.get_context("fork").Pool(jobs) as pool:
+            done = pool.map(_run, parts)
+    else:
+        done = [_run(parts[0])]
+    by = collections.defaultdict(collections.Counter)
+    wrong, hits, times, missed = [], [], [], []
+    for b, w, h, t, m, v in done:
+        for k, c in b.items():
+            by[k].update(c)
+        wrong += w
+        hits += h
+        times += t
+        missed += m
+        known.update(v)
+    _save_queries(known)
     for c in by.values():
         c["cases"] = sum(c.values())
     total = sum(by.values(), collections.Counter())
     ms = sorted(times)
-    lines = [f"# Bank check ({time.strftime('%Y-%m-%d %H:%M')}{', stress' if stress else ''})", "",
+    lines = [f"# Bank check ({time.strftime('%Y-%m-%d %H:%M')}{', stress' if stress else ''}{', fast' if fast else ''})", "",
              f"bank: {len(intent_bank.examples())} wordings; read time median {1000 * ms[len(ms) // 2]:.0f} ms, "
              f"max {1000 * ms[-1]:.0f} ms over {len(ms)} reads" if ms else "", "",
              "hit: the rules left it to the LLM, the bank answered right; agree: the rules answered and the bank "

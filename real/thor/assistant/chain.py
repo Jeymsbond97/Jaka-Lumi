@@ -15,7 +15,7 @@ QUICK = {"look", "lift", "wave", "arm", "go_to", "come", "come_back", "follow", 
 DRIVES = {"go_to", "come", "come_back", "follow", "move", "turn"}   # after a failed step these depend on where Lumi is
 _KO_ORDER = {"보": "봐", "흔들": "흔들어", "흔드": "흔들어", "돌": "돌아", "도": "돌아", "올리": "올려", "내리": "내려",
              "높이": "높여", "낮추": "낮춰", "들": "들어", "드": "들어", "숙이": "숙여", "커지": "커져", "작아지": "작아져",
-             "낮아지": "낮아져", "높아지": "높아져", "돌리": "돌려", "오": "와", "따라오": "따라와", "가": "가"}
+             "낮아지": "낮아져", "높아지": "높아져", "돌리": "돌려", "오": "와", "따라오": "따라와", "가": "가", "하": "해", "알리": "알려"}
 # "나 보고 ..." -> "나 봐", "고개 들고 ..." -> "고개 들어", "저를 보시고 ..." -> "저를 봐", "왼쪽으로 도시고" -> "왼쪽으로 돌아"
 _KO_AND = re.compile(r"(" + "|".join(sorted(_KO_ORDER, key=len, reverse=True)) + r")(?:시)?고$")
 ASK = re.compile(r"\?\s*$|^\W*(?:(?:also|and|then|so|ok|okay|robot|please|first|now|plus|oh|ah|um|uh|lumi)\W+)*"
@@ -23,7 +23,7 @@ ASK = re.compile(r"\?\s*$|^\W*(?:(?:also|and|then|so|ok|okay|robot|please|first|
                  r"would|should|time|day|date|year|old|much|many|far|long|about|kind|your|you|made|built|created|"
                  r"invented|owns|makes)\b)|why\b|is|are|do|does|did|tell me|explain|describe)\b|"
                  r"\b(?:tell|telling) (?:me|us)\b|\bintroduce yourself\b|\b(?:say|tell me) your name\b|"
-                 r"몇 ?시|몇|뭐|무엇|어때|알려|언제|어디|누구|왜|얼마|날씨|설명해|말해 ?줘|말하|얘기해|소개", re.I)
+                 r"몇 ?시|몇|뭐|무엇|어때|알려|알리(?=고)|날짜|언제|어디|누구|왜|얼마|날씨|설명해|말해 ?줘|말하|얘기해|소개", re.I)
 _SPLIT = re.compile(steps._SPLIT.pattern, re.I)
 FETCHING = re.compile(r"\b(?:bring|fetch|deliver|carry)\b|가져|갖다", re.I)   # a part that carries something somewhere
 _FILL = re.compile(rf"(?:{steps._FILL}|루미야?|lumi|hey|do me a favou?r|부탁(?:해|해요|할게)?|dear|sir|ma'?am|madam|buddy|"
@@ -70,7 +70,7 @@ def _rule(words, markers):
     ko = _KO_AND.sub(lambda m: _KO_ORDER[m.group(1)], words.strip())
     if not rule and ko != words.strip():
         rule = brain.intent(ko, markers)
-    m = not rule and re.fullmatch(r"(?:(나|저|날|나를|저를)\s+)?([a-z][a-z ]*?)\s*(?:하고|해|해요|해 ?줘)?", words.strip())
+    m = not rule and re.fullmatch(r"(?:(나|저|날|나를|저를)\s+)?([a-z][a-z ]*?)\s*(?:하고|해|해요|해 ?줘|해 ?주세요|해 ?주십시오|해 ?줄래요?\??|해 ?주실래요?\??|해 ?봐)?", words.strip())
     if m:                                                # Konglish: "나 look 하고" -> "look at me", "wave 해" -> "wave"
         en = m.group(2) + ((" at me" if m.group(2) == "look" else " me") if m.group(1) else "")
         rule = brain.intent(en, markers)

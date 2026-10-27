@@ -2420,6 +2420,12 @@ CARRY_HELD = re.compile(r"\b(?:take|bring|carry|move|get) (?:it|that|this|them|t
                         r"(?:으로|로|에|까지)\s*(?:좀\s*)?(?:가져가|가지고 ?가|갖고 ?가|들고 ?가|옮겨|가져다 ?놔|가 ?줘|가)", re.I)
 
 
+def object_ko(name):
+    """"흰 컵" -> "흰 컵을", "물병" -> "물병을", "사과" -> "사과를": a Korean object with its object particle."""
+    c = name[-1:]
+    return name + ("을" if "가" <= c <= "힣" and (ord(c) - 0xAC00) % 28 else "를")
+
+
 def held_carry(text, markers=()):
     """With something in the hand: the words ask to take it to a marker ("take it to p5", "p5로 가져가 주세요",
     "그거 p5로 옮겨 줘"); a direct order that names a place on this map."""
@@ -2717,7 +2723,8 @@ LOOKUP_MORE = re.compile(r"\b(he|she|him|his|her|they|them|their|there|it|that)\
 SPEAK_IN = re.compile(r"(english|영어|korean|한국어)\s?로\s*(?:다시\s*|좀\s*|한 ?번\s*)*(?:말|얘기|소개|대답|답|설명|자기소개|"
                       r"해\s*(?:줘|주|봐))(?!.*(?:해도|도 ?돼|할 ?수|할 ?줄))|"
                       r"\b(?:speak|talk|answer|reply|introduce yourself)\b.*\bin (english|korean)\b", re.I)
-SHORT_Q = re.compile(r"\?|^\W*(?:where|who|what|when|how|which|why)\b|몇|어디|누가|누구|뭐|언제|왜|얼마|어떻게", re.I)
+SHORT_Q = re.compile(r"\?|^\W*(?:where|who|what|when|how|which|why)\b|몇|어디|어딘|누가|누구|누군|뭐|뭔|무엇|무슨|어느|언제|언젠|"
+                     r"왜|얼마|어떻게|어떤", re.I)   # 하게체 / no "?" from the voice: "그게 언젠가", "공을 꺼낸 방법 무엇인가"
 ABOUT_YOU = re.compile(r"\b(?:you|your|yourself|lumi)\b|너|네가|니가|넌|루미|당신", re.I)   # a follow-up about Lumi itself
 FOLLOW_UP = re.compile(r"\b(more|why|how come|details?|explain|elaborate|and then|what else|tell me more)\b|자세히|더 알려|왜|그리고", re.I)
 _CLOSE_WORD = (r"(ok(ay)?|okay then|thanks?( you)?( very much)?( a lot)?|cheers|thank you( so much)?|got it|alright|all right|"
@@ -2986,6 +2993,9 @@ WHAT_IS = re.compile(r"(?:뭐|무엇|뭔|머)(?:예요|에요|야|이야|입니�
                      r"^\W*what(?:'s| is| are| does)\b", re.I)   # "X는 뭐예요?", "What is X?": a definition
 THAT_ONE_KO = re.compile(rf"(?<![가-힣A-Za-z])(?!(?:{_PRONOUN_KO})\s)([가-힣A-Za-z]{{2,}})\s+(?:그거|그게|그건|이거|이게|이건|저거|저게|저건)")
                                # "경복궁 그거 언제 지었노?": the palace is the subject (said without 은 / 는)
+OF_THING_KO = re.compile(rf"(?<![가-힣A-Za-z])(?!(?:{_PRONOUN_KO})(?:의)?\s)([가-힣A-Za-z]{{2,}}?)(?:의)?\s+"
+                         r"(?:이름|나이|키|높이|무게|속도|가격|크기|색|색깔|모양|뜻)(?:은|는|이|가|도)?(?![가-힣])")
+                               # "블루투스 이름은 왜 그렇게 지었나?": Bluetooth's name, not Lumi's
 EN_SUBJECT = re.compile(r"\b(?i:do|does|did|can|could|are|is|were|was|will|would)\s+(?:the\s+|an?\s+)?"
                         r"(?!(?:you|i|we|they|he|she|it|people|there|this|that|these|those|your|my|our|me|not|so|very)\b)"
                         r"([a-z]{3,})\b")   # "Why do whales sing?": the whales (world_talk; lower case, so not OWN_SUBJECT)
@@ -3136,7 +3146,7 @@ class Brain:
                             not other_latin_language(text):  # 26b called short or broken but clear words unclear ("fr?")
                         stream.close()
                         retried, header, buf, full = True, None, "", ""
-                        messages[-1]["content"] += UNCLEAR_RETRY
+                        messages[-1]["content"] += self._unclear_retry()
                         stream = _stream(messages)
                         continue
                     muted = bool(header.pop("held", None))   # a motion the words did not order: talk only
@@ -3168,7 +3178,7 @@ class Brain:
                 if not said and not retried and len(parts) > 1 and self._asks_again(header, parts[0], text):
                     stream.close()                         # "Sorry, I didn't catch that." to clear words: once more
                     retried, skip_head, buf, full = True, True, "", ""
-                    messages[-1]["content"] += UNCLEAR_RETRY
+                    messages[-1]["content"] += self._unclear_retry()
                     stream = _stream(messages)
                     continue
                 for sentence in parts[:-1]:
@@ -3200,7 +3210,7 @@ class Brain:
             buf = buf.partition("\n")[2]
         if not said and not retried and buf.strip() and self._asks_again(header, buf, text):
             try:                                           # a one-sentence "say it again?" to clear words
-                again = _chat(messages[:-1] + [dict(messages[-1], content=messages[-1]["content"] + UNCLEAR_RETRY)])
+                again = _chat(messages[:-1] + [dict(messages[-1], content=messages[-1]["content"] + self._unclear_retry())])
                 again = "\n".join(ln for ln in again.splitlines() if not re.match(r"\s*\**ACTION", ln)).strip()
                 if again and not ASKS_AGAIN.search(again):
                     buf = full = again
@@ -3234,6 +3244,14 @@ class Brain:
             first.endswith("?") or re.search(r"궁금|\bwonder|good question|좋은 질문", first, re.I) \
             else {"action": "none", "target": ""}   # the query written out, "궁금하시군요." then "잠시만요": a lookup
 
+    def _unclear_retry(self):
+        """UNCLEAR_RETRY, and in a talk what the words most likely ask about: "why prison?", "누가 그랬는가?" right after
+        an answer were asked to be said again even on the retry (r13 train, 2026-10-27)."""
+        last = " ".join(ln for ln in topic_turn(self.history)[1].splitlines()
+                        if not re.match(r"\s*\**ACTION", ln)).strip() if self.history else ""
+        return UNCLEAR_RETRY + (f"\n(Most likely they ask about your answer \"{last[:FRAGMENT_CHARS * 2]}\": answer that "
+                                f"question about it, in a sentence or two.)" if last else "")
+
     def _asks_again(self, header, sentence, text):
         """The model talks (action none) but asks to hear clear words again ("I'm not sure what you mean, could you
         say it again?" to "Why the 15th?"): it is asked once more with UNCLEAR_RETRY."""
@@ -3258,7 +3276,8 @@ class Brain:
         Lumi's own things ("속도는 얼마예요?", "이름이 뭐예요?") keeps them. Returns those subjects, the question before first ([] when none)."""
         def named(t):                                  # "공식적으로는 언제로 쳐요?" names no subject (an adverb + 는)
             return [m.group(0) for m in OWN_SUBJECT.finditer(core(t)) if not NOT_SUBJECT_KO.search(m.group(0))] + \
-                [m.group(1) for m in EN_SUBJECT.finditer(core(t))] + [m.group(1) for m in THAT_ONE_KO.finditer(core(t))]
+                [m.group(1) for m in EN_SUBJECT.finditer(core(t))] + [m.group(1) for m in THAT_ONE_KO.finditer(core(t))] + \
+                [m.group(1) for m in OF_THING_KO.finditer(core(t))]
         qs = [topic_turn(self.history)[0]] + [h[0] for h in reversed(self.history[-3:])] if self.history else [""]
         q = next((x for x in qs if named(x)), qs[0])       # "문어 피는?" "왜?" "심장은?": the octopus, two turns back
         if named(text) and WHAT_IS.search(core(text)):

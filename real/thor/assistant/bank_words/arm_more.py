@@ -366,6 +366,7 @@ RECEIVE += [
     "hold onto this for me", "take it, it's for you", "here, grab this from me", "i'm handing it to you", "keep it for me",
     "이거 받아 주게나", "이거 받아 주세유", "이거 가지고 있어", "이거 들고 계세요", "이거 쥐고 있어 줘", "이것 좀 맡아 줘",
     "이거 맡아 주세요", "자 이거", "옛다", "받으세유", "받아 주시길 바랍니다",
+    "이거 받게", "이거 받게나", "이 <obj> 받게", "<obj> 받게", "이 <obj> 받으시게", "이거 받으시오", "이거 받으소", "이거 받아 두게",
 ]
 NO += [
     "왼쪽에 놔둔 컵 누구 거야?", "오른쪽에 둔 거 뭐야?", "왼쪽에 내려놨어?", "오른쪽에 놓을까?", "왼쪽에 놓으면 돼?",
@@ -374,6 +375,129 @@ NO += [
     "put it on the left or the right?", "which side should i put it on", "the left one is mine", "i put it on your left",
     "my cup is on your right", "is the cup on the left full?", "you put it down on the left yesterday",
     "왼쪽에 컵 있어?", "오른쪽에 뭐 있어?", "옆에 컵 있네", "앞에 컵 있다",
+]
+
+
+# ---------- dialects (제주, 경상, 전라, 충청), 하오체 / 하게체, honorific receivers, glued slips ----------
+
+DIALECT = [" 줍서", " 주십서", " 도고", " 도가", " 주이소 예", " 주이소마", " 주씨요", " 주쇼 잉", " 줘 잉", " 주랑께요",
+           " 주셔유", " 주시유", " 줘 봐유", " 봐 도고", " 주라 마", " 주소 마", " 주게 자네", " 주시구려", " 주구려",
+           " 주오", " 주시오 그려", " 주시게나", " 주겠는가?", " 주시겠는가?"]
+DIALECT_CORES = [   # (list, stems)
+    (WAVE, ["손 흔들어", "악수해", "손 인사 해", "팔 흔들어", "손 흔들어서 인사해"]),
+    (ARM_REACH, ["손 내밀어", "팔 뻗어", "손 이리 내밀어", "손 줘"]),
+    (ARM_FOLD, ["팔 접어", "팔 거둬", "손 내려", "팔 넣어"]),
+    (ARM_OPEN, ["손 펴", "손가락 펴", "그리퍼 열어"]),
+    (ARM_CLOSE, ["주먹 쥐어", "손 쥐어", "그리퍼 닫아"]),
+    (PICK, ["<obj> 집어", "<obj> 잡아", "<obj> 들어"]),
+    (FETCH, ["<obj> 가져다", "<obj> 갖다"]),
+]
+for _list, _stems in DIALECT_CORES:
+    _list += _ko(_stems, DIALECT)
+WAVE += [
+    "손 흔들어 주시구려", "악수 한번 하시구려", "악수나 한번 하세", "자네 악수 한번 하세", "악수 한번 합세", "손 한번 흔드시오",
+    "할머님께 손 한번 흔들어 드리시게", "어르신들께 손 흔들어 드리십시오", "아버님께 악수 청해 보세요", "교수님께 손 흔들어 드려라",
+    "손 흔들어 줍서", "손 흔들어 도고", "악수 하입시더 예", "악수 하자 잉", "악수 혀 봐유", "악수 하드래요",
+    "손흔들어줘요", "손흔들어봐", "손 흔들어줘", "악수하자요", "악수해요루미", "손흔드러", "손 흔드러 줘요", "악수 해 조요",
+    "웨이브해줘", "웨이브해주세요", "쉐이크핸드해줘", "핸드쉐이크해줘", "wave해줘", "wave해주세요", "악수해줄래",
+    "wave to grandpa please", "say hi to grandpa with your hand", "wave at mommy", "wave at daddy", "wave to teacher",
+    "wave to the teacher please", "go on wave to mister kim", "wave hi to everybody here", "wave to all of us",
+    "handshake me please robot", "you shake hand with my father", "please you give me handshake", "shake hand with me ok",
+    "shake hands ok", "wave ok", "wave okay?", "you can wave please", "wave for me robot friend",
+]
+ARM_REACH += [
+    "손 좀 내밀어 주시구려", "손 한번 내미시오", "팔 한번 뻗어 보시게나", "자네 손 좀 내밀어 보게", "손 내밀어 줍서", "손 도고",
+    "손 이리 도고", "손 내밀어 도고", "팔 뻗어 보래이 마", "손 줘 잉", "손 줘 봐유", "손 이리 주셔유",
+    "손내밀어봐", "손줘봐", "손좀줘", "팔뻗어봐", "손 내밀어줘요", "손 쭉내밀어", "팔쭉뻗어줘", "핸드줘", "핸드 내밀어줘",
+    "reach out to grandma", "hold your hand out to my son", "give your hand to my daughter", "reach out to the kid",
+    "give grandpa your hand", "hold out your hand to the lady", "you give hand to my mom", "hand to grandma please",
+]
+ARM_FOLD += [
+    "팔 거두시구려", "팔 접으시구려", "팔 좀 거두시게나", "자네 팔 좀 접게", "팔 접어 줍서", "팔 접어 도고", "팔 거둬 잉",
+    "팔 접어 주셔유", "팔 넣어 도고", "팔접어줘요", "팔거둬", "팔거둬줘", "팔넣어줘", "손내려줘", "팔 내려줘요", "팔 접어줘요",
+    "arm back please robot friend", "ok arm in now", "put your arm back now please", "arm back in place",
+]
+ARM_OPEN += ["손 펴 주시구려", "손 좀 펴 보시게나", "손 펴 줍서", "손 펴 도고", "손펴줘요", "손가락펴", "손가락펴줘요",
+                       "그리퍼열어", "그리퍼열어줘"]
+ARM_CLOSE += ["주먹 쥐어 주시구려", "손 좀 쥐어 보시게나", "주먹 쥐어 줍서", "주먹 쥐어 도고", "주먹쥐어줘요", "손쥐어줘",
+                        "그리퍼닫아줘", "손 꽉쥐어"]
+PICK += ["<obj> 집어 주시구려", "<obj> 좀 집어 보시게나", "<obj> 집어 줍서", "<obj> 집어 도고", "<obj>집어줘요",
+                   "<obj>잡아줘", "<obj>들어줘", "<obj> 집어줘", "<obj> 잡아줘요", "<obj>좀집어줘"]
+FETCH += ["<obj> 가져다 주시구려", "<obj> 좀 가져오시게나", "<obj> 가져다 줍서", "<obj> 갖다 도고", "<obj> 가 온나 마",
+                    "<obj>가져다줘요", "<obj>갖다줘", "<obj>좀가져와", "<obj> 가져와줘요"]
+NO += [
+    "손 흔들어 주면 사탕 줄게", "if you wave i'll clap", "손 흔들면 사진 찍어 줄게", "악수하면 친구 하는 거야", "악수하자고 했잖아",
+    "손 흔들어 달라고 했는데 안 했어", "손 흔들어 준 거 고마워", "악수해 줘서 고마워요", "thanks for the wave", "thanks for shaking my hand",
+    "that was a good handshake", "i liked your wave", "your wave was too slow", "can you wave faster next time",
+    "팔 접는 게 왜 이렇게 느려?", "손 펴는 거 신기하다", "주먹 쥐는 거 귀엽네", "컵 집는 거 다시 보고 싶다",
+    "민수야 컵 가져와",
+]
+
+
+# ---------- English depth: indirect, kids, elderly, non-native, slang ----------
+WAVE += [
+    "it would make her day if you waved", "a wave would make his day",
+    "say goodbye to us with a wave", "wave us farewell", "give us a goodbye wave", "a goodbye wave please",
+    "wavey wave for the baby", "robot wave hi hi", "do the bye bye", "do bye bye with your hand", "bye bye hand please",
+    "hand bye bye", "hand hello please", "hello hand please", "you do hand hello", "make bye bye", "make the wave",
+    "wave it", "wave it up", "wave that hand", "wave that arm", "wave that thing", "flap that hand at me",
+    "yo wave at me", "yo, shake my hand", "bro, shake hands", "dude, wave", "come shake hands", "c'mon, shake",
+    "lemme shake your hand", "lemme get a wave", "gimme a handshake real quick", "quick wave", "quick handshake",
+    "if it's no trouble, a wave", "would you mind giving us a wave", "could you do me a wave", "would it be possible to wave",
+    "please, a handshake", "kindly greet us by waving", "please greet my grandmother with a wave",
+    "you wave hand hello for grandma", "you make handshake grandma", "please doing wave", "doing handshake please",
+    "you waving please", "waving please", "waving hand please", "shaking hand please",
+]
+ARM_REACH += [
+    "can the baby touch your hand, hold it out",
+    "hold it out so she can touch it", "hold your hand out so we can see it", "put your hand out for the photo",
+    "stick your hand out for the picture", "hand out for the photo please", "reach out so i can touch your hand",
+    "let her touch your hand", "your hand, let me touch it", "touch hands with me", "high hand please",
+    "robot hand out", "robot hand to me", "you hand to me", "hand me hand", "stretch stretch", "arm long long",
+    "make arm go out", "arm go out", "arm go forward please", "hand go forward", "yo, hand out", "c'mon, gimme your hand",
+    "if it's no trouble, hold out your hand", "would it be possible to extend your arm", "kindly extend your hand",
+    "please extend your hand towards me", "please, your hand",
+]
+ARM_FOLD += [
+    "you can stop holding your arm out", "you don't need your arm out anymore, fold it", "no more arm out, fold it",
+    "enough with the arm, put it away", "we're done with the arm", "done, arm back", "finished, put your arm away",
+    "the photo is done, arm down", "photo's done, you can lower your arm", "arm go back", "arm come back",
+    "hand come back", "hand go back", "make arm small", "arm small please", "yo, arm in", "c'mon, put your arm away",
+    "if it's no trouble, fold your arm", "would it be possible to lower your arm", "kindly retract your arm",
+    "please return your arm to its resting position", "please put your arm back to rest",
+    "bring your hand home", "bring your hand home now", "would you please bring your hand home", "hand home please",
+    "bring your hand back home", "bring the hand home", "bring your hands home",
+]
+ARM_OPEN += [
+    "open your hand for the photo", "show us your open hand", "open open hand", "hand open open", "make hand open",
+    "make the fingers open", "yo, open your hand", "if it's no trouble, open your hand", "kindly open the gripper",
+    "would it be possible to open your gripper",
+]
+ARM_CLOSE += [
+    "close your hand for the photo", "make your hand closed", "close close hand", "hand close close", "make hand close",
+    "make the fingers close", "yo, close your hand", "if it's no trouble, close your hand", "kindly close the gripper",
+    "would it be possible to close your gripper",
+]
+PICK += [
+    "pick up the <obj> for the kids",
+    "show the kids, pick up the <obj>", "pick up the <obj> so we can see", "robot pick <obj>", "<obj> pick robot",
+    "you <obj> pick up", "<obj> you grab please", "yo, grab the <obj>", "c'mon, pick up the <obj>",
+    "if it's no trouble, pick up the <obj>", "kindly lift the <obj>", "would it be possible to pick up the <obj>",
+    "please take hold of the <obj>",
+]
+FETCH += [
+    "my son wants the <obj>, bring it", "bring the <obj> to my son", "grandma needs the <obj>, fetch it", "robot bring <obj>",
+    "<obj> bring robot", "you <obj> bring me", "yo, bring me the <obj>", "c'mon, fetch the <obj>",
+    "if it's no trouble, bring me the <obj>", "kindly fetch the <obj>", "would it be possible to bring me the <obj>",
+]
+NO += [
+    "my son waved at you", "the kids want to wave at you", "my daughter wants to shake your hand later",
+    "can my son shake your hand", "can i touch your hand", "may i shake your hand", "should i wave back",
+    "is it ok if i wave", "wave if you can hear me", "if you can hear me, wave", "wave when i say go",
+    "don't wave yet", "not yet, don't reach out", "wait, don't pick it up yet", "you don't need to fold your arm",
+    "no need to open your hand", "your hand doesn't need to close", "i don't want the cup", "i don't need the bottle",
+    "the photo was great, thanks", "nice wave, thank you", "great handshake, thanks", "that handshake was firm",
+    "wave hello to my friend on the phone, no wait, never mind", "pick it up? no, leave it",
 ]
 
 INTENT = {"wave": WAVE, "arm_reach": ARM_REACH, "arm_fold": ARM_FOLD, "arm_open": ARM_OPEN, "arm_close": ARM_CLOSE,

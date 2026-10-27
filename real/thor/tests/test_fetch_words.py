@@ -15,7 +15,9 @@ def short(s):
     if w[0] == "pick":
         return {"do": "pick", "object": w[-1], "colour": w[1] if len(w) == 3 else None}
     if w[0] == "receive":
-        return {"do": "receive", "object": w[1], **({"wait_s": steps.WAIT_GIVE_S} if w[-1] == "wait" else {})}
+        col = w.pop(1) if len(w) > 2 and w[1] in steps.brain.COLOURS.values() else None   # "receive red cup wait"
+        return {"do": "receive", "object": w[1], **({"wait_s": steps.WAIT_GIVE_S} if w[-1] == "wait" else {}),
+                **({"colour": col} if col else {})}
     if w[0] == "wait":
         if w[1:2] == ["order"]:
             return {"do": "wait", "s": steps.WAIT_ORDER_S, "until": "instruction"}
@@ -101,7 +103,7 @@ STEPS = {
     "point one에서 빨간 컵 가져와서 P5에 있는 사람한테 줘": "go p1 | pick red cup | go p5 | give",
     "take the banana to the main stage and give it too Mr. Kim": "pick banana | go Main_Stage | give Mr. Kim",
     "에구 하얀 컵 집어서 p4로 가져가서 테이블에 놔, 응": "pick white cup | go p4 | place dining table",
-    "p4에 가서 누가 빨간 컵 주면 받아 가지고 와": "go p4 | receive cup wait | go here",
+    "p4에 가서 누가 빨간 컵 주면 받아 가지고 와": "go p4 | receive red cup wait | go here",
     "p4 가서 십 초 wait 하고 와": "go p4 | wait 10 | go here",
     # a new order on the way (lumi.mission_talk reads it with steps.read)
     "no, bring it to p4 instead": "go p4",

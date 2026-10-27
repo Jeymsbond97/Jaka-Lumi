@@ -422,7 +422,9 @@ def _wait(c, markers, after):
         g = m.groups()
         obj = next((x for x in g if x in brain.OBJECTS), None)
         num = next((x for x in g if x and re.fullmatch(r"[\d.]+", x)), None)
-        return [{"do": "receive", "object": brain.OBJECTS[obj] if obj else None, "wait_s": float(num) if num else WAIT_GIVE_S}]
+        col = next((brain.COLOURS[g[i - 1]] for i, x in enumerate(g) if x == obj and i and g[i - 1] in brain.COLOURS), None)
+        return [{"do": "receive", "object": brain.OBJECTS[obj] if obj else None, "wait_s": float(num) if num else WAIT_GIVE_S,
+                 **({"colour": col} if col else {})}]           # the colour said: told back, the person gives what they give
     m = re.fullmatch(rf"(?:(.+?)에서\s*)?(?:(\d+(?:\.\d+)?) s\s*(?:동안|정도|만)?\s*)?{_KO_GIVER}\s*(?:({COL})\s*)?({OBJ}|물건|뭔가|무언가|그거|뭐|무엇을|뭘|이거)?\s*"
                      r"(?:을|를)?\s*(?:주면|건네주면|건네면|갖다주면|가져다주면|가져다 주면|줄 때까지|건네줄 때까지|줄 거야|"
                      r"줄 거예요|가져올 거야)\s*(?:기다렸다가|기다려서|기다리고|기다려|기다려요)?\s*"
@@ -430,7 +432,8 @@ def _wait(c, markers, after):
     if m and (m.group(1) is None or _at_place(m.group(1), markers)):
         obj = brain.OBJECTS.get(m.group(4) or "")
         return ([{"do": "go", "to": _at_place(m.group(1), markers)}] if m.group(1) else []) + \
-            [{"do": "receive", "object": obj, "wait_s": float(m.group(2)) if m.group(2) else WAIT_GIVE_S}] + \
+            [{"do": "receive", "object": obj, "wait_s": float(m.group(2)) if m.group(2) else WAIT_GIVE_S,
+              **({"colour": brain.COLOURS[m.group(3)]} if m.group(3) else {})}] + \
             ([{"do": "go", "to": "here"}] if re.fullmatch(r"받아 ?(?:가지고 ?)?와", m.group(5) or "") else [])
     if after and re.fullmatch(r"(?:거기|여기)(?:서|에서)", c):
         return []                                    # "p3로 가서 | 거기서 | 기다려": the place of the next step

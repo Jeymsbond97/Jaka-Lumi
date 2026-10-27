@@ -26,7 +26,8 @@ def short(s):
     if do == "receive" and w[1:] == ["hand"]:
         return {"do": "receive", "object": None, "from_hand": True}       # "take this from me": from the person's hand
     if do == "receive":
-        out = {"do": "receive", "object": w[1] if len(w) > 1 and w[1] != "wait" else None}
+        col = w.pop(1) if len(w) > 2 and w[1] in steps.brain.COLOURS.values() else None   # "receive red cup wait"
+        out = {"do": "receive", "object": w[1] if len(w) > 1 and w[1] != "wait" else None, **({"colour": col} if col else {})}
         if "wait" in w:
             out["wait_s"] = float(w[-1]) if w[-1] != "wait" else steps.WAIT_GIVE_S
         return out

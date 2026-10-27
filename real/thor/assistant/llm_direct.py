@@ -121,13 +121,25 @@ def _task(base):
 
 
 def _pieces(r):
+    """The reply's text pieces. An empty thought block the model writes itself ("<|channel>thought\n<channel|>",
+    the turn's NO_THINKING once more) is dropped: it was said as the whole reply once (r13 check, 2026-10-27)."""
+    thinking = False
     with r:
         for line in r:
             if not line.startswith(b"data: "):
                 continue
             d = json.loads(line[6:])
-            if d.get("content"):
-                yield d["content"]
+            piece, out = d.get("content") or "", ""
+            while piece:
+                if thinking:
+                    _, end, piece = piece.partition("<channel|>")
+                    thinking = not end
+                else:
+                    said, start, piece = piece.partition("<|channel>")
+                    out, thinking = out + said, bool(start)
+            piece = out
+            if piece:
+                yield piece
             if d.get("stop"):
                 return
 
