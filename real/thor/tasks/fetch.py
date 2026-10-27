@@ -68,6 +68,7 @@ FAR_IN_MM = 150.0                    # the base brings the table point this far 
                                      # PLACE_GOAL: the place grid then lies on the table
 BIG_TOPS = ("dining table", "desk", "bed")   # things named for a place whose YOLO box centre is no place to aim at
 FAR_REACH_MM = 850.0                 # mm from the arm base; level points of a far table past this are out of reach
+PLACE_REFUSALS = 8                   # place spots tried before giving up on this view (callers order them nearest first)
 FAR_SPOTS = 4                        # spots of a table further away tried from where the base is (_place_far)
 TOP_NEAR_MM = 1500.0                 # mm from the arm base; a named thing's top measured further away is not trusted
                                      # (2026-10-20 a white thing 3.8 m away read -258, then -620 mm): go closer first
@@ -128,7 +129,7 @@ FURNITURE_MAP_M = 0.5                # on the map this near): tables, chairs, bo
 NEAR_GAP_M = 0.4             # m; something this near the base's outline when nothing is seen ahead: back off ...
 NEAR_RING_M = 0.5            # m from the base centre where _near_look probes for something near after a failed search
 NEAR_VIEWS = (0.0, 60.0, -60.0)  # deg; _near_look's views after it turned to what is near
-NEAR_BACKS = 2               # _near_look backs off this many times (a cup on a low table is seen from ~0.7 m only)
+NEAR_BACKS = 3               # _near_look backs off this many times (a cup on a low table is seen from ~0.7 m only)
 NEAR_BACK_M = 0.3            # ... this much and look again before the whole search (a cup < ~450 mm from the column
                              # is below both cameras, X1's sweep)
 LOST_BACK_M = 0.15           # an object lost after a base move: back off this much (the camera sees more) ...
@@ -1006,10 +1007,13 @@ def _carry_ok(waypoints, ja):
     further up and one joint move: skills.carry_up): check that now."""
     target = skills._ask("kine_forward", jointPosition=[float(v) for v in motion.poses()["carry"]])["cartPosition"]
     try:
-        _line_rows(target, "to carry", start=(waypoints[0][1], ja))
-        return True
-    except FetchError:
-        return skills.carry_up(waypoints[0][1], ja) is not None
+        last = _line_rows(target, "to carry", start=(waypoints[0][1], ja))[-1][2]
+        carry = motion.nearest(motion.poses()["carry"], list(last))
+        if max(abs(a - b) for a, b in zip(carry, last)) <= 1.0:
+            return True                               # else the line ends on the other wrist branch (pick:502):
+    except FetchError:                                # carry_up's joint move decides
+        pass
+    return skills.carry_up(waypoints[0][1], ja) is not None
 
 
 def _reachable(obj, max_yaw=skills.TRUSTED_YAW_DEG):
@@ -1118,7 +1122,7 @@ def _go_to(thing, goal, tried, holding=False):
     w = map_xy(thing)
     _waist_front()
     x, y = arm_frame(w)
-    _approach({"x": float(x), "y": float(y)}, arm_yaw(), tried, goal=goal, holding=holding)
+    return _approach({"x": float(x), "y": float(y)}, arm_yaw(), tried, goal=goal, holding=holding)
 
 
 def _near_look(attempt, holding=False):
@@ -1698,7 +1702,10 @@ def _place_at(tries, top):
     """Put the held object down at the first of `tries` (x, y) whose way down passes IK: straight from here with the
     held grasp turn, else any grasp turn and wrist (skills.place_options). True when it is down."""
     log(f"place spots: {', '.join(f'({x:.0f}, {y:.0f})' for x, y in tries[:6])}")
-    for x, y in tries:
+    for n, (x, y) in enumerate(tries):
+        if n >= PLACE_REFUSALS:                       # the rest are further / lower: each refused spot costs ~1 s of
+            log(f"{n} spots refused in a row: no more")   # IK (two puts timed out in X1's sweep)
+            break
         way = skills.plan_place(x, y, top, yaw=skills._held.get("yaw", 0.0))      # above place, place, release up
         try:
             over = _line_rows(way[0][1], f"to ({x:.0f}, {y:.0f})")
@@ -1881,16 +1888,18 @@ def _usable(usable, seen):
 def _place_near(top0, tried):
     """Put it down on a table in front, going closer to a table seen further ahead up to APPROACH_TRIES times (no
     whole search). True when it is down."""
+    moved = True
     for i in range(APPROACH_TRIES + 1):
         got = _look_at(0.0, lambda: _place_view(top0))
         if got is True:
             return True
         if got is None or i == APPROACH_TRIES or _charging():
             return False
-        _too_low(got)
+        if not moved:                                 # the base is as near as it gets: a low table stays out of reach
+            _too_low(got)                             # (said then, not after 24-31 moves; X1 r11: not earlier either)
         log(f"a table at {got['table']:.0f} mm further away ({got['camera']} camera), at ({got['x']:.0f}, "
             f"{got['y']:.0f}): going closer ({i + 1}/{APPROACH_TRIES})")
-        _go_to(got, PLACE_GOAL, tried, holding=True)
+        moved = _go_to(got, PLACE_GOAL, tried, holding=True) is not False
     return False
 
 
@@ -2041,10 +2050,14 @@ def _put_down(say=None, on=None):
     if got is not None and arm_yaw() is not None and not _charging():
         log(f"a table at {got['table']:.0f} mm further away ({got['camera']} camera), at ({got['x']:.0f}, "
             f"{got['y']:.0f}): going closer")
-        _too_low(got)                                 # said at once: going closer can't help (X1: 24-31 moves)
-        _go_to(got, PLACE_GOAL, tried, holding=True)
-        if _place_near(top, tried):
-            return
+        try:
+            _go_to(got, PLACE_GOAL, tried, holding=True)
+            if _place_near(top, tried):
+                return
+        except FetchError as e:
+            _too_low(got, e)
+            raise
+        _too_low(got)
     _lift_to(LIFT_DRIVE_MM)
     raise FetchError("I can't find a free place on a table around me.", "주변에 내려놓을 빈 자리를 못 찾았어요.")
 

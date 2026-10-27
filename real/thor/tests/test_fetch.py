@@ -1148,6 +1148,29 @@ skills._held.clear()
 hand.update(holding=False, closed=False)
 fetch._set(status="idle")
 
+# the straight line to carry ending on the other wrist branch (the same pose, pick:502) is no carry: carry_up decides
+real_rows, real_up = fetch._line_rows, skills.carry_up
+wp = [("above", [0.0] * 6)]
+fetch._line_rows = lambda target, label, start=None: [["to carry 20", target, [3.0] * 6, None]]
+skills.carry_up = lambda above, ja: None
+assert fetch._carry_ok(wp, [0.0] * 6)                                       # ends at carry's own joints
+fetch._line_rows = lambda target, label, start=None: [["to carry 20", target, [3.0, 3.0, 3.0, 183.0, -3.0, 183.0], None]]
+assert not fetch._carry_ok(wp, [0.0] * 6)                                   # the other branch, carry_up refuses
+skills.carry_up = lambda above, ja: ([0.0] * 6, [3.0] * 6)
+assert fetch._carry_ok(wp, [0.0] * 6)                                       # ... or takes it by a joint move
+fetch._line_rows, skills.carry_up = real_rows, real_up
+
+# a put down gives up after PLACE_REFUSALS refused spots in a row (each costs IK time; two puts timed out, X1)
+asked = []
+real_opts = skills.place_options
+skills.place_options = lambda x, y, top, start: (asked.append((x, y)), iter(()))[1]
+fetch._line_rows = lambda target, label, start=None: (_ for _ in ()).throw(fetch.FetchError("no"))
+skills._held.update(top_mm=-260.0)
+assert fetch._place_at([(-100.0 - 10 * k, 640.0) for k in range(20)], -260.0) is None
+assert len(asked) == fetch.PLACE_REFUSALS, asked
+fetch._line_rows, skills.place_options = real_rows, real_opts
+skills._held.clear()
+
 # the lift is never asked above its limit (head camera cable, robot/head.py LIFT_MAX_MM)
 assert max(fetch.LIFT_RANGE + fetch.LIFT_TRIES + (fetch.LIFT_DRIVE_MM,)) <= fetch.head.LIFT_MAX_MM == 105.0
 assert fetch.head.AXIS_LIMITS[0] == (0.0, fetch.head.LIFT_MAX_MM)
