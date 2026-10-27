@@ -156,7 +156,7 @@ def typed_got(r):
         return (a if a == "give" else "place " + str(((r.get("task") or {}).get("on") or {}).get("name") or "")), None
     if a == "carry":
         d = (r.get("task") or {}).get("dest")
-        return f"action:go_to {d.get('name') if isinstance(d, dict) else d}", None
+        return f"action:go_to {d.get('marker') or d.get('name') if isinstance(d, dict) else d}", None
     if a == "command":                                  # Start sends the words to the assistant (/tasks/command):
         return None, None                               # heard and done as by voice
     return ("refuse" if r.get("talk") == "refuse" else "talk"), None
@@ -251,7 +251,7 @@ def run_case(rnd, name, c, old, use_llm):
     lv = c.get("level") or bc.level_of(c, {"lang": c.get("lang")})
     return {"round": rnd, "set": name, "text": c["text"], "state": c["state"], "before": c.get("before"),
             "expect": c["expect"] if not mission else c["steps"], "intent": c.get("intent", ""), "map": c.get("map"),
-            "level": bc.LEVEL_NAME.get(lv, lv), "lang": c.get("lang"), "voice": vgot, "typed": tgot, "handed": handed,
+            "level": bc.LEVEL_NAME.get(lv, lv), "lang": c.get("lang"), "channel": c.get("channel") or "-", "voice": vgot, "typed": tgot, "handed": handed,
             "v_canon": vc, "t_canon": tc, "v": vv, "t": tv, "src": src, "same": vc == tc,
             "raw": vrow["out"].get("raw", ""), "first": vrow["out"].get("first", "")}
 
@@ -327,6 +327,18 @@ def report(rows, tag, secs, args):
         pct = lambda j, k: f"{sum(r[k] == 'right' for r in j)}/{len(j)} ({100 * sum(r[k] == 'right' for r in j) / max(1, len(j)):.1f} %)"
         out.append(f"| {lv} | {pct(jv, 'v')} | {pct(jt, 't')} | {sum(r['v'] == 'motion' for r in rr)} | "
                    f"{sum(r['t'] == 'motion' for r in rr)} |")
+    chans = sorted({r.get("channel", "-") for r in rows} - {"-"})
+    if chans:                                           # r12 / r13: the words as typed or as whisper wrote them
+        out += ["", "By speech level and written channel (voice path right / judged; typed≠voice):", "",
+                "| level | " + " | ".join(chans) + " |", "|---|" + "---|" * len(chans)]
+        for lv in sorted({r["level"] for r in rows if r.get("channel", "-") != "-"}) + ["ALL"]:
+            cells = []
+            for ch in chans:
+                rr = [r for r in rows if r.get("channel") == ch and lv in ("ALL", r["level"]) and r["v"] != "llm?"]
+                ok = sum(r["v"] == "right" for r in rr)
+                cells.append(f"{ok}/{len(rr)} ({100 * ok / max(1, len(rr)):.1f} %); "
+                             f"{sum(not r['same'] and not r['before'] for r in rr)}")
+            out.append(f"| {lv} | " + " | ".join(cells) + " |")
     groups = collections.defaultdict(list)
     for r in rows:
         groups[meaning(r)].append(r)

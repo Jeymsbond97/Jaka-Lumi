@@ -339,7 +339,7 @@ READ = [   # the owner's Korean cup / delivery list (2026-10-26 18:40), then mor
     ("let me see you wave", False, "rule wave"), ("okay see you", False, "talk"), ("you come behind me", False, "rule follow"),
     ("here's your task: get over here", False, "talk"), ("Mina, what are you doing over there?", False, "talk"),
     ("민수야, 너 거기서 뭐 하고 있어?", False, "talk"), ("루미야 뭐 하고 있어?", False, "talk:status"),
-    ("계속 들고 있어 주세요", True, "talk"), ("keep holding it", True, "talk"), ("just hold it", True, "talk"),
+    ("계속 들고 있어 주세요", True, "talk"), ("keep holding it", True, "talk"), ("just hold it", True, "stop"),   # safety first: "hold it" stops (the cup stays held)
     ("give it back", True, "give"), ("돌려줘", True, "give"), ("hand it back to me", True, "give"), ("그거 다시 줘", True, "give"),
     ("put it back where you found it", True, "place"), ("원래 있던 데 놔 주세요", True, "place"),
     ("할머니께 이거 전해 드려", True, "give"), ("이거 저분께 드리세요", True, "give"), ("사장님께 드려 주십시오", True, "give"),
@@ -372,7 +372,47 @@ READ = [   # the owner's Korean cup / delivery list (2026-10-26 18:40), then mor
     ("저한테 주실 수 있으신가요?", True, "give"), ("선생님께 드리세요", True, "give"), ("lower it down", True, "place"),
     ("you putt dawn that", True, "place"), ("lay it on this table lay it on this table please", True, "place"),
     ("왼쪽에 내려놓고 오른편 컵 잡아 줘", True, "chain"), ("put it back", True, "place"), ("제자리에 갖다 놔", True, "place"),
-    ("pick up the cup on the left table", False, "pick cup left"), ("오른쪽 테이블에 있는 빨간 컵 집어 줘", False, "pick cup red right"),
+    ("pick up the cup on the left table", False, "pick cup left"),
+    ("pick up the cup over on your left", False, "pick cup left"), ("grab the cup sitting on your right", False, "pick cup right"),
+    ("grab the cup by your side", False, "pick cup near"), ("옆에 있는 컵 집어", False, "pick cup near"),
+    ("레프트 컵 집어", False, "pick cup left"), ("라이트 컵 집어 줘", False, "pick cup right"),
+    ("백팩 집어 줘", False, "ask: The backpack is too big for my hand."),
+    # asides: said, taken back, for later, reported or read out: no motion now
+    ("Lumi buddy, shake hands with me... ah, forget I said that", False, "talk"),
+    ("lumi the moment the bell rings wave goodbye to us", False, "talk"),
+    ("Lumi dear, my manager wanted you to put it down gently first thing today", True, "talk"),
+    ("lumi on paper it is writing shake my hand", False, "talk"), ("Rumi robot hand it to me is very funny thing", True, "talk"),
+    ("루미야 come friday lets shake hands", False, "talk"), ("동생아 너도 잘 가라고 손 흔들어 봐", False, "talk"),
+    ("no need for you to put it down by the coffee machine today", True, "talk"),
+    ("우리 루미~ 왼쪽에 있는 사람한테 건네 ㄱㄱ~ 는 장난 ㅋㅋ", True, "talk"),
+    ("로봇이 하얀 탁자 위에 올려놓는 장면이 인상 깊었습니다", True, "talk"), ("들고 있는 거 나 주쇼", True, "give"),
+    ("robot, rotate right 45 degrees, is okay for you?", False, "turn -45.0"),
+    ("Stretch your arm out toward me, is okay for you?", False, "arm reach"),
+    ("루미 팔 원래대로 돌려놓으실 필요는 전혀 없습니다", False, "talk"), ("루미야 team everyone put your arm down now now", False, "talk"),
+    ("루미야잉, 담에 오른쪽으로 직각으로 돌아 줍써", False, "talk"),
+    ("are robots like you built to stretch your arm out toward me?", False, "talk"),
+    ("로봇 로봇이 팔 접는 걸 보니 세상 좋아졌구먼", False, "talk"),
+    ("ㅋㅋ 손 내려 저용 이거 밈이잖아", False, "talk"), ("Robot look at me is very funnny thing.", False, "talk"),
+    ("루미 나한테 손 내밀 수 있대 대박.", False, "talk"), ("이따밤에허리왼쪽으로60도돌려줘ㅋㅋ", False, "talk"),
+    ("now mister robot, cup go back same place, please", True, "place"), ("허리 오른쪽으로 45도 돌여", False, "rule waist right 45"),
+    ("lumi buddy hold it", False, "stop"), ("루미야 under no circumstances close the gripper", False, "talk"),
+    ("Lumi, no no, not scoot left 35 cm", False, "talk"), ("손 open 돼 있어?", False, "talk"), ("그리퍼 오픈돼 있어?", False, "talk"),
+    ("저기 컵 살포시 내려놓지는 마세요 괜찮아요", True, "talk"), ("look 60 deg to right, is okkay for you?", False, "rule look right 60"),
+    ("Face forward again for me, possible?", False, "rule look center"), ("너 팔 접을 수 있지?", False, "talk"),
+    ("팔 접어 줄 수 있지?", False, "arm fold"),
+    ("죄송한데요, 고개만 돌려서 뒤가 보이십니까?", False, "talk"), ("루미야, 등 좀 보이세요", False, "talk"),
+    ("윤년 말씀하실 때 저 좀 봐 주시겠어요?", False, "rule look me"), ("편할 때 손 흔들어 줘", False, "rule wave"),
+    ("when you get to p1, wave", False, "talk"),
+    ("robot turn forty-five degrees to right ah sorry no need", False, "talk"),
+    ("루미, please 루미야 turn left — scratch that, yesterday I watched a robot turn right on TV", False, "ask: Taken back: nothing to do."),
+    ("cup in front you pick oops I meant on paper it is writing pickup that cup by you side", False, "ask: Taken back: nothing to do."),
+    ("Lumi bring me the cup from the exit before, very good", False, "talk"),
+    ("mister robot you no need twist your waist 45° to the right okay okay", False, "talk"),
+    ("go to p1, no, exit", False, "go exit"), ("turn left, I mean right", False, "turn -90.0"),
+    ("두 시 방향에 있는 컵 집어", False, "pick cup right"), ("열 시 방향 컵 집어 줘", False, "pick cup left"),
+    ("내 얼굴 기억해", False, "talk"),
+    ("루미야 under no circumstances close the gripper", False, "talk"), ("go back to where you were before", False, "rule come_back"), ("Rumi dear drop the cup off at exit then come back here much obliged", False, "chain"),
+    ("pick up the backpack", False, "ask: The backpack is too big for my hand."), ("오른쪽 테이블에 있는 빨간 컵 집어 줘", False, "pick cup red right"),
     ("컵이랑 같이 p5로 가", False, "fetch cup here>p5 hold"), ("컵 하고 같이 exit 가 줘", False, "fetch cup here>exit hold"),
     ("컵 가지고 p5에서 기다려", False, "pick cup; go p5; wait"), ("컵 들고 p5에 가 있어", False, "pick cup; go p5; wait"),
     ("이 컵 p5까지 좀 날라 줘", False, "fetch cup here>p5 hold"), ("컵 좀 p5로 옮겨 줘", False, "fetch cup here>p5 hold"),
@@ -433,6 +473,13 @@ for text, want in (("갤러리 투로 가 줘", "go Gallery_2"), ("갤러리 1�
     if got != want:
         bad.append(text)
         print(f"WRONG {text!r}\n  want {want}\n  got  {got}")
+server.agv.markers = lambda: ["home", "booth_3", "p5"]
+for text, want in (("drop the cup off on the table at booth 3", "carry booth_3 place"), ("drop it off at booth 3", "carry booth_3 place"),
+                   ("부스 3 테이블에 놔", "carry booth_3 place")):   # holding: there, never here
+    got = plan(text, True)
+    if got != want:
+        bad.append(text)
+        print(f"WRONG {text!r} (holding)\n  want {want}\n  got  {got}")
 server.agv.markers = lambda: M
 
 
@@ -450,7 +497,14 @@ STOPS = ["멈춰", "멈춰요", "멈추세요", "멈춰 주세요", "멈춰 주�
 STOPS_INSIDE = ["루미야 그거 말고 멈춰 지금", "아 잠깐만 멈춰 봐 위험해", "okay Lumi stop, there's someone in the way",
                 "wait wait stop it now", "컵 내려놓지 말고 멈춰", "야야 스톱 스톱", "저기 사람 있어 멈춰요", "no no no, stop",
                 "Lumi, stop, you're going to hit the table", "그만, 그만해 이제", "다 됐어 멈춰 주세요", "careful, stop!",
-                "멈춰버려", "동물을 멈춰버린 거랑 안해", "루미야 지금 바로 멈춰 주세요 위험해요", "stop, where are you going?"]
+                "멈춰버려", "동물을 멈춰버린 거랑 안해", "루미야 지금 바로 멈춰 주세요 위험해요", "stop, where are you going?",
+                "루미 님, 멈춰 주실 수 있겠습니까?", "오케이, 야 루미, 당장 얼른 서", "okay Lumi, can you go ahead and hold it right there?",
+                "야 루미 스톱", "루미야 그만해 주세요", "야 서", "lumi buddy hold it", "루미 씨 정지해 주십시오", "hey robot, freeze!",
+                "로봇아 움직이지 마세요", "자, 루미 님, 그만하시죠", "루미루미, 당장 멈춰 줄 수 있지?"]
+for text in STOPS + STOPS_INSIDE:                     # the task's own words (lumi.fetch_voice): the same stop
+    if not lumi.stop_order(text, M):
+        bad.append(text)
+        print(f"NO STOP during a task {text!r}")
 for text in STOPS + STOPS_INSIDE:
     for held in (False, True):
         got = plan(text, held)
