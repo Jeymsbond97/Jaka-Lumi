@@ -216,4 +216,14 @@ if __name__ == "__main__":
     h = [("롯데월드타워 높이 몇 m예요?", "ACTION: none -\n555미터예요."),
          ("uh... what was it... 그...", "ACTION: unclear -\n죄송해요, 다시 말씀해 주시겠어요?")]
     assert brain.topic_turn(h)[0].startswith("롯데월드타워"), brain.topic_turn(h)
+    # the model's "search" with its answer after it: said (none); a lookup promise or "don't know" keeps the search
+    s = {"action": "search", "target": "x"}
+    q = "윤초는 뭐예요?"
+    for w in ("윤초는 지구 자전과 시계를 맞추는 1초예요.", "Mount Fuji is 3,776 metres high."):
+        assert brain.Brain._settled(s, w, q)["action"] == "none", w
+    for w in ("확인해 볼게요.", "Let me check.", "search whale song distance", "잘 모르겠어요.", "", "윤초는 뭐예요?",
+              "윤초가 궁금하시군요. 잠시만요.", "What exactly do you mean?"):
+        assert brain.Brain._settled(s, w, q) is s, w
+    assert brain.CHANGES.search("지금 비트코인 얼마야?") and brain.CHANGES.search("Who won the game yesterday?")
+    assert not brain.CHANGES.search("윤초는 뭐예요?") and not brain.CHANGES.search("How do bees dance?")
     print("followup ok")

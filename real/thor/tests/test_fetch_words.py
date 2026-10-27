@@ -15,7 +15,7 @@ def short(s):
     if w[0] == "pick":
         return {"do": "pick", "object": w[-1], "colour": w[1] if len(w) == 3 else None}
     if w[0] == "receive":
-        return {"do": "receive", "object": w[1]}
+        return {"do": "receive", "object": w[1], **({"wait_s": steps.WAIT_GIVE_S} if w[-1] == "wait" else {})}
     if w[0] == "wait":
         if w[1:2] == ["order"]:
             return {"do": "wait", "s": steps.WAIT_ORDER_S, "until": "instruction"}
@@ -23,9 +23,9 @@ def short(s):
     if w[0] == "turn":
         return {"do": "turn", "deg": float(w[1])}
     if w[0] == "place":
-        return {"do": "place", "on": None}
+        return {"do": "place", "on": {"name": "dining table", "colour": None, "side": None} if len(w) > 1 else None}
     if w[0] == "give" and len(w) > 1:
-        return {"do": "give", "person": w[1]}
+        return {"do": "give", "person": s[5:]}
     return {"do": w[0]}
 
 M = ["home", "p1", "p2", "p3", "p4", "p5", "Registration", "Main_Stage", "Coffee_Bar"]
@@ -83,6 +83,26 @@ STEPS = {
     "go to p3, take the cup from Minsu and bring it to me": "go p3 | receive cup | go here | give",
     "컵 들고 p2로 가서 거기 있는 사람한테 줘": "pick cup | go p2 | give",
     "빨간 컵을 p4에 있는 민수한테 갖다 줘": "pick red cup | go p4 | give 민수",
+    "fetch the cup from p1, then wait here": "go p1 | pick cup | go here | wait",
+    "피원에서 빨간 컵 가져다가 피삼에 놔 줘": "go p1 | pick red cup | go p3 | place",
+    "피일에서 컵 가져다 주시고 홈으로 가십시오": "go p1 | pick cup | go here | give | go home",
+    "take the bottle to p2 and wait there until someone takes it, then come back": "pick bottle | go p2 | give | go here",
+    "병 들고 피투로 가서 누가 가져갈 때까지 기다렸다가 돌아와": "pick bottle | go p2 | give | go here",
+    "컵 피삼에 갖다 주고 10초 기다렸다가 홈으로 가": "pick cup | go p3 | give | wait 10 | go home",
+    "빨간 컵을 피사에 갖다 놓으시고 돌아오세요": "pick red cup | go p4 | place | go here",
+    "take the cup to the main stage and hand it to whoever is there": "pick cup | go Main_Stage | give",
+    "find the red cup and bring it to me": "pick red cup | go here | give",
+    "빨간 컵 찾아서 나한테 가져다 줘": "pick red cup | go here | give",
+    "point one에서 빨간 컵 가져와서 P5에 있는 사람한테 줘": "go p1 | pick red cup | go p5 | give",
+    "take the banana to the main stage and give it too Mr. Kim": "pick banana | go Main_Stage | give Mr. Kim",
+    "에구 하얀 컵 집어서 p4로 가져가서 테이블에 놔, 응": "pick white cup | go p4 | place dining table",
+    "p4에 가서 누가 빨간 컵 주면 받아 가지고 와": "go p4 | receive cup wait | go here",
+    "p4 가서 십 초 wait 하고 와": "go p4 | wait 10 | go here",
+    # a new order on the way (lumi.mission_talk reads it with steps.read)
+    "no, bring it to p4 instead": "go p4",
+    "아니야 피사로 가져가 줘": "go p4",
+    "change of plan, go to p4 and put it down": "go p4 | place",
+    "그거 저 사람한테 줘": "give",
     # calls and endings of every level, Konglish, no spaces
     "이보게 루미, 피삼에 가서 30초 기다렸다가 돌아오게나": "go p3 | wait 30 | go here",
     "루미 님께서 피삼으로 가서 30초 기다렸다가 돌아와 주시길 부탁드립니다": "go p3 | wait 30 | go here",
@@ -103,7 +123,29 @@ for text in ("put it on p3", "p3에 갖다 놔", "피삼에 놔 줘", "leave it 
     if unread or [s["do"] for s in got] != ["go", "place"]:
         bad.append(f"FAIL put at {text!r}: {got} {unread}")
 
+# ---- near misses: nothing is read as a task part ----
+NEAR = ["did you bring the cup from p1 and go home?", "don't bring the cup from p1, go home", "I'll bring the cup from p1 myself",
+        "tomorrow bring me the cup from p1 and go to p2", "my friend brought the cup from p1 and went home",
+        "p1에서 컵 가져오지 마", "내가 p1에서 컵 가져올게", "어제 p1에서 컵 가져왔지?", "컵을 p5에 갖다 줬어?",
+        "p3에 갖다 놓지 마", "did you deliver the cup to p5?"]
+for text in NEAR:
+    got, unread = steps.rules(text, M)
+    if not unread and got:
+        bad.append(f"FAIL near miss {text!r}: {got}")
+
+# ---- 4. a correction after the read-back (fetch_dialog): what changes ----
+T = {"object": "cup", "colour": "red", "source": P("p1"), "dest": "here", "finish": "hold"}
+FIX = {"no, the blue one": {"colour": "blue"}, "아니 파란 거": {"colour": "blue"}, "not p1, p2": {"source": P("p2")},
+       "피원 말고 피투": {"source": P("p2")}, "the one on the left": {"prefer": "left"}, "왼쪽 거": {"prefer": "left"},
+       "the smaller one": {"prefer": "small"}, "아니 작은 거": {"prefer": "small"}, "no, from p2": {"source": P("p2")},
+       "아니 피사로": {"dest": P("p4")}, "no, the bottle": {"object": "bottle", "colour": None},
+       "the other one": {}, "아니 다른 거": {}}       # not said which: nothing changes, Lumi asks what to change
+for text, want in FIX.items():
+    task, changed = brain.parse_correction(text, T, M)
+    if {k: task.get(k) for k in changed} != want:
+        bad.append(f"FAIL correction {text!r}: want {want}, got {({k: task.get(k) for k in changed})}")
+
 print("\n".join(bad))
-print(f"{len(FETCH) + len(STEPS) + 4 - len(bad)}/{len(FETCH) + len(STEPS) + 4} right")
+print(f"{len(FETCH) + len(STEPS) + len(FIX) + len(NEAR) + 4 - len(bad)}/{len(FETCH) + len(STEPS) + len(FIX) + len(NEAR) + 4} right")
 assert not bad
 print("fetch words ok")

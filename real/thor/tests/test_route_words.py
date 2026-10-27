@@ -113,7 +113,8 @@ CASES = [   # (text, state, route)
     ("p3로 가 주시면 안 될까요?", "idle", "action:go_to p3"), ("실례가 안 된다면 이리 와 주시겠어요?", "idle", "action:come"),
     ("혹시 괜찮으시면 컵 좀 집어 주실 수 있을까요?", "idle", "action:pick cup"), ("if you don't mind, wave at me", "idle", "action:wave"),
     ("괜찮으시면 손 흔들지 마세요", "idle", None), ("괜찮으시면 내일 p3로 가 주세요", "idle", None),
-    ("괜찮으시면 저한테 주시면 안 될까요?", "holding", "give"),
+    ("괜찮으시면 저한테 주시면 안 될까요?", "holding", "give"), ("hello robot", "idle", None),
+    ("hello robot, wave", "idle", "action:wave"),
 ]
 
 DETOUR = [   # right after a blocked drive to p2: (text, detour.read)
