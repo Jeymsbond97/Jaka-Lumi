@@ -425,10 +425,13 @@ QUICK_KINDS["mics"] = ([
     "where are your microphones", "how far can you hear", "can you tell where a voice comes from",
     "소리는 무엇으로 들으십니까", "소리는 뭘로 들어요", "마이크 몇 개예요", "마이크 있어요", "마이크가 어디 있어", "얼마나 멀리서 들려요",
     "귀가 어디야", "어떻게 들어요", "소리 어떻게 들어",
-], {"en": ["I hear with a ring of six microphones in my head, from about 3 to 5 metres away, and I can tell where a voice comes from.",
-           "Six microphones in my head: they hear people 3 to 5 metres away and tell me which direction a voice comes from."],
-    "ko": ["머리에 있는 마이크 6개로 들어요. 3에서 5미터 거리까지 듣고, 목소리가 어느 쪽에서 오는지도 알 수 있어요.",
-           "머리에 마이크가 6개 있어요. 3~5미터 떨어진 목소리를 듣고 방향도 알아요."]})
+], {"en": ["I hear with a ring of six microphones in my head, from about 3 to 5 metres away, and I can tell where a voice comes from. "
+           "Visitors can also talk to me through a small wireless clip microphone.",
+           "Six microphones in my head: they hear people 3 to 5 metres away and tell me which direction a voice comes from. "
+           "In a noisy place a small wireless clip microphone helps."],
+    "ko": ["머리에 있는 마이크 6개로 들어요. 3에서 5미터 거리까지 듣고, 목소리가 어느 쪽에서 오는지도 알 수 있어요. "
+           "작은 무선 클립 마이크로 말씀하셔도 돼요.",
+           "머리에 마이크가 6개 있어요. 3~5미터 떨어진 목소리를 듣고 방향도 알아요. 시끄러운 곳에서는 무선 클립 마이크를 쓸 수 있어요."]})
 QUICK["no"] += ["can you hear me", "do you hear me", "들려", "내 말 들려요", "제 말 들리세요", "hello can you hear me",
                 "are you listening", "듣고 있어"]
 QUICK["no"] += [
@@ -656,3 +659,82 @@ QUICK["time_now"] += _ko(["몇 시", "지금 몇 시", "시방 몇 시"], ["유"
     "몇시입니까", "지금몇시야", "몇시임", "지금몇시예요", "몇시야", "지금몇시입니까", "몇시예요"]
 QUICK["height"] += ["몇센티임", "너몇센티임", "키얼마유", "키가얼마유", "키 얼마나 된당가", "너 키 얼마나 된당가", "키howmuch"]
 QUICK["weight"] += ["howheavy해요", "너무게얼마인지알려주시겠어요", "무게얼마인지알려주세요"]
+QUICK["tts"] = QUICK.get("tts", []) + _ko(["너 목소리 real person", "목소리 진짜 사람", "너 목소리 진짜 사람", "목소리 사람 목소리", "목소리 녹음한 거",
+                                           "그 목소리 사람"], ["이야", "이에요", "이니", "입니까", "인가요", "이고", "임"]) + [
+    "is your voice a real person", "is that a real person's voice", "is your voice recorded", "whose voice is that",
+    "is your voice real", "is that voice real", "your voice is a real person", "목소리 누구 거야", "목소리 누구 목소리예요"]
+
+# round 4: the small kinds at every Korean level and in more English frames (same meanings, same answers)
+_N = ["야", "예요", "에요", "니", "입니까", "인가요", "고", "여", "임", "냐", "유", "일까요", "인지 알려 줘", "인지 알려 주세요"]   # after 뭐 / 어디 / 몇 개
+_USE = ["써", "써요", "쓰니", "쓰세요", "쓰십니까", "씁니까", "쓰나요", "쓰노", "써유", "쓰냐", "쓰시나요", "쓰는지 알려 주세요"]
+_HAVE = ["있어", "있어요", "있니", "있나요", "있습니까", "있으세요", "있으십니까", "있노", "있어유", "있냐", "있나"]
+_BE = ["돼", "돼요", "되니", "되나요", "됩니까", "되세요", "되십니까", "되노", "돼유", "되냐", "되나"]
+_WHO_KO = ["", "너 ", "루미 ", "이 로봇 "]
+QUICK["mics"] = QUICK.get("mics", []) + [w + x for w in _WHO_KO for x in _ko(["마이크 몇 개", "마이크가 몇 개", "마이크는 몇 개"], _N) +
+                                         _ko(["마이크 ", "마이크가 ", "귀 "], _HAVE) + _ko(["마이크 뭐 ", "마이크 어떤 거 "], _USE)] + _ko(
+    ["얼마나 멀리서 들려", "몇 미터까지 들려", "멀리서도 들려"], ["", "요", "?", "니", "요?"]) + _ko(
+    ["소리 나는 방향 알", "목소리 방향 알 수 있", "누가 말하는지 방향 알"], ["아", "아요", "니", "습니까", "아유"]) + [
+    "how many microphones do you have", "how many mics do you have", "do you have microphones", "do you have a microphone",
+    "what microphones do you use", "where are your microphones", "how far away can you hear", "how far can you hear",
+    "can you tell where a voice comes from", "can you tell which direction a voice is from", "how do you hear", "what do you hear with",
+    "do you have ears", "where are your ears", "mic 몇 개야", "마이크 how many", "how many mic you have"]
+QUICK["stt"] = QUICK.get("stt", []) + [w + x for w in _WHO_KO[:3] for x in _ko(["음성 인식 뭐 ", "음성 인식은 뭐 ", "음성 인식 엔진 뭐 ", "STT 뭐 ",
+                                                                             "위스퍼 ", "음성 인식 모델 뭐 "], _USE) +
+                                        _ko(["음성 인식 엔진이 뭐", "음성 인식 모델이 뭐", "STT 모델이 뭐", "말 알아듣는 프로그램이 뭐"], _N)] + _ko(
+    ["말은 어떻게 알아들", "말을 어떻게 알아들", "내 말 어떻게 알아들", "사람 말 어떻게 알아들"],
+    ["어", "어요", "으세요", "으십니까", "습니까", "니", "나요", "노", "어유", "냐"]) + [
+    "what speech recognition do you use", "which speech recognition model do you use", "how do you understand speech",
+    "how do you understand what people say", "what's your speech to text", "which stt do you use", "what stt model do you use",
+    "do you use whisper", "is it whisper", "speech recognize what model", "speech to text what model", "how do you turn speech into text",
+    "what model listens to people", "음성 인식 what model", "speech recognition 뭐야"]
+QUICK["tts"] = QUICK.get("tts", []) + [w + x for w in _WHO_KO[:3] for x in _ko(["음성 합성 뭐 ", "TTS 뭐 ", "목소리 프로그램 뭐 ", "목소리 엔진 뭐 "], _USE) +
+                                       _ko(["목소리 프로그램이 뭐", "음성 합성 엔진이 뭐", "TTS 엔진이 뭐", "목소리 엔진이 뭐"], _N)] + _ko(
+    ["목소리는 어떻게 내", "목소리 어떻게 만들", "말소리는 어떻게 내", "목소리는 뭘로 내", "목소리 어떻게 나와"],
+    ["", "요", "니", "세요", "십니까", "나요", "노", "유", "냐"]) + [
+    "what text to speech do you use", "which tts do you use", "what tts engine do you use", "how do you speak", "how do you make your voice",
+    "what makes your voice", "is your voice synthesized", "is your voice a computer voice", "your voice what program",
+    "what program is your voice", "voice engine what", "what's your voice engine", "tts 뭐야", "voice 뭘로 만들어요"]
+QUICK["reply_time"] = QUICK.get("reply_time", []) + _ko(
+    ["대답하는 데 얼마나 걸려", "답하는 데 몇 초 걸려", "대답까지 얼마나 걸려", "말하면 얼마 만에 대답해", "질문하면 몇 초 만에 대답해"],
+    ["", "요", "?", "니", "요?", "유"]) + _ko(
+    ["대답하는 데 얼마나 걸리", "대답까지 몇 초 걸리"], ["세요", "십니까", "나요", "노", "니", "냐"]) + _ko(
+    ["반응 속도가 ", "대답 속도가 ", "응답 시간이 ", "응답 속도가 "], ["얼마야", "얼마예요", "얼마입니까", "얼마나 돼", "얼마나 돼요", "어떻게 되세요",
+                                                             "어때", "어때요", "얼마고", "몇 초야", "몇 초예요"]) + [
+    "how long does it take you to answer", "how long do you need to reply", "how quick are your answers", "how fast are your replies",
+    "what's your reaction time", "how many seconds to answer", "response time?", "how fast you answer", "answer speed 얼마야"]
+QUICK["used_where"] = QUICK.get("used_where", []) + _ko(
+    ["어디에 쓰", "어디서 쓰", "어디에 쓰려고 만들", "어떤 데서 쓰"], ["여", "여요", "이니", "입니까", "이나요", "이노", "여유", "이세요"]) + _ko(
+    ["용도가 뭐", "너 용도가 뭐", "쓰임새가 뭐", "주 용도가 뭐", "무슨 용도"], _N) + _ko(
+    ["어디서 일하", "어디에서 일하", "주로 어디서 일하"], ["", "니", "세요", "십니까", "나요", "노", "냐"]) + [
+    "what are you used for", "what's your purpose", "what is this robot for", "where would i use you", "what kind of places use you",
+    "where do robots like you work", "what job were you built for", "what can you be used for", "use case?", "your use case what",
+    "어디 쓰는 로봇이에요", "너 어디에 써먹어", "이 로봇 뭐에 써요", "어디다 써요", "이거 뭐에 쓰는 거예요"]
+QUICK["internet"] = QUICK.get("internet", []) + [w + x for w in _WHO_KO[:3] for x in _ko(["인터넷 ", "인터넷 연결 ", "와이파이 ", "클라우드 "], _USE) +
+                                             _ko(["인터넷 ", "인터넷 연결 ", "인터넷에 연결 "], _BE)] + [
+    "are you online", "are you connected to the internet", "do you use the internet", "do you need the internet", "do you use the cloud",
+    "can you work offline", "do you work without internet", "are you on wifi", "internet 돼요", "인터넷 없이도 움직여요", "오프라인으로도 돼요"]
+QUICK["computer"] = QUICK.get("computer", []) + [w + x for w in _WHO_KO[:3] for x in _ko(["컴퓨터 뭐 ", "무슨 컴퓨터 ", "어떤 컴퓨터 ", "칩 뭐 ",
+                                                                                     "GPU 뭐 ", "프로세서 뭐 "], _USE) +
+                                             _ko(["컴퓨터가 뭐", "두뇌가 뭐", "뇌가 뭐", "컴퓨터 사양이 뭐", "GPU가 뭐"], _N)] + _ko(
+    ["머리에 컴퓨터 ", "안에 컴퓨터 ", "몸에 컴퓨터 "], _HAVE) + [
+    "what computer do you have inside", "what's your brain", "what chip do you use", "what gpu do you have", "what processor do you use",
+    "is there a computer in your head", "what hardware runs you", "do you use nvidia", "is it a jetson", "computer 뭐 써요", "jetson이에요"]
+QUICK["operator"] = QUICK.get("operator", []) + _ko(["누가 관리", "누가 운영", "누가 담당"], ["해", "해요", "하니", "하세요", "하십니까", "합니까", "하나요",
+                                                                                   "하노", "해유", "하냐"]) + _ko(
+    ["관리자가 누구", "담당자가 누구", "책임자가 누구", "운영자가 누구", "주인이 누구"], ["야", "예요", "에요", "니", "입니까", "인가요", "고", "여", "임", "냐"]) + [
+    "who looks after you", "who is your owner", "who owns you", "who is responsible for you here", "who manages you", "who's your operator",
+    "who takes care of this robot", "owner 누구야"]
+QUICK["estop"] = QUICK.get("estop", []) + _ko(["비상 정지 버튼 어디 ", "비상 버튼 어디 ", "정지 버튼 어디 ", "빨간 버튼 어디 ", "비상 스위치 어디 "], _HAVE) + _ko(
+    ["비상 정지 버튼이 어디", "비상 버튼이 어디", "정지 버튼이 어디", "비상 스위치가 어디"], _N) + _ko(
+    ["위험하면 어떻게 멈춰", "급할 때 어떻게 세워", "비상시에 어떻게 멈춰"], ["", "요", "?", "요?", "야 돼", "야 돼요"]) + [
+    "where's the e-stop", "how do i stop the robot in an emergency", "is there a kill switch", "where is the kill switch",
+    "how can someone stop you quickly", "emergency stop button where", "e-stop 어디야"]
+QUICK["dof"] = QUICK.get("dof", []) + _ko(["관절이 몇 개", "관절 몇 개", "자유도가 몇", "자유도 몇", "축이 몇 개", "모터가 몇 개"], _N) + [
+    "how many degrees of freedom do you have", "how many dof do you have", "how many joints do you have", "how many axes do you have",
+    "how many motors do you have", "dof?", "degrees of freedom?", "자유도 how many"]
+QUICK["safety"] = QUICK.get("safety", []) + _ko(["너 안전한 로봇", "안전한 로봇"], ["이야", "이에요", "이니", "입니까", "인가요", "이고", "임"]) + [
+    "is it dangerous to be near you", "can you hurt people", "do you hurt people", "are robots like you safe", "safe?"]
+QUICK["no"] += ["한 번에 몇 초 걸려", "몇 초 걸려", "몇 초나 걸려요", "how many seconds does it take", "how long does one take",
+                "how long does it take", "얼마나 걸려요", "시간 얼마나 걸려"]
+QUICK["mics"] += ["clip mic 있어요", "클립 마이크 있어요", "무선 마이크 있어요", "시끄러우면 마이크 써", "시끄러우면 마이크 씀", "do you have a clip mic",
+                  "is there a wireless microphone", "can i use a microphone", "마이크 따로 있어요"]

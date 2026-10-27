@@ -131,6 +131,30 @@ POS.update({   # night 4, round 2
 NEG += ["move forward 4 meters", "앞으로 5미터 가 줘", "grab the paper cup", "종이컵 좀 집어 주세요", "how old is the mayor?",
         "사장님 연세가 어떻게 되세요?", "who leads samsung?"]
 
+POS.update({   # night 5: openers, asides, Konglish, 하게체, run-together words, guesses
+ "safety": ["Is it safe to stand next to you?", "아이들 옆에 있어도 안전합니까?", "너 위험하지 않아?", "are you dangerous for kids?"],
+ "cameras": ["How many cameras do you have?", "카메라 뭐 쓰세요?", "what camera model do you use?", "카메라 몇 대 있어요?"],
+ "faces": ["Do you do face recognition?", "얼굴 알아볼 수 있어요?", "can you remember faces?"],
+ "mics": ["How many microphones do you have?", "마이크 몇 개 있어요?", "how far away can you hear?"],
+ "tts": ["What text to speech do you use?", "목소리는 뭘로 내세요?", "너 목소리 진짜 사람이야?"],
+ "stt": ["Which speech recognition do you use?", "음성 인식 뭐 쓰십니까?", "말은 어떻게 알아들으세요?"],
+})
+POS["age"] += ["궁금한 게, 브로, 너 몇 살이야?", "루미 군, 너 몇 살인가?", "에이지가 몇이야?", "you're about five, right?"]
+POS["height"] += ["농사일에 쓸라 카는데, 로봇아, 키가 몇이에요?", "하이트가 얼마야?", "키 how much?", "너 2미터지?"]
+POS["maker"] += ["메이커가 어디야?", "LG가 만들었지?", "아야 루미, 어느 회사가 너를 만들었는교?"]
+POS["battery_life"] += ["배터리 수명 얼마나 되는가?", "battery life 얼마야?", "하루 종일 가나?"]
+NEG += ["내일 며칠이야?", "어제 무슨 요일이었어?", "what's the date tomorrow?", "what day was yesterday?", "크리스마스가 무슨 요일이야?",
+        "what day is christmas this year?", "다음 주 금요일이 며칠이야?", "몇 시에 문 닫아요?", "what time does the store close?",
+        "how tall is namsan tower?", "롯데타워 높이가 얼마야?", "BTS 나이가 어떻게 돼?", "how old is the president?", "how heavy is an elephant?",
+        "코끼리 무게가 얼마야?", "how fast is a cheetah?", "치타 얼마나 빨라?", "핸드폰 배터리 얼마나 가요?", "how long does a phone battery last?",
+        "who made the iphone?", "who invented robots?", "브라질은 무슨 언어 써?", "what language do they speak in Brazil?",
+        "what's your mom's name?", "너네 엄마 이름 뭐야?", "what's my name?", "내 나이 맞혀 봐", "몇 살로 보여요?",
+        "오픈AI 대표 누구야?", "환율 얼마야?", "1달러 얼마야?", "what does JAKA stand for?", "자카 로봇 몇 대 팔렸어?",
+        "follow me, how tall are you?", "이리 와. 몇 살이야?", "take the cup, then tell me the time", "손 흔들고 몇 시인지 알려 줘",
+        "what's your name? where's the toilet?", "how are you and what time is it?", "언제?", "how do you know?", "really? how old?",
+        "그거 몇 킬로야?", "that one, how heavy?", "저 로봇 이름 뭐야?", "옆에 로봇은 몇 살이야?", "what's the name of that robot?"]
+
+
 def run():
     ok = bad = miss = 0
     lines = []

@@ -27,11 +27,23 @@ KIND = {   # words (no talk before) -> kind
     "are you a Korean robot?": "country", "어느 나라 로봇이에요?": "country", "what computer do you use?": "computer",
     "관절이 몇 개예요?": "dof", "음성 인식 뭐 써요?": "stt", "how fast do you answer?": "reply_time",
     "where are you used?": "used_where", "인터넷 써요?": "internet",
+    # openers, asides, remarks, connectives, stutters, run-together words (night 5)
+    "hello robot, you name is?": "name", "루미 님, 배터리 수명 얼마나 됩니까?": "battery_life", "누미야 너 몇 살이야": "age",
+    "실례합니다. 몇 살입니까?": "age", "하나 여쭤봐도 될까요? 너 이름 어떻게 되세요?": "name", "너 살아 있어? ㅎㅎ": "robot",
+    "Christmas 얼마나 남았어요? 알고 싶어요.": "days_to_christmas", "얘 몇 살일까? 너 몇 살이야?": "age",
+    "형 비켜 봐, 키가 몇이에요?": "height", "My new friend Lumi, how heavy are you?": "weight", "아 그리고 몇 개 국어 해?": "languages",
+    "그러면 키가 몇이에요?": "height", "키가 얼— 얼마예요?": "height", "너 너 몇 살이야": "age", "이보게 루미, 지금 몇 시인가?": "time_now",
+    "누가너를만들었습니까?": "maker", "루미군,오늘무슨요일인가?": "date_today", "키가 얼마인지 알려 주시겠어요?": "height",
+    "You're Siri, aren't you?": "name", "너 2미터지?": "height", "Samsung made you, right?": "maker", "이번 달 알려 줘.": "date_today",
+    "에이지가 몇이야?": "age", "스피드가 얼마야?": "speed", "메이커가 어디야?": "maker", "do you have the time?": "time_now",
+    "아이들 옆에 있어도 안전해?": "safety", "what cameras do you have?": "cameras", "얼굴 인식 돼요?": "faces",
+    "컴퍼니 오픈 언제예요?": "co_founded", "참, 로봇 양반, 이름이 무슨 뜻이야?": "name_meaning", "Your voice, what program?": "tts",
 }
 IN_TALK = {   # words after TALK -> kind or None
     "how old are you?": "age", "who made you?": "maker", "what's your name?": "name",
     "how old?": None, "몇 살이에요?": None, "hello": None, "why?": None, "really?": None, "and you?": None,
     "who runs it?": None, "how many people work there?": None, "진짜?": None, "왜요?": None, "너는?": None, "무겁습니까?": None, "어떤 로봇이요?": None,
+    "그럼 몇 살이에요?": None, "and how old?": None, "근데 너 몇 살이야?": "age",
 }
 NEVER = [   # no talk before: never a quick answer
     "can you see me?", "what am I holding?", "what colour is my shirt?", "how old do I look?", "how tall am I?",
@@ -46,6 +58,12 @@ NEVER = [   # no talk before: never a quick answer
     "로봇 미국 회사 맞아요?",
     "when is your birthday?", "생일이 언제예요?", "완충까지 몇 시간이에요?", "how slow can you drive?", "what are you doing?",
     "너 자카 로봇이야?", "can you hear me?", "키 줄여 줘", "Price of the ice cream robot?",
+    # night 5: other things' facts, commands among sentences or before a comma, fragments
+    "몇씨야? 아니 몇 살로 보여?", "Is it Samsung? Who made you?", "What's your name? Where's the toilet?", "fold it fold it! your arm!",
+    "손! 손 내밀어!", "go the souvenir shop, ehh, tell me time", "Turn your head toward me, young robot.", "배터리, 아 아니, 지금 뭐 해?",
+    "오픈AI 대표 누군가?", "1달러에 원화로 얼만가?", "롯데타워 하이트 얼마야?", "K1 정밀도 어때요?", "PEITIAN 로봇의 가반하중은 얼마입니까?",
+    "배터리 수명이 몇 년이에요?", "배터리 얼만가?", "do you have time?", "언제?", "How do you know?",
+    "위험해", "손에 뭐 있어?", "what can your camera see?", "do you recognize me?", "저기 평가 항목, 루미, 오늘 무슨 요일이야?",
 ]
 FACT = {"chatgpt": r"\bno\b|아니", "name": r"lumi|루미", "who": r"lumi|루미", "age": r"\b2\b|two|두 살", "maker": r"cutshion|쿳션",
         "height": r"146", "battery_life": r"10", "languages": r"english|영어", "model": r"gemma|젬마",
