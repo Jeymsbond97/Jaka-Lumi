@@ -79,8 +79,8 @@ SURFACE_Z = (-560.0, -30.0)  # mm, arm frame, after the lift: table tops the arm
                              # the grasp, 2026-10-16: -578 4 of 9 spots, -528 7 of 9, -28 9 of 9). Lower: a floor or a
                              # seat ~30 cm under a table, which no grasp reaches even at lift 0
 LIFT_TOL_MM = 20.0           # closer than this: the lift stays
-LIFT_RANGE = (0.0, head.LIFT_MAX_MM)   # mm; 0-105 for now (head camera cable, robot/head.py), 0-250 with the long one
-LIFT_DRIVE_MM = 75.0         # every drive, every task's end and a look that found nothing again at this lift
+LIFT_RANGE = (0.0, head.LIFT_MAX_MM)   # mm; 0 only for now (head camera cable, robot/head.py), 0-250 with the long one
+LIFT_DRIVE_MM = min(75.0, head.LIFT_MAX_MM)        # every drive, every task's end and a look that found nothing again at this lift
                              # (higher, the near part of the table is below the torso camera's view)
 LIFT_VEL = 20                # % of the lift's speed
 VIEW_STEPS = (60.0, 120.0, 180.0)    # search (_look_around): both cameras look this far (deg from the front) to one
@@ -770,7 +770,7 @@ def _look_around(attempt, holding=False, say=None):
     sides = [s * v for s in (side, -side) for v in VIEW_STEPS] if arm_yaw() is not None or _head_ok() else []
     here = head.status()[0]
     other = LIFT_TRIES[1] if here < sum(LIFT_TRIES) / 2 else LIFT_TRIES[0]
-    for n, lift in enumerate((None, other)):
+    for n, lift in enumerate((None, other) if abs(other - here) >= 1.0 else (None,)):   # no other lift: one pass
         if lift is not None:
             _lift_to(lift)
         for turned in (False, True):

@@ -8,6 +8,9 @@ from pathlib import Path
 
 import numpy as np
 
+from robot import head
+assert head.LIFT_MAX_MM == 0.0   # live: the lift stays at the bottom (head camera cable); the cases below are the long cable's
+head.LIFT_MAX_MM, head.AXIS_LIMITS = 105.0, ((0.0, 105.0),) + head.AXIS_LIMITS[1:]
 from manipulation import skills
 from tasks import fetch
 from vision import calib

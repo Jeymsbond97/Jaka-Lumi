@@ -17,9 +17,9 @@ HEAD_REST_PITCH = PITCH_RANGE[0]  # deg; the head's rest: its lowest, looking do
                                  # and near things are in view. Every "head back / ahead" uses it; yaw rests at 0
 VEL = 40                         # speed ratio %, 1-100 (was 15: too slow to follow a visitor)
 ACC = 40                         # acceleration ratio %, 1-100
-# Temporary (2026-10-20): the head camera's cable is too short, a higher lift pulls it out. Back to 250 mm (what
-# tasks/fetch.py used before; the body API allows 300) when the longer cable is in.
-LIFT_MAX_MM = 105.0
+# Temporary: the head camera's cable is too short, any lift above the bottom pulls it out, so the lift stays at 0 and
+# Lumi searches by driving and turning. Back to 250 mm (the body API allows 300) when the longer cable is in.
+LIFT_MAX_MM = 0.0
 # [lift mm, waist, head yaw, head pitch] limits of the body API (docs/03), the lift held to LIFT_MAX_MM. The controller
 # drops a whole moveto when any value is outside, and its own encoders read a little past the ends (pitch -5.003 at
 # the bottom stop).
