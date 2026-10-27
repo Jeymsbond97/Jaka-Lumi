@@ -1768,14 +1768,18 @@ def _mentions(text, markers):
     for m in re.finditer(_place_re(markers), t):
         before, after, place = t[:m.start()], t[m.end():], _resolve(m, markers)
         if re.search(r"\bfrom (the )?$", before) or re.match(r"\s*에서", after) \
-                or (re.search(r"\b(go|drive|head|come) (over )?to (the )?$", before)        # "go to p1 and get the cup"
+                or (re.search(r"\b(go|drive|head|come) (over )?(to )?(the )?$", before)    # "go (to) p1 and get the cup"
                     and re.match(r"\s*(,|and|then)\s*(get|fetch|take|pick|grab|bring)", after)) \
+                or (re.match(r"\s+(?:까지\s*)?가서", after) and objs and m.start() < objs[-1].start()) \
                 or re.search(_AT_OBJ_EN, before) or re.match(_AT_OBJ_KO, after) \
                 or (re.match(rf"\s+{_OBJ_ADJ}(?:{_OBJ})", after) and not re.search(r"\b(to|into|onto) (the )?$", before)):
             # ^ "the cup on p2", "p2에 있는 컵", "피원 컵을", "p1 red cup bring me"
             out["source"] = _as_place(place)
         elif re.search(r"\b(to|into) (the )?$|\b(bring|fetch|give|get)( it| that| this)? $", before) \
-                or re.match(r"\s*(으로|로|에다|에|한테)(?!서)", after) or place == "here":
+                or re.search(r"\b(go|drive|head|walk|carry it|take it|bring it)( over)? (the )?$", before) \
+                or re.match(r"\s*(으로|로|에다|에|한테)(?!서)", after) or place == "here" \
+                or re.match(r"\s+(?:까지\s*)?(?:가(?:서|요|\s*줘|\s*주세요)?|이동)(?![가-힣])", after):
+            # ^ "and go exit point", "exit 가서", "exit 까지 가 줘": a drive there, said without "to" / 로
             out["dest"] = _as_place(place)
     for m in re.finditer(r"\bfrom (?:the )?([a-z]+)", t):   # "from the kitchen": a place not on the map
         if not re.match(_place_re(markers), t[m.start(1):]) and "source" not in out:

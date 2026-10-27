@@ -56,6 +56,11 @@ FETCH = {
     "bring the cup from p2 to Minsu": ("cup", None, P("p2"), None, "hold"),
     "p2에서 컵 가져다가 민수한테 줘": ("cup", None, P("p2"), None, "hold"),
     "빨간 옷 입은 여자분께 컵 갖다 드려": ("cup", None, "here", None, "hold"),
+    # the place said without "to" / 로 (the dashboard, 2026-10-26): a drive there with it, or the way to the thing
+    "take the cup and go p5": ("cup", None, "here", P("p5"), "hold"),
+    "take the cup from p1 and go p5": ("cup", None, P("p1"), P("p5"), "hold"),
+    "컵 들고 p5 가서 기다려": ("cup", None, "here", P("p5"), "hold"),
+    "p2 가서 컵 가져와": ("cup", None, P("p2"), "here", "hold"),
 }
 bad = []
 for text, want in FETCH.items():

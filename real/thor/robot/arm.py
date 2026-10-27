@@ -26,7 +26,11 @@ def cmd(name, **args):
     tries = RETRIES if again else 1
     for i in range(tries):
         try:
-            return _send(name, args)
+            r = _send(name, args)
+            if name in READ_ONLY and r.get("cmdName", name) != name and i < tries - 1:
+                time.sleep(RETRY_S)      # another command's reply (get_data to get_joint_pos, seen): ask again
+                continue
+            return r
         except (ConnectionError, OSError):
             if i == tries - 1:
                 raise

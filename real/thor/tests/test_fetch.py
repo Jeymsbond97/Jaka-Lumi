@@ -681,6 +681,10 @@ fetch.DRIVE_START_S, fetch.agv.status = real_start, real_agv_status
 t0 = time.time()
 fetch._straight(0.01, 1.0)
 assert time.time() - t0 < 0.2 and skills.moved_at["torso"] > t0, skills.moved_at
+# ... a straight approach the base pose did not follow (its own obstacle stop) counts as blocked: another way
+fetch.MOVED_CHECK_M = 0.1
+assert fetch._straight_went(0.2) == 0.0
+fetch.MOVED_CHECK_M = float("inf")
 
 # ---------- measure-axis pairs each object once: two cups before, one after ----------
 b2 = [{"name": "cup", "x": -211.5, "y": 1332.0}, {"name": "cup", "x": 9.0, "y": 1301.0}]

@@ -1179,6 +1179,19 @@ def _straight_clear(dist, speed=None, stop=True):
     return free
 
 
+def _straight_went(dist):
+    """_straight_clear, but the distance the base pose really went (m): a base that stood still (its own obstacle
+    stop, 2026-10-26: the same +0.15 m "driven" three times, the cup never nearer) counts as blocked."""
+    x0, y0, th0 = agv.pose()
+    driven = _straight_clear(dist)
+    x, y, _ = agv.pose()
+    real = abs((x - x0) * math.cos(th0) + (y - y0) * math.sin(th0))
+    if driven >= MOVED_CHECK_M and real < MOVED_MIN_PART * driven:
+        log(f"the base went {real:.2f} m of {driven:.2f} m driven: another way")
+        return real
+    return driven
+
+
 def rolling_lead(speed):
     """How far (m) the base can roll on at `speed` (m/s or a function) after its last joy_control command."""
     return (speed() if callable(speed) else speed or AXIS_SPEED) * JOY_HOLD_S
@@ -1203,7 +1216,7 @@ def _approach(obj, yaw, tried, goal=PICK_ZONE_CENTRE, holding=False):
         turned = abs(turn) < TURN_MIN_DEG or _turn(turn, holding, why="to face it")
         if turned:
             turn = 0.0
-        if turned and (abs(s) < PROBE_STEP_M or _straight_clear(s) >= PROBE_STEP_M):
+        if turned and (abs(s) < PROBE_STEP_M or _straight_went(s) >= PROBE_STEP_M):
             return                                    # else the turn or the straight way is blocked: go round
     x, y, th = agv.pose()
     world = np.array([x, y]) + _rot(math.degrees(th)) @ to_base((obj["x"], obj["y"]), yaw, t)
