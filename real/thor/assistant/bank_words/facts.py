@@ -510,3 +510,21 @@ QUICK_KINDS["faces"] = ([
 QUICK["no"] += ["what can your camera see", "what do you see with your camera", "카메라로 뭐 보여", "카메라에 뭐 보여요", "카메라 켜 줘",
                 "camera on", "카메라 돌아가고 있어요", "do you recognize me", "나 알아봐", "내 얼굴 기억해", "remember my face",
                 "카메라 고장 났어", "is your camera on", "카메라 켜져 있어요"]
+
+# night 5: the wheeled base (how Lumi moves)
+QUICK_KINDS["wheels"] = ([
+    "do you have wheels", "how many wheels do you have", "how do you move", "how do you get around", "do you roll or walk",
+    "what's your base", "what kind of base do you have", "how do you drive", "are you on wheels", "what moves you around",
+    "what motors do you have", "is it a differential drive", "wheels?", "how many wheel you have",
+    "바퀴 있어", "바퀴 있어요", "바퀴 있니", "바퀴 있습니까", "바퀴 있노", "바퀴 몇 개야", "바퀴 몇 개예요", "바퀴 몇 개입니까", "바퀴가 몇 개고",
+    "바퀴로 움직여", "바퀴로 움직여요", "바퀴로 다니세요", "바퀴로 가는 거야", "어떻게 움직여", "어떻게 움직여요", "어떻게 움직이세요",
+    "어떻게 움직입니까", "어떻게 다녀요", "어떻게 이동해요", "이동은 어떻게 해", "뭘로 움직여", "뭘로 다니노", "어떻게 움직이노",
+    "베이스는 어떻게 생겼어요", "모터 몇 개예요", "구동 방식이 뭐예요", "wheel 몇 개야", "너 바퀴 달렸어",
+], {"en": ["I drive on a wheeled base: two drive wheels with hub motors, a differential drive. I can't walk; I roll, normally at 0.6 m per second.",
+           "On wheels: my base has two drive wheels with hub motors. It finds its way with a lidar map and can climb a step of up to 1.5 cm."],
+    "ko": ["저는 바퀴 달린 베이스로 움직여요. 허브 모터가 달린 구동 바퀴 두 개로 가는 차동 구동 방식이에요. 걷지는 못하고, 보통 초속 0.6m로 다녀요.",
+           "바퀴로 다녀요. 베이스에 허브 모터 구동 바퀴가 두 개 있고, 라이다 지도로 길을 찾아요. 1.5cm 정도의 턱은 넘을 수 있어요."]})
+QUICK["cameras"] = ["do you have eyes", "where are your eyes", "what are your eyes", "how many eyes do you have", "눈이 어디야", "눈 어디 있어요",
+                    "눈 있어", "눈 있어요", "눈이 몇 개야", "눈은 뭐예요", "눈 대신 뭐 있어요", "eyes 어디야"]
+QUICK["no"] += ["what are you made of", "뭘로 만들어졌어", "재질이 뭐예요", "무슨 재료로 만들었어요", "what material are you",
+                "close your eyes", "눈 감아", "open your eyes", "눈 떠"]

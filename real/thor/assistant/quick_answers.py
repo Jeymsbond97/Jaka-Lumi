@@ -86,7 +86,7 @@ KINDS = {
                "저는 쿳션이라는 한국 로봇 회사에서 왔어요."]}),
     "height": ([
         "how tall are you", "what's your height", "what is your height", "how tall is lumi", "how tall is this robot",
-        "how high are you", "your height?", "hau tall are you", "how tall r u", "how tall can you get",
+        "how high are you", "your height?", "hau tall are you", "how tall r u",
         "how tall are you in centimeters",
         "키가 몇이야", "키가 몇이에요", "키 얼마야", "키가 얼마나 돼요", "너 키 몇이야", "키 몇 센티예요", "이 로봇 키가 얼마예요",
         "키가 몇 센치고", "키 얼마나 크노", "얼마나 커요", "키 몇이에요", "your 키 몇이야",
@@ -293,12 +293,13 @@ EVENT_TIME = re.compile(r"\b(?:what time|what day|which day|what date) (?:does|d
 OTHER_FIRM = re.compile(r"\b(?:openai|google|samsung|apple|lg|microsoft|tesla|nvidia|hyundai|naver|kakao|meta|amazon|sony)\b|"
                         r"오픈 ?ai|오픈에이아이|구글|삼성|애플|엘지|마이크로소프트|테슬라|엔비디아|현대|네이버|카카오|메타|아마존|소니", re.I)
 OTHER_ROBOT = re.compile(r"\b(?:jaka|jacka|k1[wl]?|kargo|peitian|tusk)\b|자카|작카|节卡|페이톈|페이티엔|터스크|"
-                         r"\b(?:that|the other|other|another|those) robots?\b|(?:저|그|옆에|옆의|옆|다른) ?로봇", re.I)
+                         r"\b(?:that|the other|other|another|those) robots?\b|(?:저|그|옆에|옆의|옆집|옆|다른) ?로봇", re.I)
 OTHER_DAY = re.compile(r"\b(?:tomorrow|yesterday|next (?:week|month|year|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|"
                        r"last (?:week|month|year))\b|내일|어제|모레|그저께|글피|다음 ?주|지난 ?주|다음 ?달|지난 ?달|내년|"
                        r"(?:크리스마스|성탄절?)(?:가|는|이|은)? ?(?:무슨|몇) ?요일|\b(?:what|which) day (?:is|was|will be) christmas\b", re.I)
 NAMES_LUMI = re.compile(r"\b(?:you|your|yourself|u|ur|lumi)\b|(?:^|\s)(?:너|넌|니|네|당신|루미|본인|자기)", re.I)
 
+NEEDS = {"days_to_christmas": r"크리스마스|성탄|christmas|xmas|x-mas|산타|santa"}   # a kind only when its word is said ("추석 며칠 남았어?")
 _bank = None
 _named = None
 _exact_kinds = None
@@ -360,7 +361,7 @@ REMARK = re.compile(r"(?:(?:어+|아+|음+|um+|uh+)\s+)?(?:quick question|just (
                     r"(?:하나 ?|뭐 ?하나 ?|질문 ?하나 ?)?(?:여쭤|여쭈어|물어) ?(?:봐|바|보)도 ?(?:될까요|돼요|되나요|됩니까|될까|돼)|"
                     r"질문 ?(?:하나 ?)?(?:해도 ?(?:될까요|돼요|되나요)|있어요|있습니다|있는데요?)|궁금한 ?게 ?있(?:는데요?|어요|습니다)|"
                     r"하나 ?묻겠습니다|실례합니다|실례지만|(?:may|can|could) i ask (?:you )?(?:something|a question)|"
-                    r"i have a question|one question)", re.I)
+                    r"i have a question|one question|(?:오|아|와|oh|wow)? ?(?:그래|그렇구나|그렇군요|정말|진짜|really|i see|대박|wow|cool|nice))", re.I)
     # a sentence that only asks to be told or says why: "Christmas 얼마나 남았어요? 알고 싶어요."
 SENTENCES = re.compile(r"(?<=[?？!])\s*|(?<=\.)\s+")
 
@@ -432,7 +433,8 @@ def guarded(text, history=()):
     if re.search(r"충전\S*\s*(?:\S+\s+)?(?:얼마나|몇\s*시간|몇\s*분)\s*(?:\S+\s+)?걸|완충|충전\s*시간|"
                  r"\bhow long\b.*\b(?:to (?:re)?charge|(?:charging|recharging|a (?:full )?charge) takes?)\b|\bcharg\w* time\b", t, re.I):
         return "charging time"                         # "충전하는 데 얼마나 걸려?": not known (the LLM says so), not the battery life
-    if REQUEST.search(t) or re.search(r"(?:시지요|시죠|십시오|하시오|가시게|오시게|하시게|라 마|원위치)\W*$", t):
+    if REQUEST.search(t) or re.search(r"(?<!알려 주)(?<!말해 주)(?<!알려주)(?<!말해주)(?<!가르쳐 주)"
+                                      r"(?:시지요|시죠|십시오|하시오|가시게|오시게|하시게|라 마|원위치)\W*$", t):
         return "a command"                             # the rules' (or the LLM's), never a fact
     if re.search(r"살짜리|살 짜리|살용|살 이상", t):
         return "for an age"                            # "이거 몇 살짜리 장난감이야?": not Lumi's age
@@ -457,7 +459,8 @@ ASKS = re.compile(r"[?？]\W*$|\b(?:what|who|whom|whose|how|where|when|why|which
 ORDER = re.compile(r"^\W*(?:please\s+)?(?:go|come|turn|take|bring|pick|put|give|follow|wave|look|move|lift|raise|lower|stop|sing|"
                    r"dance|fold|reach|grab|show|open|close|hold|drive|walk|fly|speak|say|tell|let'?s|wait|stand|sit)\b|"
                    r"(?<!알려 )(?<!말해 )(?<!알려)(?<!말해)(?<!가르쳐 )(?:줘|줘요|주세요|주십시오|주시오|주라|해라|하자|가자|와라|봐라|내밀어|흔들어|돌아|돌려|들어|내려|접어|펴|가|와|멈춰|그만|"
-                   r"시지요|시죠|십시오|하시오|가시게|오시게|하시게|라 마|넣어|열어|닫아|놔|잡아|집어|가져와|이동해 좀|틀어|원위치)\s*[!.~…]*$", re.I)
+                   r"(?<!알려 주)(?<!말해 주)(?<!알려주)(?<!말해주)(?:시지요|시죠|십시오)|하시오|가시게|오시게|하시게|라 마|넣어|열어|닫아|놔|잡아|집어|가져와|"
+                   r"이동해 좀|틀어|원위치)\s*[!.~…]*$", re.I)
     # a command (said before a question, or as one sentence of several): never left out for the question
 REQUEST = re.compile(r"\b(?:would|could|can|will) you (?:please |kindly )?(?:go|come|turn|take|bring|pick|put|give|wave|look|move|lift|"
                      r"raise|lower|fold|open|close|plug|tilt|spin|rotate)\b(?!.*\b(?:stairs?|steps?|ramps?|slopes?|doors?)\b)"
@@ -537,7 +540,7 @@ def _kind(text, history):
     core = _core(text)
     if not sure:                                       # "누가너를만들었습니까": a wording run together (whisper)
         best = _exact().get(_squeezed(core)) if re.fullmatch(r"\S*[가-힣]{4}\S*", core) else None
-    if best in (None, "no"):
+    if best in (None, "no") or best in NEEDS and not re.search(NEEDS[best], text, re.I):
         return None
     if best == "hello" and history:
         return None                                    # hello in the middle of a talk: the LLM

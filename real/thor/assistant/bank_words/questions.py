@@ -777,3 +777,18 @@ QUICK["tts"] += ["what speech synthesis do you use", "what voice synthesis do yo
 QUICK["no"] += ["can you open the window", "open the window", "창문 열어 줘", "창문 열 수 있어", "turn on the internet", "인터넷 켜 줘",
                 "connect to the wifi", "와이파이 연결해 줘", "여기 안전해", "is it safe here", "이 동네 안전해요", "is this area safe",
                 "바닥 안전해", "is the floor safe"]
+QUICK["tts"] += ["do you have a speaker", "where is your speaker", "where's your mouth", "do you have a mouth", "how do you talk without a mouth",
+                 "스피커 어디 있어요", "스피커 있어", "스피커 있어요", "입이 어디야", "입 있어", "소리는 어디서 나와요", "목소리 어디서 나와"]
+QUICK["computer"] += ["where is your brain", "where's your brain", "where is your computer", "brain where", "뇌가 어디야", "두뇌는 어디 있어요",
+                      "컴퓨터 어디 들어 있어", "컴퓨터는 어디에 있어요"]
+# round 8 (own new phrasings: body and abilities kinds)
+QUICK["navigation"] = QUICK.get("navigation", []) + ["how do you find your way around", "how do you get around the room", "how do you know your way", "어떻게 길을 알아요",
+                        "길은 어떻게 아세요", "길 안 잃어버려"]
+QUICK["obstacles"] = QUICK.get("obstacles", []) + _ko(["사람 있으면 멈춰", "앞에 사람 있으면 서", "사람 나타나면 멈춰", "뭐가 막고 있으면 멈춰"], ["", "요", "?", "요?", "니", "나요"]) + [
+    "do you stop for people", "will you stop if someone is in the way", "do you stop when someone walks in front of you"]
+QUICK["grow"] = QUICK.get("grow", []) + ["can you raise your body", "can you lift your body", "can your body go up", "몸 올라가요", "몸통 올릴 수 있어요", "상체 올라가요"]
+QUICK["teach"] = QUICK.get("teach", []) + ["can i teach you something new", "can i teach you", "can people teach you things", "can you be taught", "내가 가르쳐 줄 수 있어",
+                   "가르쳐 주면 배워요", "가르치면 배울 수 있으세요"]
+QUICK["no"] += ["여기 어느 나라야", "여기 어느 나라예요", "이 나라 어디야", "what country is this", "which country are we in", "where are we",
+                "what does cutshion mean", "쿳션이 무슨 뜻이야", "쿳션 뜻이 뭐예요", "cutshion 이름 뜻", "추석 며칠 남았어", "설날 며칠 남았어요",
+                "how many days until new year", "how many days to chuseok", "생일까지 며칠 남았어"]

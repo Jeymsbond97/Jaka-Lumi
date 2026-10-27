@@ -224,10 +224,36 @@ NEG_b = ["Where can I buy a robot like you?", "쿳션 주식 살 수 있어요?"
        "Can you open the window?", "문 좀 열어 줘", "Climb the stairs now", "계단으로 가", "Dance for me!", "춤 춰 봐", "Touch my hand",
        "내 손 만져 봐", "Show me your camera", "카메라 보여 줘", "Turn on the internet", "와이파이 비밀번호 뭐야?", "What's the wifi password?",
        "Pick up the bottle", "병 집어 줘", "How heavy is this bottle?", "이 병 몇 킬로야?", "Is the floor safe?", "여기 안전해?"]
-for _p in (POS_a, POS_b):
+POS_c = {
+ "battery_spec": ["What battery is in you?", "배터리 용량이 어떻게 되십니까?", "배터리 전압이 몇 볼트예요?", "What kind of battery powers you?", "배터리 종류 뭐고?"],
+ "charging": ["How do you charge?", "충전은 어떻게 하세요?", "Can you go charge by yourself?", "혼자 충전하러 갈 수 있어?", "Where do you charge?"],
+ "navigation": ["How do you know where to go?", "길 찾는 건 어떻게 해?", "Do you need a map?", "자율주행 하세요?", "How do you find your way around?"],
+ "obstacles": ["What if someone blocks your way?", "장애물 있으면 어떻게 해요?", "Do you stop for people?", "사람 있으면 멈춰?", "Will you crash into things?"],
+ "size": ["덩치가 얼마나 돼요?", "How wide are you?", "폭이 몇 센티예요?", "What size is your base?"],
+ "grow": ["Can you get taller?", "키 늘어나요?", "How tall can you get?", "최대로 키 높이면 몇이에요?", "Can you raise your body?"],
+ "turn_range": ["Can your head turn all the way around?", "고개는 몇 도까지 돌아가요?", "How far can you turn your waist?", "허리 얼마나 돌아가니?"],
+ "teach": ["Can I teach you something new?", "새로운 거 가르칠 수 있어요?", "Do you learn from people?", "배울 수 있으세요?"],
+ "detector": ["How do you recognize objects?", "물체 인식 뭐로 해요?", "What vision model do you use?", "사람은 어떻게 찾아요?"],
+ "software": ["What programming language are you written in?", "어떤 언어로 프로그래밍했어요?", "Is your software Python?", "소프트웨어 뭘로 만들었습니까?"],
+ "accuracy": ["How accurate is your arm?", "팔 정밀도가 얼마나 돼요?", "What's your repeatability?", "오차가 몇 mm예요?"],
+ "pick_what": ["What things can you pick up?", "뭘 집을 수 있어요?", "Can you pick things up from the floor?", "바닥에 있는 거 주울 수 있어?"],
+ "paper_cup": ["Can you hold a paper cup?", "종이컵 잡을 수 있어요?", "Can you grab a paper coffee cup?"],
+ "arm_weight": ["How heavy is your arm?", "팔 무게가 얼마예요?", "What does your arm weigh?"],
+ "estop": ["Where's your emergency stop?", "비상 정지 버튼 어디 있어요?", "How do I stop you in an emergency?"],
+ "used_where": ["Where are robots like you used?", "어디에 쓰는 로봇이에요?", "What are you made for?", "용도가 뭐예요?"],
+ "country": ["Which country are you from?", "어느 나라 로봇이에요?", "Are you Korean?", "한국 로봇이에요?"],
+ "name_meaning": ["What does your name mean?", "루미가 무슨 뜻이에요?", "Why are you called Lumi?", "이름에 무슨 뜻 있어?"],
+ "days_to_christmas": ["How many days till Christmas?", "크리스마스까지 며칠 남았어요?", "Is Christmas coming soon?", "성탄절까지 얼마나 남았어?"],
+}
+NEG_c = ["Charge my phone", "핸드폰 충전해 줘", "Go to the charger", "충전기로 가", "Find the way to the exit", "출구로 가는 길 알려 줘",
+       "Avoid that chair", "의자 피해서 가", "Make yourself bigger", "키 높여", "Turn your head left", "고개 왼쪽으로 돌려", "Teach me Korean",
+       "한국어 가르쳐 줘", "What is that object?", "저거 뭐야?", "Write me a program", "코딩해 줘", "Pick up the cup", "컵 집어", "Hold my cup",
+       "내 컵 잡아 줘", "Lift your arm", "팔 들어", "Stop!", "멈춰!", "Where is the hotel?", "호텔 어디야?", "Which country is this?", "여기 어느 나라야?",
+       "What does Cutshion mean?", "쿳션이 무슨 뜻이야?", "When is Chuseok?", "추석 며칠 남았어?"]
+for _p in (POS_a, POS_b, POS_c):
     for _k, _t in _p.items():
         POS.setdefault(_k, []).extend(_t)
-NEG += NEG_a + NEG_b
+NEG += NEG_a + NEG_b + NEG_c
 
 
 def run():

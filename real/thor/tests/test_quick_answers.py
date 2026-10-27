@@ -37,7 +37,9 @@ KIND = {   # words (no talk before) -> kind
     "You're Siri, aren't you?": "name", "너 2미터지?": "height", "Samsung made you, right?": "maker", "이번 달 알려 줘.": "date_today",
     "에이지가 몇이야?": "age", "스피드가 얼마야?": "speed", "메이커가 어디야?": "maker", "do you have the time?": "time_now",
     "아이들 옆에 있어도 안전해?": "safety", "what cameras do you have?": "cameras", "얼굴 인식 돼요?": "faces",
-    "컴퍼니 오픈 언제예요?": "co_founded", "참, 로봇 양반, 이름이 무슨 뜻이야?": "name_meaning", "Your voice, what program?": "tts",
+    "컴퍼니 오픈 언제예요?": "co_founded", "참, 로봇 양반, 이름이 무슨 뜻이야?": "name_meaning", "Your voice, what program?": "tts", "들어 있는 인공지능 무엇인지 알려 주십시오": "model",
+    "실례합니다. 네 이름 무엇인지 알려 주십시오": "name", "바퀴 몇 개야?": "wheels", "do you have eyes?": "cameras",
+    "스피커 어디 있어요?": "tts", "Is it safe for kids to be near you?": "safety",
 }
 IN_TALK = {   # words after TALK -> kind or None
     "how old are you?": "age", "who made you?": "maker", "what's your name?": "name",
@@ -63,7 +65,9 @@ NEVER = [   # no talk before: never a quick answer
     "손! 손 내밀어!", "go the souvenir shop, ehh, tell me time", "Turn your head toward me, young robot.", "배터리, 아 아니, 지금 뭐 해?",
     "오픈AI 대표 누군가?", "1달러에 원화로 얼만가?", "롯데타워 하이트 얼마야?", "K1 정밀도 어때요?", "PEITIAN 로봇의 가반하중은 얼마입니까?",
     "배터리 수명이 몇 년이에요?", "배터리 얼만가?", "do you have time?", "언제?", "How do you know?",
-    "위험해", "손에 뭐 있어?", "what can your camera see?", "do you recognize me?", "저기 평가 항목, 루미, 오늘 무슨 요일이야?",
+    "위험해", "손에 뭐 있어?", "what can your camera see?", "do you recognize me?", "저기 평가 항목, 루미, 오늘 무슨 요일이야?", "홀로 가십시오", "근데 너 몇 살이야? 아 됐고, 검정 머그컵 잡으시지요",
+    "Lumi, could you turn your head ten degrees down?", "이 로봇 마 저한테 손 쫌 주실래요? 알겄제", "내일 며칠이야?", "오늘 미세먼지 어때?",
+    "충전하는 데 얼마나 걸려?", "이거 몇 살짜리 장난감이야?",
 ]
 FACT = {"chatgpt": r"\bno\b|아니", "name": r"lumi|루미", "who": r"lumi|루미", "age": r"\b2\b|two|두 살", "maker": r"cutshion|쿳션",
         "height": r"146", "battery_life": r"10", "languages": r"english|영어", "model": r"gemma|젬마",
