@@ -41,7 +41,7 @@ _FILL = (r"(?:(?:저기 |그 )?(?:이보게(?: 루미)?|어이(?: 로봇아?| �
          r"please|let'?s|lets|hey lumi|hi lumi|hey|hi|lumi|loomi|rumi|okay|ok|alright|all right|so|well|real quick|if you can|if you could|자|저기|저기요|혹시|instead|um+|uh+|er|hmm|thank you|thanks|now|then|and|also|first|next|"
          r"finally|after that|there|for me|for us|again|carefully|slowly|could you|can you|would you|will you|could u|can u|would u|will u|"
          r"could ya|can ya|would ya|will ya|"
-         r"pls|plz|yo|would it be possible to|is it possible to|could i ask you to|would you mind|lumi야|루미야|루미|음|응|어|야 로봇|로봇아|로봇야|"
+         r"pls|plz|yo|dear|much obliged|thanks a million|very thank you|would it be possible to|is it possible to|could i ask you to|would you mind|lumi야|루미야|루미|음|응|어|야 로봇|로봇아|로봇야|"
          r"감사합니다|고마워요|고마워|고맙습니다|좀|먼저|우선|일단|그다음|그 다음|마지막으로|다시|lastly|first of all|"
          r"(?:i'?d|i would) like you to|i want you to|i need you to|you should|kindly|go ahead and|maybe|possibly|"
          r"do me a favou?r and|be a dear and|right away|quickly|if you don'?t mind|excuse me|sorry|"

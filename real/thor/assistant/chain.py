@@ -100,6 +100,9 @@ def parts(text):
     return [p for p in out if p and not re.fullmatch(rf"(?:{_FILL.pattern}|\W)+", p, re.I)]
 
 
+TAG_TALK = re.compile(r"\W*(?:(?:is|it'?s) (?:it )?(?:ok|ok+ay|possible|fine|good)(?: for you| with you)?|possible|you can do|can you do|"
+                      r"(?:is )?(?:that|this) (?:ok|okay)|ok(?:ay)?|알긋나|알겠나|알았지|됐지|괜찮지|괜찮아요?|가능해요?|되나요?)\W*",
+                      re.I)   # "rotate right 45 degrees, is okay for you?": a check after the order, no part of its own
 CALL_ONLY = re.compile(r"\W*(?:(?:excuse me|hey|hi|hello|yo|okay|ok|lumi|robot|buddy|루미 ?씨|루미야?|로봇아?|야|어이|저기요?|"
                       r"이보게)\W*)+", re.I)
 
@@ -122,7 +125,8 @@ def plan(text, markers=(), cant=None):
         return None                                      # "turn around and look": the head looks behind
     out = []
     for p in ps:
-        if SELF_PROMISE.search(p) or out and _restated(p, out[-1][1]) or brain.GREET_ONLY.match(p) or CALL_ONLY.fullmatch(p):
+        if SELF_PROMISE.search(p) or out and _restated(p, out[-1][1]) or brain.GREET_ONLY.match(p) or CALL_ONLY.fullmatch(p) or \
+                out and TAG_TALK.fullmatch(p):
             # "hello robot, …", "야 루미, …", "excuse me robot, …": the call, no part
             continue                                     # "흰색 머그컵 잡아!, 아 잡아 줄 수 있어요?": the order once
         got, unread = steps.rules(p, markers)

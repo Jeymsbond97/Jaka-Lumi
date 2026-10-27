@@ -1247,7 +1247,7 @@ def _held_parse(body, markers, said=None):
     from assistant import brain, steps
     from tasks import fetch
     held, text = fetch.held_name(), brain.give_clause(body.text)   # not where the person it is for goes
-    m, t = brain._mentions(text, markers), brain._norm(text)
+    m, t = brain._mentions(text, markers), brain._norm(text, markers)   # "booth 3" is the map's booth_3
     if isinstance(m.get("source"), dict) and not brain.held_command(text):     # "take the bottle from p2": a new fetch
         return {"action": None, "task": None, "sentence": "–", "problems": [
             f"I'm holding {held}: give it to you, put it on a table, or say where to bring it first."]}

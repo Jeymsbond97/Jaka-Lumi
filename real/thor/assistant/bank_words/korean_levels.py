@@ -33,7 +33,7 @@ VERBS = {
 # 하게체, dialect (경상 / 전라 / 충청), written slips and suggestions
 ENDS = [
     "{a}", "{a} 줘", "{a} 봐", "{a}라", "{a} 줄래?", "{a} 줄 수 있어?", "{a} 주라", "{a} 줘라", "{a} 봐 봐", "{a}줘", "{a}봐",
-    "{a} 줄래 응?", "{a} 주지 않을래?", "{a} 줄 수 있겠어?", "{a} 주는 거 어때?",
+    "{a} 줄래 응?", "{a} 주지 않을래?", "{a} 줄 수 있겠어?",
     "{a}요", "{a} 줘요", "{a} 주세요", "{a} 봐요", "{a} 줄래요?", "{a} 주실래요?", "{a} 주시겠어요?", "{a} 주실 수 있어요?",
     "{a} 주셔요", "{a} 주셔", "{a} 주시지 않겠어요?", "{a} 주셨으면 해요", "{a} 주시면 감사하겠습니다",
     "{s}세요", "{s}시겠어요?", "{s}실래요?", "{s}시죠",
@@ -127,3 +127,35 @@ if __name__ == "__main__":
     for k, v in INTENT.items():
         print(f"{k:10} {len(v)}")
     print("total", sum(map(len, INTENT.values())))
+
+
+# ---------- Konglish: English words with Korean verbs and endings ("me 봐", "턴 레프트 해 주세요", "p3로 무브해") ----------
+HAE = ["{a} 해", "{a} 해 줘", "{a}해 줘", "{a} 해 주세요", "{a} 해 주십시오", "{a} 해 줄래?", "{a} 해 주실래요?", "{a} 해 봐",
+       "{a} 해라", "{a} 해 주이소", "{a} 해 줘잉", "{a} 해 주게", "{a} 해 줘유", "{a} 좀 해 줘", "{a} 해 주세여", "{a} 하세요",
+       "{a} 하십시오", "{a} 해져", "{a} 해 주라", "{a} 해 주시겠어요?"]
+
+
+def _hae(cores):
+    return list(dict.fromkeys(e.format(a=c) for c in cores for e in HAE))
+
+
+KONGLISH = {
+    "look": _make(["me ", "여기 ", "here ", "left ", "right ", "up ", "down ", "front ", "레프트 ", "라이트 ", "업 ", "다운 ",
+                   "프론트 ", "left 쪽 ", "right 쪽 ", "위 쪽 "], ["봐"]) +
+            _hae(["look 여기", "look me", "look at me", "look up", "look down", "look left", "look right", "head left",
+                  "head right", "head up", "head down", "룩 업", "룩 다운", "룩 레프트", "룩 라이트", "룩 앳 미"]),
+    "turn": _hae(["턴 레프트", "턴 라이트", "레프트 턴", "라이트 턴", "left로 턴", "right로 턴", "왼쪽으로 턴", "오른쪽으로 턴",
+                  "turn left", "turn right", "left turn", "right turn", "유턴", "u턴", "turn around"]),
+    "move": _hae(["forward로 무브", "back으로 무브", "앞으로 무브", "뒤로 무브", "go forward", "move back", "move left",
+                  "move right", "레프트로 무브", "라이트로 무브"]) +
+            _make(["forward로 ", "left로 ", "right로 ", "앞쪽으로 "], ["가"], share=0.1),
+    "go_to": _hae(["<place>로 무브", "<place>로 move", "go to <place>", "<place> 고고", "<place>로 고", "<place>로 go"]),
+    "come": _hae(["컴 히어", "come here", "come 여기", "여기로 come", "이리 컴", "컴온 히어", "come to me", "here로 컴"]),
+    "follow": _hae(["follow me", "팔로우 미", "follow", "팔로우", "나 follow", "저 팔로우", "follow 모드"]),
+    "lift": _hae(["바디 업", "바디 다운", "body up", "body down", "lift up", "lift down", "리프트 업", "리프트 다운", "키 업",
+                  "키 다운", "height up", "height down", "몸 업", "몸 다운"]),
+    "wave": _hae(["wave", "웨이브", "핸드 웨이브", "hand wave", "손 웨이브", "바이 바이", "빠이빠이", "하이", "shake hands",
+                  "악수", "핸드셰이크"]),
+}
+for _k, _t in KONGLISH.items():
+    INTENT[_k] = INTENT.get(_k, []) + [t for t in _t if t not in INTENT.get(_k, [])]

@@ -223,6 +223,8 @@ GIVE = [
     "i'll take it", "i'll take it from you", "let me take it", "let me take that", "hand it on over", "pass that to me",
     "give that to me now", "give it to me please", "give me the thing", "give it, please", "hand it",
     "you give me please", "give me now", "now give me",
+    "hand me that", "hand me that, thank you", "hand me that, thank you very much", "pass me that, thanks",
+    "hand that over, thank you", "hand me that one please",
     "그거 나 줘", "이리 내", "이리 내놔", "내놔", "그거 내놔", "그거 이리 넘겨", "건네 줘", "넘겨 줘", "저한테 넘겨 주세요",
     "저 주십시오", "나한테 줘", "제게 주시겠어요?", "그거 받을게", "제가 받겠습니다", "주라", "줘 봐라", "그거 주소",
     "이리 주이소", "그거 주쇼", "이리 도", "그거 나 도", "줘유", "기브 미", "give 해 줘", "그거 이리 주시게",
@@ -631,6 +633,159 @@ PICK += ["<obj> 픽업 해", "<obj> 픽업 해 줘", "<obj> grab 해 줄 수 있
                    "<obj> 집어 져", "<obj> 잡아 져", "<obj> 집어! 가즈아", "<obj> 들어라", "<obj> 잡아 봐요"]
 NO += ["송 불러 줘", "송 하나 불러", "송 틀어 줘", "생일 송 불러 줘", "노래 송 틀어", "손 송 노래", "drop the beat", "drop the mic",
                 "let it go 불러 줘", "sing let it go", "release the song", "give everyone a break", "give everyone a minute"]
+
+
+# ---------- fresh negatives (new frames and slang) and arm things Lumi can't do: all "no" ----------
+NEG2_EN = {"wave": ("wave", "waved", "waving"), "shake": ("shake my hand", "shook my hand", "shaking hands"),
+      "reach": ("reach out", "reached out", "reaching out"), "fold": ("put your arm down", "put your arm down", "putting your arm down"),
+      "open": ("open the gripper", "opened the gripper", "opening the gripper"),
+      "close": ("make a fist", "made a fist", "making a fist"), "pick": ("grab the bottle", "grabbed the bottle", "grabbing the bottle"),
+      "fetch": ("fetch the cup", "fetched the cup", "fetching the cup")}
+_neg2 = []
+for base, past, ing in NEG2_EN.values():
+    _neg2 += [f"nah, don't {base}", f"bro don't {base}", f"plz don't {base}", f"u don't gotta {base}", f"no {ing} please",
+               f"quit {ing}", f"enough {ing}", f"you {past} like five minutes ago", f"you already {past}",
+               f"remember when you {past}?", f"lol you {past} at me", f"bet you can't {base}", f"i dare you not to {base}",
+               f"would you {base} if i asked?", f"are you gonna {base}?", f"is it hard to {base}?", f"how do you {base}?",
+               f"what happens if you {base}?", f"do robots like to {base}?", f"my little brother can {base} too",
+               f"my robot at home can {base}", f"the other robot {past} at me", f"once the show starts, {base}",
+               f"only {base} when the music stops", f"after lunch you can {base}", f"{base} in an hour",
+               f"jiwoo, {base}", f"Sarah, {base}", f"kids, {base}", f"guys, {base}", f"i'm gonna {base} now", f"let me {base} first",
+               f"{ing} looks easy", f"{ing} must be boring for you", f"love the way you {base}", f"you {base} so smoothly"]
+NEG2_KO = {"wave": ("손 흔들", "손 흔들었", "손 흔드는", "손 흔들", "손 흔들어"), "shake": ("악수하", "악수했", "악수하는", "악수할", "악수해"),
+      "reach": ("팔 뻗", "팔 뻗었", "팔 뻗는", "팔 뻗을", "팔 뻗어"), "fold": ("팔 거두", "팔 거뒀", "팔 거두는", "팔 거둘", "팔 거둬"),
+      "open": ("그리퍼 열", "그리퍼 열었", "그리퍼 여는", "그리퍼 열", "그리퍼 열어"),
+      "close": ("주먹 쥐", "주먹 쥐었", "주먹 쥐는", "주먹 쥘", "주먹 쥐어"), "pick": ("병 집", "병 집었", "병 집는", "병 집을", "병 집어"),
+      "fetch": ("컵 갖다주", "컵 갖다줬", "컵 갖다주는", "컵 갖다줄", "컵 갖다줘")}
+
+for stem, past, adn, fut, imp in NEG2_KO.values():
+    _neg2 += [f"{stem}지 마라", f"{stem}지 마쇼", f"{stem}지 말게", f"{stem}지 마유", f"{stem}지 마 ㅋㅋ", f"{stem}지 않아도 됩니다",
+               f"{stem}기 싫어", f"{stem}기 전에 물어봐", f"{past}던데?", f"{past}다며?", f"방금 {past}지?",
+               f"{past}을 때 귀여웠어", f"{adn} 거 또 보고 싶다", f"{adn} 거 어떻게 배웠어?", f"{adn} 게 힘들어?", f"{adn} 로봇 처음 봐",
+               f"{fut} 수 있으려나", f"{fut} 수 있다고 들었어", f"{fut} 거야?", f"{fut} 때 말해 줘", f"공연 끝나면 {stem}자",
+               f"점심 먹고 {stem}자", f"한 시간 뒤에 {stem}기", f"지우야 {imp} 봐", f"얘들아 {imp} 봐", f"우리 동생도 {fut} 줄 알아",
+               f"나도 {fut} 수 있어", f"{adn} 거 별로야", f"{adn} 거 대박", f"{adn} 거 ㄹㅇ 신기"]
+ARM_CANT = [  # arm things Lumi can't do: nothing must move (the LLM says why)
+    "arm wrestle with me", "let's arm wrestle", "팔씨름 한판 하자", "팔씨름 하실래요?", "swing your arm around fast", "팔 막 휘둘러 봐",
+    "팔 빙빙 돌려 봐", "spin your arm in circles", "make a finger heart", "손가락 하트 해 주세요", "do the flower pose", "꽃받침 해 줘",
+    "꽃받침 포즈 해 주세요", "make a v sign", "브이 해 줘", "브이 포즈 해 주세요", "give me a thumbs up", "엄지 척 해 주세요", "따봉 해 줘",
+    "clap for us", "박수 쳐 주세요", "박수 좀 쳐 봐", "count to five on your fingers", "손가락으로 다섯까지 세 봐", "scratch my back",
+    "등 좀 긁어 줘", "등 긁어 주세요", "tap my friend on the shoulder", "내 친구 어깨 좀 톡톡 쳐 줘", "take a selfie with your arm",
+    "팔로 셀카 찍어 줘", "hold my umbrella", "우산 좀 들어 줘", "우산 씌워 주세요", "hold my baby", "아기 좀 안아 줘", "애기 좀 잠깐 들고 있어",
+    "hold this hot pot", "뜨거운 주전자 좀 들어 줘", "stir my coffee", "커피 좀 저어 줘", "pour me some water", "물 좀 따라 줘",
+    "물 따라 주세요", "wipe the table", "테이블 좀 닦아 줘", "wash my cup", "컵 좀 씻어 주세요", "cut this ribbon", "이 리본 잘라 줘",
+    "tie my shoes", "신발 끈 묶어 줘", "turn the page", "책장 넘겨 줘", "type on my laptop", "노트북에 타자 쳐 줘", "write my name",
+    "내 이름 써 줘", "open this bottle", "병뚜껑 따 줘", "이 병 좀 열어 주세요", "open the drawer", "서랍 열어 줘", "open my umbrella",
+    "우산 펴 줘", "knock on the door", "문 두드려 줘", "press the button", "그 버튼 눌러 줘", "엘리베이터 버튼 눌러 주세요",
+    "punch the wall", "벽 쳐 봐", "주먹으로 벽 쳐", "toss me the ball", "공 던져 줘", "throw it to me", "던져 줘", "kick the ball",
+    "공 차 줘", "feed me", "밥 먹여 줘", "carry my suitcase", "캐리어 좀 끌어 줘", "carry this heavy box", "이 무거운 상자 들어 줘",
+    "hand out these flyers", "전단지 좀 나눠 줘", "give me a tissue", "휴지 한 장 줘", "hold the door", "문 좀 잡아 줘",
+    "raise the cup over your head", "컵 머리 위로 들어", "shake the cup", "컵 흔들어 봐", "clink cups with me", "건배하자 컵 부딪혀",
+    "wave with the cup in your hand", "컵 든 채로 손 흔들어", "pick it up off the floor", "바닥에 있는 거 주워 줘", "바닥에 떨어진 컵 주워",
+]
+NO += [t for t in _neg2 if not t.startswith(("jiwoo,", "Sarah,", "kids,", "guys,", "지우야", "얘들아"))] + ARM_CANT
+
+
+# ---------- very formal Korean frames, cute endings, English frames (r12 gaps); "the moment …", "can your model …" ----------
+KO_END9 = [" 주십사 부탁드립니다", " 주실 것을 요청드립니다", " 주시기를 요청합니다", " 주지 않겠는가", " 주실 수 있으신지요",
+           " 주실 수 있으신지요? 부탁드려요", " 줘용 응응", " 줘 응응", " 줄래 ㅎ? 응응?", " 주시기를 부탁드립니다", " 줘라 응"]
+KO_DO9 = ["{}도록 하게", "{}도록 하세요", "{}도록 하십시오"]
+KO_SI9 = ["{}시기 바랍니다", "{}시겠습니까", "{}시지 않겠습니까"]
+SI_STEM = {"손 흔들": "손 흔드", "손 내밀": "손 내미", "팔 뻗": "팔 뻗으", "팔 접": "팔 접으", "<obj> 집": "<obj> 집으"}   # + 시
+EN_FR9 = ["your mission, should you accept it: {}", "care to {}", "any time now, {}", "{} for little old me",
+          "{}, would you be a star", "{}, much obliged", "on the double, {}", "{}, good good", "{} now is ok",
+          "make for me {}", "lumi dear, {}", "lumi my friend, {}"]
+CORES9 = {
+    "WAVE": (["shake hands with me", "wave goodbye", "wave at us"], ["손 흔들어", "악수해", "잘 가라고 손 흔들어"], ["손 흔들", "악수하"]),
+    "ARM_REACH": (["hold out your hand", "give me your hand"], ["손 내밀어", "팔 뻗어", "손 줘"], ["손 내밀", "팔 뻗"]),
+    "ARM_FOLD": (["put your arm back", "fold your arm"], ["팔 접어", "팔 원래대로 돌려놔", "암 원래대로 돌려놔"], ["팔 접", "팔 거두"]),
+    "ARM_OPEN": (["open your hand"], ["손 펴", "손 벌려"], ["손 펴"]),
+    "ARM_CLOSE": (["close your hand", "make a fist"], ["손 오므려", "주먹 쥐어"], ["주먹 쥐"]),
+    "PICK": (["pick up the <obj>", "get hold of the <obj>"], ["<obj> 집어", "<obj> 집어 올려", "<obj> 들어"], ["<obj> 집"]),
+    "FETCH": (["bring me the <obj>"], ["<obj> 가져와", "<obj> 갖다"], ["<obj> 가져오"]),
+}
+for k, (en, ko, stems) in CORES9.items():
+    _more = [f.format(c) for c in en for f in EN_FR9] + [c + e for c in ko for e in KO_END9] + \
+        [f.format(s) for s in stems for f in KO_DO9] + [f.format(SI_STEM.get(s, s)) for s in stems for f in KO_SI9]
+    {"WAVE": WAVE, "ARM_REACH": ARM_REACH, "ARM_FOLD": ARM_FOLD, "ARM_OPEN": ARM_OPEN, "ARM_CLOSE": ARM_CLOSE, "PICK": PICK,
+     "FETCH": FETCH}[k].extend(_more)
+NO += [
+    "the moment the bell rings, bring me the cup", "the moment the music starts, wave", "the second i clap, shake my hand",
+    "the minute she arrives, hold out your hand", "the instant i say go, pick up the cup", "벨 울리는 순간 컵 가져와",
+    "음악 시작하는 순간 손 흔들어", "out of curiosity, can your model pick up a cup", "can your model wave",
+    "can this model shake hands", "does your model have a gripper", "just curious, can your arm reach the table",
+    "궁금해서 그런데 이 모델도 컵 집을 수 있어?", "이 모델은 악수도 돼?", "컵 흔들어 봐", "컵 들고 흔들어", "컵 든 채로 손 흔들어 봐",
+    "hold the cup and wave", "wave the cup around", "shake the cup for me",
+]
+
+
+# ---------- r13 gaps: arm things said another way, and arm things Lumi can't do said like an order ----------
+ARM_REACH += _ko(["손 가까이 가져와", "손 좀 가까이 가져와", "손 이쪽으로 가져와", "팔 가까이 가져와", "핸드 한 번만 내밀어",
+                  "꼬마한테 핸드 내밀어", "우리 아들한테 손 뻗어"], ["", " 줘", " 주라", " 주시길 바랍니다", " 주시길 부탁드립니다", " 줘, 응?"]) + [
+    "bring your hand closer", "bring your hand closer to me", "move your hand closer", "your hand a bit closer please",
+    "hand closer", "reach your hand closer to me"]
+ARM_FOLD += _ko(["팔 좀 쉬게 해", "팔 쉬게 해", "암 다시 접어", "손 거둬라 카이", "팔 접어라 카이", "팔 좀 쉬어"],
+                ["", " 줘", " 주세요", " 주실 수 있으신가요?", " 주시게"]) + ["let your arm rest", "give your arm a rest", "rest that arm"]
+ARM_OPEN += ["spread your claw", "spread your claw all the way", "open your claw all the way", "spread the claw wide",
+             "claw open", "집게 활짝 펴", "집게 쫙 벌려"]
+WAVE += ["give us a big wave from up high", "big wave from up high", "wave high up", "wave up high", "손 높이 들고 흔들어",
+         "손 위로 높이 흔들어 줘"]
+PICK += _ko(["앞에 있는 잔 들어", "그 잔 들어", "잔 집어", "잔 하나 들어"], ["", " 줄래요?", "라", " 주세요"])
+NO += [
+    "팔 막 휘둘러", "팔 세게 휘둘러 봐", "팔 미친 듯이 흔들어", "flail your arm", "swing your arm wildly",
+    "wave your arm like crazy", "pick the bottle up off the floor", "grab the cup down there on the ground", "pick it up from the ground",
+    "바닥에 있는 병 집어", "땅에 떨어진 컵 주워 줘", "바닥에서 컵 집어 줘", "손가락 세 개 펴", "손가락 두 개만 펴 봐",
+    "손가락 하나 펴", "show me three fingers", "hold up two fingers", "양손에 컵 하나씩 들 수 있어?", "두 손으로 컵 들 수 있으세요?",
+    "can you hold a cup in each hand?", "이 컵 2층으로 가져가 줘", "이 컵 위층으로 갖다 줘", "take this cup upstairs",
+    "carry this cup to the second floor", "꾸벅 인사 해", "꾸벅 인사 해 주라", "고개 숙여 인사해", "bow to the guests",
+    "hand open이야", "hand open 상태야", "손 open이야", "그리퍼 open이야", "hand close야", "손 오픈 상태야", "your hand is open now",
+    "경례 해", "거수경례 해 주게나", "salute like a soldier", "손 들어 경례", "put your hand up like a student", "손 들어 질문하는 것처럼",
+]
+
+
+# ---------- third negative sweep: quotes, hypotheticals, wishes, permission, how-to, sarcasm, 못 / 안, -거든, tags ----------
+NEG3_EN = [("wave", "waving"), ("shake hands", "shaking hands"), ("hold out your hand", "holding out your hand"),
+      ("fold your arm", "folding your arm"), ("open your hand", "opening your hand"), ("close your hand", "closing your hand"),
+      ("pick up the cup", "picking up the cup"), ("bring me the cup", "bringing me the cup")]
+_neg3 = []
+for b, ing in NEG3_EN:
+    _neg3 += [f"he said '{b}'", f"she told you to {b}, didn't she", f"the sign says {b}", f"the manual says {b}",
+           f"what if you {b}?", f"imagine if you could {b}", f"pretend to {b}", f"i wish you would {b}", f"i hope you {b} someday",
+           f"how do i make you {b}?", f"teach me how to make you {b}",
+           f"oh great, now you {b}", f"you can't even {b}",
+           f"don't you dare {b}", f"next time {b}", f"{ing} again? no",
+           f"no more {ing} today", f"try not {ing}", f"stop trying to {b}"]
+NEG3_KO = [("손 흔들", "손 흔들어", "손 흔드는"), ("악수하", "악수해", "악수하는"), ("손 내밀", "손 내밀어", "손 내미는"),
+      ("팔 접", "팔 접어", "팔 접는"), ("손 펴", "손 펴", "손 펴는"), ("주먹 쥐", "주먹 쥐어", "주먹 쥐는"),
+      ("컵 집", "컵 집어", "컵 집는"), ("컵 가져오", "컵 가져와", "컵 가져오는")]
+for st, imp, adn in NEG3_KO:
+    _neg3 += [f"엄마가 '{imp}' 하래", f"선생님이 {imp} 보래", f"{imp} 보라고 했던가?", f"만약에 {imp} 주면 어떨까", f"{imp} 주면 좋을 텐데",
+           f"{imp} 주는 날이 오겠지", f"{st}는 법 알려 줘", f"어떻게 하면 {imp} 줘?", f"{imp} 달라고 해도 돼?", f"제가 {imp} 달라고 해도 될까요?",
+           f"{st}지도 못하면서", f"{st}지 못하지?", f"너 {st}지 못하잖아", f"{st}기는 무슨", f"{imp} 주긴 뭘 {imp} 줘",
+           f"{st}거든 말해", f"손님 오시거든 {imp}", f"내가 신호 주면 {imp}", f"끝날 때 {imp}", f"{imp} 줄 거지?", f"{imp} 주는 거 맞지?",
+           f"{st}지 마 제발", f"그만 {st}어", f"이제 {st}지 말자", f"{adn} 연습 중이야?"]
+NO += _neg3
+
+
+# ---------- arm-set misses after round 2: "next thing: …", "test one: …", "-해 주면 땡큐", dialect, slips ----------
+WAVE += [
+    "악수해 보이소", "악수해 주소", "우리 악수해 주소", "반갑게 악수 해 주쇼", "sake hands", "sake hands now", "shak hands",
+    "wave, it'll be epic", "yo, wave, it'll be fun", "next thing: wave", "test one: wave", "wave 해 주면 땡큐"]
+ARM_REACH += [
+    "stick your arm out to me", "stick your arm out to me real quick", "your han, please", "your hand, please robot",
+    "hand out 해 주면 땡큐", "손 out 해", "지금 손 out 해", "손 reach 부탁드려요", "next thing: hold out your hand",
+    "test one: reach out"]
+ARM_FOLD += [
+    "손 이제 내러 주실래요", "손 이제 내려 주소", "팔 원래대로 돌려어 볼래요", "retract 부탁해요", "retract 해 줄래", "팔 제자리로 빨리 가져와라", "팔 제자리로 가져와",
+    "팔 bakc 해 봐", "팔 백 해 봐", "next thing: fold your arm"]
+ARM_OPEN += [
+    "you hand open", "you hand open please", "open up! do it!", "open up, do it", "next thing: open your hand",
+    "next thing: open hand", "test one: spread your fingers", "spread ur fingers", "손 open 해 봐",
+    "release please 해 줘", "송가락 벌려", "송가락 벌려 주면 좋겠어", "let it go, open your hand"]
+ARM_CLOSE += [
+    "grip", "grip please", "grip 가능?", "grip 가자", "그리퍼 close 가자", "gripper close 해 주면 땡큐", "close hand, will ya",
+    "close hand please", "손 지금 닫아 줘", "음주먹쥐어라", "주먹쥐어라", "next thing: make a fist", "test one: close your hand",
+    "teacher said I can ask you: close the gripper"]
 
 INTENT = {"wave": WAVE, "arm_reach": ARM_REACH, "arm_fold": ARM_FOLD, "arm_open": ARM_OPEN, "arm_close": ARM_CLOSE,
           "pick": PICK, "fetch": FETCH, "put": PUT, "give": GIVE, "receive": RECEIVE, "no": NO}

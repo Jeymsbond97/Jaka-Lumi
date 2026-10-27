@@ -135,7 +135,8 @@ WAKE_REPLY = {"en": "Yes? How can I help?", "ko": "네? 무엇을 도와드릴�
 NAME_ONLY = re.compile(r"^\s*(hi |hey |hello )?(lumi|loomi|rumi|루미)[\s,.!?]*$", re.I)
 FETCH_STOP = re.compile(r"\b(sto+pp?|stob|halt|freeze|don'?t move)\b|^\W*(?:lumi\W+)?stopped\W*$|스탑|스텁|멈추(?:세요|십시오)|^\W*abort\W*$|\babort (?:the |this |your )?(?:mission|task|trip)\b|\bcancel (?:the |this |your )?(?:mission|task|trip)\b|"
                         r"머+엄*춰|머+엄*추(?:세요|십시오)|멈춰|멈추(?:게|시게|게나|시오|어라)|그만|정지|스톱|스땁|스떱|미션 ?취소|작업 ?취소|"
-                        r"거기 ?서(?: ?봐| ?있어)?(?=[\s!.~,]*$)|움직이지 ?마|\bemergency stop\b|\b(?:stay|hold|keep) still\b|"
+                        r"거기 ?서(?: ?봐| ?있어)?(?=[\s!.~,]*$)|(?:^|[\s,])서(?:라|요)?(?=[\s!.~,]*$)|\bhold it(?: right)? (?:there|here)\b|"
+                        r"^\W*(?:\w+\W+){0,3}hold it\W*$|멈[처쳐]|그마+안|\bstahp\b|움직이지 ?마|\bemergency stop\b|\b(?:stay|hold|keep) still\b|"
                         r"^\W*(?:wait|잠깐|잠깐만|기다려)\W*$", re.I)   # not "거기서 기다려"
 FETCH_GIVE = re.compile(r"\bgive (it|that|this|the \w+)( to me)?\b|\bhand (it )?(over|to me)\b|줘|주세요|건네", re.I)
 FETCH_PLACE = re.compile(r"\b(put|place|set) (it|that|this|the \w+) (down|on the table)\b|테이블에 ?(놔|놓|둬)|내려 ?(놔|놓)", re.I)
@@ -387,8 +388,15 @@ if os.path.basename(os.path.dirname(os.path.abspath(sys.argv[0]))) == "tests":
     LOG_FILE = os.devnull                       # a self-check (tests/*.py) never writes the real log
 
 
+_log_day = [None]                               # the date last written to the log
+
+
 def log(msg):
     line = f"{time.strftime('%H:%M:%S')} {msg}"
+    day = time.strftime("%Y-%m-%d %A")
+    if day != _log_day[0]:                      # at each start and each new day: lines carry only the time, and an
+        _log_day[0] = day                       # old day's talk was once read as today's (2026-10-12 vs 10-26)
+        line = f"=== {day} ===\n{line}"
     print(line, flush=True)
     try:
         with open(LOG_FILE, "a") as f:          # also kept in lumi.log, to read it over SSH
@@ -1729,7 +1737,7 @@ class Lumi:
         if status not in ("running", "holding"):
             return False
         from tasks import fetch
-        if FETCH_STOP.search(text) and stop_order(text, self.markers):   # not "he said stop", "don't stop"
+        if stop_order(text, self.markers):            # every stop form (also "enough!", "가지 마" whole); not "he said stop"
             log("  fetch: stop by voice")
             safe(fetch.stop)
             self.act("stop", "")
@@ -3278,7 +3286,8 @@ STOP_LATER = re.compile(   # a stop for later ("내일 그만하시게", "행사
     r"(?:했|하셨|그랬|말했|말씀|지시|하더|하던|한다|하네)")
 
 
-STOP_PAD = re.compile(r"^(?:\W*(?:hey|hi|yo|oh|okay|ok|so|um+|uh+|listen|right|alright|all right|excuse me|mister robot|"
+STOP_PAD = re.compile(r"^(?:\W*(?:hey|hi|yo|oh|okay|ok|so|um+|uh+|listen|right|alright|all right|excuse me|mister robot|buddy|dear|"
+                      r"당장|얼른|빨리|지금|바로|어서|좀|제발|"
                       r"robot|lumi|loomi|루미 ?씨|루미 ?선생|루미야?|로봇아?|로봇 양반|어+|아+|야|저기요?)\b)+|"
                       r"(?:\W*\b(?:please|plz|pls|bro|now|right now|real quick|thanks|thank you|okay|ok|would you|will you|"
                       r"right|already|lumi|robot|빨리|좀|제발|당장|루미야?)\b)+\W*$", re.I)
@@ -3294,12 +3303,25 @@ STOP_ONLY = re.compile(   # a whole sentence that only says stop / enough / stay
 
 STOP_POLITE = re.compile(   # a stop asked politely, after wording.ko_plain: "멈춰 주시겠어요?" -> "멈춰 줘?", "can you stop for me?"
     r"\W*(?:(?:좀|지금|당장|잠깐|잠시|거기서?|이제)\s*)*(?:멈춰|멈춰 서|정지해|그만해|스톱해|스탑해|서)(?: ?줘)?\W*|"
-    r"\W*(?:(?:please|lumi|hey|okay|ok)\W+)*(?:can|could|would|will) (?:you|u) (?:please |just |kindly )?(?:stop|halt|freeze)"
+    r"\W*(?:(?:please|lumi|hey|okay|ok)\W+)*(?:can|could|would|will) (?:you|u) (?:please |just |kindly )?(?:go ahead and )?"
+    r"(?:stop|halt|freeze|hold it(?: right)? (?:there|here))"
     r"(?: (?:right )?(?:now|here|there|please))?(?: for (?:me|us|a (?:second|sec|moment|bit|minute)))?(?:,? please)?\W*|"
     r"\W*(?:would|do) you mind stopping(?: (?:now|here|there))?(?: for (?:me|us|a (?:second|moment)))?(?:,? please)?\W*", re.I)
 
 
+STOP_CALL = re.compile(r"^\W*(?:(?:okay|ok|오케이|hey|yo|야|어이|저기요?|자|lumi|loomi|rumi|robot|buddy|(?:루미)+|누미|류미|로봇)"
+                       r"(?:\s*(?:님|씨|야|아|군))?\W+)+", re.I)   # "루미 님, …", "오케이, 야 루미, …", "okay Lumi, …"
+
+
 def stop_order(text, markers):
+    """stop_order_said on the words, and again without the calls in front ("루미 님, 멈춰 주실 수 있겠습니까?")."""
+    bare = STOP_CALL.sub("", text or "")
+    if re.fullmatch(r"\W*(?:wait|hold on|hang on|one (?:sec|second|moment)|잠깐(?:만)?(?:요)?|기다려(?:요)?)\W*", bare, re.I):
+        return stop_order_said(text, markers)        # "Lumi, wait": a mission halts for a talk (mission_talk), not ended
+    return stop_order_said(text, markers) or bool(bare and bare != text and stop_order_said(bare, markers))
+
+
+def stop_order_said(text, markers):
     """"stop", "freeze", "멈춰": stop everything at once. Not "stop talking" and not a question about the stop button;
     "can you stop?", "멈출 수 있어?" and "stop, where are you going?" do stop. Not a negated stop ("don't stop", "계속
     해"), talk about stopping ("he said stop", "bus stop", "my laptop freezes", "내 다리도 자주 멈춰"); a short bare
@@ -3392,6 +3414,8 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     text = MYEOT_SLIP.sub("몇", text or "")    # whisper's 멸 for 몇: "멸 센티까지 잡아?" asks, orders nothing
     text = re.sub(r"(?<=[가-힣])(?=[a-zA-Z]{2})", " ", text)   # "원래 자리에put back": the English word apart
     text = re.sub(r"\bcome on back\b", "come back", text, flags=re.I)   # not 1 m back
+    text = re.sub(r"(?<=\w)\W+(?:is (?:it )?ok+ay|is ok|is (?:it )?possible|possible|you can do)(?: for you)?\s*\?*\s*$", "", text,
+                  flags=re.I) or text   # "look 60 deg to right, is okkay for you?": the order, the check after it is no question
     text = re.sub(r"(?<![\d.])360(?= ?돌아)", "360도", text)   # "루미 360 돌아 봐": a full turn, not "turn round"
     if stop_order(text, markers):
         return "stop", None
