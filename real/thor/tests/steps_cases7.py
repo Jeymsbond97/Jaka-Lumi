@@ -214,12 +214,12 @@ READ_BACK = {
     "go stage | turn -360": ("Go to stage, then turn all the way around to the right.",
                              "stage 위치로 가고 오른쪽으로 한 바퀴 돌게요."),
     "pick cup | place": ("Take the cup, then put it down.", "컵을 집고 테이블에 놓을게요."),
-    "pick cup | give": ("Take the cup, then hand it over.", "컵을 집고 건네줄게요."),     # "컵 가져다 줘"
+    "pick cup | give": ("Take the cup, then give it to you.", "컵을 집고 건네줄게요."),     # "컵 가져다 줘"
     "pick cup | go booth_2 | give James | go here":
         ("Take the cup, go to booth 2, hand it to James, then come back here.",
          "컵을 집고 booth 2 위치로 가고 James에게 건네주고 여기로 돌아올게요."),
     "go stage | pick cup | go here | give":
-        ("Go to stage, take the cup, come back here, then hand it over.",
+        ("Go to stage, take the cup, come back here, then give it to you.",
          "stage 위치로 가고 컵을 집고 여기로 돌아오고 건네줄게요."),
     "go table_front | wait 30 | go home":
         ("Go to table front, wait 30 seconds, then go to my dock.",

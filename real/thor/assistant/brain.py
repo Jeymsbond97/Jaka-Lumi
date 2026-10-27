@@ -1749,7 +1749,7 @@ def _as_place(name):
 
 _OBJ_ADJ = rf"(?:(?:{_COL}|작은|큰|왼쪽|오른쪽|가까운|먼|제일|가장)\s*)*+"   # possessive: no backtracking
 _AT_OBJ_EN = rf"\b(?:{_OBJ})s?,? (?:that'?s |that is |which is |sitting |lying |standing |left )?(?:on|at|by|near) (?:the )?$"
-_AT_OBJ_KO = (rf"\s*(?:(?:위|쪽)\s*)?(?:에|의)\s*(?:(?:있는|있던|놓인|놓여\s*있는|둔|올려\s*둔|올려진|올라간|올라가\s*있는)\s*)?"
+_AT_OBJ_KO = (rf"\s*(?:(?:테이블|탁자|책상|table)\s*)?(?:(?:위|쪽)\s*)?(?:에|의)\s*(?:(?:있는|있던|놓인|놓여\s*있는|둔|올려\s*둔|올려진|올라간|올라가\s*있는)\s*)?"
               rf"{_OBJ_ADJ}(?:{_OBJ})|\s*(?:(?:에|의)\s*)?(?:있는|있던|놓인|놓여\s*있는|둔)\s*(?:거|것|걸)")
 # ^ where the thing is ("the cup on p2", "p2에 있는 빨간 컵", "피원 컵", "p1의 컵"): the source, not where it goes
 
@@ -1777,7 +1777,7 @@ def _mentions(text, markers):
             out["source"] = _as_place(place)
         elif re.search(r"\b(to|into) (the )?$|\b(bring|fetch|give|get)( it| that| this)? $", before) \
                 or re.search(r"\b(go|drive|head|walk|carry it|take it|bring it)( over)? (the )?$", before) \
-                or re.match(r"\s*(으로|로|에다|에|한테)(?!서)", after) or place == "here" \
+                or re.match(r"\s*(?:(?:포인트|point|지점|테이블|탁자|책상)\s*(?:위\s*)?)?(으로|로|에다|에|한테)(?!서)", after) or place == "here" \
                 or re.match(r"\s+(?:까지\s*)?(?:가(?:서|요|\s*줘|\s*주세요)?|이동)(?![가-힣])", after):
             # ^ "and go exit point", "exit 가서", "exit 까지 가 줘": a drive there, said without "to" / 로
             out["dest"] = _as_place(place)
@@ -1791,7 +1791,7 @@ def _mentions(text, markers):
         if m.start() > after_obj and "dest" not in out and not re.match(rf"{_TABLE}|{_place_re(markers)}", t[m.start(1):]) \
                 and m.group(1) not in ("put", "place", "hold", "give", "keep", "bring", "leave"):
             out["dest"] = None
-    if "dest" not in out and re.search(r"\b(bring|get|fetch|give) (it |that |this )?(to )?me\b|\bto me\b|가져와|가지고 ?와|갖다 ?줘|가져다 ?(?:줘|주세요|줄래)", t):
+    if "dest" not in out and re.search(r"\b(bring|get|fetch|give) (it |that |this )?(to )?me\b|\bto me\b|가져와|가지고 ?와|갖고 ?와|갖다 ?줘|가져다 ?(?:줘|주세요|줄래)", t):
         out["dest"] = "here"
     if "dest" not in out and (re.search(r"\b(?:bring|fetch)(?:ing)?\b", t) and isinstance(out.get("source"), dict)
                               and not re.search(r"\b(?:to|for) (?!me\b|us\b)\w", t)

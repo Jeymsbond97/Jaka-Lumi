@@ -217,7 +217,7 @@ assert steps.describe(s, "en") == ("Take the cup, drive 0.5 m forward, turn righ
                                    "then put it on the table."), steps.describe(s, "en")
 assert steps.describe(S("go p3,p5,p7 | hold"), "en") == "Go to one of p3, p5 or p7, then hold it."
 assert steps.describe(S("go final | give | say Anvar says hello"), "en") == \
-    'Go to final, hand it over, then say "Anvar says hello".'
+    'Go to final, give it to the person there, then say "Anvar says hello".'
 assert steps.describe(s, "ko")
 print("steps ok")
 

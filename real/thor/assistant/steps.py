@@ -1412,7 +1412,8 @@ def _en(s, last=False):
     if d == "place":
         return "put it down" if not s["on"] else f"put it on {_on_words(s['on'])}"
     if d == "give":
-        return f"hand it to {s['person']}" if s.get("person") else "hand it over"
+        return f"hand it to {s['person']}" if s.get("person") else "give it to the person there" if s.get("_away") \
+            else "give it to you"
     if d == "hold":
         return "hold it"
     return {"reach": "reach out my arm", "fold": "fold my arm", "open": "open my hand", "close": "close my hand"}[s["pose"]]
@@ -1455,7 +1456,7 @@ def _ko(s, last=False):
     if d == "give":
         if s.get("person"):
             return f"{s['person']}께 건네드리고" if s["person"].endswith("님") else f"{s['person']}에게 건네주고"
-        return "건네주고"
+        return "거기 있는 분께 건네주고" if s.get("_away") else "건네주고"
     if d == "hold":
         return "들고 있고"
     return {"reach": "팔을 뻗고", "fold": "팔을 접고", "open": "손을 펴고", "close": "손을 쥐고"}[s["pose"]]
@@ -1476,6 +1477,11 @@ def describe(steps, lang="en"):
     """'Take the cup, drive 0.5 m forward, turn right and drive 1 m, then put it on the table.'"""
     if not steps:
         return ""
+    away, marked = False, []
+    for s in steps:                          # a give after a drive away is to the person there, else to the one asking
+        away = s["to"] != "here" if s["do"] == "go" else away or s["do"] == "move"
+        marked.append({**s, "_away": away} if s["do"] == "give" else s)
+    steps = marked
     if lang == "ko":
         parts = [_ko(s, i == len(steps) - 1) for i, s in enumerate(steps)]
         return " ".join(parts[:-1] + [_will(parts[-1][:-1]) + "."])
