@@ -83,11 +83,14 @@ CONF = ["home", "dock2", "Main_Stage", "Booth_12", "Registration", "포토존", 
 KOREAN = ["home", "커피코너", "부스3", "입구", "무대", "안내데스크", "휴게실", "회의실"]
 for t, mk, want in (("Go to booth bee.", EXPO, "booth_B"), ("에이 부스로 가 줘", EXPO, "booth_A"),
                     ("인포 대스크로 가 줘", EXPO, "info_desk"), ("레지스트레이션으로 가 줘", CONF, "Registration"),
-                    ("부스 십이로 가 줘", CONF, "Booth_12"), ("출구 B로 가 봐", CONF, "Exit_B"),
-                    ("삼 번 부스로 가", KOREAN, "부스3"), ("go to the information desk", KOREAN, "안내데스크"),
+                    ("부스 십이로 가 줘", CONF, "Booth_12"), ("엑시트 비로 가 봐", CONF, "Exit_B"),
+                    ("삼 번 부스로 가", KOREAN, "부스3"), ("인포 데스크로 가", EXPO, "info_desk"),
                     ("roll over to the coffee corner", KOREAN, "커피코너"), ("Would you mind heading to dock 2?", EXPO, "dock2")):
     assert [m for m in mk if brain.named_place(t, m, mk)] == [want], (t, want)
 assert not [m for m in EXPO if brain.named_place("go to the booth", m, EXPO)]       # which booth: asked
+for t, mk in (("출구 B로 가 봐", CONF), ("go to the information desk", KOREAN), ("출구로 가", ["home", "exit"]),
+              ("무대로 가", EXPO)):                     # a word that only means the place: asked, never translated
+    assert not [m for m in mk if brain.named_place(t, m, mk)], t
 assert brain.intent("go to the stage... wait, not the stage, the entrance", KOREAN) is None
 
 # ---------- "go where I point" in many wordings (vision/pointing.asked); not a place, a negation, later ----------
