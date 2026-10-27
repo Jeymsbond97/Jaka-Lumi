@@ -70,6 +70,9 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `tasks/fetch.py` | `SEARCH_BASE_DEG` | 180°, 90° | Then the base turns towards the busier side, the first of these whose sweep is clear, and all again |
 | `tasks/fetch.py` | `LIFT_TRIES` | 0, 105 mm (`LIFT_RANGE`) | Nothing found: all of it again at the other end |
 | `tasks/fetch.py` | `APPROACH_TRIES` | 5 | Base moves to bring an object into reach before asking the person |
+| `tasks/fetch.py` | `WAIST_REACH_STEPS` | 0, ±15, ±30° | A pick out of reach: waist turns tried around the one bringing the object to the pick zone's bearing, before a base move |
+| `tasks/fetch.py` | `WAIST_FOUND_MM` | 80 mm | After that waist turn the object must be seen this near where it should be |
+| `manipulation/skills.py` | `IK_SEEDS` | ready, look, carry, give | Taught poses whose arm configurations (and wrist flips) seed the pick / place IK |
 | `tasks/fetch.py` | `PICK_ZONE_CENTRE` | (−100, 580) mm | Where a base move brings an object (arm base frame) |
 | `tasks/fetch.py` | `LOST_BACK_M`, `LOST_TURN_DEG` | 0.15 m, 20° | An object lost after a base move: back off, turn each way, look again |
 | `tasks/fetch.py` | `WIDTH_NEAR_MM` | 250 mm | A width further than this from the pick zone does not refuse a pick (far widths read ~8 mm too wide); measured again up close |

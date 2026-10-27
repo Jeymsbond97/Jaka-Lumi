@@ -142,6 +142,8 @@ GRASPS = {                                       # COCO class -> (Korean name, U
 IK_SEEDS = ("ready", "look", "carry", "give")   # taught poses whose arm configurations (and wrist flips) seed the
                                                  # pick / place IK: the controller answers the solution nearest the
                                                  # seed, so one seed alone misses cups another configuration reaches
+WRIST_MIN_DEG = 10.0                             # deg; |J5| at least this at above, grasp and lift (estimate: the
+                                                 # proven picks had J5 +20; near 0 J4 / J6 swing round)
 RETRIES = 4                                      # the controller now and then answers with nothing: ask again
 RETRY_S = 0.2
 OPEN_AI = gripper.CLOSED_AI                      # AI_1 below this after opening = released
@@ -621,14 +623,14 @@ def wrist_flip(j):
     return [j[0], j[1], j[2], j[3] + 180.0, -j[4], j[5] + 180.0]
 
 
-def above_joints(pose, start=None):
-    """Joint solutions for the approach pose `pose`: from the arm configuration of each IK_SEEDS pose (`ready` first,
+def above_joints(pose, start=None, seeds=IK_SEEDS):
+    """Joint solutions for the approach pose `pose`: from the arm configuration of each `seeds` pose (`ready` first,
     where the picks were proven) and from it with the wrist flipped. Each is within the joint limits and a joint move
     from `start` (default: here) that move_joints accepts (no joint further than motion.MAX_TRAVEL); no duplicates."""
     start = _joints() if start is None else start
     taught = motion.poses()
     out = []
-    for name in IK_SEEDS:
+    for name in seeds:
         if name not in taught:
             continue
         seed = motion.nearest(taught[name], start)
@@ -690,11 +692,19 @@ def pick_options(obj, start):
     """(waypoints, joints above) of every grasp turn (GRASP_YAWS) and wrist solution reachable from `start`: a joint
     move down to above that stays above it, then straight down and up. Objects of the wrong width raise."""
     plan_pick(obj)
-    for yaw in GRASP_YAWS:
-        waypoints = plan_pick(obj, yaw)
-        for ja in above_joints(waypoints[0][1], start):
-            if not ik_chain(waypoints[1:], ja)[-1][3] and move_ok(start, ja):
-                yield waypoints, ja
+    for seeds in (IK_SEEDS[:1], IK_SEEDS[1:]):         # the proven `ready` configuration at every turn first
+        for yaw in GRASP_YAWS:
+            waypoints = plan_pick(obj, yaw)
+            for ja in above_joints(waypoints[0][1], start, seeds):
+                rows = ik_chain(waypoints[1:], ja)
+                if not rows[-1][3] and wrist_ok([ja] + [r[2] for r in rows]) and move_ok(start, ja):
+                    yield waypoints, ja
+
+
+def wrist_ok(joints):
+    """J5 stays WRIST_MIN_DEG from 0 at every pose of a straight move down and up: near J5 = 0 a straight move may
+    turn J4 and J6 far round in small steps (motion.move_linear refuses it there, half way through the pick)."""
+    return all(abs(j[4]) >= WRIST_MIN_DEG for j in joints)
 
 
 def tilt_on(j0, j1):
@@ -717,7 +727,9 @@ def place_options(x, y, top_mm, start):
     for yaw in sorted(GRASP_YAWS, key=lambda a: abs((a - held + 180.0) % 360.0 - 180.0)):
         way = plan_place(x, y, top_mm, yaw=yaw)
         for ja in above_joints(way[0][1], start):
-            if not ik_chain(way[1:], ja)[-1][3] and move_ok(start, ja) and tilt_on(start, ja) <= MAX_TILT_DEG:
+            rows = ik_chain(way[1:], ja)
+            if not rows[-1][3] and wrist_ok([ja] + [r[2] for r in rows]) and move_ok(start, ja) and \
+                    tilt_on(start, ja) <= MAX_TILT_DEG:
                 yield way, ja
 
 
