@@ -3023,6 +3023,12 @@ def stop():
     if _state["status"] in ("running", "holding", "waiting"):
         _set(status="stopped")
         log("stopped")
+    elif (_thread is None or not _thread.is_alive()) and state().get("status") in ("running", "waiting"):
+        d = state()                      # a run of a process that is gone (restarted mid-task): the file says running
+        d.update(status="stopped", log=d.get("log", []) + [time.strftime("%H:%M:%S") + " stopped"])
+        tmp = STATE_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(d))
+        os.replace(tmp, STATE_FILE)
 
 
 def end(timeout=5.0):

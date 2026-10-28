@@ -1276,3 +1276,11 @@ skills._held.clear()
 fetch._scene, skills.on_table = real_scene, real_on_table
 
 print("fetch ok")
+
+# ---------- STOP after a restart mid-task: the file of a run that is gone says "running", STOP ends it ----------
+fetch._state["status"], fetch._thread = "idle", None
+fetch.STATE_FILE.write_text(json.dumps({"status": "running", "step": "picking", "holding": False, "log": ["13:07:50 picking"]}))
+fetch.skills.cancel = fetch.agv.cancel = lambda: None
+fetch.stop()
+assert fetch.state()["status"] == "stopped" and fetch.state()["log"][-1].endswith("stopped"), fetch.state()
+print("stale run stopped ok")
