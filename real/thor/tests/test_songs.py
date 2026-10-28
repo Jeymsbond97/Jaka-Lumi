@@ -7,6 +7,7 @@ import types
 
 import numpy as np
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from audio import sing
 from assistant import lumi
 
@@ -172,6 +173,17 @@ assert time.time() - stop_at < 0.1, time.time() - stop_at                # at on
 sing._head_thread.join(2)
 assert head.moves and head.moves[-1] == [120.0, 5.0, 0.0, 0.0], head.moves
 
+for centre in (-40.0, 55.0, -90.0):                  # the owner on a side: the dance around them, inside the limits
+    head = FakeHead()
+    assert sing.sing(B, None, player(2.5), head, fake_load, centre_yaw=centre)
+    sing._head_thread.join(2)
+    c = max(-sing.YAW_LIMIT, min(sing.YAW_LIMIT, centre))
+    assert head.moves[0][2] == c and head.moves[-1][2] == c, (centre, head.moves)   # turns there and stays there
+    assert all(abs(m[2] - c) <= sing.YAW_SWAY and abs(m[2]) <= sing.YAW_LIMIT for m in head.moves), (centre, head.moves)
+    assert c == -sing.YAW_LIMIT or len({m[2] for m in head.moves}) > 2, head.moves   # still dances (at the limit: one side)
+assert all(abs(sing.around(c, y)) <= sing.YAW_LIMIT for c in range(-90, 91, 5) for y in range(-40, 41, 2))
+assert sing.around(0.0, 33.0) == 33.0                # the default: as before
+
 played = []                                          # a stereo file reaches the one-channel speaker as mono
 assert sing.sing(D, None, lambda wav, rate, abort: played.append(wav.ndim) or True, FakeHead(),
                  lambda path: (np.zeros((4410, 2), np.float32), 44100))
@@ -184,9 +196,13 @@ heard = []                                           # what the fake clip mic he
 sung = []
 
 
-def fake_sing(sid, abort=None):
+centres = []
+
+
+def fake_sing(sid, abort=None, centre_yaw=0.0):
     sung.append(sid)
-    return real_sing(sid, abort, player(5), FakeHead(), fake_load)
+    centres.append(centre_yaw)
+    return real_sing(sid, abort, player(5), FakeHead(), fake_load, centre_yaw)
 
 
 lumi.sing.sing = fake_sing
@@ -194,11 +210,13 @@ lumi.LOG_FILE = "/dev/null"                      # keep the assistant's log clea
 lumi.ears.transcribe = lambda mono: heard.pop(0) if heard else ""
 lumi.ears.understood = lambda *a: True
 L = lumi.Lumi.__new__(lumi.Lumi)
+L.markers = ["home", "p1"]                           # never the base's marker list
 L.lang, L.current, L.vision, L.last_song, L.pending_text, L.voice_until = "en", None, None, None, None, 0.0
 L.skill_thread, L.mission_hold = None, None
 L.brain = types.SimpleNamespace(history=[])
 L.fetch_status = lambda: None
 L.mission_running = lambda: False
+L.det_yaw = lambda: -40.0                            # nobody tracked: the head already faces the voice
 utterance = types.SimpleNamespace(during_speech=True, seconds=1.0, mono=None)
 L.mic = types.SimpleNamespace(next=lambda wait: utterance if heard else None)
 
@@ -206,6 +224,7 @@ t0 = time.time()
 threading.Timer(0.3, lambda: heard.append("stop")).start()
 L.sing_song("sing Love Attack")
 assert sung == [L_] and time.time() - t0 < 1.0 and L.pending_text is None, (sung, time.time() - t0)
+assert centres == [-40.0], centres                   # the dance stays toward the listener
 
 threading.Timer(0.3, lambda: heard.append("sing another song")).start()
 L.sing_song("sing a song")
@@ -220,6 +239,24 @@ L.interrupted = lambda: True        # the dancing head lost the listener ("perso
 t0 = time.time()
 L.sing_song("sing Fantastic Baby")
 assert time.time() - t0 > 4.5 and L.pending_text is None
+
+# words over a song that are no new request leave it going (logs/lumi.log 2026-10-27, logs/heard): whisper's words
+# from the music (0.26 s of speech for "Last hole."), a single word, the request said again while it starts
+lumi.ears.last_stt = {"speech_s": 0.26}
+threading.Timer(0.3, lambda: heard.append("Last hole.")).start()
+t0 = time.time()
+L.sing_song("Let's make music.")
+assert time.time() - t0 > 4.5 and L.pending_text is None
+lumi.ears.last_stt = {}
+ign = sing.ignored_over_song
+assert ign("Last hole.", "Let's make music.", 3.0, 0.26) and ign("Let's make music.", "Let's make music.", 2.0, 0.99)
+assert ign("Okay.", "sing a song", 3.0, 0.5) and ign("Lumi.", "sing a song", 3.0, None)
+assert ign("sing a song", "Let's make music.", 40.0, 1.0) and ign("노래 불러 줘", "sing a song", 40.0, 1.0)
+assert ign("Let's make music.", "Let's make music.", 40.0, 0.99) is None             # long after: asked for real
+for words, speech in (("Let's change music.", 1.28), ("Let's change the music.", 1.2), ("another song", 0.6),
+                      ("다른 노래", 0.6), ("바꿔", 0.3), ("sing Fantastic Baby", 0.9), ("What time is it?", 0.9),
+                      ("Lumi, go to p3", 0.8), ("Let's make music.", None)):
+    assert ign(words, "Let's make music.", 2.0 if words != "Let's make music." else 30.0, speech) is None, words
 
 # lumi.answer(): "again" right after a song is the song (not the drive words), "Can you sing song?" tagged Korean
 # by whisper is still sung, "what songs can you sing?" lists them

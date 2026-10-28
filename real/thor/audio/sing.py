@@ -6,10 +6,12 @@ files, local only, never copied off the robot) and move the head with it. Lumi s
 
 Each <id>.json holds the title, the names it is asked by, the lyrics and the head moves timed to the beat. The song
 is played through mouth._play (the microphone is muted the same way as for speech,
-and abort() stops it within 50 ms). The head turns to yaw 0 / pitch 0 and dances around it in a thread, following the
+and abort() stops it within 50 ms). The head turns to the centre yaw (the person talked to; 0 by default) / pitch 0
+and dances around it in a thread, following the
 music: small diagonal bobs landing on the beats in energetic parts, a quick sweep with a dip on a bar's accent or a
 phrase start, slower sways in calm parts, each move called early enough (the owner's measured head timing) to land
-on its beat, one call at a time; it goes back to yaw 0 / pitch 0 when the song ends or is stopped. Never the lift, the waist or the arm.
+on its beat, one call at a time; it goes back to the centre yaw / pitch 0 when the song ends or is stopped. Never the lift,
+the waist or the arm.
 """
 import difflib
 import json
@@ -21,6 +23,8 @@ import threading
 import time
 
 import numpy as np
+
+from robot.head import YAW_LIMIT
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MINE = ROOT / "data" / "songs" / "mine"   # the owner's songs: local only
@@ -41,17 +45,23 @@ BOB_DEG = (7.0, 12.0)           # deg, a beat's bob (diagonal nod / tilt), alter
 ACCENT_DEG = (25.0, 38.0)       # deg, a bar's or phrase's accent: a quick sweep with a dip
 SWAY_DEG = (12.0, 20.0)         # deg, a calm sway
 ACCENT_EVERY_S = 1.2            # s, at least this between two accents
-CENTRE_PITCH = 12.0             # deg; the dance moves around yaw 0, this pitch
+CENTRE_PITCH = 12.0             # deg; the dance moves around the centre yaw (sing's centre_yaw), this pitch
 GAP_S = 0.02                    # s between a call returning and the next one
 MIN_CHANGE = (1.5, 0.8)         # deg; every move changes yaw and pitch at least this much
 MIN_TURN_DEG = 20.0             # two moves in a row differ in direction by at least this (never one line)
-HEAD_VEL = 70                   # speed ratio % for turning to yaw 0 / pitch 0 before and after the song
+HEAD_VEL = 70                   # speed ratio % for turning to the centre yaw / pitch 0 after the song
 LATE_S = 0.4                    # s; a move this late is skipped (the previous one took longer)
 RETURN_WAIT_S = 3.0             # s a new song waits for the head to get back from the last one
 BANK_SIM = 0.80                 # song bank (assistant/song_bank.py): the closest wording at least this similar ...
 BANK_MARGIN = 0.05              # ... and this much closer than the closest wording of another kind
 BANK_MIN_WORDS = 3              # the bank reads only words with a song or music word in them and at least this many
                                 # words ("Let's", cut off from "Let's follow me", sang once, 2026-10-22)
+REPEAT_S = 10.0                 # s after a song starts in which its request said again is a repeat, not a new request
+                                # ("Let's make music." said again while the reply took 5.6 s cut the song 2 s in, 2026-10-27)
+SPEECH_PER_SYLLABLE = 0.12      # s of speech (Silero VAD, ears.speech_seconds) per syllable that words heard over a song
+                                # need, else whisper read the music: "Last hole." from 0.26 s (0.09 per syllable) cut a
+                                # song; the owner's requests over songs had 0.2-0.3 (logs/heard 2026-10-27). Stricter
+                                # than ears.SPEECH_PER_SYLLABLE (0.05) for normal listening; stop words skip it
 SONG_WORD = re.compile(r"\bsing|\bsong|\bmusic|\btunes?\b|\bplaylist|k-?pop|노래|노레|노랠|음악|곡|불러|부르|틀어|들려|케이팝", re.I)
 
 SING = re.compile(r"\bsing\b|\bsay (?:a |some )?songs?\b|"                    # whisper writes "let's say song"
@@ -243,6 +253,23 @@ def list_asked(text):
 
 def stop_words(text):
     return bool(STOP.search(text or ""))
+
+
+def ignored_over_song(text, request, sung_s, speech_s):
+    """Why words heard while singing (no stop word) leave the song going, or None when they end it (a change: "another
+    song", "다른 노래", a title; a question or command). Ignored: words with too little speech in them (the music
+    read by whisper), a single word, and a song asked for again (any time "sing a song"; within REPEAT_S the request's
+    own words). request: the words that started the song; sung_s: s since it started; speech_s: last_stt's."""
+    from audio import ears
+    change = ANOTHER.search(text) or _title(text, songs(), plain=False)
+    if speech_s is not None and speech_s < SPEECH_PER_SYLLABLE * ears.syllables(text):
+        return f"{speech_s:.2f} s of speech: the music"
+    if len(text.split()) < 2 and not change:
+        return "one word"
+    if not change and (asked(text) or sung_s < REPEAT_S and difflib.SequenceMatcher(
+            None, ears._letters(text), ears._letters(request or "")).ratio() >= ears.SAME_WORDS):
+        return "the song asked for again"
+    return None
 
 
 def _name_re(name):
@@ -495,9 +522,16 @@ def head_targets(song, seed=0):
     return out
 
 
-def _move_head(song, seed, stop, head_api):
-    """Turn the head to yaw 0 / pitch 0, follow the head targets until the song ends or stop is set, then go back
-    to yaw 0 / pitch 0. One call at a time (each blocks until the head arrives)."""
+def around(centre, y):
+    """A dance yaw y (within +-YAW_SWAY of 0) moved to the centre yaw; the side toward YAW_LIMIT squeezed to fit."""
+    centre = max(-YAW_LIMIT, min(YAW_LIMIT, centre))
+    room = min(YAW_SWAY, YAW_LIMIT - abs(centre)) if y * centre > 0 else YAW_SWAY
+    return round(centre + y * room / YAW_SWAY, 2)
+
+
+def _move_head(song, seed, stop, head_api, centre=0.0):
+    """Turn the head to the centre yaw / pitch 0, follow the head targets around it until the song ends or stop is
+    set, then go back to the centre yaw / pitch 0. One call at a time (each blocks until the head arrives)."""
     try:
         lift, waist, _, _ = head_api.status()
     except Exception as e:
@@ -505,7 +539,7 @@ def _move_head(song, seed, stop, head_api):
         return
     t0 = time.time()
     try:
-        head_api.moveto([lift, waist, 0.0, 0.0], VEL_LIVELY, VEL_LIVELY)
+        head_api.moveto([lift, waist, around(centre, 0.0), 0.0], VEL_LIVELY, VEL_LIVELY)
         for t, yaw, pitch, vel in head_targets(song, seed):
             while not stop.is_set() and time.time() - t0 < t:
                 stop.wait(0.02)
@@ -513,19 +547,20 @@ def _move_head(song, seed, stop, head_api):
                 break
             if time.time() - t0 - t > LATE_S:
                 continue
-            head_api.moveto([lift, waist, yaw, pitch], vel, vel)
+            head_api.moveto([lift, waist, around(centre, yaw), pitch], vel, vel)
     except Exception as e:
         print(f"sing: head move failed: {e}")
     finally:
         try:
-            head_api.moveto([lift, waist, 0.0, 0.0], HEAD_VEL, HEAD_VEL)
+            head_api.moveto([lift, waist, around(centre, 0.0), 0.0], HEAD_VEL, HEAD_VEL)
         except Exception as e:
             print(f"sing: head return failed: {e}")
 
 
-def sing(song_id, abort=None, play=None, head_api=None, load=None):
-    """Sing one song; blocks until it ends (True) or abort() becomes True (False). The head returns in its own
-    thread, so a stop is at once. play / head_api / load are for tests (default: the speaker and the real head)."""
+def sing(song_id, abort=None, play=None, head_api=None, load=None, centre_yaw=0.0):
+    """Sing one song; blocks until it ends (True) or abort() becomes True (False). The head dances around centre_yaw
+    (deg, toward the listener) and returns in its own thread, so a stop is at once. play / head_api / load are for
+    tests (default: the speaker and the real head)."""
     global _head_thread
     from audio import mouth
     if play is None:
@@ -547,7 +582,8 @@ def sing(song_id, abort=None, play=None, head_api=None, load=None):
     # the clip mic hears the song: its words are Lumi's own voice until 30 s after its end (mouth.recent_speech)
     mouth._recent.append((time.time() + len(wav) / rate, song["lyrics"]))
     stop = threading.Event()
-    _head_thread = threading.Thread(target=_move_head, args=(song, time.time(), stop, head_api), daemon=True)
+    _head_thread = threading.Thread(target=_move_head, args=(song, time.time(), stop, head_api, centre_yaw),
+                                    daemon=True)
     _head_thread.start()
     try:
         return bool(play(wav, rate, abort))
