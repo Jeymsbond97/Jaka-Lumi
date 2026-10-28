@@ -150,10 +150,11 @@ IK_SEEDS = ("ready", "look", "carry", "give")   # taught poses whose arm configu
                                                  # seed, so one seed alone misses cups another configuration reaches
 WRIST_MIN_DEG = 10.0                             # deg; |J5| at least this at above, grasp and lift (estimate: the
                                                  # proven picks had J5 +20; near 0 J4 / J6 swing round)
-TRUSTED_YAW_DEG = 15.0                           # deg; grasp turns up to this picked live (-10, -15: 3 of 3); -30 and
-                                                 # -45 missed 4 of 4 (2026-10-26, a finger end on the rim). The taught
-                                                 # grasp point's horizontal error turns with the grasp:
-                                                 # a waist turn or a base move comes before a larger turn
+TRUSTED_YAW_DEG = 15.0                           # deg; grasp turns from -this to 0 picked live (-10, -15: 3 of 3); -30
+                                                 # and -45 missed 4 of 4 (2026-10-26, a finger end on the rim); +15
+                                                 # missed 2 of 2 (2026-10-27, a finger on the cup, DI_1 set; never hover-
+                                                 # checked). The taught grasp point's horizontal error turns with the
+                                                 # grasp: a waist turn or a base move comes before another turn
 COMFORT_R_MM = 710.0                             # mm, cup's horizontal distance from the arm base origin: picks proven
                                                  # up to here (furthest live success (-68, 703)); further, the base moves
                                                  # in first when it can (tasks/fetch.py). Estimate until measured live
@@ -760,7 +761,8 @@ def checked(waypoints, start_joints):
 
 
 def pick_options(obj, start, max_yaw=None):
-    """(waypoints, joints above) of every grasp turn (GRASP_YAWS; within `max_yaw` deg when given) and wrist solution
+    """(waypoints, joints above) of every grasp turn (GRASP_YAWS; from -`max_yaw` to 0 deg when given: the turns picked
+    live, TRUSTED_YAW_DEG) and wrist solution
     reachable from `start`: a joint move down to above that stays above it, then straight down and up; the controller
     confirms each one given. Every pick that worked live had J5 > 0: those come first. Objects of the wrong width
     raise."""
@@ -768,7 +770,7 @@ def pick_options(obj, start, max_yaw=None):
     tried = []
     for wrist, seeds in ((1, IK_SEEDS[:1]), (1, IK_SEEDS[1:]), (-1, IK_SEEDS[:1]), (-1, IK_SEEDS[1:])):
         for yaw in GRASP_YAWS:                         # the proven wrist (J5 > 0) and `ready` configuration first
-            if max_yaw is not None and abs(yaw) > max_yaw:
+            if max_yaw is not None and not -max_yaw <= yaw <= 0:
                 continue
             waypoints = plan_pick(obj, yaw)
             for ja in above_joints(waypoints[0][1], start, seeds):
@@ -884,7 +886,7 @@ def carry_by_joints(plan):
 
 
 def reachable_pick(obj, start=None, accept=lambda waypoints, ja: True, max_yaw=None):
-    """(waypoints, joints above) of the first pick option from `start` (home), grasp turned at most `max_yaw` deg
+    """(waypoints, joints above) of the first pick option from `start` (home), grasp turned -`max_yaw`..0 deg
     (e.g. TRUSTED_YAW_DEG; None: any), that `accept` also takes, else None."""
     for waypoints, ja in pick_options(obj, home_joints() if start is None else start, max_yaw):
         if accept(waypoints, ja):
@@ -893,7 +895,7 @@ def reachable_pick(obj, start=None, accept=lambda waypoints, ja: True, max_yaw=N
             log(f"grasp {how}, turned {yaw:+d} deg, wrist J5 {ja[4]:+.0f}" if yaw else
                 f"grasp {how}, wrist J5 {ja[4]:+.0f}")
             return waypoints, ja
-    log(f"plan refused: no grasp turn{'' if max_yaw is None else f' within {max_yaw:.0f} deg'} reaches "
+    log(f"plan refused: no grasp turn{'' if max_yaw is None else f' from -{max_yaw:.0f} to 0 deg'} reaches "
         f"({obj['x']:.0f}, {obj['y']:.0f})")
     return None
 
@@ -1014,7 +1016,7 @@ def pick(name="cup", colour=None):
     obj = find(name, colour)
     log(f"found {obj['colour']} {obj['name']} at ({obj['x']:.0f}, {obj['y']:.0f}) top {obj['top_mm']:.0f} "
         f"width {obj['width_mm']:.0f}")
-    plan = reachable_pick(obj)
+    plan = reachable_pick(obj, max_yaw=TRUSTED_YAW_DEG)              # no base here to bring it round (fetch can)
     if plan is None:
         raise SkillError("I can't reach it safely.")
     _guarded(_do_pick, obj, *plan)

@@ -1,6 +1,7 @@
 """Self-check of the skills.py geometry, no robot: python tests/test_skills.py"""
 import numpy as np
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from vision import calib, head_cam
 from manipulation import skills
 
@@ -124,6 +125,29 @@ assert plan and plan[1][4] < 0 and abs(round(skills.yaw_of(plan[0][1][1]))) == 4
 plan = skills.reachable_pick(cup, start, accept=lambda wp, ja: abs(skills.yaw_of(wp[1][1])) > 100)
 assert plan and abs(round(skills.yaw_of(plan[0][1][1]))) == 105, plan
 assert skills.reachable_pick(cup, start, accept=lambda wp, ja: False) is None
+# trusted turns are the ones picked live, -15..0: +15 missed 2 of 2 (a finger on the cup); the voice pick keeps to them
+def ik_at(turns):
+    def ask(name, **a):
+        if name == "kine_forward":
+            return {"errorCode": "0", "cartPosition": [0, 0, 0] + list(skills.GRASP_RPY)}
+        ok = round(skills.yaw_of(a["cartPosition"])) in turns
+        return {"errorCode": "0", "jointPosition": list(a["jointPosition"])} if ok else {"errorCode": "1"}
+    return ask
+skills._ask = ik_at({15, -15})
+plan = skills.reachable_pick(cup, start, max_yaw=skills.TRUSTED_YAW_DEG)
+assert plan and round(skills.yaw_of(plan[0][1][1])) == -15, plan
+skills._ask = ik_at({15, 30})
+assert skills.reachable_pick(cup, start, max_yaw=skills.TRUSTED_YAW_DEG) is None
+real_find, real_guarded, real_home = skills.find, skills._guarded, skills.home_joints
+skills.home_joints = lambda: start
+skills.find = lambda name, colour=None, seen=None: dict(cup, colour="grey", width_mm=74)
+skills._guarded = lambda *a: (_ for _ in ()).throw(AssertionError("picked at an untrusted turn"))
+try:
+    skills.pick("cup")
+    raise AssertionError("picked")
+except skills.SkillError as e:
+    assert e.args[0] == "I can't reach it safely.", e
+skills.find, skills._guarded, skills.home_joints = real_find, real_guarded, real_home
 # hand_sees: depth right at the cup's axis = object, far behind it = empty, nothing seen = unknown
 skills.objects.base_from_camera = lambda: np.eye(4)                      # camera at the arm base origin
 skills._ask = lambda name, **a: {"errorCode": "0", "cartPosition": [0.0, 500.0, 0.0] + list(skills.GRASP_RPY)}
