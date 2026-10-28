@@ -1039,8 +1039,8 @@ def _said(kind, words, what):
     if kind == "talk":
         return f"answer \u201c{words}\u201d"
     a, t = what
-    return {"look": f"look {t}", "lift": f"lift {t}", "wave": "wave", "come": "come to you", "come_back": "go back",
-            "follow": "follow you", "go_to": f"go to {brain.place_said(t)}", "arm": f"arm {t}",
+    return {"look": f"look {t}", "lift": f"lift {t}", "wave": "wave", "come": "come to me", "come_back": "go back",
+            "follow": "follow me", "go_to": f"go to {brain.place_said(t)}", "arm": f"arm {t}",
             "quiet": "be quiet", "waist": f"turn my waist {t}"}.get(a, f"{a} {t}".strip())
 
 

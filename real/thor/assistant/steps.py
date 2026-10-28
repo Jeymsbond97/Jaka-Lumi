@@ -21,8 +21,8 @@ from assistant import brain, wording
 MOVE_MAX_M = 3.0             # m; a mission's single move is at most this long
 TURN_DEG = 90.0              # "turn left" without a number
 SIDE_DEG = {"left": 90.0, "right": -90.0}
-DO = ("go", "move", "turn", "pick", "receive", "say", "place", "give", "hold", "arm", "wait")
-MISSION_ONLY = {"move", "turn", "receive", "say", "arm", "wait"}   # steps the plain fetch / carry can't do
+DO = ("go", "move", "turn", "pick", "receive", "say", "place", "give", "hold", "arm", "wait", "carry")
+MISSION_ONLY = {"move", "turn", "receive", "say", "arm", "wait", "carry"}  # steps the plain fetch / carry can't do
 WAIT_SHORT_S = 10.0          # s; "wait a moment", "잠깐 기다렸다가": a short wait
 WAIT_MAX_S = 1800.0          # s; a longer wait is refused (check)
 WAIT_GIVE_S = 300.0          # s; "wait until someone gives you the cup": the hand is held out this long, then the
