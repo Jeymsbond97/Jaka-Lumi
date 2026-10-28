@@ -18,7 +18,8 @@ READ_ONLY = {"get_data", "get_joint_pos", "get_tcp_pos", "get_robot_state", "get
              "kine_inverse", "kine_forward"}
 ABSOLUTE_MOVES = {"moveL", "joint_move"}
 SET_VALUE = {"set_digital_output", "stop_program"}
-RETRIES, RETRY_S = 3, 0.2
+RETRIES, RETRY_S = 5, 0.2    # tries; s before the 2nd, doubled each time (0.2 ... 1.6, 3 s in all): the controller
+                             # closes every connection for ~0.5 s every few seconds, whatever the request rate
 
 
 def cmd(name, **args):
@@ -34,7 +35,7 @@ def cmd(name, **args):
         except (ConnectionError, OSError):
             if i == tries - 1:
                 raise
-            time.sleep(RETRY_S)
+            time.sleep(RETRY_S * 2 ** i)
 
 
 def _send(name, args):
