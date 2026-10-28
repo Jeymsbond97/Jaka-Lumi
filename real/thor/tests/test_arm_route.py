@@ -22,6 +22,9 @@ motion.poses = lambda: dict(POSES)
 head_cam.head_centre = lambda: head["centre"]
 gripper.state = lambda: {"holding": False, "ai": [160]}
 arm_route.log = fetch.log = lambda *a: None
+LOOK_LIVE = [-239.2, -88.4, -29.5, 200.0, 81.4, 158.3]               # the taught look: its links clear the head
+assert arm_route.link_clearance(LOOK_LIVE, LOOK_LIVE, np.array([-93.0, -19.9, 356.1])) > arm_route.LINK_HEAD_CLEAR_MM
+arm_route.links = lambda j: []                                      # toy kinematics: no links, the gripper is checked
 motion.SETTLE_S = 0.05                                              # quick here; the pause itself is checked below
 
 
@@ -41,6 +44,8 @@ class FakeArm:
         if name == "kine_forward":
             j = a["jointPosition"]
             return {"cartPosition": [30 * j[0], 30 * j[1], 30 * j[2]] + list(skills.GRASP_RPY), "errorCode": "0"}
+        if name == "kine_inverse":
+            return {"errorCode": "-1", "errorMsg": "no IK in the toy"}
         if name == "get_data":
             return {"joint_actual_position": list(self.j), "inpos": True}
         if name == "get_motion_state":
@@ -105,7 +110,10 @@ assert arm_route.goto("carry") == ["look", "carry"] and fake.sent == [POSES["loo
 fake = use([20.5, 0, 0, 0, 0, 0])                                   # within EXACT_DEG of carry: straight on
 assert arm_route.goto("give") == ["give"]
 
-# ---------- far from every pose, or a move that passes the head: refused, nothing sent ----------
+# ---------- far from every pose: one checked joint move to the nearest pose, slow; none passes: refused ----------
+fake = use([60.0, 60.0, 0, 0, 0, 0])
+assert arm_route.goto("carry") == ["look", "carry"] and fake.sent == [POSES["look"], POSES["carry"]], fake.sent
+head["centre"] = np.array([1800.0, 1800.0, 0.0])                    # the gripper is at the head: every way refused
 fake = use([60.0, 60.0, 0, 0, 0, 0])
 refused(arm_route.UNKNOWN, arm_route.goto, "look")
 try:
@@ -114,6 +122,7 @@ try:
 except fetch.FetchError as e:
     assert e.args == arm_route.UNKNOWN
 assert fake.sent == []
+head["centre"] = FAR
 fake = use([60.0, 60.0, 0, 0, 0, 0])                                # a task's own way back from the table: straight
 assert arm_route.goto("look", leaf=True) == ["look"]
 head["centre"] = np.array([300.0, 0.0, 0.0])                         # on the way look -> carry (flange x 0 -> 600)

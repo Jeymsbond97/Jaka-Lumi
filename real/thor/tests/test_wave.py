@@ -135,9 +135,10 @@ wave.wave()
 assert a.sent[:4] == [LOOK, POSES["wave_out"], top, swing], a.sent
 del POSES["carry"]
 
-# ---------- an unknown start (after free drive: the wrist the other way round), base, power ----------
+# ---------- an unknown start (after free drive: the wrist the other way round): joins by a checked move; power ----------
 a = use(FakeArm([-249.1, -90.9, -29.1, 14.6, -83.8, -33.0]))
-refused(wave.UNKNOWN_POSE)
+wave.wave()
+assert a.sent[0][1:3] == LOOK[1:3] and swing in a.sent, a.sent
 use(FakeArm(LOOK, enable=False))
 refused(wave.OFF)
 base["move_status"] = "running"
@@ -153,7 +154,7 @@ POSES["wave"] = swing
 del POSES["wave_out"]
 refused(wave.NOT_TAUGHT)
 POSES["wave_out"] = [-50.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-assert a.sent == []
+assert arm.cmd.sent == []                                            # nothing sent for any refusal
 
 # ---------- the assistant: a greeting sends no arm command; a wave asked while holding is refused aloud ----------
 calls = []
