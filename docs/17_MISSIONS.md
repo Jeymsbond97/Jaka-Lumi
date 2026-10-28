@@ -140,22 +140,24 @@ prompt ("What you are doing now: …").
 
 While a mission runs, Lumi keeps listening. What is said **to it** halts the mission (`fetch.pause`: the base stops
 at once, an arm move in progress ends first; `fetch.resume` goes on where it was: the rest of a turn, the same
-goal, the rest of a move, all checked again). Said to it = the wake word, "stop" / "wait" / "excuse me" / "robot",
-a question about what it is doing, a request, a name, or anything within 20 s of talking with it; other talk
-around it is ignored.
+goal, the rest of a move, all checked again). Said to it = with Lumi's name ("Lumi, wait", "루미야 잠깐", "stop
+Lumi"), the person it is for naming themselves, a safety word, or anything while it is halted for someone; all other
+talk around it ("hello", "very nice", "네", a question or an order without the name) is ignored and never halts it.
 
 | Someone says | Lumi |
 |---|---|
-| a stop word, anyone, running or halted: "stop", "stop it", "okay, stop it", "enough", "그만", "그만해", "멈춰", "정지" | stops everything and **ends** the mission at once (`lumi.stop_order` / `ENOUGH` -> `stop_all`): "Okay, I stopped." It never goes on after a stop word |
-| "Hi Lumi", "wait", "excuse me" | halts, "Hi, I'm Lumi. I stopped for you. How can I help you?" |
+| a stop word, anyone, running or halted: "stop", "stop it", "okay, stop it", "enough", "그만", "그만해", "멈춰", "정지" | stops everything and **ends** the mission at once (`lumi.stop_order` / `ENOUGH` -> `stop_all`): "Okay, I stopped." It never goes on by itself |
+| "Lumi, keep going", "루미 계속해" (with the name, within `RESUME_S` 5 min, nothing else run since) after a stop word | the mission's steps from the one stopped on start again (`lumi.resume_stopped`); a stopped pick with the thing in the hand counts as done; nothing left: "I have the cup in my hand. Where should I put it?" |
+| an order after the stop word: "Lumi stop, not the apple, take the cup", "루미 멈춰, 제자리에 놔" | stopped, then the order is done as usual (`lumi.order_after_stop`) |
+| "Hi Lumi", "Lumi, wait", "루미야 잠깐" | halts, "Hi, I'm Lumi. I stopped for you. How can I help you?" |
 | a question ("what are you doing", "who made you", "what is in my hand", "내 손에 뭐 있어?") | answered as usual (status from the task, seeing questions from the camera), then "Can I go on with my task?" |
 | "go on", "continue", "you can go", "계속해", "계속 가", yes to "can I go on" | goes on with the mission. Nothing else lets a halted mission go on: not a goodbye, not "okay", not silence |
 | nothing for 15 s | "Can I go on with my task?" once; it stays halted |
 | "watch out", "my hand", "멈춰!", "위험해" | safety stop: stays halted until "go on" / "continue" / "계속 가" |
-| a new command from anyone ("follow me", "come to me", "take me to p2", "give me that", a song), running or halted | the mission ends (`fetch.end`) with "Okay, I've stopped my task." and the command is done as usual (`lumi.end_run`; the same for a fetch run, a new mission, follow, a song). Something held stays held. "Cancel it" alone: "Okay, I've cancelled my task." |
+| a new command with the name, or from anyone while halted ("Lumi, follow me", "Lumi, take me to p2", a song) | the mission ends (`fetch.end`) with "Okay, I've stopped my task." and the command is done as usual (`lumi.end_run`; the same for a fetch run, a new mission, follow, a song). Something held stays held. "Cancel it" alone: "Okay, I've cancelled my task." |
 | "I'm James" (James is who it is for) | "Hi James, this is for you. Here you go." and hands it over there (the rest of the mission is replaced by the give) |
 | "I'm James, put it on my desk at p3 instead", "I'm at p5 now, bring it there", "I don't need it, cancel it" | the person it is for, or the sender named in the mission ("Anvar asks you…", "안바르가 보내는 거야"), may change or cancel it; a change Lumi can't read: "Sorry, what should I…? Should I give it to you here?" |
-| "I'm Tom, give it to me" (it is for James) | a new command as any other: the mission ends, it is given to Tom |
+| "Lumi, I'm Tom, give it to me" (it is for James) | a new command as any other: the mission ends, it is given to Tom |
 
 **Waiting for an instruction** ("go to p6 and do what they tell you"): while that wait runs, anything said is to Lumi,
 and the person there may give **one** command: read with `steps.read` (English / Korean only, LLM pass as usual),
