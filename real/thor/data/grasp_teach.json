@@ -28,8 +28,9 @@
   -301.0
  ],
  "tcp_offset_flange": [
-  106.4,
-  -86.5,
-  230.5
- ]
+  103.6,
+  -88.3,
+  219.7
+ ],
+ "tcp_offset_note": "corrected 2026-10-27 by hover readings at three cup spots (data/hover_readings.json): the taught point carried the camera's cup-centre error (-10.0, +5.2 mm in the arm frame); the camera's own error is fixed in vision/objects.py ROUND_FIX_MM"
 }

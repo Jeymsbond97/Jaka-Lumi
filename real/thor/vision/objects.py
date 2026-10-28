@@ -33,6 +33,8 @@ EDGE_PCT = (1, 99)          # percentiles taken as the object's edges (robust to
 MIN_SATURATION = 50          # HSV S below this is white / grey / black
 DARK_V = 60                  # HSV V below this has no hue the camera can tell (black trousers: V ~48, S ~95, read
                              # "blue"; blue jeans V ~90, 2026-10-22)
+ROUND_FIX_MM = (13.9, -3.1)  # mm (x, y), arm frame, added to a round thing's centre: the camera read cup centres this
+                             # far off, mean of three spots 7-11 cm apart (hover readings, 2026-10-27; +-4 mm between them)
 EDGE_PX = 4                  # a box this close to the bottom of the frame is cut off: height and centre z unknown
 STALE_S = 1.5                # s; an older detection file means the camera service is not live
 SURE_SCORE = 0.35            # a box scoring less (person.WEAK_SCORE) is kept only when depth measures this size there:
@@ -146,7 +148,7 @@ def measure(color, depth, box, intr, T, round_=False):
     width = float(np.subtract(*np.percentile(across, EDGE_PCT[::-1])))
     centre = np.array([*surface[:2], (top + bottom) / 2])
     if round_:                                        # the camera sees the front; the centre is behind it
-        centre[:2] += sight * width / 2
+        centre[:2] += sight * width / 2 + np.array(ROUND_FIX_MM)
     out.update(position_mm=[round(float(v)) for v in centre], top_mm=round(float(top)), width_mm=round(width),
                height_mm=round(float(top - bottom)))
     return out
