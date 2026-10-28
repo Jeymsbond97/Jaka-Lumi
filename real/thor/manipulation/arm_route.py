@@ -7,13 +7,16 @@ moves.
 
 `look` is where every arm action starts (picks and puts go out from it and come back to it, skills.py). From any
 pose of the graph the arm goes to another along the graph, one joint move per edge. An arm at no pose (after free
-drive, after a stop half way) joins the graph only by one checked joint move to the nearest pose, at most JOIN_DEG
-on every joint; further away nothing moves and Lumi asks for the arm to be brought near `look` by hand. A task's own
+drive, after a stop half way) joins the graph by one checked joint move to a pose of it, the nearest first; when no
+such move passes, first straight up by UP_MM (a joint move to the IK pose above, checked the same way), then the
+join. Joins further than JOIN_DEG run at HOLD_SPEED. Only when nothing passes, nothing moves and Lumi asks for the
+arm to be brought near `look` by hand. A task's own
 way back from the table (`leaf`: it went out from `look` along a checked plan) goes straight to its target.
 
 Each joint move is checked at PATH_POINTS points (kine_forward): joint limits, no joint turning further than
 motion.MAX_TRAVEL, the gripper (flange -> grasp point -> finger tips) at least HEAD_CLEAR_MM from the head's turning
-centre (vision/head_cam.py), never more than skills.PATH_SAG_MM below both ends, and with something in the hand the
+centre (vision/head_cam.py), every arm link (elbow, wrist; offline kinematics) at least LINK_HEAD_CLEAR_MM from it,
+never more than skills.PATH_SAG_MM below both ends, and with something in the hand the
 cup's lean at most skills.MAX_TILT_DEG. Refusals are RouteError with the reason in English and Korean.
 
 A route runs one move at a time (motion.move_path): each to a full stop and SETTLE_S standing, then the next; SPEED
@@ -31,7 +34,7 @@ import time
 import numpy as np
 
 from manipulation import skills
-from robot import arm, gripper, motion
+from robot import arm, gripper, kinematics, motion
 from vision import calib, head_cam
 
 HOME = "look"                        # every arm action starts here
@@ -41,10 +44,13 @@ SPEED = "route"                      # motion.JOINT_SPEED of the moves along the
 HOLD_SPEED = "slow"                  # ... with something in the hand
 AT_POSE_DEG = 3.0                    # deg; the arm is at a pose when every joint is this close (where, programs)
 EXACT_DEG = 1.0                      # deg; further than this from the nearest pose a route first goes to it
-JOIN_DEG = 20.0                      # deg; an arm at no pose joins the graph only this close to one (every joint)
+JOIN_DEG = 20.0                      # deg; an arm at no pose this close to one (every joint) joins it at the route speed
+UP_MM = (100.0, 200.0)               # mm straight up tried before a join when no direct join passes
 PATH_POINTS = 21                     # points checked (kine_forward) on every joint move
 HEAD_CLEAR_MM = 250.0                # mm the gripper keeps from the head's turning centre. Estimate: the head camera
                                      # is 102 mm from it, the head's size is not measured. `look` keeps 327 mm
+LINK_HEAD_CLEAR_MM = 220.0           # mm every arm link keeps from the head's turning centre. Estimate below the taught
+                                     # graph's least (267 mm at `wave`, live); the head's size is not measured
 NEVER_RUN = ("hand_shaking.jks",)    # Cobo π programs not started any more
 
 # Why the arm does not move, (English, Korean)
@@ -150,6 +156,21 @@ def _gripper(c):
     return f, g, g + R @ (skills.TIP_MM * skills.FINGER_DIR), R
 
 
+def links(j):
+    """Joint origins (mm, arm base frame) from the shoulder to the flange at joints j (offline kinematics)."""
+    return [f[:3, 3] for f in kinematics.chain(j)[2:]]
+
+
+def link_clearance(j0, j1, centre):
+    """Smallest distance (mm) from `centre` to the arm's links at PATH_POINTS points of the joint move j0 -> j1."""
+    j0, j1 = np.array(j0, float), np.array(j1, float)
+    out = np.inf
+    for k in range(PATH_POINTS):
+        pts = links(list(j0 + (j1 - j0) * k / (PATH_POINTS - 1)))
+        out = min([out] + [_seg_dist(centre, a, b) for a, b in zip(pts, pts[1:])])
+    return out
+
+
 def flange_clearance(c, centre):
     """Smallest distance (mm) from `centre` to the gripper at the flange pose c."""
     f, g, tip, _ = _gripper(c)
@@ -177,6 +198,9 @@ def move_problem(j0, j1, centre, holding=False):
     clear, ends, low, tilt = profile(j0, j1, centre)
     if clear < HEAD_CLEAR_MM:
         return NEAR_HEAD, f"the gripper comes {clear:.0f} mm from the head (needs {HEAD_CLEAR_MM:.0f})"
+    arm_clear = link_clearance(j0, j1, centre)
+    if arm_clear < LINK_HEAD_CLEAR_MM:
+        return NEAR_HEAD, f"the arm comes {arm_clear:.0f} mm from the head (needs {LINK_HEAD_CLEAR_MM:.0f})"
     if low < ends - skills.PATH_SAG_MM:
         return BLOCKED, f"the gripper dips to z {low:.0f} mm"
     if holding and tilt > skills.MAX_TILT_DEG:
@@ -213,10 +237,50 @@ def check_moves(now, targets, holding=False):
     return seq
 
 
+def _up(now, mm):
+    """Joints with the flange `mm` straight above where it is at `now` (same orientation), None without an IK answer."""
+    c = skills._ask("kine_forward", jointPosition=[float(v) for v in now])["cartPosition"]
+    r = skills._ask("kine_inverse", jointPosition=[float(v) for v in now], cartPosition=[c[0], c[1], c[2] + mm, *c[3:]])
+    return r.get("jointPosition")
+
+
+def join(now, target, holding=False):
+    """[(pose, joints)] of a checked way from an arm at no pose of the graph to `target`: one joint move to a graph
+    pose (the nearest first), then along the graph; else first straight up by UP_MM. RouteError(UNKNOWN) when no way
+    passes the checks; nothing moved."""
+    nodes, p = graph(), motion.poses()
+    if target not in nodes:
+        raise RouteError(*NOT_TAUGHT)
+    order = sorted(nodes, key=lambda n: (_deg(now, nodes[n]), n != HOME))
+    for mm in (None, *UP_MM):
+        first = [] if mm is None else [("up", _up(now, mm))]
+        if first and first[0][1] is None:
+            continue
+        for n in order:
+            names = _path(n, target, nodes)
+            if names is None:
+                continue
+            way = first + [(x, p[x]) for x in names]
+            try:
+                return list(zip([x for x, _ in way], check_moves(now, [j for _, j in way], holding)))
+            except RouteError as e:
+                if e.args == UNSURE:
+                    raise
+    log(f"arm route: arm at {_r(now)}: no checked way to {target}")
+    raise RouteError(*UNKNOWN)
+
+
 def plan(target, holding=False, leaf=False, now=None):
     """[(pose, joints)] of the checked way from here to `target` ([] when it is there). RouteError to refuse."""
     now = skills._joints() if now is None else now
-    names = hops(now, target, leaf)
+    try:
+        names = hops(now, target, leaf)
+    except RouteError as e:
+        if e.args != UNKNOWN:
+            raise
+        seq = join(now, target, holding)
+        log(f"arm route: joining from {_r(now)} by {' -> '.join(n for n, _ in seq)}, checked")
+        return seq
     p = motion.poses()
     return list(zip(names, check_moves(now, [p[n] for n in names], holding)))
 
@@ -235,7 +299,10 @@ def move(seq, speed=None, holding=False):
 
 def goto(target, holding=False, leaf=False, speed=None):
     """Plan, check and go to pose `target` along the graph. Returns the poses passed."""
-    seq = plan(target, holding, leaf)
+    now = skills._joints()
+    seq = plan(target, holding, leaf, now)
+    if not leaf and min(_deg(now, j) for j in graph().values()) > JOIN_DEG:
+        speed = HOLD_SPEED                          # a join from far: slow
     if seq:
         log(f"arm route to {target}: {' -> '.join(n for n, _ in seq)}, checked")
     move(seq, speed, holding)
