@@ -57,8 +57,10 @@ action is answered, never executed.
 **Perception.** Two RGB-D cameras let Lumi detect, track and recognise people, read clothing, gestures and held
 objects, and measure objects on a table in 3D. Visual answers always come from a fresh camera frame.
 
-**Voice.** A six-microphone array locates the speaker, filters noise and music, and ignores Lumi's own voice.
-Speech is recognised and synthesised on the GPU with sub-second latency.
+**Voice.** A six-microphone array locates the speaker; Lumi turns its head,
+and its body when needed, to whoever it talks with and keeps facing them. It filters noise and music, ignores its own
+voice, and hears a stop word even while it speaks or sings. Speech is recognised and synthesised on the GPU with
+sub-second latency.
 
 **Mobility.** Lumi navigates any mapped floor, moves and turns by spoken distances and angles, follows a person,
 recovers from a blocked path, and returns to its charging dock.
@@ -241,8 +243,9 @@ Lumi는 쿳션이 개발한 **JAKA Lumi** 모바일 매니퓰레이터용 소프
 **인식.** 두 대의 RGB-D 카메라로 사람을 감지·추적·식별하고, 옷차림과 제스처, 손에 든 물건을 알아보며, 테이블 위
 물체를 3차원으로 측정합니다. 시각에 관한 답변은 항상 최신 카메라 영상을 기준으로 합니다.
 
-**음성.** 6채널 마이크 어레이로 말하는 사람의 방향을 찾고, 소음과 음악을 걸러 내며, 자기 목소리는 무시합니다.
-음성 인식과 음성 합성은 GPU에서 1초 이내의 지연으로 처리됩니다.
+**음성.** 6채널 마이크 어레이로 말하는 사람의 방향을 찾고, 대화하는 사람 쪽으로 머리를, 필요하면 몸을
+돌려 계속 바라봅니다. 소음과 음악을 걸러 내고 자기 목소리는 무시하며, 말하거나 노래하는 중에도 멈춤 명령을
+알아듣습니다. 음성 인식과 음성 합성은 GPU에서 1초 이내의 지연으로 처리됩니다.
 
 **이동.** 지도가 있는 어떤 공간에서든 주행하고, 말로 지정한 거리와 각도만큼 이동·회전하며, 사람을 따라가고,
 막힌 경로를 우회하며, 충전 도크로 돌아갑니다.
