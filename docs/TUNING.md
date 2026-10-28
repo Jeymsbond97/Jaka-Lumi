@@ -24,7 +24,10 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `robot/motion.py` | `SETTLE_S` | 0.3 s | After each arrival (inpos, joints within 0.3°) the arm stands this long before the next move of a route or wave. Estimate |
 | `manipulation/arm_route.py` | `HEAD_CLEAR_MM` | 250 mm | The gripper (flange, grasp point, finger tips) keeps this from the head's turning centre (`head_cam.head_centre()`) on every pose-graph move, the wave and straight moves with an object. The head camera is 102 mm from that centre; `look` keeps 327 mm. Estimate (head size not measured) |
 | `manipulation/arm_route.py` | `EDGES` | give–carry, carry–look, look–wave_out, wave_out–wave_start, wave_start–wave, look–ready | The only joint moves between named poses |
-| `manipulation/arm_route.py` | `JOIN_DEG` | 20° | An arm at no pose (free drive, stopped half way) joins the graph by one checked joint move only when every joint is this close to a pose; else it does not move and asks to be brought near `look` |
+| `manipulation/arm_route.py` | `LINK_HEAD_CLEAR_MM` | 220 mm | Every arm link (elbow, wrist) keeps this from the head's turning centre on every pose-graph move. Estimate below the least of the taught graph (267 mm at `wave`) |
+| `manipulation/arm_route.py` | `JOIN_DEG` | 20° | An arm at no pose (free drive, stopped half way) joins the graph by one checked joint move to a pose, the nearest first; joins further than this run at the slow speed |
+| `manipulation/arm_route.py` | `UP_MM` | 100, 200 mm | When no direct join passes the checks, the arm first goes this far straight up, then joins |
+| `robot/arm.py` | `RETRIES`, `RETRY_S` | 5, 0.2 s | A dropped controller connection is retried this often, the wait doubling each time (3 s in all); the controller closes connections for ~0.5 s every few seconds |
 | `manipulation/arm_route.py` | `AT_POSE_DEG`, `EXACT_DEG` | 3°, 1° | At a pose for programs and `check` / further than 1° from the nearest pose a route first goes to it |
 | `api/dashboard.html` | `MAP_POLL_MS` | 20000 ms | The dashboard reads the map's markers again this often (markers added on the base, a map switched) |
 
@@ -132,6 +135,9 @@ Every value here is a constant at the top of its file, with a comment on what it
 | File | Name | Default | What it does |
 |---|---|---|---|
 | `tasks/fetch.py` | `PLACE_GRID_X`, `PLACE_GRID_Y` | x −260…−60 step 40, y 640…740 mm | Place spots tried in front (after the pick spot); IK refuses the ones out of reach |
+| `tasks/fetch.py` | `PLACE_LOW_Z` | −480 mm | A level top lower than this (arm frame, lift 0) is a seat, never a place |
+| `tasks/fetch.py` | `KEEP_R_MM`, `KEEP_STEP_MM`, `KEEP_TOL_MM` | 400, 40, 40 mm | A table seen once is kept on the map; after each move it is looked for only within this radius of its kept spot (on this grid) and this close to its kept height |
+| `tasks/fetch.py` | `PLACE_NAV_MAX` | 2 | Navigation drives round to a kept table at most this often per place, then straight ways only |
 | `tasks/fetch.py` | `PLACE_GOAL` | (−160, 670) mm | Where the base brings a table spot seen further away |
 | `tasks/fetch.py` | `FAR_R_MM`, `FAR_HALF_DEG`, `FAR_IN_MM` | 0.6–3 m, ±45°, 150 mm | A table further away: level tops looked for on sight lines this far, within this of where the camera looks; the base goes to the point this far in from its nearest edge |
 | `tasks/fetch.py` | `TOP_NEAR_MM` | 1500 mm | A named thing's top measured further away is not trusted: the base goes closer first |

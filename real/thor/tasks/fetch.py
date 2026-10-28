@@ -70,6 +70,12 @@ BIG_TOPS = ("dining table", "desk", "bed")   # things named for a place whose YO
 FAR_REACH_MM = 850.0                 # mm from the arm base; level points of a far table past this are out of reach
 PLACE_REFUSALS = 8                   # place spots tried before giving up on this view (callers order them nearest first)
 FAR_SPOTS = 4                        # spots of a table further away tried from where the base is (_place_far)
+PLACE_LOW_Z = -480.0                 # mm, arm frame at lift 0: a level top lower than this is a chair's seat or a stool,
+                                     # never a table to put on (live 2026-10-27 -549 and -542 were driven to)
+KEEP_R_MM = 400.0                    # mm; a table kept on the map is looked for again within this of its kept spot ...
+KEEP_STEP_MM = 40.0                  # ... on a grid this fine ...
+KEEP_TOL_MM = 40.0                   # ... at its kept height +- this (measured from 1.5 m it can be ~30 mm off)
+PLACE_NAV_MAX = 2                    # navigation drives round to a kept table at most this often, then straight ways only
 TOP_NEAR_MM = 1500.0                 # mm from the arm base; a named thing's top measured further away is not trusted
                                      # (2026-10-20 a white thing 3.8 m away read -258, then -620 mm): go closer first
 KNOWN_M = 0.5                       # m; a thing seen this near where it was taught is that thing
@@ -161,6 +167,7 @@ SAME_PLACE_M = 0.05          # m; closer than this to the target point (and SAME
 SAME_ANGLE_RAD = 0.05
 AXIS_STEP_M = 0.10           # m the base drives forward (and back) in measure-axis
 AXIS_SPEED = 0.05            # m/s; straight with joy_control (navigation may turn in place, the arm is over the table)
+SHORT_LOG_M = 0.03           # m; a straight drive (timed) that odometry says came this much short is logged
 COAST_S = 0.3                # s; the base coasts a little after a joy_control stop: frames from then on are used
                              # (estimate; measure-axis waits 1 s for its pose)
 GIVE_WAIT_S = 30.0           # s; no release by then: keep holding it and go back to carry (never drop it)
@@ -701,9 +708,10 @@ def _waist_to(rel):
         log("not turning my waist: Patrol is off")
         return False
     _go_on()
+    yaw, pitch = head.status()[2:]               # head_hits turns the head to the side: it comes back with the waist
     if _sweep_blocked(d, "turning my waist"):
         return False
-    lift, waist, yaw, pitch = head.status()
+    lift, waist = head.status()[:2]
     log(f"waist {waist:.0f} -> {waist + d:.0f} deg")
     _body_move([lift, waist + d, yaw, pitch], vel=WAIST_VEL, acc=20, timeout=60)
     skills.moved()
@@ -1247,6 +1255,9 @@ def _straight_clear(dist, speed=None, stop=True):
     if free > 0:
         log(f"straight {sign * free:+.2f} m")
         free = _straight(sign * free, speed or AXIS_SPEED, stop=stop or blocked)
+        went = math.hypot(agv.pose()[0] - x, agv.pose()[1] - y)
+        if (stop or blocked) and went < free - SHORT_LOG_M:      # the drive is timed: say when odometry disagrees
+            log(f"the base went {went:.2f} m of {free:.2f} m (odometry)")
     return free
 
 
@@ -1612,11 +1623,17 @@ def _reach(task, obj, say):
     raise FetchError("I still can't reach it.", "아직 손이 닿지 않아요.")
 
 
-def table_ahead():
+def place_band():
+    """surface_band for putting things down: no lower than PLACE_LOW_Z (a seat)."""
+    low, high = surface_band()
+    return max(low, PLACE_LOW_Z - head.status()[0] + LIFT_RANGE[0]), high
+
+
+def table_ahead(band=None):
     """Height (mm) of the table in front: the level top most sight lines over the place grid meet (skills.flat_top:
-    a chair's back or seat, the table's edge, the floor don't count) at a height the arm can work at (surface_band);
-    None when too little table is in view."""
-    top = skills.flat_top([(x, y) for y in PLACE_GRID_Y for x in PLACE_GRID_X], surface_band())
+    a chair's back or seat, the table's edge, the floor don't count) within `band` (default place_band); None when
+    too little table is in view."""
+    top = skills.flat_top([(x, y) for y in PLACE_GRID_Y for x in PLACE_GRID_X], band or place_band())
     return None if top is None else top[0]
 
 
@@ -1643,12 +1660,12 @@ def place_spots(held, base_now, seen, table=None):
     return tries + skills.on_table(grid, table)
 
 
-def _place_here(top0):
-    """One look for a place from where the arm is (look, the held object out of the view): measure the table, fit the
-    lift, try the spots. True when the object was put down, else None."""
-    table = table_ahead()
+def _place_here(top0, kept=None):
+    """One look for a place from where the arm is (look, the held object out of the view): measure the table (the
+    kept one's height only, _kept_band), fit the lift, try the spots. True when the object was put down, else None."""
+    table = table_ahead(_kept_band(kept))
     if _fit_lift(table):
-        table = table_ahead()
+        table = table_ahead(_kept_band(kept))
     log(f"table here at {table:.0f} mm" if table is not None else "no table in view")
     if table is None:                    # never put it down on a table not measured right now
         return None
@@ -1675,6 +1692,68 @@ def _place_view(top0):
         return True
     far = far_table() if arm_yaw() is not None else None
     return True if far and _place_far(top0, far) else far
+
+
+def _keep(xy, table):
+    """A table to put on, kept by its map place: seen at xy (mm, arm frame now) with its top at `table` mm (None: not
+    measured yet). From then on it is looked for there (_kept_at), never another one."""
+    return {"world": map_xy({"x": xy[0], "y": xy[1]}), "table": table, "lift": head.status()[0]}
+
+
+def _kept_at(kept):
+    """(x, y, height) mm, arm frame now, of the table kept on the map (height None: not measured yet)."""
+    x, y = arm_frame(kept["world"])
+    z = None if kept["table"] is None else kept["table"] - (head.status()[0] - kept["lift"])
+    return float(x), float(y), z
+
+
+def _kept_band(kept):
+    """Heights (mm, arm frame now) a level top must have to be the kept table: its own +- KEEP_TOL_MM; place_band
+    when nothing is kept or its height is not measured yet."""
+    z = None if kept is None else _kept_at(kept)[2]
+    return place_band() if z is None else (z - KEEP_TOL_MM, z + KEEP_TOL_MM)
+
+
+def _place_kept_view(top0, kept):
+    """One look for the kept table: put it down on it in reach (True), else on it further away where the arm reaches a
+    spot of it from here (True); else where it is now (far_table near its kept spot and height, kept from now on);
+    None when it is not in view."""
+    if _place_here(top0, kept):
+        return True
+    x, y, _ = _kept_at(kept)
+    far = far_table((x, y), _kept_band(kept))
+    if far is None:
+        return None
+    kept.update(_keep((far["x"], far["y"]), far["table"]))
+    return True if _place_far(top0, far) else far
+
+
+def _place_kept(top0, kept, tried):
+    """Bring the table kept on the map (_keep) to PLACE_GOAL with the base and put the held object down on it. After
+    every move the waist and the head turn to where it must be now (odometry) and look for it there, at its height
+    (_place_kept_view): it is never lost to a new search nor swapped for another table or a seat; not seen from a
+    spot, the base goes on to where it is kept. At most APPROACH_TRIES moves, PLACE_NAV_MAX of them driving round
+    (then straight ways only); it stops when the base brings it no nearer. A pause keeps all of it. True when it is
+    down."""
+    for i in range(APPROACH_TRIES):
+        if arm_yaw() is None or _charging():
+            break
+        if sum(isinstance(k, int) for k in tried) >= PLACE_NAV_MAX:
+            tried.update(APPROACH_SIDES)              # no more driving round
+        x, y, _ = _kept_at(kept)
+        log(f"the table at ({x:.0f}, {y:.0f}): going closer ({i + 1}/{APPROACH_TRIES})")
+        moved = _go_to({"x": x, "y": y}, PLACE_GOAL, tried, holding=True) is not False
+        x, y, _ = _kept_at(kept)
+        side = math.degrees(math.atan2(-x, y))        # + left of where the arm looks
+        got = _look_at(_waist_turn() + (side if abs(side) > TORSO_HALF_DEG else 0.0),
+                       lambda: _place_kept_view(top0, kept))
+        if got is True:
+            return True
+        if not moved:                                 # the base brings it no nearer
+            break
+        if got is None:
+            log(f"the table is not in view: going on to where I keep it ({x:.0f}, {y:.0f})")
+    return False
 
 
 def _place_far(top0, far):
@@ -1735,22 +1814,25 @@ def _place_at(tries, top):
     return None
 
 
-def far_table():
+def far_table(around=None, band=None):
     """A table seen further away by the torso camera, else by the head camera as it is turned: {"x", "y"} (mm, arm
     frame now) FAR_IN_MM in from the point of its level top nearest PLACE_GOAL (that is its edge), "table" (its height,
     mm), "camera", "points" (x, y of its level top seen by the torso camera, for _place_far); None when neither sees a
-    level top at a height some lift can work at (surface_band)."""
-    band = surface_band()
+    level top within `band` (default place_band). `around` (x, y): only within KEEP_R_MM of there (a kept table)."""
+    guess = TABLE_PROVEN_Z if band is None else sum(band) / 2   # aims the sight lines (a kept table: its height)
+    band = band or place_band()
     views = [("torso", skills.objects.base_from_camera())]
     if _head_ok():
         views.append(("head", head_cam.base_from_head(*head.status()[2:])))
+    steps = np.arange(-KEEP_R_MM, KEEP_R_MM + 1.0, KEEP_STEP_MM)
     for cam, T in views:
         if T is None:
             continue
         a = math.degrees(math.atan2(T[1, 2], T[0, 2]))          # where the camera looks, in the arm frame
         pts = [(r * math.cos(math.radians(a + b)), r * math.sin(math.radians(a + b)))
-               for r in FAR_R_MM for b in range(-FAR_HALF_DEG, FAR_HALF_DEG + 1, FAR_STEP_DEG)]
-        top = skills.flat_top(pts, band, TABLE_PROVEN_Z, cam, T)
+               for r in FAR_R_MM for b in range(-FAR_HALF_DEG, FAR_HALF_DEG + 1, FAR_STEP_DEG)] if around is None else \
+            [(around[0] + dx, around[1] + dy) for dx in steps for dy in steps if math.hypot(dx, dy) <= KEEP_R_MM]
+        top = skills.flat_top(pts, band, guess, cam, T)
         if top is None:
             continue
         p = np.array(min(((q[0], q[1]) for q in top[1]),
@@ -1868,11 +1950,13 @@ def _usable(usable, seen):
         return
     things = [o for o in seen if o["name"] not in objects.ROUND]
     def note(xy, top, o=None):
+        if top < place_band()[0]:                     # a seat: never a place
+            return
         near = [t for t in things if math.hypot(t["x"] - xy[0], t["y"] - xy[1]) < SUPPORT_NEAR_MM]
         o = o or (min(near, key=lambda t: math.hypot(t["x"] - xy[0], t["y"] - xy[1])) if near else {})
         label = " ".join(w for w in (colour_of(o), o["name"].replace("dining table", "table")) if w) if o else "table"
         usable.append({"map": map_xy({"x": xy[0], "y": xy[1]}), "label": label, "colour": colour_of(o) if o else None,
-                       "names": o.get("names") or ([o["name"]] if o else []), "top_mm": top,
+                       "names": o.get("names") or ([o["name"]] if o else []), "top_mm": top, "lift": head.status()[0],
                        "width_mm": o.get("width_mm")})
     table = table_ahead()
     if table is not None:
@@ -1883,24 +1967,6 @@ def _usable(usable, seen):
     for o in things:
         if o["name"] in FURNITURE and (level := _workable(o)) is not None:
             note((o["x"], o["y"]), level, o)
-
-
-def _place_near(top0, tried):
-    """Put it down on a table in front, going closer to a table seen further ahead up to APPROACH_TRIES times (no
-    whole search). True when it is down."""
-    moved = True
-    for i in range(APPROACH_TRIES + 1):
-        got = _look_at(0.0, lambda: _place_view(top0))
-        if got is True:
-            return True
-        if got is None or i == APPROACH_TRIES or _charging():
-            return False
-        if not moved:                                 # the base is as near as it gets: a low table stays out of reach
-            _too_low(got)                             # (said then, not after 24-31 moves; X1 r11: not earlier either)
-        log(f"a table at {got['table']:.0f} mm further away ({got['camera']} camera), at ({got['x']:.0f}, "
-            f"{got['y']:.0f}): going closer ({i + 1}/{APPROACH_TRIES})")
-        moved = _go_to(got, PLACE_GOAL, tried, holding=True) is not False
-    return False
 
 
 def _put_on(top0, on, say):
@@ -1917,6 +1983,8 @@ def _put_on(top0, on, say):
         seen = skills.look(ignore=())
         return _support(on, seen, heights) or _usable(usable, seen)
     thing = _look_around(view, holding=True, say=say)
+    if thing is not None and any(n in BIG_TOPS for n in thing.get("names") or [thing.get("name", on["name"])]):
+        return _put_on_table(top0, thing, label, tried)   # a table (not a chair said as "or chair")
     for i in range(APPROACH_TRIES + 1):
         if thing is None and heights and not usable:          # seen, but no lift brings its top in reach
             off = heights[0] - TABLE_PROVEN_Z
@@ -1926,12 +1994,6 @@ def _put_on(top0, on, say):
             return _put_instead(top0, on, label, usable, tried, say)
         surface = None if thing.get("head") else _workable(thing)
         can_move = arm_yaw() is not None and i < APPROACH_TRIES and not _charging()
-        big = on["name"] in BIG_TOPS
-        far = None
-        if surface is None and big:                   # a table's box centre moves with the view (2026-10-26 18:55:
-            surface = table_ahead()                   # (22, 623), then (-349, 647) for the same table): its level top
-            far = far_table() if surface is None else None     # in front or further away instead
-            surface = far["table"] if far else surface
         if surface is None:
             if not can_move:
                 raise FetchError(f"I can't see the top of the {label} well enough.", "윗면이 잘 안 보여요.")
@@ -1945,16 +2007,36 @@ def _put_on(top0, on, say):
             continue
         top = _top_on(top0, surface)
         centre = [(thing["x"] + dx, thing["y"] + dy) for dx in (0, -50, 50) for dy in (0, -50, 50)]
-        grid = [p for p in place_spots(skills._held, agv.pose(), skills.look(), surface)   # a big top (a table):
-                if math.hypot(p[0] - thing["x"], p[1] - thing["y"]) <= NEAR_THING_MM]     # its near part
-        spots = grid + [p for p in skills.on_table(centre, surface) if p not in grid] if big else \
-            skills.on_table(centre, surface) + grid
-        if spots and _place_at(list(dict.fromkeys(spots)), top) or far and _place_far(top0, far):
+        grid = [p for p in place_spots(skills._held, agv.pose(), skills.look(), surface)
+                if math.hypot(p[0] - thing["x"], p[1] - thing["y"]) <= NEAR_THING_MM]
+        spots = skills.on_table(centre, surface) + grid
+        if spots and _place_at(list(dict.fromkeys(spots)), top):
             return True
         if not can_move:
             break
-        _go_to(far or thing, PLACE_GOAL, tried, holding=True)
+        _go_to(thing, PLACE_GOAL, tried, holding=True)
         thing = _look_at(0.0, lambda: _support(on))
+    raise FetchError(f"I couldn't reach a free spot on the {label}.", "놓을 자리에 손이 닿지 않아요.")
+
+
+def _put_on_table(top0, thing, label, tried):
+    """Put it down on the named table `thing` (its YOLO box: the centre moves with the view, the label flips, a round
+    table up close reads "sink"): from now on it is kept by the level top seen around that box (far_table there; not
+    measured yet: by the box until it is) and approached by its map place (_place_kept); in reach it is put down at
+    once."""
+    far = far_table((thing["x"], thing["y"]))
+    kept = _keep((far["x"], far["y"]), far["table"]) if far else _keep((thing["x"], thing["y"]), None)
+    log(f"{label} at ({thing['x']:.0f}, {thing['y']:.0f}), " +
+        (f"its top at {far['table']:.0f} mm: I keep it" if far else "its top not measured yet: I keep it"))
+    try:
+        if _place_kept_view(top0, kept) is True or _place_kept(top0, kept, tried):
+            return True
+    except FetchError as e:
+        if kept["table"] is not None:
+            _too_low({"table": _kept_at(kept)[2]}, e)
+        raise
+    if kept["table"] is not None:
+        _too_low({"table": _kept_at(kept)[2]})
     raise FetchError(f"I couldn't reach a free spot on the {label}.", "놓을 자리에 손이 닿지 않아요.")
 
 
@@ -1977,9 +2059,7 @@ def _put_instead(top0, on, label, usable, tried, say):
     w, name = u["map"], u["label"]
     held = held_name().replace("something", "it")
     log(f"no {label} anywhere; the {name} at ({w[0]:.2f}, {w[1]:.2f}) on the map can take it: going there")
-    xy = arm_frame(w)
-    _go_to({"x": float(xy[0]), "y": float(xy[1])}, PLACE_GOAL, tried, holding=True)
-    if not _place_near(top0, tried):
+    if not _place_kept(top0, {"world": np.asarray(w, float), "table": u["top_mm"], "lift": u["lift"]}, tried):
         raise FetchError(f"I couldn't find the {label}, and I couldn't reach a free spot on the {name} either.",
                          "그곳을 못 찾았고, 다른 곳에도 놓지 못했어요.")
     _say(say, f"I couldn't find the {label}, so I put {held} on the {name} here.",
@@ -2049,15 +2129,15 @@ def _put_down(say=None, on=None):
         return
     if got is not None and arm_yaw() is not None and not _charging():
         log(f"a table at {got['table']:.0f} mm further away ({got['camera']} camera), at ({got['x']:.0f}, "
-            f"{got['y']:.0f}): going closer")
+            f"{got['y']:.0f}): I keep it")
+        kept = _keep((got["x"], got["y"]), got["table"])
         try:
-            _go_to(got, PLACE_GOAL, tried, holding=True)
-            if _place_near(top, tried):
+            if _place_kept(top, kept, tried):
                 return
         except FetchError as e:
-            _too_low(got, e)
+            _too_low({"table": _kept_at(kept)[2]}, e)        # its height as last measured, nearest
             raise
-        _too_low(got)
+        _too_low({"table": _kept_at(kept)[2]})
     _lift_to(LIFT_DRIVE_MM)
     raise FetchError("I can't find a free place on a table around me.", "주변에 내려놓을 빈 자리를 못 찾았어요.")
 
@@ -2146,14 +2226,41 @@ def _pick_here(task, say):
     _say(say, "I've got it.", "잡았어요.")
     _step("carry")
     skills._guarded(skills._line, "up", waypoints[0][1])   # straight up to the approach height first
+    _carry_from(waypoints[0][1], ja)
+
+
+def _carry_from(above, ja):
+    """Holding, the arm at `above` (flange pose over the pick spot, joints `ja` there): to look the way a pick ends."""
     try:
         _line_holding("carry")                               # straight: the cup stays upright (a turned grasp
     except FetchError:                                       # can't go straight to look) ...
-        plan = skills.carry_up(waypoints[0][1], ja)          # ... or, when that line jumps (carry has the elbow
+        plan = skills.carry_up(above, ja)                    # ... or, when that line jumps (carry has the elbow
         if plan is None:                                     # almost straight), further up and one joint move
             raise
         skills._guarded(skills.carry_by_joints, plan)
     _line_holding(LOOK_POSE)                                 # then look to drive
+
+
+def _carry_held():
+    """The step {"do": "carry"}: a pick stopped after the grasp left the object just above the table; straight up to
+    the pick's approach height (clear_above over the grasp point, never down), then to look as a pick ends. Nothing
+    said. Already at look or carry: only on to look."""
+    if not _state["holding"]:
+        raise FetchError("My hand is empty, I'm not holding anything.", "손에 든 게 없어요.")
+    _step("carry")
+    if not (_at_pose(LOOK_POSE) or _at_pose("carry")):
+        h, now = skills._held, motion.tcp()
+        z = now[2] + skills.ABOVE_MM - skills.LIFT_MM         # not known how high it was picked: as after the lift
+        if h.get("top_mm") is not None:
+            below = h.get("below", skills.BELOW_RIM_MM)
+            grasp = skills.flange_for(h["x"], h["y"], h["top_mm"] - below, h.get("yaw", 0.0), h.get("tips", False))
+            z = grasp[2] + skills.clear_above(below)
+        above = skills.up(now, max(0.0, z - now[2]))
+        if above[2] > now[2] + 1.0:
+            skills._guarded(skills._line, "up", above)
+        _carry_from(above, skills._joints())
+    else:
+        _line_holding(LOOK_POSE)
 
 
 def _fail(e, say):
@@ -2558,6 +2665,8 @@ def _do_step(s, say):
             raise FetchError("Nobody took it, I'm still holding it.", "아무도 안 받아서 계속 들고 있어요.")
     elif d == "arm":
         _arm(s["pose"])
+    elif d == "carry":
+        _carry_held()
     # "hold": nothing to do, the mission ends holding
 
 
