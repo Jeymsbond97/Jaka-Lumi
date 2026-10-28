@@ -1,0 +1,101 @@
+{
+ "note": "skills.py hover readings: ring centre minus rim centre (dx + = Lumi's right, dy + = away), arm frame, mm. Input to skills.py offset.",
+ "cup": [
+  -126,
+  619
+ ],
+ "top_mm": -188,
+ "readings": [
+  {
+   "turn_deg": 0,
+   "dx": 2,
+   "dy": 4,
+   "how": "moved the hovering hand -2 / -4 until the ring was centred, 15 mm over the rim"
+  }
+ ],
+ "spots": [
+  {
+   "cup": [
+    -70,
+    591
+   ],
+   "top_mm": -188,
+   "readings": [
+    {
+     "turn_deg": 0,
+     "dx": 2,
+     "dy": 1
+    },
+    {
+     "turn_deg": -15,
+     "dx": -5,
+     "dy": -1
+    },
+    {
+     "turn_deg": -30,
+     "dx": -6,
+     "dy": -3
+    }
+   ]
+  },
+  {
+   "cup": [
+    36,
+    559
+   ],
+   "top_mm": -191,
+   "readings": [
+    {
+     "turn_deg": -15,
+     "dx": -5,
+     "dy": -7
+    },
+    {
+     "turn_deg": -45,
+     "dx": -8,
+     "dy": -12
+    }
+   ]
+  }
+ ],
+ "checks_after_fix": [
+  {
+   "cup": [
+    -1,
+    594
+   ],
+   "turn_deg": -45,
+   "dx": -4,
+   "dy": 0
+  },
+  {
+   "cup": [
+    -2,
+    590
+   ],
+   "turn_deg": -30,
+   "dx": -8,
+   "dy": 0
+  },
+  {
+   "cup": [
+    -2,
+    592
+   ],
+   "turn_deg": -30,
+   "dx": -4,
+   "dy": 0,
+   "calib": "ROUND_FIX (13.9, -3.1)"
+  },
+  {
+   "cup": [
+    10,
+    540
+   ],
+   "turn_deg": 0,
+   "dx": 0,
+   "dy": 0,
+   "calib": "ROUND_FIX (13.9, -3.1)"
+  }
+ ]
+}
