@@ -48,4 +48,30 @@ for group, scenes in (("must", MUST), ("physical", PHYSICAL), ("open", OPEN)):
         elif group == "physical" and (r["result"] == "ok" or ps.way_exists(sc) is not None):
             bad.append((name, "no longer physical", r["result"]))
 assert not bad, bad
+
+# ---------- places, the live run of 2026-10-27 (named white table, a higher grey one, a chair seat at -549) ----------
+P = lambda deg, m: [m * ps.math.cos(ps.math.radians(deg)), m * ps.math.sin(ps.math.radians(deg))]
+WHITE = {"name": "dining table", "colour": "white"}
+SEAT = {"c": P(-55, 1.3), "half": [0.22, 0.22], "ang": 10.0, "z": -549.0}
+PLACES = {   # name: (scene, must end on table 0)
+    "10:55 the white table by name, far right": (ps.place_at(
+        [{"c": P(-70, 1.9), "r": 0.5, "z": -330.0},
+         {"c": P(-120, 1.6), "half": [0.3, 0.4], "ang": -120.0, "z": -267.0, "colour": "black"}], [SEAT], WHITE), True),
+    "10:55 the same, the base stops 0.1 m early": (ps.place_at(
+        [{"c": P(-70, 1.9), "r": 0.5, "z": -330.0},
+         {"c": P(-120, 1.6), "half": [0.3, 0.4], "ang": -120.0, "z": -267.0, "colour": "black"}], [SEAT], WHITE,
+        stall_gap=0.1), True),
+    "10:59 a chair seat, no table": (ps.place_at([], [{**SEAT, "c": P(-20, 1.1)}]), False),
+    "10:59 a chair seat ahead": (ps.place_at([], [{**SEAT, "c": P(0, 1.1)}]), False),
+    "11:13 the round table ahead, flush": (ps.place_at([{"c": P(0, 0.95), "r": 0.5, "z": -330.0}]), True),
+}
+for name, (sc, must) in PLACES.items():
+    r = ps.run_scene(sc, 1.0)
+    navs = sum(m[0] == "nav" for m in r["moves"])
+    drives = sum(m[0] == "nav" or m[0] == "straight" and m[1] > 0 for m in r["moves"])   # towards something
+    print(f"place    {name:44s} {r['result']:8s} moves {[m[:3] for m in r['moves']]} {r.get('why') or ''}")
+    if must and r["result"] != "ok" or not must and (r.get("released") or drives) or navs > ps.fetch.PLACE_NAV_MAX \
+            or r["result"] in ("exception", "timeout"):
+        bad.append((name, r["result"], r.get("why"), r["moves"]))
+assert not bad, bad
 print("pick sweep scenes ok")

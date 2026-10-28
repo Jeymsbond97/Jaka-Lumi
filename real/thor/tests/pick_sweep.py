@@ -73,6 +73,9 @@ CAM_SCALE_SD = 0.008          # per-scene depth scale error
 CAM_NOISE_MM = 2.0            # per-frame noise of a detection's centre
 ARM_XY_ERR_M = 0.03           # true arm base origin off the calibrated one by up to this (samples spread 6-19 cm in x)
 ARM_YAW_ERR_DEG = 1.0
+FURN_SAMPLES = 9              # a table top / chair seat sampled this many points a side for its detection ...
+ROUND_SINK_MM = 1300.0        # a round table's box this near the arm base is named "sink" (live 2026-10-20)
+FURN_MIN_PART = 0.2           # ... detected when this part of it is in the camera's view
 STALL_GAPS = (0.10, 0.25)     # m in front of the base where its own safety stop holds it (per scene)
 
 EVENTS = ("no box for it", "the base went", "an obstacle", "plan refused", "straight move to carry",
@@ -151,14 +154,18 @@ def arm_to_world(a):
 
 
 def rect_dist(p, r):
-    """Distance (m) from map point p to rectangle r {c, half, ang} (0 inside)."""
+    """Distance (m) from map point p to rectangle r {c, half, ang} or round table {c, r} (0 inside)."""
+    if "r" in r:
+        return max(0.0, float(np.linalg.norm(np.asarray(p, float) - r["c"])) - r["r"])
     q = rot2(-r["ang"]) @ (np.asarray(p, float) - r["c"])
     d = np.maximum(np.abs(q) - r["half"], 0.0)
     return float(np.hypot(*d))
 
 
 def legs(t):
-    """Map points (m) of a table's four legs (LEG_IN_M in from its corners)."""
+    """Map points (m) of a table's four legs (LEG_IN_M in from its corners); a round table: three under its rim."""
+    if "r" in t:
+        return [t["c"] + (t["r"] - LEG_IN_M) * np.array([math.cos(a), math.sin(a)]) for a in (0.5, 2.6, 4.7)]
     hx, hy = t["half"][0] - LEG_IN_M, t["half"][1] - LEG_IN_M
     return [t["c"] + rot2(t["ang"]) @ [sx * hx, sy * hy] for sx in (-1, 1) for sy in (-1, 1)]
 
@@ -213,9 +220,8 @@ def render(u, v):
             t1, t2 = (lo - rel_o) / rel_d, (hi - rel_o) / rel_d
             tn, tf = np.nanmax(np.minimum(t1, t2), 1), np.nanmin(np.maximum(t1, t2), 1)
             take(tn, tn <= tf)
-        cup = W.get("arm_cup")
-        if cup is not None:
-            (cx, cy), r, z0, z1 = cup
+        for cyl in W["arm_discs"] + ([W["arm_cup"]] if W.get("arm_cup") is not None else []):
+            (cx, cy), r, z0, z1 = cyl                      # round table tops and the cup: upright cylinders
             px, py = o[0] - cx, o[1] - cy
             a = D[:, 0] ** 2 + D[:, 1] ** 2
             b = 2 * (px * D[:, 0] + py * D[:, 1])
@@ -255,6 +261,11 @@ def measured(p):
 
 
 def detections():
+    return cup_seen() + [{**o, "position_mm": [float(v) for v in measured(np.array(o["position_mm"]))]}
+                         for o in furniture(torso_sees, 0.0)]
+
+
+def cup_seen():
     cup = W.get("cup")
     if cup is None or W["in_hand"]:
         return []
@@ -274,6 +285,47 @@ def detections():
              "height_mm": cup["top"] - cup["table"] + float(W["rng"].normal(0, 2.0))}]
 
 
+def furniture(fov, noise_mm):
+    """Tables ("dining table", white unless the scene says) and chairs ("chair", grey) as a camera detects them in
+    place scenes: the middle of the part of the top in its view, `fov(p)` (a big box's centre moves with the view),
+    at the top's height; a part below FURN_MIN_PART of the top in view is not detected."""
+    if not W.get("furniture"):
+        return []
+    out, g = [], np.linspace(-1.0, 1.0, FURN_SAMPLES)
+    for kind, t in [("dining table", t) for t in W["tables"]] + [("chair", b) for b in W["boxes"]]:
+        if "r" in t:
+            pts = [t["c"] + t["r"] * np.array([a, b]) for a in g for b in g if a * a + b * b <= 1.0]
+        else:
+            pts = [t["c"] + rot2(t["ang"]) @ (np.array([a, b]) * t["half"]) for a in g for b in g]
+        top = [np.append(world_to_arm(p), t["z"]) for p in pts]
+        seen = [p for p in top if fov(p)]
+        if len(seen) < FURN_MIN_PART * len(top):
+            continue
+        c = np.mean(seen, axis=0) + np.append(W["rng"].normal(0, noise_mm, 2), 0.0)
+        size = 2000.0 * (t["r"] if "r" in t else max(t["half"]))
+        if "r" in t and np.linalg.norm(c[:2]) < ROUND_SINK_MM:
+            kind = "sink"                                 # live: the round white table up close read "sink"
+        out.append({"name": kind, "colour": t.get("colour", "white" if kind == "dining table" else "grey"),
+                    "score": 0.8, "box": [0, 0, 1, 1], "position_mm": [float(v) for v in c],
+                    "top_mm": float(t["z"]), "width_mm": size})
+    return out
+
+
+def torso_sees(p):
+    pc = np.linalg.inv(cam_true()) @ np.append(p, 1.0)
+    if pc[2] <= 0 or np.linalg.norm(pc[:3]) > DET_RANGE_MM:
+        return False
+    u, v = INTR["fx"] * pc[0] / pc[2] + INTR["cx"], INTR["fy"] * pc[1] / pc[2] + INTR["cy"]
+    return EDGE_PX <= u < INTR["width"] - EDGE_PX and EDGE_PX <= v < INTR["height"] - EDGE_PX
+
+
+def head_sees(p):
+    pc = np.linalg.inv(head_T(*W["body"][2:])) @ np.append(p, 1.0)
+    return pc[2] > 0 and np.linalg.norm(pc[:3]) <= DET_RANGE_MM and \
+        abs(math.degrees(math.atan2(pc[0], pc[2]))) <= HEAD_FOV_DEG[0] and \
+        abs(math.degrees(math.atan2(pc[1], pc[2]))) <= HEAD_FOV_DEG[1]
+
+
 def head_T(yaw, pitch):
     """Head camera -> arm transform at head (yaw, pitch): at the head's centre, looking ahead (arm +y) turned by yaw
     (+ left) and tilted by pitch (+ up). Its depth frames are not simulated (camview.depth gives None)."""
@@ -287,7 +339,12 @@ def head_T(yaw, pitch):
 
 
 def head_detections():
-    """The cup as the head camera sees it (positions in the arm frame, HEAD_NOISE_MM), inside its field of view."""
+    """The cup (and in place scenes the furniture) as the head camera sees it (positions in the arm frame,
+    HEAD_NOISE_MM), inside its field of view."""
+    return head_cup() + furniture(head_sees, HEAD_NOISE_MM)
+
+
+def head_cup():
     cup = W.get("cup")
     if cup is None or W["in_hand"]:
         return []
@@ -307,7 +364,9 @@ def refresh():
     yaw, org = arm_true()
     x, y, th = W["base"]
     boxes = []
-    for r, z0, z1 in [(t, t["z"] - TABLE_THICK_MM, t["z"]) for t in W["tables"]] + \
+    W["arm_discs"] = [(world_to_arm(t["c"]), t["r"] * 1000.0, t["z"] - TABLE_THICK_MM, t["z"])
+                      for t in W["tables"] if "r" in t]
+    for r, z0, z1 in [(t, t["z"] - TABLE_THICK_MM, t["z"]) for t in W["tables"] if "r" not in t] + \
                      [(b, FLOOR_Z, b["z"]) for b in W["boxes"]]:
         c = world_to_arm(r["c"])
         a = math.radians(r["ang"] - math.degrees(th) - yaw)
@@ -381,9 +440,11 @@ def f_open(wait=True):
         bottom = g[2] + held["below"] - held["h"]          # grasp point is `below` under its top
         xy = arm_to_world(g)
         on = [t for t in W["tables"] if rect_dist(xy, t) == 0.0]
+        edge = lambda t: t["r"] - float(np.linalg.norm(xy - t["c"])) if "r" in t else \
+            -max(np.abs(rot2(-t["ang"]) @ (xy - t["c"])) - t["half"])
         W["rec"]["released"] = {"xy": [round(float(v), 3) for v in xy],
-                                "edge_m": round(min((-max(np.abs(rot2(-t["ang"]) @ (xy - t["c"])) - t["half"])
-                                                     for t in on), default=-1.0), 3),
+                                "edge_m": round(min((edge(t) for t in on), default=-1.0), 3),
+                                "table": next((W["tables"].index(t) for t in on), None),
                                 "above_table_mm": round(float(bottom - on[0]["z"]), 1) if on else None}
     W["hand"].update(holding=False, closed=False)
     refresh()
@@ -601,6 +662,15 @@ def pick_at(x, y, top, grip=80.0, gap=0.10, height=110.0, variant="table", stall
             "tables": [table], "boxes": boxes, "stall_gap": stall_gap, "err_seed": err_seed}
 
 
+def place_at(tables, boxes=(), on=None, stall_gap=0.25, err_seed=3):
+    """A fixed place scene: `tables` / `boxes` (chairs) as in make_place, map frame m (the base at the origin facing
+    +x), the cup held as after a pick from a table at -328 mm; `on`: what the command named."""
+    return {"kind": "place", "i": 0, "seed": 0, "bearing": 0.0, "dist_mm": 0, "variant": "fixed", "other": None,
+            "held": {"grip": 80.0, "h": 110.0, "table0": -328.0}, "tables": [dict(t) for t in tables],
+            "boxes": [dict(b) for b in boxes], "stall_gap": stall_gap, "err_seed": err_seed,
+            **({"on": on} if on else {})}
+
+
 def make_place(i, seed):
     rng = random.Random(seed * 200003 + i)
     for _ in range(200):
@@ -618,11 +688,49 @@ def make_place(i, seed):
     other = None
     if rng.random() < 0.25:                                  # another cup already on it, near its front edge
         other = [float(v) for v in table["c"] - n * (depth / 2 - 0.12)]
-    return {"kind": "place", "i": i, "seed": seed, "bearing": round(bearing, 1), "dist_mm": round(near * 1000),
-            "variant": "table" + ("+cup" if other else ""),
-            "held": {"grip": round(rng.uniform(72, 92), 1), "h": round(h, 1), "table0": -403.0 + 75.0},
-            "tables": [{**table, "c": [float(v) for v in table["c"]]}], "boxes": [], "other": other,
-            "stall_gap": rng.choice(STALL_GAPS), "err_seed": rng.randrange(1 << 30)}
+    sc = {"kind": "place", "i": i, "seed": seed, "bearing": round(bearing, 1), "dist_mm": round(near * 1000),
+          "variant": "table" + ("+cup" if other else ""),
+          "held": {"grip": round(rng.uniform(72, 92), 1), "h": round(h, 1), "table0": -403.0 + 75.0},
+          "tables": [{**table, "c": [float(v) for v in table["c"]]}], "boxes": [], "other": other,
+          "stall_gap": rng.choice(STALL_GAPS), "err_seed": rng.randrange(1 << 30)}
+    return place_extras(sc, n, near, width, random.Random(seed * 300007 + i))
+
+
+def place_extras(sc, n, near, width, rng):
+    """What the live place of 2026-10-27 had (a separate random stream: the scenes above stay as they were): a round
+    table, a chair beside the table (its seat ~20 cm lower), "the white dining table" said by name, another (black,
+    higher) table elsewhere."""
+    t = sc["tables"][0]
+    side = np.array([-n[1], n[0]])
+    if rng.random() < 0.25:
+        r = rng.uniform(0.35, 0.6)
+        t = {"c": [float(v) for v in n * (near + r) + side * rng.uniform(-0.15, 0.15)], "r": r, "z": t["z"]}
+        sc["tables"] = [t]
+        sc["variant"] += "+round"
+    W["tables"], W["boxes"] = [{**t, "c": np.array(t["c"])}], []
+    if rng.random() < 0.4:
+        for _ in range(20):
+            c = n * (near + rng.uniform(-0.3, 0.1)) + side * rng.choice((-1, 1)) * (width / 2 + rng.uniform(0.3, 0.5))
+            chair = {"c": c, "half": (0.22, 0.22), "ang": rng.uniform(0, 90), "z": t["z"] - rng.uniform(180, 260)}
+            if np.linalg.norm(c) > 0.6 and rect_dist(c, W["tables"][0]) > 0.25:
+                sc["boxes"] = [{**chair, "c": [float(v) for v in c], "half": list(chair["half"])}]
+                sc["variant"] += "+chair"
+                break
+    if rng.random() < 0.35:
+        sc["on"] = {"name": "dining table", "colour": "white"}
+        sc["variant"] += "+named"
+        if rng.random() < 0.5:
+            for _ in range(20):
+                a = math.atan2(n[1], n[0]) + math.radians(rng.choice((-1, 1)) * rng.uniform(90, 180))
+                m = np.array([math.cos(a), math.sin(a)])
+                c = m * rng.uniform(0.9, 1.8)
+                grey = {"c": c, "half": (0.3, 0.4), "ang": math.degrees(a), "z": rng.uniform(-300, -260),
+                        "colour": "black"}            # (grey would match "white": one light colour)
+                if rect_dist(c, W["tables"][0]) > 0.6 and rect_dist((0, 0), grey) > 0.45:
+                    sc["tables"].append({**grey, "c": [float(v) for v in c], "half": list(grey["half"])})
+                    sc["variant"] += "+other table"
+                    break
+    return sc
 
 
 def setup(sc, cam=1.0):
@@ -632,7 +740,8 @@ def setup(sc, cam=1.0):
     W.update(lines=lines, in_hand=False, base=np.zeros(3), body=[0.0, WAIST_REF, 0.0, -5.0], nav=None,
              joy={"v": 0.0, "t": 0.0, "want": 0.0, "start": np.zeros(3)},
              J=list(motion.poses()["look"]), hand={"holding": False, "closed": False}, rng=nr,
-             tables=[{**t, "c": np.array(t["c"]), "half": np.array(t["half"])} for t in sc["tables"]],
+             tables=[{**t, "c": np.array(t["c"]), **({"half": np.array(t["half"])} if "half" in t else {})}
+                     for t in sc["tables"]], furniture=sc["kind"] == "place",
              boxes=[{**b, "c": np.array(b["c"]), "half": np.array(b["half"])} for b in sc["boxes"]],
              stall_gap=sc["stall_gap"], col=COLUMN_BASE_M, rec={"moves": []})
     e = nr.normal(0, CAM_ROT_SD_DEG * cam, 3)
@@ -720,9 +829,11 @@ def run_scene(sc, cam=1.0):
             fetch._pick_here({"object": "cup", "colour": None}, None)
             rec["result"] = "ok" if W["hand"]["holding"] else "not holding"
         else:
-            fetch._put_down(None)
+            fetch._put_down(None, on=sc.get("on"))
             rel = rec.get("released")
-            rec["result"] = "ok" if rel and rel["edge_m"] >= 0.0 else "released off a table" if rel else "not released"
+            rec["result"] = "ok" if rel and rel["edge_m"] >= 0.0 and rel["table"] == 0 else \
+                "on another table" if rel and rel["edge_m"] >= 0.0 else \
+                "released off a table" if rel else "not released"
     except fetch.Stopped:
         rec["result"] = "stopped"
     except (fetch.FetchError, skills.SkillError) as e:
@@ -893,6 +1004,15 @@ def report(rows, path, title, mtimes):
                 f"{sum(r['still'] > 0 for r in places)} scenes; repeated: {sum(r['repeats'] for r in places)}; tried again "
                 f"later from the same spot: {sum(r.get('loops', 0) for r in places)} in "
                 f"{sum(r.get('loops', 0) > 0 for r in places)} scenes", ""]
+        out += ["| scenes | ok |", "|---|---|"]
+        for tag in ("plain", "round", "chair", "named", "other table"):
+            sel = [r for r in places if (tag in r["variant"]) if tag != "plain"] if tag != "plain" else \
+                [r for r in places if "+" not in r["variant"].replace("+cup", "")]
+            if sel:
+                out.append(f"| {tag} | {100 * sum(r['result'] == 'ok' for r in sel) / len(sel):.0f}% ({len(sel)}) |")
+        navs = [sum(m[0] == "nav" for m in r["moves"]) for r in places]
+        out += ["", f"- navigation drives: {sum(navs)} in {sum(n > 0 for n in navs)} scenes, at most {max(navs)} in one; "
+                f"base moves in all: {sum(r['base_moves'] for r in places)}", ""]
         rel = [r["released"] for r in places if r.get("released") and r["released"]["above_table_mm"] is not None]
         if rel:
             hz = [x["above_table_mm"] for x in rel]
@@ -952,7 +1072,8 @@ def main():
         scenes = [s for s in scenes if (s["kind"], str(s["i"])) in want]
     for s in scenes:                                       # numpy -> plain values for the records
         for t in s["tables"] + s["boxes"]:
-            t["half"] = [float(v) for v in t["half"]]
+            if "half" in t:
+                t["half"] = [float(v) for v in t["half"]]
     logs = ROOT / "logs"
     jl, md = logs / f"pick_sweep_{a.round}.jsonl", logs / f"pick_sweep_{a.round}.md"
     stamp = mtimes()

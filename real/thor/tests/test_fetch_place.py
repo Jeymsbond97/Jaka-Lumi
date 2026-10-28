@@ -205,9 +205,8 @@ only_chair = [white_t, {**grey_t, "name": "chair", "names": ["chair"]}]
 assert fetch._support(brain.place_on("put it on the black table"), only_chair) is None
 usable, went, said = [], [], []
 fetch._usable(usable, only_chair)
-real_go_to, real_near = fetch._go_to, fetch._place_near
-fetch._go_to = lambda thing, goal, tried, holding=False: went.append((round(thing["x"]), round(thing["y"])))
-fetch._place_near = lambda top0, tried: True
+real_go_to, real_kept = fetch._go_to, fetch._place_kept
+fetch._place_kept = lambda top0, kept, tried: went.append(tuple(round(v) for v in fetch._kept_at(kept)[:2])) or True
 fetch._state.update(holding=True, held_object={"object": "cup", "colour": "grey"})
 fetch._put_instead(-260.0, brain.place_on("put it on the black table"), "black table", usable, set(),
                    lambda en, ko: said.append(en))
@@ -217,7 +216,7 @@ went.clear(); said.clear()
 fetch._put_instead(-260.0, brain.place_on("put it on the lower red sofa"), "red sofa", usable, set(),
                    lambda en, ko: said.append(en))
 assert went == [(300, 900)] and "on the black chair here" in said[0], (went, said)   # same kind, the lower one
-fetch._go_to, fetch._place_near = real_go_to, real_near
+fetch._place_kept = real_kept
 fetch._state.update(holding=False, held_object=None)
 skills.flat_points = flat
 

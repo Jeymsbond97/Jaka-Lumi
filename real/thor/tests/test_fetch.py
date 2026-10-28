@@ -549,6 +549,9 @@ st = run(fetch.place, None, {"name": "chair", "colour": "orange"})
 assert st["status"] == "done" and ("place",) in calls, st["log"][-4:]
 # "the grey table": the cameras call it a white sink (flat, table height) -> on it; nothing named in view -> any table
 sink = {"name": "sink", "colour": "white", "x": -160.0, "y": 760.0, "top_mm": -400.0, "seen": 8, "spread": 1.0}
+flat_fixed = skills.flat_points                 # the table stands still: in the arm frame it moves with the lift
+skills.flat_points = lambda pts, guess_z=-400.0, camera="torso", T=None: \
+    [(p[0], p[1], surface["z"] + 75.0 - body["lift"]) for p in pts]
 for seen in ([chair, sink], []):
     reset()
     hand.update(holding=True, closed=True)
@@ -563,7 +566,7 @@ for seen in ([chair, sink], []):
     instead = "white sink" if seen else "table"            # not exactly what was said: the closest (white = grey, a
     assert any(f"couldn't find the grey table, so I put it on the {instead} here" in w for w in said), said   # flat
     assert seen or not any("sink" in l for l in this), this   # furniture word), after the one whole search; else any
-skills.look, skills.on_table = real_look, real_on_table
+skills.look, skills.on_table, skills.flat_points = real_look, real_on_table, flat_fixed
 fetch._set(holding=False, status="idle")
 hand.update(holding=False, closed=False)
 
