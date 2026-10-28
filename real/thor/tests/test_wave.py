@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import lumi
 from manipulation import arm_route, skills, wave
 from robot import agv, arm, gripper, motion
@@ -27,6 +28,7 @@ gripper.state = lambda: {"holding": hand["holding"]}
 base = {"move_status": "idle"}
 agv.status = lambda: dict(base)
 wave.log = arm_route.log = lambda *a: None
+fetch._waist_turn = lambda: 0.0                                    # the waist at the front (never the body)
 motion.SETTLE_S = 0.01                                              # quick here (tests/test_arm_route.py checks it)
 
 
@@ -128,11 +130,12 @@ refused(wave.HOLDING)
 skills.hand_sees = lambda: "unknown"
 assert a.sent == []
 
-# ---------- from carry (empty hand): down to look first, then up ----------
+# ---------- from carry (empty hand): the least joint travel checked; straight to wave_start passes the head ----------
 POSES["carry"] = [30.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 a = use(FakeArm(POSES["carry"]))
 wave.wave()
-assert a.sent[:4] == [LOOK, POSES["wave_out"], top, swing], a.sent
+assert a.sent[:3] == [POSES["wave_out"], top, swing], a.sent
+assert arm_route.profile(POSES["carry"], top, HEAD)[0] < arm_route.HEAD_CLEAR_MM
 del POSES["carry"]
 
 # ---------- an unknown start (after free drive: the wrist the other way round): joins by a checked move; power ----------
@@ -152,7 +155,7 @@ del POSES["wave"]
 refused(wave.NOT_TAUGHT)
 POSES["wave"] = swing
 del POSES["wave_out"]
-refused(wave.NOT_TAUGHT)
+refused(wave.NEAR_HEAD)                                              # the ways left (look -> wave -> ...) pass the head
 POSES["wave_out"] = [-50.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 assert arm.cmd.sent == []                                            # nothing sent for any refusal
 

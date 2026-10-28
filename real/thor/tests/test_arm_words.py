@@ -4,6 +4,7 @@ holding = give; the known faults of that day; negations, later times and remarks
 
     .venv/bin/python tests/test_arm_words.py
 """
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain
 from tests import command_check
 
@@ -50,6 +51,20 @@ CASES = [   # (text, state, route)
     ('"give it to me" is a nice English phrase', "holding", None), ("몸 5센티만 내려 주세요", "holding", "action:lift"),
     ("테이블에 놔 줄래? 영상 찍고 있어", "holding", "place"), ("it's my birthday, put that back where you found it!", "holding", "action:put back"),
     ("Lumi buddy, any chance you could pick up the apple?", "idle", "action:pick apple"),
+    # 2026-10-27: taught poses by name (look = fold)
+    ("Let's take look position.", "idle", "action:arm fold"), ("Let's put your hand look position.", "idle", "action:arm fold"),
+    ("let's bring your hand look position", "idle", "action:arm fold"), ("let's come your hand look position", "idle", "action:arm fold"),
+    ("look position", "idle", "action:arm fold"), ("go to look", "idle", "action:arm fold"), ("hand to look", "idle", "action:arm fold"),
+    ("bring your hand to look position", "idle", "action:arm fold"), ("carry position", "idle", "action:arm carry"),
+    ("put your arm in carry position", "idle", "action:arm carry"), ("carry", "idle", "action:arm carry"),
+    ("arm to carry", "idle", "action:arm carry"), ("ready position", "idle", "action:arm ready"),
+    ("carry position", "holding", "action:arm carry"), ("룩 포지션", "idle", "action:arm fold"), ("룩 자세로", "idle", "action:arm fold"),
+    ("팔 룩으로", "idle", "action:arm fold"), ("캐리 자세", "idle", "action:arm carry"), ("팔 캐리로 해 줘", "idle", "action:arm carry"),
+    ("팔 원위치", "idle", "action:arm fold"), ("팔 내려", "idle", "action:arm fold"),
+    ("what is the look position?", "idle", None), ("can you carry this?", "idle", None), ("I like your look position", "idle", None),
+    ("캐리 자세가 뭐야?", "idle", None), ("룩 자세로 가지 마", "idle", None), ("don't go to carry position", "idle", None),
+    ("put your arm in tuck position", "idle", None), ("get ready", "idle", None), ("are you ready?", "idle", None),
+    ("what does carry position mean?", "idle", None), ("look at my hand", "idle", None),
 ]
 MOVES = ("action:", "give", "place", "receive", "mission", "chain")
 

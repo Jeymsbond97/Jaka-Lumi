@@ -1,12 +1,16 @@
-"""The arm moves between named poses only along a graph of taught poses, every joint move checked before anything
-moves.
+"""The arm moves between named poses only by joint moves between taught poses, every joint move checked before
+anything moves.
 
-    give - carry - look - wave_out - wave_start - wave
+    give - carry - look - wave_out - wave_start - wave       (EDGES: the moves run live first)
                     |
                   ready
 
-`look` is where every arm action starts (picks and puts go out from it and come back to it, skills.py). From any
-pose of the graph the arm goes to another along the graph, one joint move per edge. An arm at no pose (after free
+`look` is where every arm action starts (picks and puts go out from it and come back to it, skills.py). With an empty
+hand the arm goes from pose to pose by the route of least joint travel (each move its largest joint turn plus
+STOP_DEG for the stop), any two poses one joint move apart when that move passes the checks below (all but NO_EDGES;
+on equal travel the EDGES first): from wave_start straight to give, from give straight to look. With something in
+the hand only the EDGES (fetch runs them as straight lines, the cup upright) and never a wave pose (WAVE_POSES). An
+arm at no pose (after free
 drive, after a stop half way) joins the graph by one checked joint move to a pose of it, the nearest first; when no
 such move passes, first straight up by UP_MM (a joint move to the IK pose above, checked the same way), then the
 join. Joins further than JOIN_DEG run at HOLD_SPEED. Only when nothing passes, nothing moves and Lumi asks for the
@@ -28,6 +32,7 @@ Cobo π programs start only from `look` (start_program); hand_shaking.jks never 
     python manipulation/arm_route.py goto <pose>     # go there along the route (SPEED; the owner at the STOP)
 """
 import collections
+import heapq
 import sys
 import time
 
@@ -39,7 +44,12 @@ from vision import calib, head_cam
 
 HOME = "look"                        # every arm action starts here
 EDGES = (("give", "carry"), ("carry", "look"), ("look", "wave_out"), ("wave_out", "wave_start"),
-         ("wave_start", "wave"), ("look", "ready"))   # the only joint moves between named poses (both ways)
+         ("wave_start", "wave"), ("look", "ready"))   # the moves with something in the hand (both ways)
+NO_EDGES = {frozenset(("look", "wave_start"))}        # never one joint move: passes 267 mm from the head (the wave
+                                                      # goes up and down through wave_out, 309 mm)
+WAVE_POSES = ("wave_out", "wave_start", "wave")       # never with something in the hand (the cup would tip)
+STOP_DEG = 10.0                      # deg of joint travel one more stop on a route costs (SETTLE_S, slowing down and
+                                     # starting again; an estimate, it only weighs routes against each other)
 SPEED = "route"                      # motion.JOINT_SPEED of the moves along the graph, empty hand
 HOLD_SPEED = "slow"                  # ... with something in the hand
 AT_POSE_DEG = 3.0                    # deg; the arm is at a pose when every joint is this close (where, programs)
@@ -84,10 +94,10 @@ def _deg(now, pose):
     return max(abs(a - b) for a, b in zip(motion.nearest(pose, now), now))
 
 
-def graph():
-    """{pose: joints} of the graph's taught poses."""
+def graph(holding=False):
+    """{pose: joints} of the graph's taught poses (`holding`: without WAVE_POSES)."""
     p = motion.poses()
-    return {n: p[n] for e in EDGES for n in e if n in p}
+    return {n: p[n] for e in EDGES for n in e if n in p and not (holding and n in WAVE_POSES)}
 
 
 def where(now=None):
@@ -117,10 +127,64 @@ def _path(a, b, nodes):
     return None
 
 
-def hops(now, target, leaf=False):
+def _cheapest(a, b, nodes, ok):
+    """Poses a .. b of least joint travel, one joint move between any two of `nodes` but NO_EDGES and the moves
+    refused in `ok` ({frozenset pair: passed}); on equal travel fewer moves off EDGES. None when there is none."""
+    listed = {frozenset(e) for e in EDGES}
+    todo, done = [((0.0, 0), [a])], set()
+    while todo:
+        cost, path = heapq.heappop(todo)
+        n = path[-1]
+        if n == b:
+            return path
+        if n in done:
+            continue
+        done.add(n)
+        for m in nodes:
+            e = frozenset((n, m))
+            if m not in done and e not in NO_EDGES and ok.get(e) is not False:
+                heapq.heappush(todo, ((cost[0] + _deg(nodes[n], nodes[m]) + STOP_DEG, cost[1] + (e not in listed)),
+                                      path + [m]))
+    return None
+
+
+def route(a, b, nodes, holding=False):
+    """Poses a .. b. Holding: the fewest EDGES. Empty hand: _cheapest, each of its moves checked (check_moves) before
+    it is taken, a refused one left out and the next cheapest tried. RouteError when there is no way: why the last
+    move was refused, else NOT_TAUGHT."""
+    if holding:
+        path = _path(a, b, nodes)
+        if path is None:
+            log(f"arm route: no way from {a} to {b} among {', '.join(nodes)}")
+            raise RouteError(*NOT_TAUGHT)
+        return path
+    ok, why = {}, NOT_TAUGHT
+    while True:
+        path = _cheapest(a, b, nodes, ok)
+        if path is None:
+            log(f"arm route: no checked way from {a} to {b}")
+            raise RouteError(*why)
+        for x, y in zip(path, path[1:]):
+            e = frozenset((x, y))
+            if e not in ok:
+                try:
+                    check_moves(nodes[x], [nodes[y]])
+                    ok[e] = True
+                except RouteError as err:
+                    if err.args == UNSURE:
+                        raise
+                    ok[e], why = False, err.args
+                    break
+        else:
+            return path
+
+
+def hops(now, target, leaf=False, holding=False):
     """The poses the arm goes through from the joints `now` to `target`, in order (not the one it is at). `leaf`: the
     arm is out on the task's own checked way from look (above a table): when it is at no pose, straight to target."""
-    nodes = graph()
+    if holding and target in WAVE_POSES:
+        raise RouteError(*SPILL)
+    nodes = graph(holding)
     if target not in nodes:
         log(f"arm route: {target} is not taught (robot/motion.py teach {target})")
         raise RouteError(*NOT_TAUGHT)
@@ -135,10 +199,7 @@ def hops(now, target, leaf=False):
         log(f"arm route: arm at {_r(now)}, {d[start]:.0f} deg from {start}, the nearest pose (joins within "
             f"{JOIN_DEG:.0f})")
         raise RouteError(*UNKNOWN)
-    path = _path(start, target, nodes)
-    if path is None:
-        log(f"arm route: no way from {start} to {target} among {', '.join(nodes)}")
-        raise RouteError(*NOT_TAUGHT)
+    path = route(start, target, nodes, holding)
     return path if d[start] > EXACT_DEG else path[1:]
 
 
@@ -248,20 +309,17 @@ def join(now, target, holding=False):
     """[(pose, joints)] of a checked way from an arm at no pose of the graph to `target`: one joint move to a graph
     pose (the nearest first), then along the graph; else first straight up by UP_MM. RouteError(UNKNOWN) when no way
     passes the checks; nothing moved."""
-    nodes, p = graph(), motion.poses()
+    nodes = graph(holding)
     if target not in nodes:
-        raise RouteError(*NOT_TAUGHT)
+        raise RouteError(*(SPILL if holding and target in WAVE_POSES else NOT_TAUGHT))
     order = sorted(nodes, key=lambda n: (_deg(now, nodes[n]), n != HOME))
     for mm in (None, *UP_MM):
         first = [] if mm is None else [("up", _up(now, mm))]
         if first and first[0][1] is None:
             continue
-        for n in order:
-            names = _path(n, target, nodes)
-            if names is None:
-                continue
-            way = first + [(x, p[x]) for x in names]
+        for n in order:                              # the nearest pose first, then the way on from it
             try:
+                way = first + [(x, nodes[x]) for x in route(n, target, nodes, holding)]
                 return list(zip([x for x, _ in way], check_moves(now, [j for _, j in way], holding)))
             except RouteError as e:
                 if e.args == UNSURE:
@@ -274,7 +332,7 @@ def plan(target, holding=False, leaf=False, now=None):
     """[(pose, joints)] of the checked way from here to `target` ([] when it is there). RouteError to refuse."""
     now = skills._joints() if now is None else now
     try:
-        names = hops(now, target, leaf)
+        names = hops(now, target, leaf, holding)
     except RouteError as e:
         if e.args != UNKNOWN:
             raise

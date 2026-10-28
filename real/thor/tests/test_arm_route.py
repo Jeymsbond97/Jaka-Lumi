@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from manipulation import arm_route, skills
 from robot import arm, gripper, motion
 from tasks import fetch
@@ -76,19 +77,30 @@ def refused(reason, fn, *a, **k):
 
 edges = {frozenset(e) for e in arm_route.EDGES}
 
-# ---------- every pair of poses: along the graph's edges, one joint move each ----------
+# ---------- every pair of poses, empty hand: one checked joint move (all clear here) but look - wave_start ----------
 for a in POSES:
     for b in POSES:
         fake = use(POSES[a])
         route = arm_route.goto(b)
-        assert [a] + route == arm_route._path(a, b, POSES) and fake.sent == [POSES[n] for n in route], (a, b, route)
+        assert fake.sent == [POSES[n] for n in route] and arm_route.where(fake.j) == b, (a, b, route)
+        want = [] if a == b else ["wave_out", b] if {a, b} == {"look", "wave_start"} else [b]
+        assert route == want, (a, b, route)                 # look - wave_start: wave_out ties wave, EDGES first
+# ... holding: along EDGES only, never a wave pose
+for a in POSES:
+    for b in POSES:
+        if a in arm_route.WAVE_POSES or b in arm_route.WAVE_POSES:
+            continue
+        fake = use(POSES[a])
+        route = arm_route.goto(b, holding=True)
+        assert [a] + route == arm_route._path(a, b, arm_route.graph(True)), (a, b, route)
         assert all(frozenset(p) in edges for p in zip([a] + route, route)), (a, b, route)
-        assert arm_route.where(fake.j) == b
+use(POSES["look"])
+refused(arm_route.SPILL, arm_route.goto, "wave_start", holding=True)
 use(POSES["give"])
-assert arm_route.goto("look") == ["carry", "look"]                  # after giving: give -> carry -> look
-assert arm_route.goto("give") == ["carry", "give"]                  # to give: look -> carry -> give
-use(POSES["wave"])
-assert arm_route.goto("look") == ["wave_start", "wave_out", "look"]  # fold: down to look
+assert arm_route.goto("look", holding=True) == ["carry", "look"]    # after giving: give -> carry -> look
+assert arm_route.goto("give", holding=True) == ["carry", "give"]    # to give: look -> carry -> give
+use(POSES["wave_start"])
+assert arm_route.goto("give") == ["give"]                           # empty after a wave: straight to give
 assert not any("tuck" in e for e in arm_route.EDGES)
 use(POSES["look"])
 assert arm_route.goto("wave_start") == ["wave_out", "wave_start"]   # up: never look -> wave_start directly
@@ -109,6 +121,8 @@ fake = use(near)
 assert arm_route.goto("carry") == ["look", "carry"] and fake.sent == [POSES["look"], POSES["carry"]], fake.sent
 fake = use([20.5, 0, 0, 0, 0, 0])                                   # within EXACT_DEG of carry: straight on
 assert arm_route.goto("give") == ["give"]
+fake = use([23.0, 0, 3, 0, 0, 0])                                   # nearer carry than give: carry first
+assert arm_route.goto("give") == ["carry", "give"]
 
 # ---------- far from every pose: one checked joint move to the nearest pose, slow; none passes: refused ----------
 fake = use([60.0, 60.0, 0, 0, 0, 0])
@@ -128,10 +142,16 @@ assert arm_route.goto("look", leaf=True) == ["look"]
 head["centre"] = np.array([300.0, 0.0, 0.0])                         # on the way look -> carry (flange x 0 -> 600)
 for start in (POSES["look"], near, POSES["give"]):
     fake = use(start)
-    refused(arm_route.NEAR_HEAD, arm_route.goto, "give" if start != POSES["give"] else "look")
+    refused(arm_route.NEAR_HEAD, arm_route.goto, "give" if start != POSES["give"] else "look", holding=True)
     assert fake.sent == [], fake.sent
+fake = use(POSES["look"])                                           # empty: around it, every move checked
+assert arm_route.goto("give") == ["ready", "give"], fake.sent      # (ready ties wave_out)
 fake = use(POSES["look"])
-assert arm_route.goto("wave") == ["wave_out", "wave_start", "wave"]  # other edges: clear of it
+assert arm_route.goto("wave") == ["wave"]                           # clear of it
+head["centre"] = np.array([0.0, -300.0, 300.0])                     # on every way out of look: refused, why said
+fake = use(POSES["look"])
+refused(arm_route.NEAR_HEAD, arm_route.goto, "wave")
+assert fake.sent == []
 head["centre"] = None                                               # the head not measured: nothing moves
 refused(arm_route.UNSURE, arm_route.goto, "look")
 head["centre"] = FAR
@@ -141,7 +161,9 @@ refused(arm_route.BLOCKED, arm_route.goto, "give")
 assert fake.sent == []
 POSES["give"] = [40.0, 0, 0, 0, 0, 0]
 del POSES["wave_start"]
-refused(arm_route.NOT_TAUGHT, arm_route.goto, "wave")               # no way to wave without wave_start
+del POSES["wave"]
+refused(arm_route.NOT_TAUGHT, arm_route.goto, "wave_start")         # not taught
+POSES["wave"] = [0.0, -20, 20, 0, 20, 0]
 refused(arm_route.NOT_TAUGHT, arm_route.goto, "nowhere")
 POSES["wave_start"] = [0.0, -20, 20, 0, 0, 0]
 
@@ -195,7 +217,7 @@ arrived = [e for e in fake.log if e[0] == "get_data"][0][4]
 second = [e for e in fake.log if e[0] == "joint_move"][1][4]
 assert second - arrived >= motion.SETTLE_S * 0.9, second - arrived                 # stood at wave_out first
 fake = arm.cmd = QueueArm(POSES["look"])
-arm_route.goto("wave_start", holding=True)
+arm_route.goto("give", holding=True)
 hold = motion.JOINT_SPEED[arm_route.HOLD_SPEED]
 assert order(fake) == ["joint_move", "get_data", "joint_move", "get_data"], order(fake)
 assert fake.moves() == [(hold, hold * motion.JOINT_ACCEL_FACTOR, keys)] * 2 and hold < route, fake.moves()
