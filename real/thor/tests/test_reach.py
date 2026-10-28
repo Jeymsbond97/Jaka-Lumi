@@ -8,6 +8,7 @@ import math
 
 import numpy as np
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from robot import kinematics, motion
 from manipulation import arm_route, skills
 from tasks import fetch
@@ -147,7 +148,7 @@ fetch._other_here = lambda task, obj: None
 fetch.arm_yaw = lambda: -95.5
 fetch.remember = lambda obj, yaw: {}
 fetch.agv.pose = lambda: (0.0, 0.0, 0.0)
-def waist_to(rel):
+def waist_to(rel, in_place=False):
     calls.append(("waist", round(rel)))
     body["waist"] = -20.31 + rel
     return True

@@ -5,6 +5,7 @@ cases. No robot.
 
     .venv/bin/python tests/test_route_words.py
 """
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, detour
 from tests import command_check
 

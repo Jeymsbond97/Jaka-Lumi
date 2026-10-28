@@ -3,6 +3,7 @@ wording.norm, the route lumi.answer() takes before the LLM and intent_bank.said_
 without a fitting unit is asked. No robot: python tests/test_korean_numbers.py"""
 import math
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, intent_bank, steps, wording
 from tests import command_check
 from tests.korean_numbers_cases import NORM, ROUTE, SAID, STEPS

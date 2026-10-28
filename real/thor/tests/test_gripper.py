@@ -1,4 +1,5 @@
 """Self-check of robot/gripper.py's finger gap from AI_1 (no robot): python tests/test_gripper.py"""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from robot import gripper as g
 
 assert g.gap_mm(g.AI_OPEN) == 96.0 and g.gap_mm(g.AI_SHUT) == 70.0          # belly, open / closed (tape)

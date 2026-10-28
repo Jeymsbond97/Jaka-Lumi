@@ -4,6 +4,7 @@ import math
 import tempfile
 from pathlib import Path
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain
 from manipulation import skills
 from tasks import fetch
@@ -12,6 +13,7 @@ from vision import objects
 tmp = Path(tempfile.mkdtemp())
 fetch.STATE_FILE = tmp / "lumi_task.json"           # never the real /dev/shm file
 fetch.CALIB_FILE = tmp / "fetch_calib.json"
+fetch._charging = lambda: True                      # on the charger: no backing off to look (never the base)
 skills.arm.cmd = lambda *a, **kw: (_ for _ in ()).throw(AssertionError(f"real arm command in a test: {a}"))
 fetch.head.moveto = lambda *a, **kw: (_ for _ in ()).throw(AssertionError("real lift move in a test"))
 

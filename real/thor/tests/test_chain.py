@@ -4,6 +4,7 @@ import re
 import threading
 import types
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import chain, lumi
 from tasks import fetch
 

@@ -4,6 +4,7 @@ python tests/test_arm_bank.py
 Needs the embedding server (assistant/knowledge.embed starts it); nothing moves. Every arm / hand capability said in
 new ways (English and Korean at every level) reads as that one motion or as nothing (the LLM then decides); hard
 negatives (questions, remarks, past, negations, gestures Lumi has none of) and side words never become another motion."""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import intent_bank as ib
 
 M = ["home", "dock2", "booth_A", "stage", "coffee_corner", "p3"]
@@ -53,6 +54,7 @@ NEVER = [   # no motion at all from the bank
     ("the kids want to wave at you", False), ("can my son shake your hand", False),
     ("shaking hands is fun", False), ("you folded your arm earlier", False), ("손 펴도 돼?", False),
     ("팔 접는 게 좋아", False), ("you're good at opening your hand", False),
+    ("put your arm in tuck position", False), ("move your hand to high position", False),   # not taught: the model asks
 ]
 
 

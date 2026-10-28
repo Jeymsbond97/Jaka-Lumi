@@ -1,5 +1,6 @@
 """Self-check: battery questions answered from the base's live status (assistant/battery.py), EN + KO; how long it
 lasts is left to the LLM (10 hours), how long charging takes is not known. Fake base: python tests/test_battery.py"""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import battery
 
 NOW = ["And charging?", "charging?", "battery?", "Battery", "what's your battery level?", "How much battery do you have?",

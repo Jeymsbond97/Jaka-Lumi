@@ -4,6 +4,7 @@ gives no motion. No robot; the embedding server answers the bank.
 
     .venv/bin/python tests/test_ko_levels.py
 """
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from tests import ko_levels_check
 
 CAPS = {"wave", "turn45", "head_up", "follow", "fetch", "go_to"}

@@ -5,10 +5,12 @@ import threading
 import time
 from pathlib import Path
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, driving
 from manipulation import skills
 from tasks import fetch
 
+fetch.head_ahead = lambda: None                    # never the real head
 M = ["home", "p9"]
 read = lambda text, last=None, talking=False: driving.read(brain._norm(text), last, talking)
 

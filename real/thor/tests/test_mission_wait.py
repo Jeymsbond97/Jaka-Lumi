@@ -3,6 +3,7 @@ the place, "go on", "okay" while receiving) and of the status answer; no robot, 
 python tests/test_mission_wait.py"""
 import time
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import lumi
 from assistant import steps
 from tasks import fetch

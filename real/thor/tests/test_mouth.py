@@ -2,6 +2,7 @@
 
     python tests/test_mouth.py
 """
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import llm_direct
 from audio import mouth
 

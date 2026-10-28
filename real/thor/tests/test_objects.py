@@ -1,6 +1,7 @@
 """Self-check of objects.measure on a synthetic cup: python tests/test_objects.py"""
 import numpy as np
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from vision import objects
 
 # camera looking along base +y, base z up (like the real torso camera), 600 mm from a cup of r 40 mm, h 100 mm

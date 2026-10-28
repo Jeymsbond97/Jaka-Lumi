@@ -1,5 +1,6 @@
 """Self-check of marker names and numbers as people say them (assistant/wording.py), the keyword rules
 (brain.intent) and the check of the LLM's place (brain.named_place), no robot, no LLM: python tests/test_places.py"""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, wording
 from tests.steps_cases5 import INTENTS
 

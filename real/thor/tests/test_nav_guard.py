@@ -5,6 +5,7 @@ import re
 import threading
 import time
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from robot import agv, nav_guard
 from tasks import fetch
 

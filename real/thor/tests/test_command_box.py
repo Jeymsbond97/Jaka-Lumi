@@ -8,6 +8,7 @@ import types
 
 re._MAXCACHE = 100000                                 # the readers use more patterns than re's cache holds: 3x faster
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, lumi
 from tasks import fetch
 

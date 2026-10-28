@@ -1,5 +1,6 @@
 """tests/parity_check.py on a few fixed sentences: typed (the Command box) and voice give the same plan, English and
 Korean the same, each the one asked for. Rules only, nothing moves: python tests/test_parity.py"""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from tests import parity_check as pc
 
 M = ["p1", "p2", "p3", "p5", "home", "exit", "dock2"]

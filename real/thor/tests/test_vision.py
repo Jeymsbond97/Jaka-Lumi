@@ -1,5 +1,6 @@
 """Self-check of the camera choice in lumi.Vision (head standing, torso driving, fallback), no robot:
 python tests/test_vision.py"""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import lumi
 
 v = lumi.Vision.__new__(lumi.Vision)           # no camera service needed: only pick() is checked

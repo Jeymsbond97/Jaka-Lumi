@@ -2,6 +2,7 @@
 list at once (api/server.py, robot/agv.py), with a fake base, no robot: python tests/test_map_info.py"""
 import time
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from api import server
 from robot import agv
 

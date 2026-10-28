@@ -4,6 +4,7 @@ Needs the embedding server (assistant/knowledge.embed starts it); nothing moves.
 in other words than the bank's too; follow-ups, camera questions, commands and company facts never do."""
 import re
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import quick_answers as qa
 
 TALK = [("what does cutshion make?", "Cutshion makes robot applications, such as barista and cooking robots.")]

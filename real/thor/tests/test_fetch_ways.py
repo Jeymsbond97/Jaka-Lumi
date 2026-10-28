@@ -13,6 +13,7 @@ from pathlib import Path
 
 import numpy as np
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from manipulation import skills
 from tasks import fetch
 from vision import head_cam

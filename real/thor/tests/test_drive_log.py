@@ -1,4 +1,5 @@
 """Self-check of robot/drive_log.py with made-up base status reads, no robot: python tests/test_drive_log.py"""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from robot import drive_log
 
 MARKERS = {"p10": (3.0, 0.0)}

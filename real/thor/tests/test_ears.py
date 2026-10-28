@@ -4,6 +4,7 @@
 """
 import numpy as np
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from audio import ears
 
 ears.ensure_stt_server = lambda: None

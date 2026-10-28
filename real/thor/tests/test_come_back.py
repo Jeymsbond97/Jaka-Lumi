@@ -3,6 +3,7 @@ python tests/test_come_back.py"""
 import tempfile
 from pathlib import Path
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain
 from assistant import lumi
 from assistant import steps

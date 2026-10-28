@@ -4,6 +4,7 @@ The search words made from a question, the parts of a Naver page that are kept, 
 DuckDuckGo when Naver gives nothing), and what a follow-up of a lookup searches for. Live answers: tests/web_check.py."""
 import datetime
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, lumi, web
 
 # English questions become search words; Korean stays as it is

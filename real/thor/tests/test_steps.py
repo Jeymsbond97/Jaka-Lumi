@@ -5,6 +5,7 @@ Each case: command -> the steps it must give, written short:
   say <text> | place | place white dining table left | give | hold | arm reach |
   wait (no time: stay / until go on) | wait 30 | wait order [600] (an instruction there) | receive cup wait [120]
 "?" as the steps: some words must stay unread (Lumi asks again, nothing runs)."""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import steps
 
 M = ["home", "PInit", "Wp", "a", "b", "dock2", "exit", "final"] + [f"p{i}" for i in range(1, 11)]

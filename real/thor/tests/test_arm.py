@@ -1,4 +1,5 @@
 """Self-check of robot/arm.py retries, no robot: python tests/test_arm.py"""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from robot import arm
 
 sent = []

@@ -6,6 +6,7 @@ drives is refused with one line, one that stays in place runs). Fake robot; the 
 python tests/test_mission_route.py"""
 import types
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, chain, lumi, steps
 from tasks import fetch
 from tests import steps_cases7 as c7

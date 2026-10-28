@@ -10,6 +10,7 @@ import re
 import sys
 from pathlib import Path
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, lumi, seeing, web
 from tests.conversation_check import NOW, rules_route
 from tests.followup_cases import CASES

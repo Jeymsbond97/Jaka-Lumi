@@ -1,6 +1,7 @@
 """Self-check of tasks/mimic.py without the robot or camera: face angles and the playback plan."""
 import numpy as np
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from tasks import mimic
 from vision import pose
 

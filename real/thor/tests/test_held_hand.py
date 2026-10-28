@@ -5,6 +5,7 @@ PUT_BACK), the arm words (reach / fold), and the hard negatives that must not mo
 """
 import itertools
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain
 
 MARKERS = ["home", "dock2", "p1", "p3", "booth_A", "stage", "Gate_A3"]

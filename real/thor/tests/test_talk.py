@@ -9,6 +9,7 @@
 """
 import time
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, knowledge, memory, talk_examples, web
 
 FAKE_NOW = "Friday, 13 March 2026, 10:05"      # a date the model could never have guessed

@@ -1,5 +1,6 @@
 """Self-check of whisper's number / unit slips read right in a move (assistant/wording.py number_slips), and words
 that must stay as they are. python tests/test_number_slips.py"""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import wording
 
 CASES = {

@@ -5,6 +5,7 @@ import json
 import tempfile
 from pathlib import Path
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from fastapi import HTTPException
 
 from api import server

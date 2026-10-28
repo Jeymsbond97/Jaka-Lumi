@@ -2,6 +2,7 @@
 the rest on "tell me more" / "yes" right after. No robot, no speaker, no LLM. python tests/test_abilities.py"""
 import types
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import abilities as ab
 from assistant import lumi
 from audio import mouth
@@ -39,6 +40,7 @@ mouth.say = lambda text, lang=None, abort=None: said.append(text)
 lumi.ears.understood = lambda *a: True
 lumi.ears.last_stt = {"language": "english", "logprob": -0.1}
 L = lumi.Lumi.__new__(lumi.Lumi)
+L.markers = ["home", "p1"]                       # never the base's marker list
 L.lang, L.current, L.closing_pending = "en", None, None
 L.brain = types.SimpleNamespace(history=[])
 L.follow_stop = lambda text: False

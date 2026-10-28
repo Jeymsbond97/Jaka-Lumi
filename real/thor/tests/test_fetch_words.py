@@ -4,6 +4,7 @@
 2. steps.rules: cup tasks of several parts (fetch then more, deliver and come back, put it at a place, wait until
    someone takes it, Korean calls / endings of every level, Korean written without spaces).
 Notation of tests/test_steps.py."""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, steps
 
 

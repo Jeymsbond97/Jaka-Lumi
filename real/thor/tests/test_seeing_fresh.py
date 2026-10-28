@@ -9,6 +9,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 import cv2
 import numpy as np
 

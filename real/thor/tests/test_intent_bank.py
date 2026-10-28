@@ -2,6 +2,7 @@
 
 Needs the embedding server (assistant/knowledge.embed starts it); nothing moves. Guards first, then readings on maps
 with other marker names (any map, not p1..p10), then words that must never become a motion."""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import intent_bank as ib
 
 EXPO = ["home", "dock2", "booth_A", "booth_B", "entrance", "stage", "coffee_corner", "info_desk"]

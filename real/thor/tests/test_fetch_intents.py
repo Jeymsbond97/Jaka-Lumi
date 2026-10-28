@@ -1,6 +1,7 @@
 """Self-check of the voice side of fetch tasks (docs/16 §4), no robot, no audio: python tests/test_fetch_intents.py"""
 import time
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, fetch_dialog
 
 M = ["p1", "p2", "p3", "home", "final"]

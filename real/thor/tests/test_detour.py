@@ -7,6 +7,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, detour, lumi
 from tasks import fetch
 from tests.detour_cases import CASES, GOAL, M, PREFIX_EN, PREFIX_KO
