@@ -84,8 +84,8 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
 5. Reach (`_reach`): the pick plan must pass IK. If not, the waist turns first (`_waist_reach`): it carries the arm
    round the column, so a cup beside Lumi is reached as one ahead is. The turn that brings the cup to
    `PICK_ZONE_CENTRE`'s bearing about the column (the head's turning centre), and `WAIST_REACH_STEPS` around it, are
-   planned where the cup will be seen (`turned`); the first that passes turns the waist (its sweep checked, Patrol
-   on), the camera looks again (the cup within `WAIST_FOUND_MM` of where it should be) and the pick is planned from
+   planned where the cup will be seen (`turned`); the first that passes turns the waist in place (its sweep checked,
+   also with Patrol off), the camera looks again (the cup within `WAIST_FOUND_MM` of where it should be) and the pick is planned from
    that look. Then, if still out of reach, the base moves so the object comes to `PICK_ZONE_CENTRE`
    (−100, 580) mm, then Lumi looks again (lost: the whole search of step 4), fits the lift and plans again; at most
    `APPROACH_TRIES` 8 moves, never on the charger. One move (`_approach`, geometry in `approach_move` / `side_pose`):
@@ -123,6 +123,8 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
    stands when the arm reaches it (any grasp turn), else "I can't get closer to it, something is in my way. Please
    move it closer to me". Nothing seen ahead with something right at the base: back off 0.3 m and look again before
    the whole search. Tested offline in `tests/test_fetch_ways.py` with the live positions of 2026-10-26.
+   The voice pick ("take the cup", `fetch.pick_here`) uses the same reach with trusted grasp turns only (never the
+   larger ones); with Patrol off it tries from where it stands and with the waist only, then asks.
    Still out of reach → "I can't reach it, please move it closer to me", look every 2 s for 30 s, go on when it is
    reachable, else task failed.
 6. Pick (`skills.reachable_pick`): the taught grasp turned about the vertical every 15° all the way round
