@@ -8,7 +8,7 @@ point between the fingers where the cup's axis sits 4 cm below the rim. Down fro
     python manipulation/skills.py pick cup                  # pick it up and hold it 3 cm above the table
     python manipulation/skills.py move cup [--to X Y]       # pick it up and put it down at X Y (mm, base frame) or a free spot
     python manipulation/skills.py hover cup [TURN]          # live check: the open hooks 6 cm over the cup's rim, grasp
-                                                            # turned TURN deg; Enter goes back (docs/night5/P2.md)
+                                                            # turned TURN deg; Enter goes back
     python manipulation/skills.py offset T1 DX1 DY1 T2 DX2 DY2 [...]   # hover readings -> the grasp point's error
 
 Ctrl+C, cancel() (STOP in the API, "stop" by voice) or any motion error stops the arm; the gripper keeps its state.
@@ -152,7 +152,7 @@ WRIST_MIN_DEG = 10.0                             # deg; |J5| at least this at ab
                                                  # proven picks had J5 +20; near 0 J4 / J6 swing round)
 TRUSTED_YAW_DEG = 15.0                           # deg; grasp turns up to this picked live (-10, -15: 3 of 3); -30 and
                                                  # -45 missed 4 of 4 (2026-10-26, a finger end on the rim). The taught
-                                                 # grasp point's horizontal error turns with the grasp (docs/night5/P2.md):
+                                                 # grasp point's horizontal error turns with the grasp:
                                                  # a waist turn or a base move comes before a larger turn
 COMFORT_R_MM = 710.0                             # mm, cup's horizontal distance from the arm base origin: picks proven
                                                  # up to here (furthest live success (-68, 703)); further, the base moves
@@ -1080,7 +1080,7 @@ def move_object(name="cup", colour=None, to=None):
 
 
 def hover(name="cup", yaw=0.0):
-    """Live check of the grasp point (docs/night5/P2.md): the pick of `name` planned with the grasp turned `yaw` deg,
+    """Live check of the grasp point: the pick of `name` planned with the grasp turned `yaw` deg,
     slow, down to the grasp point HOVER_MM above its top (the hooks' ring over the rim, nothing touches, the gripper
     stays open); Enter: back up and home. The owner reads how far the ring's centre is from the rim's centre."""
     _cancel.clear()

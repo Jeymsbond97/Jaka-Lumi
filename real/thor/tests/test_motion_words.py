@@ -7,7 +7,7 @@ import types
 from assistant import brain, lumi
 from robot import head
 
-# ---------- at an axis end: said plainly, nothing moves (HANDOFF 16.2) ----------
+# ---------- at an axis end: said plainly, nothing moves ----------
 lo, hi = brain.HEAD_PITCH
 assert brain.head_goal("down", 0, lo)[2] == "down"
 assert brain.head_goal("down", 0, lo - 0.003)[2] == "down"          # the pitch reads -5.003 at its stop

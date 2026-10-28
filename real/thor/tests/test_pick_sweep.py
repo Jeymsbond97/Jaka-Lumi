@@ -4,7 +4,7 @@ python tests/test_pick_sweep.py
 The live positions of 2026-10-26 (WORK_PLAN "Big night test 5", faults (a), (b), (e), (f)) and the hardest sweep
 scenes, run through the real fetch._pick_here: each must end holding the cup with the fingers on it, or refuse for
 a physical reason (no stand reaches it), never crash, never repeat a base move that went nowhere. Scenes still open
-(OPEN) are run and printed, not asserted: they are the next work (docs/night5/X1.md)."""
+(OPEN) are run and printed, not asserted: they are the next work."""
 import sys
 from pathlib import Path
 
