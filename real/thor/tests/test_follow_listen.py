@@ -3,15 +3,18 @@ no robot, no audio: python tests/test_follow_listen.py"""
 import threading
 import time
 
+import no_robot                                # noqa: F401  any connection to the robot fails the test
 from assistant import lumi
-from tasks import follow
+from tasks import fetch, follow
 
 done, heard = [], []
+fetch.stop = lambda: None                      # the real one cancels the arm and the base, writes the live task file
+fetch._waist_turn = lambda: 0.0                # the waist at the front (the real one asks the body API)
 follow.running = lambda: run["on"]
 follow.followed_angle = lambda: run["angle"]
 follow.stop = lambda: done.append("follow stop")
 lumi.doa.load_calib = lambda: {"fitted": True}
-lumi.doa.estimate = lambda mics, cal: (mics, 0.5, None)      # the fake mics carry the voice angle (head frame)
+lumi.doa.estimate = lambda mics, cal, ref=None: (mics, 0.5, None)      # the fake mics carry the voice angle (head frame)
 lumi.mouth.say = lambda text, **k: done.append(("say", text))
 lumi.mouth.recent_speech = lambda s=30.0: ""
 lumi.ears.understood = lambda *a: True
@@ -40,6 +43,12 @@ class Vision:                                  # someone at -60 deg besides the 
 
     def present(self, t):
         return True
+
+    def seen(self):
+        return [(self.stranger.angle, 1.0)]
+
+    def head_person(self, angle, since):
+        return None
 
     def to_greet(self):
         return None
@@ -109,16 +118,27 @@ for by_clip in (True, False):
 run["on"] = False
 L = fresh("What time is it?", -70.0)
 assert L.talk_turn() and heard == ["What time is it?"] and L.current is L.vision.stranger, (heard, L.current)
-# "look at me" / "이쪽 봐": the head turns to this turn's voice (a person there, or the voice out of view), never the centre
-for deg, want in ((40.0, 50.0), (-70.0, -60.0)):
+# "look at me" / "이쪽 봐": the head turns to this turn's voice first; nobody there: to the person seen (-60)
+lumi.head.turn = lambda yaw, pitch=None: done.append(("head turn", round(yaw)))
+lumi.LOOK_ME_SETTLE_S = 0.0
+
+
+def looked(L, want):
+    end = time.time() + 2.0                               # act() turns the head in a thread
+    while [d for d in done if d[0] == "head turn"] != want and time.time() < end:
+        time.sleep(0.01)
+    return [d for d in done if d[0] == "head turn"] == want
+
+
+for deg, want in ((40.0, [50, -60]), (-70.0, [-60])):
     L = fresh("이쪽 봐 줘", deg)
     L.answer = lambda text: lumi.Lumi.act(L, "look", "me")
     L.base_off, L.mission_running = (lambda *a, **k: False), (lambda: False)
-    assert L.talk_turn() and ("head", (want, 10)) in done, (deg, done)
-lumi.doa.load_calib = lambda: {"fitted": False}           # no sound direction, nobody seen: the head stays
+    assert L.talk_turn() and looked(L, [("head turn", w) for w in want]), (deg, done)
+lumi.doa.load_calib = lambda: {"fitted": False}           # no sound direction: the person seen
 L = fresh("look at me", 10.0)
 L.answer = lambda text: lumi.Lumi.act(L, "look", "me")
 L.base_off, L.mission_running = (lambda *a, **k: False), (lambda: False)
-assert L.talk_turn() and ("head", (None, 10)) in done, done
+assert L.talk_turn() and looked(L, [("head turn", -60)]), done
 lumi.doa.load_calib = lambda: {"fitted": True}
 print("follow listen ok")

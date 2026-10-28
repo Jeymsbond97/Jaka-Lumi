@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain, lumi
 from robot import agv, head, motion
 from tasks import fetch, follow
@@ -35,6 +36,7 @@ fetch.head_ahead = lambda: None
 fetch.arm_yaw = lambda: -86.0
 ARM = [np.array([0.44, 0.0]), np.array([0.52, 0.0]), np.array([0.60, 0.0])]   # flange, grasp point, tips (m)
 fetch.arm_points = lambda: ARM
+fetch._waist_turn = lambda: head.status()[1]        # the waist's front reads 0
 
 
 class Body:
@@ -120,6 +122,7 @@ class World:
             return None
         d, a = self.sight(self.person_at())
         self.dist.append(d)
+        a -= body.pos[1]                            # lumi.Vision gives waist-frame angles
         if self.fov and abs(a - body.pos[2]) > HALF_FOV:
             return None
         return d, a, 0.0, self.look
@@ -280,12 +283,12 @@ print("arm off: follows, powered off refuses")
 
 # any other failure in prepare: said, the base at 0, the head free again, the thread ends
 said.clear()
-fetch._waist_front = lambda: 1 / 0
+drive_pose, fetch._drive_pose = fetch._drive_pose, (lambda: 1 / 0)
 w = World()
 follow.start(w.see, say)
 assert wait_end(1.0) and said and "went wrong" in said[0] and w.cmds and w.cmds[-1][1:] == (0.0, 0.0), said
 assert head.owners == ()
-fetch._waist_front = lambda: None
+fetch._drive_pose = drive_pose
 print("failure in prepare: said, stopped")
 
 # the person walks around to behind (radius 2 m, 0 -> 150 deg in 6 s), seen by the head camera only: the head turns
@@ -491,12 +494,119 @@ follow.TURN_MAX_RS = turn_max
 assert follow.running() and not said, said
 follow.stop()
 assert wait_end(0.5)
-yaws = [m[4] for m in body.moves if m[1] == "follow head"]
-assert max(yaws) > 90.0 and all(abs(y) <= 180.0 for y in yaws), yaws                    # past the side
-assert all(abs(b - a) < 90.0 for a, b in zip(yaws, yaws[1:])), yaws                     # never swung round
+moves = [m for m in body.moves if m[1] == "follow head"]
+yaws, gaze = [m[4] for m in moves], [m[3] + m[4] for m in moves]
+assert max(gaze) > 90.0, gaze                                                           # past the side
+assert all(abs(b - a) < 90.0 for a, b in zip(gaze, gaze[1:])), gaze                     # never swung round
 assert math.degrees(w.th) > 120.0 and w.dist[-1] < follow.FOLLOW_GAP_M + 0.4, (math.degrees(w.th), w.dist[-1])
-print(f"past the side to behind: head up to {max(yaws):.0f} deg, base turned {math.degrees(w.th):.0f} deg, "
+print(f"past the side to behind: waist + head up to {max(gaze):.0f} deg, base turned {math.degrees(w.th):.0f} deg, "
       f"gap {w.dist[-1]:.2f} m")
+
+# owner, live: the head waited for a slow stepwise waist and lost the person. Now head, waist and base all at once:
+# the person right behind (170 deg) -> the first move puts head + waist on them (the head not held to HEAD_REL_MAX),
+# the waist keeps turning move after move while the base turns, the base forward only once they are ahead
+assert follow.waist_for(10.0) == 0.0 and follow.waist_for(-70.0) == -40.0 and follow.waist_for(170.0) == 90.0
+
+
+def at(deg, r=2.0):
+    return World(person=(r * math.cos(math.radians(deg)), r * math.sin(math.radians(deg))))   # seen (torso)
+
+
+def person_deg(w):
+    x, y, th = w.pose()
+    p = w.person_at()
+    return (math.degrees(math.atan2(p[1] - y, p[0] - x) - th) + 180.0) % 360.0 - 180.0
+
+
+def watch(w, secs):
+    """[(t, waist, head yaw, base deg, gaze off the person deg)] every 20 ms; the angle of every forward command."""
+    samples, ahead, request = [], [], w.request
+
+    def req(cmd):
+        out = request(cmd)
+        if w.cmds and w.cmds[-1][1] > 0.0:
+            ahead.append(person_deg(w))
+        return out
+    w.request = agv.request = req
+    follow.start(w.see, say)
+    t0 = time.time()
+    while time.time() < t0 + secs:
+        _, waist, yaw, _ = body.pos
+        b = person_deg(w)
+        samples.append((time.time() - t0, waist, yaw, math.degrees(w.th), (b - waist - yaw + 180.0) % 360.0 - 180.0))
+        time.sleep(0.02)
+    return samples, ahead
+
+
+said.clear()
+body.moves.clear()
+w = at(170.0)
+samples, ahead = watch(w, 8.0)
+assert follow.running() and not said, said
+follow.stop()
+assert wait_end(0.5)
+moves = [m for m in body.moves if m[1] == "follow head"]
+first = moves[0]
+assert 0.0 < first[3] <= follow.WAIST_STEP_DEG and first[4] > 90.0 and abs(first[3] + first[4] - 170.0) < 10.0, first
+assert max(abs(s[4]) for s in samples[5:]) < 15.0, max(abs(s[4]) for s in samples[5:])        # gaze on them
+turning = [s for s in samples if 10.0 < s[3] < 90.0]                                         # the base turning ...
+assert turning and max(s[1] for s in turning) >= 3 * follow.WAIST_STEP_DEG, turning[:3]          # ... the waist too
+assert w.cmds[0][2] > 0.0 and w.cmds[0][0] - w.t0 < 0.5, w.cmds[:2]                           # turning at once
+assert max(b[0] - a[0] for a, b in zip(w.cmds, w.cmds[1:])) < 0.2                              # no tick waits
+assert ahead and max(abs(a) for a in ahead) <= follow.TURN_ONLY_DEG + 5.0, max(abs(a) for a in ahead)
+assert abs(body.pos[1]) < 1e-6 and abs(body.pos[2]) <= follow.TURN_DEAD_DEG + follow.HEAD_STEP_DEG, body.pos
+assert abs(math.degrees(w.th) - 170.0) < 10.0 and w.dist[-1] < follow.FOLLOW_GAP_M + 0.3, (math.degrees(w.th), w.dist[-1])
+print(f"behind 170 deg: first move waist {first[3]:+.0f} head {first[4]:+.0f}, waist up to "
+      f"{max(s[1] for s in samples):.0f} deg while the base turned, forward only within {max(map(abs, ahead)):.0f} deg")
+
+# "look behind" turned the waist and the head to the owner, then "follow me": nothing turns away from them
+said.clear()
+body.moves.clear()
+body.pos = [50.0, 120.0, 50.0, follow.HEAD_PITCH]                                            # on them at 170 deg
+w = at(170.0)
+samples, _ = watch(w, 4.0)
+follow.stop()
+assert wait_end(0.5) and not said, said
+assert max(abs(s[4]) for s in samples) < 15.0, max(samples, key=lambda s: abs(s[4]))          # from the very start
+moves = [m for m in body.moves if m[1] == "follow head"]
+assert all(abs(m[3] + m[4] - 170.0) < 60.0 for m in moves[:3]), moves[:3]
+print(f"start turned to the owner: gaze off at most {max(abs(s[4]) for s in samples):.0f} deg")
+
+# stopped with the waist turned: it comes back to the front (sweep checked), the head to rest
+body.moves.clear()
+w = at(70.0)
+follow.TURN_MAX_RS, turn_max = 0.05, follow.TURN_MAX_RS                                     # a slow base
+follow.start(w.see, say)
+time.sleep(0.6)
+assert body.pos[1] > 10.0, body.pos
+follow.stop()
+assert wait_end(1.0)
+follow.TURN_MAX_RS = turn_max
+assert body.moves[-1][3:] == (0.0, 0.0, head.HEAD_REST_PITCH), body.moves[-1]
+print("stopped turned: waist back to the front")
+
+# the arm's sweep blocked for the waist, or the arm not in look: the waist stays, the head alone goes on them
+turn_hits = fetch.turn_hits
+for why in ("sweep", "not look"):
+    body.moves.clear()
+    if why == "sweep":
+        fetch.turn_hits = lambda d: (1.0, 1.0) if threading.current_thread().name == "follow head" else None
+    else:
+        calls = iter([True])                                               # ready() sees it in look, then
+        fetch._at_pose = lambda name: next(calls, False)                   # it is moved out (by hand)
+    w = at(70.0)
+    follow.TURN_MAX_RS, turn_max = 0.05, follow.TURN_MAX_RS
+    follow.start(w.see, say)
+    time.sleep(1.5)
+    follow.stop()
+    assert wait_end(1.0)
+    follow.TURN_MAX_RS = turn_max
+    moves = [m for m in body.moves if m[1] == "follow head"]
+    assert all(m[3] == 0.0 for m in moves), moves                                          # the waist stays
+    yaws = [m[4] for m in moves]
+    assert max(yaws) > 60.0, yaws                                                           # the head alone on them
+    fetch.turn_hits, fetch._at_pose = turn_hits, (lambda name: True)
+    print(f"waist {why}: stays at the front, head up to {max(yaws):.0f} deg")
 
 # right behind: the angle flips between +179 and -179; the head and the base keep one side
 said.clear()
@@ -518,7 +628,7 @@ assert yaws and all(y > 0 for y in yaws[1:]), yaws
 print("right behind: one side")
 
 # lumi: act("stop") ends following; follow_me locks onto the person talking, refuses when it must
-lumi.agv.cancel = lumi.skills.cancel = lumi.arm.stop = lambda: None
+lumi.agv.cancel = lumi.skills.cancel = lumi.motion.stop = lambda: None
 w = World(person=(3.0, 0.0))
 follow.start(w.see, say)
 time.sleep(0.1)

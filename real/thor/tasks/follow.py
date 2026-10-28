@@ -6,11 +6,13 @@ put on the map (base pose + distance, angle) with a smoothed walking velocity, s
 toward where the person is now, not where they were seen (no stop-and-go when frames are missed). A sighting far from
 that place is someone else (a passer-by who took the track over); a lost track is swapped for a fresh one near that
 place whose clothes are not clearly different (re-lock). The head turns toward the person in its own thread (only
-this task moves the body meanwhile: head.owners), the base turns after it, so they stay in view when they walk to the
-side or behind. The base is driven with joy_control every TICK_S (one command lasts 0.5 s: a stuck loop stops the base
-by itself), the arm in look and the waist at the front as for every fetch drive. Every command is checked first: where
-the base and the arm would be BRAKE_S later must be clear (lidar + map, agv.clearance); when not, the base stands, and
-after BLOCKED_END_S it gives up.
+this task moves the body meanwhile: head.owners) and the waist with it, all at once: the head straight on them (up to
++-180 on the waist), the waist a short way toward them in the same move, the base turning toward them at the same time;
+as the base comes round the waist and the head unwind (waist_for). Nothing waits for another. Following starts with the
+waist where it is (turned toward the person after "look behind"). The base is driven with joy_control every TICK_S (one
+command lasts 0.5 s: a stuck loop stops the base by itself), the arm in look; forward only with the person near ahead
+and the waist near the front. Every command is checked first: where the base and the arm would be BRAKE_S later must be clear
+(lidar + map, agv.clearance); when not, the base stands, and after BLOCKED_END_S it gives up.
 
     stop()   from any thread: the event is set and the base is sent 0 at once
 """
@@ -57,7 +59,20 @@ BASE_CLEAR_M = fetch.BASE_HALF_M + fetch.CLEAR_M   # m; base centre kept this fa
 TICK_S = 0.1                # s between commands, steady (joy_control wants > 2 Hz; a tick takes ~10-30 ms)
 LOG_S = 1.0                 # s between "follow: v ... " lines (what the next live run is read from)
 JOIN_S = 2.0                # s a new "follow me" waits for the old loop to end
-HEAD_YAW_MAX = 180.0        # deg; the head turns toward the person up to this far (+ left; body API range, head.AXIS_LIMITS)
+BEHIND_DEG = 180.0          # deg; the person's angle from the base is kept within +-this (right behind: one side)
+HEAD_REL_MAX = 30.0         # deg; a person this near the base heading is looked at with the head alone; further, the
+                            # waist turns toward them for the rest (the head is never held back by it)
+WAIST_FOLLOW_MAX = 90.0     # deg from the front; the waist turns toward the person at most this far, the base turns
+                            # for the rest (fetch.WAIST_SCAN_MAX 120 is the search's; less here, estimate)
+WAIST_STEP_DEG = 8.0        # deg; one body move turns the waist at most this far, so every move is short (~0.4 s) and
+                            # the head's next correction is not held back; the waist keeps on in the next move
+WAIST_FOLLOW_VEL = 50       # speed ratio % of a move that turns the waist (the head in it too). The waist's deg/s at
+                            # this ratio is not measured; estimate ~40 deg/s as the head's (audio/sing.py), about the
+                            # base's own TURN_MAX_RS turn that sweeps the arm the same way. Lower it if the arm swings
+                            # too hard (fetch.WAIST_VEL 20 is the search's long turns)
+WAIST_DRIVE_DEG = 15.0      # deg; the base drives forward only with the waist this near the front: navigation does not
+                            # know the arm, blocked() checks it turned (estimate)
+WAIST_RETRY_S = 1.0         # s; a waist turn found blocked is not tried again for this long (each try probes the map)
 HEAD_PITCH = 10.0           # deg; head pitch while following, a little up toward a standing person (as "look at me")
 HEAD_STEP_DEG = 3.0         # deg; a new head move only when the target is this far from where the head was sent
 HEAD_LEAD_S = 0.3           # s; the head is sent where the person will be this much later (a moveto takes time)
@@ -181,16 +196,14 @@ def ready():
 
 
 def prepare():
-    """Arm to look, waist to the front (as before every fetch drive). The head stays where it is: it is on the person
-    already (the track is seen), and ahead they may be out of view (lost at once, 2026-10-21). Returns the arm's points (m, base
-    frame) that stick out past the base, [] when the arm's place on the base is not measured. FetchError when it
-    must not drive."""
+    """Arm to look. The waist and the head stay where they are: they are on the person already (the track is seen),
+    and ahead they may be out of view (lost at once). Returns the arm's points (m, base frame) that stick out past the
+    base, [] when the arm's place on the base is not measured. FetchError when it must not drive."""
     why = ready()
     if why:
         raise fetch.FetchError(*why)
     fetch._stop.clear()                                  # a stop said earlier must not end this one
     fetch._drive_pose()
-    fetch._waist_front()
     if fetch.arm_yaw() is None:
         fetch.log("follow: the arm's place on the base is not measured: only the base is checked")
         return []
@@ -201,6 +214,12 @@ def _to_map(pose, d, a):
     """Map point (x, y) of a sighting d m away at a deg (+ left) from the base at pose (the camera ~ the base centre)."""
     x, y, th = pose
     return np.array([x + d * math.cos(th + math.radians(a)), y + d * math.sin(th + math.radians(a))])
+
+
+def _seen_from(pose, turned):
+    """The base pose turned by the waist's turn (deg): sightings are waist-frame angles (lumi.Vision), _to_map them
+    from this."""
+    return pose[0], pose[1], pose[2] + math.radians(turned)
 
 
 def _rel(pose, p):
@@ -256,19 +275,54 @@ def _pick(see, got, people, person, pose, sig, now):
     return best[1:]
 
 
-def _head_follow(target, done, lift, waist, stats):
-    """Turn the head to target[0] (yaw, pitch) whenever it is HEAD_STEP_DEG from where it was sent last. One moveto
-    at a time, from this thread only: overlapping calls hang the body API. The drive loop never waits for it."""
-    sent = None
+def waist_for(b):
+    """Waist turn (deg from the front, + left) for a person b deg from the base heading: what is past HEAD_REL_MAX,
+    up to WAIST_FOLLOW_MAX. 0 when they are near ahead, so it unwinds as the base turns to them."""
+    return max(-WAIST_FOLLOW_MAX, min(WAIST_FOLLOW_MAX, math.copysign(max(0.0, abs(b) - HEAD_REL_MAX), b)))
+
+
+def _head_follow(target, done, lift, front, w, waist_free, stats):
+    """Turn the head, and the waist with it, to the person at target[0] (deg from the base heading, pitch). Every move
+    sends the head straight to them (up to +-BEHIND_DEG on the waist, never held back) and the waist at most
+    WAIST_STEP_DEG toward waist_for() in the same move, so the waist keeps turning move after move while the base turns
+    and the head stays on the person all along. Every waist step is checked along the arm's sweep (fetch.turn_hits);
+    blocked, or waist_free False (arm not in look, its place not measured): the waist stays and the head alone turns.
+    `front`: the waist's reading at the front, `w`: its turn from there now. One moveto at a time, from this thread
+    only: overlapping calls hang the body API. The drive loop never waits for it."""
+    sent, retry = None, 0.0                               # (head yaw, pitch) sent last
     while not done.is_set():
         t = target[0]
-        if t is None or sent is not None and max(abs(t[0] - sent[0]), abs(t[1] - sent[1])) < HEAD_STEP_DEG:
+        if t is None:
             done.wait(TICK_S / 2)
             continue
+        b, pitch = t
+        want = waist_for(b) - w if waist_free and time.time() >= retry else 0.0
+        step = max(-WAIST_STEP_DEG, min(WAIST_STEP_DEG, want))
+        if abs(step) < HEAD_STEP_DEG and (waist_for(b) != 0.0 or abs(step) < 0.5):
+            step = 0.0                                    # small steps only for the last bit to the front
+        yaw = max(-BEHIND_DEG, min(BEHIND_DEG, b - w - step))
+        off = float("inf") if sent is None else max(abs(yaw - sent[0]), abs(pitch - sent[1]))
+        if step == 0.0 and off < HEAD_STEP_DEG:
+            done.wait(TICK_S / 2)
+            continue
+        if step:
+            try:
+                hit = fetch.turn_hits(step)
+            except (ConnectionError, OSError, ValueError, KeyError) as e:   # not checked: not turned
+                fetch.log(f"follow: the waist's sweep can't be checked: {e!r}")
+                hit = ()
+            if hit is not None:
+                if hit:
+                    fetch.log(f"follow: waist stays at {w:+.0f} deg, turning {step:+.0f} my arm would hit something "
+                              f"at ({hit[0]:.2f}, {hit[1]:.2f}); the head turns alone")
+                retry = time.time() + WAIST_RETRY_S
+                continue                                  # at once again: the head alone
+        vel = min(HEAD_VEL, WAIST_FOLLOW_VEL) if step else HEAD_VEL
         try:
             t0 = time.time()
-            head.moveto([lift, waist, *t], vel=HEAD_VEL, acc=HEAD_VEL, timeout=HEAD_TIMEOUT_S)
-            sent, stats["head"], stats["head_ms"] = t, t[0], round(1000 * (time.time() - t0))
+            head.moveto([lift, front + w + step, yaw, pitch], vel=vel, acc=vel, timeout=HEAD_TIMEOUT_S)
+            w += step
+            sent, stats["head"], stats["head_ms"] = (yaw, pitch), yaw, round(1000 * (time.time() - t0))
         except (ConnectionError, OSError, ValueError, KeyError) as e:
             fetch.log(f"follow: head error {e!r}")
             done.wait(1.0)
@@ -279,16 +333,35 @@ def _run(see, say, people):
     v = w = 0.0
     done, target, stats = threading.Event(), [None], {"head": None, "head_ms": None}
     head.owners = (threading.current_thread(),)
-    person, head_thread = Person(), None
+    person, head_thread, front = Person(), None, None
     try:
-        got = see()                                      # where they are now: prepare() may turn the waist
+        got = see()                                      # where they are now (waist-frame angle)
         sig = got[3] if got else None
         if _fresh(got):
-            person.seen(_to_map(agv.pose(), *got[:2]), time.time() - got[2])
+            person.seen(_to_map(_seen_from(agv.pose(), fetch._waist_turn()), *got[:2]), time.time() - got[2])
         arm_pts = prepare()
-        lift, waist = head.status()[:2]
-        head_thread = threading.Thread(target=_head_follow, args=(target, done, lift, waist, stats), daemon=True,
-                                       name="follow head")
+        lift, waist, yaw = head.status()[:3]
+        turned = fetch._waist_turn()
+        front, gaze = waist - turned, turned + yaw        # the waist's reading at the front; where the head looks
+        waist_free = bool(arm_pts)                        # its sweep can be checked ...
+        if waist_free:
+            try:
+                waist_free = fetch._at_pose(fetch._look())   # ... and the arm is folded in look
+            except Exception as e:
+                waist_free = False
+                fetch.log(f"follow: the arm's pose can't be read: {e!r}")
+            if not waist_free:
+                fetch.log("follow: my arm is not in look: the waist stays, the head turns alone")
+        if not waist_free and abs(turned) >= WAIST_DRIVE_DEG:   # it would never drive: the waist to the front, the
+            look = got[1] if _fresh(got) else None             # head kept on them (fetch._waist_to checks the sweep)
+            if not fetch._waist_to(0.0, in_place=True, look=look):
+                raise fetch.FetchError("My arm can't turn back to the front: something is in its way.",
+                                       "팔을 앞으로 돌릴 수 없어요. 뭔가 막고 있어요.")
+            lift, waist, yaw = head.status()[:3]
+            turned = waist - front
+            gaze = turned + yaw
+        head_thread = threading.Thread(target=_head_follow, args=(target, done, lift, front, turned, waist_free, stats),
+                                       daemon=True, name="follow head")
         head.owners += (head_thread,)
         head_thread.start()
         start_t = next_t = time.time()                   # lost counts from here: prepare() takes a few seconds
@@ -296,8 +369,13 @@ def _run(see, say, people):
         while not _stop.is_set():
             now = time.time()
             pose = agv.pose()
+            try:
+                turned = head.status()[1] - front
+            except (ConnectionError, OSError, KeyError):
+                pass                                     # the last reading: the body API may be busy
+            seen_from = _seen_from(pose, turned)
             mine, was = see(), see
-            see, got = _pick(see, mine, people, person, pose, sig, now)
+            see, got = _pick(see, mine, people, person, seen_from, sig, now)
             if see is not was:
                 fetch.log(f"follow: re-locked onto the person at {got[0]:.2f} m {got[1]:+.0f} deg")
             elif got is None and _fresh(mine) and now - odd_t > LOG_S:
@@ -305,9 +383,9 @@ def _run(see, say, people):
                 fetch.log(f"follow: a sighting at {mine[0]:.2f} m {mine[1]:+.0f} deg is not them (someone else)")
             if _fresh(got):
                 _followed[0] = (got[1], now - got[2])
-                p = _to_map(pose, *got[:2])
+                p = _to_map(seen_from, *got[:2])
                 person.seen(p, now - got[2])
-                near = [float(np.linalg.norm(_to_map(pose, *o[1:3]) - p)) for o in people() if _fresh(o[1:])] \
+                near = [float(np.linalg.norm(_to_map(seen_from, *o[1:3]) - p)) for o in people() if _fresh(o[1:])] \
                     if people else [0.0]
                 if got[3] is not None and all(e > JUMP_M or e < 0.05 for e in near):   # alone (or themselves):
                     sig = reid.blend(sig, got[3])                                          # these clothes are theirs
@@ -318,19 +396,20 @@ def _run(see, say, people):
             if person.p is None:                         # not seen yet (only before the first sighting)
                 cmd, d, a, walk = (0.0, 0.0), 0.0, 0.0, 0.0
             else:
-                # angles taken on from the head's last target, not -180..180: right behind, +179 and -179 are
-                # the same place, the head must not swing round and the base not turn the other way
-                ref = target[0][0] if target[0] else 0.0
+                # angles from the base heading, taken on from the last target, not -180..180: right behind, +179
+                # and -179 are the same place, the head and waist must not swing round, the base not turn the other way
+                ref = target[0][0] if target[0] else gaze
                 d, a = _rel(pose, person.at(now))
                 a = ref + (a - ref + 180.0) % 360.0 - 180.0
                 yaw = _rel(pose, person.at(now + HEAD_LEAD_S))[1]
                 yaw = ref + (yaw - ref + 180.0) % 360.0 - 180.0
-                target[0] = (max(-HEAD_YAW_MAX, min(HEAD_YAW_MAX, yaw)), HEAD_PITCH)
+                target[0] = (max(-BEHIND_DEG, min(BEHIND_DEG, yaw)), HEAD_PITCH)
                 walk = float(person.vel @ np.array([math.cos(pose[2]), math.sin(pose[2])]))
-                cmd = speeds(d, a, v, w, walk, go=now - person.t <= COAST_S, dt=TICK_S)
+                go = now - person.t <= COAST_S and abs(turned) < WAIST_DRIVE_DEG   # forward with the waist ahead
+                cmd = speeds(d, a, v, w, walk, go=go, dt=TICK_S)
             spot = cmd[0] == 0.0 and cmd[1] != 0.0      # a turn on the spot (the person aside or behind)
             if spot and not turning:
-                hit = fetch.turn_hits(a)                 # the arm's whole sweep toward them
+                hit = fetch.turn_hits(a - turned)        # the arm's whole sweep toward them (it is turned already)
                 if hit is not None:
                     fetch.log(f"follow: turning {a:+.0f} deg my arm would hit something at "
                               f"({hit[0]:.2f}, {hit[1]:.2f})")
@@ -339,7 +418,8 @@ def _run(see, say, people):
                     return
             turning = spot
             # stopped by something: on again only when the speed it was stopped at is clear (no creeping up to it)
-            why = cmd != (0.0, 0.0) and blocked(max(cmd[0], hold_v) if cmd[0] else 0.0, cmd[1], arm_pts, pose)
+            pts = [fetch._rot(turned) @ p for p in arm_pts]   # the arm turned with the waist
+            why = cmd != (0.0, 0.0) and blocked(max(cmd[0], hold_v) if cmd[0] else 0.0, cmd[1], pts, pose)
             if why:
                 if blocked_t is None:
                     fetch.log(f"follow: standing, {why}")
@@ -358,7 +438,7 @@ def _run(see, say, people):
                 driven = math.hypot(pose[0] - log_pose[0], pose[1] - log_pose[1]) / max(now - log_t, 1e-3)
                 log_t, log_pose = now, pose
                 fetch.log(f"follow: v {v:.2f} w {w:+.2f} driven {driven:.2f} m/s | person {d:.2f} m {a:+.0f} deg, seen "
-                          f"{now - (person.t or now):.2f} s ago, walking {walk:+.2f} m/s | head "
+                          f"{now - (person.t or now):.2f} s ago, walking {walk:+.2f} m/s | waist {turned:+.0f} head "
                           f"{stats['head'] or 0:+.0f} deg ({stats['head_ms']} ms) | tick {1000 * (time.time() - now):.0f} ms")
             next_t = max(next_t + TICK_S, time.time())   # a steady rate; a slow tick is not caught up
             _stop.wait(next_t - time.time())
@@ -382,11 +462,17 @@ def _run(see, say, people):
                 _joy(0.0, 0.0)
             except (ConnectionError, OSError):
                 pass                                   # one command lasts 0.5 s: the base stops anyway
-        if head_thread is not None:                    # the head back to rest (ahead, looking down) once its own
-            head_thread.join(HEAD_TIMEOUT_S)           # move has ended: overlapping movetos hang the body API
-            try:
-                head.moveto([*head.status()[:2], 0.0, head.HEAD_REST_PITCH], vel=HEAD_VEL, acc=HEAD_VEL,
-                            timeout=HEAD_TIMEOUT_S)
+        if head_thread is not None:                    # the head back to rest (ahead, looking down), the waist to
+            head_thread.join(HEAD_TIMEOUT_S)           # the front, once its own move has ended: overlapping movetos
+            try:                                       # hang the body API
+                lift, waist = head.status()[:2]
+                back = front - waist
+                if abs(back) >= 1.0 and fetch.turn_hits(back) is not None:
+                    fetch.log(f"follow: the waist stays at {-back:+.0f} deg: my arm would hit something going back")
+                    back = 0.0
+                vel = fetch.WAIST_VEL if abs(back) >= 1.0 else HEAD_VEL
+                head.moveto([lift, waist + back, 0.0, head.HEAD_REST_PITCH], vel=vel, acc=vel,
+                            timeout=60 if abs(back) >= 1.0 else HEAD_TIMEOUT_S)
             except (ConnectionError, OSError, ValueError, KeyError) as e:
                 fetch.log(f"follow: head error {e!r}")
         head.owners = ()
