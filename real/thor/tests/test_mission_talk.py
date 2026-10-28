@@ -43,7 +43,7 @@ ok, said = talk(L, "what are you doing?")                                       
 assert not ok
 ok, said = talk(L, "okay, you can go")
 assert ok and done[-1] == "resume" and L.mission_hold is None, done
-ok, said = talk(L, "go to p3")                    # anyone's new task: the mission ends with one line, then it is done
+ok, said = talk(L, "Lumi, go to p3")             # a new task said to Lumi: the mission ends with one line, then it is done
 assert ok is False and done[-1] == "end" and said == "Okay, I've stopped my task.", (done, said)
 L = fresh()
 ok, said = talk(L, "Lumi, I'm James, give it to me")                                  # the person it is for

@@ -95,7 +95,7 @@ for name in ("follow_stop", "voice_setting", "fixed_answer", "drive_words", "mis
 L.fetch_status = lambda: None
 L.keep_listening = lambda: None
 L.fetch_say = lambda *a: None
-L.stop_all = lambda: rec("stop")
+L.stop_all = lambda text="": rec("stop")
 L.chain_request = lambda text, plan=None: rec("chain", [[k, w] for k, w, _ in plan])
 L.mission_request = lambda text, read=None: rec("talk") if read[1] else rec("steps", read[0])
 L.hand_command = hand
