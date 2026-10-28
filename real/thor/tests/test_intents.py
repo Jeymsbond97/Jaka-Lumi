@@ -1,9 +1,13 @@
 """Self-check of the keyword rules in brain.intent() for arm and object commands, no robot: python tests/test_intents.py"""
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain
 
 CASES = {
     "Lumi, pick up the white cup": ("pick", "white cup"),
     "take the cup please": ("pick", "cup"),
+    "Can you take the cup?": ("pick", "cup"), "Let's take the cup.": ("pick", "cup"), "Take the cup.": ("pick", "cup"),
+    "pick up the cup": ("pick", "cup"), "컵 집어 줘": ("pick", "cup"), "컵 잡아": ("pick", "cup"),
+    "Can you take a photo?": None, "Take care.": None, "Take a look.": None, "Take a cup of coffee.": None,
     "can you hold the mug": ("pick", "cup"),
     "pick up the orange": ("pick", "orange"),
     "pick up the orange cup": ("pick", "orange cup"),
@@ -76,6 +80,8 @@ CASES.update({   # any wording of the body commands, English, Korean and mixed (
     "reach out your hand": ("arm", "reach"), "stretch out your arm": ("arm", "reach"), "fold your arm": ("arm", "fold"),
     "put your arm down": ("arm", "fold"), "팔 뻗어": ("arm", "reach"), "팔 접어": ("arm", "fold"), "팔 내려": ("arm", "fold"),
     "open your hand": ("arm", "open"), "close your hand": ("arm", "close"), "손 펴": ("arm", "open"), "손 쥐어": ("arm", "close"),
+    "let's take look position": ("arm", "fold"), "put your arm in carry position": ("arm", "carry"), "캐리 자세": ("arm", "carry"),
+    "룩 자세로": ("arm", "fold"), "what is the look position?": None, "put your arm in tuck position": None,
     # lift
     "raise yourself": ("lift", "up"), "lift yourself up": ("lift", "up"), "lower yourself a bit": ("lift", "down small"),
     "raise yourself 5 cm": ("lift", "up 50"), "get taller": ("lift", "up"), "make yourself shorter": ("lift", "down"),
@@ -109,8 +115,19 @@ CASES.update({   # looking behind (2026-10-21 live: "look at the back side" was 
     "look forward": ("look", "center"), "look ahead": ("look", "center"), "turn around and look at me": ("look", "me"),
     "turn around": ("turn", "around 180"), "뒤로 돌아 봐": ("turn", "around 180"), "back up 1 m": ("move", "back 1"),
     "what's behind you?": None, "who is behind you?": None, "뒤에 뭐 있어?": None, "뒤에 누가 있어?": None,
-    "I'll be back": None, "I'm behind you": None, "look back at me": None, "look at the back of the box": None,
+    "I'll be back": None, "look back at me": None, "look at the back of the box": None,
     "I'm your backside.": None, "don't look behind": None,
+    # the speaker says where they stand: the head turns there (live 2026-10-27: "I am your right side." went to the LLM, none)
+    "I am your left, right side.": ("look", "right"), "I am your right side.": ("look", "right"),
+    "I am your right side. Look at that.": ("look", "right"), "I'm on your right side": ("look", "right"),
+    "I'm on your right": ("look", "right"), "I'm here on your left": ("look", "left"), "I'm on your left hand side.": ("look", "left"),
+    "Lumi, I'm on your right, look at me": ("look", "right"), "I'm behind you": ("look", "left 180"),
+    "나 오른쪽에 있어": ("look", "right"), "오른쪽에 있어요": ("look", "right"), "나 여기 왼쪽이야": ("look", "left"),
+    "저 왼쪽에 있어요": ("look", "left"), "뒤에 있어": ("look", "left 180"),
+    "you are right": None, "right, I see": None, "all right": None, "I'm right here": None, "that's right": None,
+    "right now": None, "I'm right": None, "I'm on the right track": None, "I'm behind you all the way": None,
+    "I'm your right hand man": None, "컵 왼쪽에 있어": None, "왼쪽에 있어?": None, "Am I on your right?": None,
+    "I'm not on your right": None,
 })
 
 wrong = {text: (brain.intent(text, []), want) for text, want in CASES.items() if brain.intent(text, []) != want}
@@ -203,6 +220,9 @@ from assistant import lumi                                 # a venue question on
 assert lumi.not_online("여기 몇 시까지 해요?") and lumi.not_online("입장료 얼마예요?") and lumi.not_online("what time is the keynote?")
 assert not lumi.not_online("루브르 몇 시까지 해?") and not lumi.not_online("How much are tickets for the Louvre?")
 assert not lumi.not_online("롯데월드 입장료 얼마야?")
+for text, want in (("I am your right side. Look at that.", "right"), ("Lumi, I'm on your right, look at me", "right"),
+                   ("나 여기 왼쪽이야", "left"), ("I'm behind you", "left 180")):   # one look, never the LLM or a chain
+    assert lumi.route(text, ["p3"], brain.Brain()) == ("quick", ("look", want)), text
 # the model's motion runs only on a direct order (or "yes" to Lumi's own offer, "do it again"); else talk only
 for text, line in (("우리 커피 들렀다가 p3 가자", "go_to p3"), ("let's grab coffee then go to p3", "go_to p3"),
                    ("Don't look up.", "look down"), ("흔들지 마", "wave -"), ("고개 돌리지 마세요", "turn left"),

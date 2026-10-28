@@ -367,7 +367,7 @@ You can also move. Decide if the visitor asks you to do something:
 - look <left|right|center|up|down|me|away> [degrees|small]: turn your head ("look at me" / "look here" / "이쪽 봐" / "여기 봐" -> me, the one speaking; "look straight
   ahead" / "정면 봐" -> center; "don't look at me"
   / "stop staring" / "쳐다보지 마" -> away, "turn your head left" -> look left, "고개 들어" -> look up, "look down a bit" -> look down small, "head 30 degrees right" -> look right
-  30, "look behind you" / "look at the back side" / "turn your head back" / "뒤 봐" / "뒤돌아 봐" / "고개 뒤로 돌려" -> look
+  30, "I'm on your right side" / "나 오른쪽에 있어" -> look right, "look behind you" / "look at the back side" / "turn your head back" / "뒤 봐" / "뒤돌아 봐" / "고개 뒤로 돌려" -> look
   left {yaw}, "look over your right shoulder" / "오른쪽 뒤 봐" -> look right {yaw}; the question "what's behind you?" /
   "뒤에 뭐 있어?" is none). Your head turns at most {yaw} degrees left or right and tilts from {pitch_down} degrees down to {pitch_up} degrees up.
 - lift <up|down> [mm|small]: raise or lower your upper body on the lift column ("raise yourself" -> lift up, "키
@@ -380,9 +380,11 @@ You can also move. Decide if the visitor asks you to do something:
   "turn left" -> turn left 90, "spin around" / "한 바퀴 돌아" -> turn left 360); a bare number is degrees.
   Numbers may be words (마흔다섯 / 사십오 = 45, 일 미터 반 = 1.5, 오십 센티 = 0.5 m); 레프트 / 라이트 mean left /
   right, never the lift.
-- arm <reach|fold|open|close>: reach: hold your hand out to the visitor, in any words ("reach out to me", "give me
+- arm <reach|fold|carry|ready|open|close>: reach: hold your hand out to the visitor, in any words ("reach out to me", "give me
   your hand", "hand out please", "offer me your hand", "extend your arm towards me", "손 내밀어", "나한테 손 줘",
-  "팔 뻗어"); fold: fold it back; open / close: your hand, the gripper ("open your hand", "spread your fingers", "let go", "release", "손 펴",
+  "팔 뻗어"); fold: fold it back, also to the look pose ("let's take look position", "룩 자세로"); carry / ready: your
+  arm to that pose ("put your hand carry position", "캐리 자세"); any other pose name: none, say you know look, carry
+  and ready and ask which; open / close: your hand, the gripper ("open your hand", "spread your fingers", "let go", "release", "손 펴",
   "놔" -> arm open; "close your hand", "close the gripper", "grip", "make a fist", "손 쥐어", "그리퍼 닫아" -> arm close).
 - wave: wave your hand ("wave", "shake your hand", "say hi with your hand"). "Hello Lumi!" said to you or "say
   hello" / "hello 해 봐" is talk (none): say the word itself ("Hello!").
@@ -561,6 +563,30 @@ LIFT_WORDS = (r"\b(?:raise|lift|lower) (?:yourself|your body|your torso|your upp
               r"|\b(?:go|move) (?:higher|lower)\b|키(?:를)? ?(?:좀 )?(?:[\d.]+ ?(?:m|mm|cm) ?(?:만 ?)?)?(?:높여|키워|올려|낮춰|줄여|크게|작게)"
               r"|몸(?:을)? ?(?:좀 )?(?:[\d.]+ ?(?:m|mm|cm) ?(?:만 ?)?)?(?:올려|내려|낮춰|높여)"
               r"|리프트(?:를)? ?(?:좀 )?(?:올려|내려|위로|아래로)|상체(?:를)? ?(?:좀 )?(?:올려|내려|들어)")
+SPEAKER_SIDE = re.compile(   # the speaker says where they stand: "I'm on your right", "I am your left, right side", "뒤에 있어"
+    r"\b(?:i'?m|i am|im|we'?re|we are)\s+(?:(?:here|over here|right here|now|standing|sitting|over)\s+)*"
+    r"(?:(?:(?:on|at|to|by)\s+(?:the|your)|your)\s+((?:(?:left|right)\W+)*(?:left|right))(?:[\s-]+(?:hand[\s-]+)?side)?"
+    r"|(behind) you|at your (back))(?=\s*(?:[,.!;]|$|(?:lumi|now|here|look)\b))"     # not "on the right track", "behind you all the way"
+    r"|(?:^|[,.!]\s*)(?:(?:루미야?|나|저|난|전|내가|제가|나는|저는)\s*)?(?:(?:여기|지금|바로)\s*)*(왼쪽|오른쪽|왼편|오른편|뒤쪽|뒤)\s*"
+    r"(?:에\s*(?:서\s*)?)?(?:서\s*)?(?:있어요|있어|있다|있습니다|있지|이에요|예요|입니다|이야|야)(?![가-힣])(?!\s*\?)", re.I)
+    # sentence-first only: "컵 왼쪽에 있어" is about the cup, "왼쪽에 있어?" a question
+SPEAKER_SIDE_ONLY = re.compile(r"^\W*(?:(?:please|lumi|now|so|and|ok|okay|then)\W+)*(?:(?:look|turn)(?: (?:at|over|to|towards?) "
+                               r"(?:me|us|that|there|here|this|my side))?(?: (?:here|there|please|now))*|여기 ?봐|이쪽 ?봐|저기 ?봐|봐)?\W*$", re.I)
+
+
+def speaker_side(text):
+    """"I'm on your right (side)", "I am your left, right side. Look at that.", "나 여기 왼쪽이야", "I'm behind you" ->
+    "right" | "left" | the look behind; None when the words say more than that ("I'm on your left, go to p3")."""
+    t = (text or "").lower()
+    m = SPEAKER_SIDE.search(t)
+    if not m or not SPEAKER_SIDE_ONLY.match(t[:m.start()] + " " + t[m.end():]):
+        return None
+    word = next(g for g in m.groups() if g)
+    if word in ("behind", "back", "뒤", "뒤쪽"):
+        return f"left {HEAD_YAW[1]:g}"                       # as "look behind you" (head_target)
+    return "right" if re.findall(r"left|right|왼|오른", word)[-1] in ("right", "오른") else "left"   # the last said
+
+
 SMALL = re.compile(r"\ba (?:little )?bit\b|\bslightly\b|\ba little\b|\ba touch\b|조금|살짝|약간|좀 더")
 MORE = re.compile(r"\b(?:more|further)\b|(?:^|\s)더(?:\s|$)")   # "look left more", "왼쪽 더 봐": a step on from where it is
 HEAD_YAW, HEAD_PITCH = head_hw.AXIS_LIMITS[2], head_hw.AXIS_LIMITS[3]   # commanded looks: the body's full range
@@ -1022,7 +1048,9 @@ def not_an_order(text, asked=True):
     the LLM (which reads them from the conversation) instead of acting on a keyword. Unsure is never acted on.
     asked=False: questions do not count (a chain answers its question part: "wave and what time is it?")."""
     t = unfill(wording.ko_plain(text or ""))                # "날 따라오면 돼" is "날 따라와": no condition
-    rest = instead_of(t)                                    # "don't put your arm out, my baby will grab it"
+    if speaker_side(text):
+        return False                                        # "I'm on your right": said so the head turns there
+    rest = instead_of(t)                                  # "don't put your arm out, my baby will grab it"
     now = NOW_CLAUSE.sub(" ", WAIT_UNTIL.sub(" ", t))       # "when you're ready", "while you do", "말씀하실 때": now
     return bool(to_someone_else(t) or CANT_GO.search(t) or DRINK.search(t) or IDIOMS.search(t) or
                 CONDITION.search(now) or REMARK.search(now) or
@@ -1155,6 +1183,8 @@ def direct_order(text):
     short fragment command ("booth A", "faster", "left a bit", "회전"). Only then may a keyword rule act; anything else
     (a statement, a story, a plan between people, a question about ability or habit) is read by the LLM with the talk
     before it. Each sentence / clause is checked; one order in it is enough (not_an_order weeds out the rest)."""
+    if speaker_side(text):
+        return True                                         # "I'm on your right side": a cue to look there
     text = re.sub(r"\b(can|could|would|will) (?:ya|yah|yu)\b", r"\1 you", text or "", flags=re.I)   # "could ya grab it"
     t = re.sub(_LEAD, "", unfill(wording.ko_plain(_MAY_NOT.sub(" 줘", text or ""))).strip(), flags=re.I)   # every
     # speech level as 반말
@@ -1257,6 +1287,18 @@ ARM_BACK = re.compile(        # the arm back to look (fold), said after a reach;
     r"\bfold (?:your |the |ur )?(?:arm|hand)\b|\barm\b.*\bput (?:it )?back\b|(?<![a-z])arm\s*(?:을\s*)?(?:좀\s*)?(?:접어|내려|거둬|넣어)|"
     r"\b(?:your |the |ur )?arm (?:back|down|in)\b(?=\W*(?:$|now|please|해|thanks|lumi|,))|\b(?:let'?s see you|you) arm (?:down|back|in)\b|\bclose (?:your |the )?arm\b|"
     r"손 ?(?:을 )?(?:좀 |이제 |다시 |빨리 |얼른 )*(?:내려|거둬|접어|넣어|치워)|팔 ?(?:을 )?(?:좀 |이제 |다시 |빨리 |얼른 )*(?:내려|거둬|접어|넣어|치워|원위치)", re.I)
+ARM_POSE_NAMES = {"look": "fold", "룩": "fold", "carry": "carry", "캐리": "carry", "ready": "ready", "레디": "ready"}
+# taught arm poses that may be named, as arm targets ("fold" = look; manipulation/arm_route.py graph); any other pose
+# name goes to the model, which asks
+_POSE = "|".join(ARM_POSE_NAMES)
+ARM_POSE = re.compile(        # a taught pose named as an order (owner, 2026-10-27: "let's take look position")
+    rf"(?<![a-z가-힣])(?:{_POSE})\s*(?:pose|position|posture|포지션|포즈|자세)(?![a-z])|"   # "put your hand look position"
+    r"\b(?:arm|hand)s? (?:back )?(?:to|in|into) (?:the |your )?(?:look|carry)\b(?! (?:at|for|after|like)\b)|"   # "hand to look"
+    r"(?:팔|손)\s*(?:을\s*)?(?:룩|캐리|look|carry)\s*(?:으로|로)|"                                             # "팔 룩으로"
+    r"^\W*(?:(?:okay|ok|lumi|now|please|let'?s)\W+)*(?:go (?:back )?to look|carry)(?:\W+(?:please|now|lumi))*\W*$")   # "carry"
+ARM_POSE_OTHER = re.compile(  # the arm to a pose by a name it was not taught ("tuck position"); its start / rest pose is look
+    r"\b(?:arm|hand)s?\b.*\b(?!(?:the|your|my|a|an|this|that|same|its|home|rest|resting|default|normal|original|start|"
+    r"starting|initial|basic|base|first|old|usual|look|carry|ready)\b)[a-z]+ (?:pose|position|posture)\b")
 ARM_BACK_NOT = re.compile(r"(?<!why )\b(?:don'?t|do not|never|no need to)\b|[가-힣]지 ?마(?:세요|요|라)?(?![가-힣])")
 ARM_TALK = re.compile(   # words about the arm / hand that order nothing now (A1): hearsay, ability, the past, someday,
     # sarcasm, a word's meaning, a cheer; dialect negations ("흔들지 맙서", "흔들지 마유", "흔들지 마민수야")
@@ -1349,8 +1391,16 @@ def _intent(text, markers=()):
                      re.sub(_LEAD, "", CALLING.sub("", t), flags=re.I)) or LATER.search(CALLING.sub("", t))   # "Lumi, is it
                                                             # hard to ...?", "Lumi Lumi, are you still following me?"
     visitor = re.search(r"^\W*(?:can|may|could|should|shall) (?:i|we)\b", CALLING.sub("", t))   # "can I come closer?"
+    if ARM_POSE_OTHER.search(t) and not ARM_POSE.search(t):
+        return None                                         # "arm in tuck position": not taught, the model asks which
+    pose = ARM_POSE.search(t)
+    if pose and direct_order(text) and not (held or asks or visitor or ARM_BACK_NOT.search(t) or ARM_TALK.search(t)):
+        return ("arm", ARM_POSE_NAMES[re.findall(_POSE, pose.group(0))[-1]])   # "carry position": there, never "in" = fold
     if ARM_BACK.search(t) and not (held or asks or visitor or ARM_BACK_NOT.search(t) or ARM_TALK.search(t)):
         return ("arm", "fold")                              # "take your hand back", "back to look position": never the base
+    side = speaker_side(t)
+    if side:
+        return ("look", side)                               # "I'm on your right side": the head turns there
     for action, pat in INTENTS:
         m = re.search(pat, t, re.I)
         if not m:
@@ -3768,7 +3818,7 @@ class Brain:
             cls = OBJECTS[re.search(rf"(?<![a-z])({_OBJ})s?(?![a-z])", target.lower()).group(1)]
             if not re.search(rf"(?<![a-z])(?:{'|'.join(re.escape(w) for w, c in OBJECTS.items() if c == cls)})", _norm(text)):
                 action, target = "none", ""                # its own word must be said: "olma" is not an apple
-        if action == "arm" and target not in ("reach", "fold", "open", "close"):
+        if action == "arm" and target not in ("reach", "fold", "open", "close", "carry", "ready"):
             action = "none"
         if action == "receive" and not RECEIVE_ASK.search(text):
             action = "none"                                # "I have an apple": news, not a hand-over

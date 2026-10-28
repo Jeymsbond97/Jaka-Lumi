@@ -155,7 +155,9 @@ for t, want in [("look at me", "me"), ("look at me please", "me"), ("eyes on me"
                 ("look over your right shoulder", "right 180"), ("뒤 봐", "left 180"), ("뒤를 봐", "left 180"),
                 ("뒤돌아 봐", "left 180"), ("뒤쪽 봐", "left 180"), ("뒤에 봐 줘", "left 180"), ("고개 뒤로 돌려", "left 180"),
                 ("오른쪽 뒤 봐", "right 180"), ("back side 봐", "left 180"), ("뒤 좀 look 해 줘", "left 180"),
-                ("look forward", "center"), ("look ahead", "center")]:
+                ("look forward", "center"), ("look ahead", "center"),
+                ("I am your right side.", "right"), ("I'm on your left side", "left"), ("I'm behind you", "left 180"),
+                ("나 오른쪽에 있어", "right"), ("나 여기 왼쪽이야", "left")]:   # where the speaker stands: the head turns there
     alts = " | ".join("talk" if w.strip() == "talk" else f"action:look {w.strip()}" for w in want.split("|"))
     both("look", [t], alts)
 
@@ -227,7 +229,7 @@ for t in ["How many people work at Cutshion company?", "how many people work at 
           "쿳션에는 몇 명이 일해요?"]:                                                          # knowledge
     both("question", [t], "talk")
 
-for t in ["I'll be back", "I'm behind you", "I'll be right back"]:                 # "back", "behind": no head turn
+for t in ["I'll be back", "I'll be right back"]:                                   # "back": no head turn
     both("question", [t], "talk | end")
 
 # ---------- things it can't do: a plain answer, no motion ----------

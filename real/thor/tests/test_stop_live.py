@@ -22,11 +22,13 @@ lumi.motion.stop = lambda: done.append("arm stop")
 follow.stop = lambda: done.append("follow stop")
 fetch.stop = lambda: done.append("fetch stop")
 fetch.state = lambda: {"status": "idle"}
+lumi.waist_home = lambda why: True                # the waist at the front before a drive (it reads the body and arm)
+lumi.waist_turned = lambda: 0.0
 lumi.mouth.say = lambda text, **k: done.append(("say", text))
 lumi.mouth.own_voice = lambda u: False
 lumi.mouth.recent_speech = lambda s: ""
 lumi.doa.load_calib = lambda: {"fitted": False}
-lumi.doa.estimate = lambda mics, cal: (0.0, 0.0, 0.0)
+lumi.doa.estimate = lambda mics, cal, ref=None: (0.0, 0.0, 0.0)
 lumi.ears.heard_lang = lambda lang: lang
 
 
@@ -125,13 +127,13 @@ lumi.head.status = lambda: [0, 0, 0, 0]
 lumi.nav.person_on_map = lambda *a: (3.0, 0.0)
 lumi.nav.approach = lambda *a: (2.0, 0.0, 0.0)
 L = fresh(U("Stop!"), trip=False)
-L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {"drive": True})(), lambda *a: None
+L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {"drive": True})(), lambda *a, **k: None
 base["move_status"] = "running"
 t = time.time()
 L.come_to(Track())
 assert stopped(L) and time.time() - t < 3, done
 L = fresh(U("What is your name?"), trip=False)
-L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {"drive": True})(), lambda *a: None
+L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {"drive": True})(), lambda *a, **k: None
 base["move_status"] = "running"
 threading.Timer(1.0, lambda: base.update(move_status="succeeded")).start()
 L.come_to(Track())
@@ -140,7 +142,7 @@ assert "agv cancel" not in done and L.pending_text == "What is your name?", done
 # right after Lumi said "Okay, I stopped.", "Stop." is no echo of it (own_echo counts "stop" in "stopped")
 lumi.mouth.recent_speech = lambda s: "Okay, I stopped. Let's go to p5."
 L = fresh(U("Stop."), trip=False)
-L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {"drive": True})(), lambda *a: None
+L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {"drive": True})(), lambda *a, **k: None
 base["move_status"] = "running"
 L.come_to(Track())
 assert stopped(L), done
@@ -148,7 +150,7 @@ head_u = U("Stop.")
 head_u.source = "head"
 lumi.ears.listen = lambda **k: ("Stop.", head_u)
 L = fresh(trip=False)
-L.warm_llm, L.interrupted, L.who_spoke, L.mission_hold = lambda: None, lambda: False, lambda u: None, None
+L.warm_llm, L.interrupted, L.who_spoke, L.mission_hold = lambda: None, lambda: False, lambda u, text=None: None, None
 L.follow_filter = lambda text, u: False
 assert L.talk_turn() and ("answer", "Stop.") in done, done
 
@@ -161,7 +163,7 @@ for heard in ("Stop.", "멈춰.", "Stop it."):
     L = fresh(U(heard, during_speech=True))
     assert L.check_wake() and stopped(L), (heard, done)
 L = fresh(trip=False)
-L.warm_llm, L.interrupted, L.who_spoke, L.mission_hold = lambda: None, lambda: False, lambda u: None, None
+L.warm_llm, L.interrupted, L.who_spoke, L.mission_hold = lambda: None, lambda: False, lambda u, text=None: None, None
 L.follow_filter = lambda text, u: False
 assert L.talk_turn() and ("answer", "Stop.") in done, done
 L = fresh(U("Okay, I'm going to p5.", during_speech=True))           # Lumi's own sentence: still ignored

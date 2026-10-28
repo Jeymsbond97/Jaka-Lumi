@@ -4,6 +4,7 @@ arm action with the arm switched off asks to enable it, nothing else asks. Fake 
 python tests/test_switches.py"""
 import types
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import lumi
 from tasks import fetch, follow
 
@@ -175,9 +176,9 @@ L.act("go_to", "p3")
 assert moved == ["start_trip"]
 follow.stop, fetch.stop = real_follow_stop, real_fetch_stop
 
-# ---------- "reach out to me": toward the person; Greeter never turns the base for it, asks them in front ----------
-assert lumi.reach_turn(None, True) is None and lumi.reach_turn(10.0, False) == 0.0
-assert lumi.reach_turn(-35.0, True) == -35.0 and lumi.reach_turn(35.0, False) is None
+# ---------- "reach out to me": toward the person; the waist turns to them with Greeter only too (the base stays) ----
+assert lumi.reach_turn(None) is None and lumi.reach_turn(10.0) == 0.0
+assert lumi.reach_turn(-35.0) == -35.0 and lumi.reach_turn(35.0) == 35.0
 reached = []
 real_reach = fetch.reach
 fetch.reach = lambda angle=0.0, say=None: reached.append(angle)
@@ -185,14 +186,16 @@ L.fetch_finish = lambda how, **k: moved.append(how)
 L.skill_thread, L.voice_trusted = None, False
 person = types.SimpleNamespace(angle=35.0)
 L.vision = types.SimpleNamespace(present=lambda t: False, near_angle=lambda a, d=25: None, only_person=lambda: person)
-for patrol, angle, want in ((False, 35.0, None), (True, 35.0, [35.0]), (False, -12.0, [0.0]), (True, -12.0, [0.0])):
+L.turn_head = lambda yaw=None, pitch=None, force=False: moved.append(("head", yaw))
+for patrol, angle, want in ((False, 35.0, [35.0]), (True, 35.0, [35.0]), (False, -40.0, [-40.0]), (False, -12.0, [0.0]),
+                           (True, -12.0, [0.0])):
     L.modes.patrol, person.angle = patrol, angle
     reached.clear(), said.clear(), moved.clear()
     got = L.reach_out(False)
-    if want is None:                                     # nothing moves, not even the head
-        assert got is None and not reached and said == [lumi.GREETER_FRONT_SAY[0]] and not moved, (angle, said)
-    else:
-        assert got and reached == want and moved == ["head"], (patrol, angle, reached, moved)
+    # a waist turn takes the head onto them (fetch._waist_to look); a head turn here raced it (looked away live)
+    head_cmds = [] if want[0] else [("head", lumi.HEAD_SIGN * angle)]
+    assert got and reached == want and moved == head_cmds and not said, (patrol, angle, reached, moved, said)
+L.turn_head = lambda *a, **k: moved.append("head")
 L.vision = None                                          # nobody seen, the voice's direction not trusted: ask
 reached.clear(), said.clear()
 assert L.reach_out(False) is None and not reached and said == [lumi.STAND_IN_FRONT_SAY[0]]
@@ -210,5 +213,60 @@ assert lumi.Lumi.arm_pose(L, "open") and moved == ["open"] and not said, (moved,
 lumi.gripper.open_, fetch.check_hand = real_open, real_check
 L.fetch_status = lambda: None
 fetch.reach = real_reach
+
+# ---------- the waist back to the front (waist_home): in place, Greeter only too; never with the arm out or a task ----
+real = {n: getattr(fetch, n) for n in ("_waist_turn", "state", "_at_pose", "_waist_to")}
+calls = []
+fetch._waist_to = lambda rel, in_place=False: calls.append((rel, in_place)) or True
+fetch.state = lambda: {"status": "idle"}
+fetch._at_pose = lambda name: True
+fetch._waist_turn = lambda: 0.4                          # at the front already: nothing moves
+assert lumi.waist_home("test") and calls == []
+fetch._waist_turn = lambda: 35.0                         # turned for a person
+fetch.state = lambda: {"status": "running"}              # a task turns the waist itself
+assert lumi.waist_home("test") is False and calls == []
+fetch.state = lambda: {"status": "done"}
+fetch._at_pose = lambda name: False                      # the hand held out (a reach): it stays turned
+assert lumi.waist_home("test") is False and calls == []
+fetch._at_pose = lambda name: True
+assert lumi.waist_home("test") and calls == [(0.0, True)]   # in place: also with Patrol off (stay_put)
+fetch._waist_to = lambda rel, in_place=False: False      # the arm's sweep is not clear
+assert lumi.waist_home("test") is False
+for n, f in real.items():
+    setattr(fetch, n, f)
+
+# ---------- every drive and base turn starts with the waist at the front ----------
+order = []
+real_home = lumi.waist_home
+lumi.waist_home = lambda why: order.append("waist") or True
+lumi.agv.status = lambda: {"move_status": "idle", "power_percent": 90}
+lumi.agv.go = lambda m: order.append(("go", m)) or (True, "OK")
+lumi.agv.go_point = lambda x, y, th: order.append(("go", (x, y, th))) or (True, "OK")
+lumi.agv.turn_by = lambda a: order.append(("turn", round(lumi.math.degrees(a)))) or (True, "OK")
+P = lumi.Patrol(["p3"], once=True)
+P.tick(force=True)
+assert order == ["waist", ("go", "p3")] and P.moving, order
+lumi.agv.status = lambda: {"move_status": "idle", "power_percent": 2}    # low battery: home, the waist first
+order.clear()
+P = lumi.Patrol(["p3"])
+P.tick(force=True)
+assert order == ["waist", ("go", "home")] and P.mode == "going_home", order
+lumi.agv.status = lambda: {"move_status": "idle", "power_percent": 90}
+L.modes.patrol, L.modes.drive = True, True
+real_turned, lumi.waist_turned = lumi.waist_turned, lambda: 30.0   # turned 30 left for someone
+order.clear()
+L.look_toward(150.0)                                     # a voice behind: the base turns to it from the base's front
+assert order == ["waist", ("turn", 180)], order
+lumi.waist_home = lambda why: order.append("waist") or False   # it can't come back: no drive, no turn, said why
+order.clear()
+P = lumi.Patrol(["p3"], once=True)
+P.tick(force=True)
+assert order == ["waist"] and P.stuck == "p3" and P.stuck_why == lumi.WAIST_BACK_SAY and P.mode == "done"
+order.clear()
+L.look_toward(150.0)
+assert order == ["waist"], order
+lumi.waist_home, lumi.waist_turned = real_home, real_turned
+for name in ("status", "go", "go_point", "turn_by"):
+    setattr(lumi.agv, name, forbid)
 print(f"switches ok: {len(BASE)} base phrases refused with Greeter only, {len(IN_PLACE)} in place done; "
       "arm off asks; Patrol allows all; stop always")
