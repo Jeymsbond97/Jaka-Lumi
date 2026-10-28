@@ -67,13 +67,15 @@ def line_ok(w, ja):                                         # the straight line 
         return True
     except fetch.FetchError:
         return False
-for xy in ((-104, 694), (-99, 738)):
+for seen in ((-104, 694), (-99, 738)):                     # seen live before the camera's error was fixed
+    xy = np.add(seen, skills.objects.ROUND_FIX_MM)
     assert skills.reachable_pick(cup(*xy, -186), accept=line_ok) is None, xy
     plan = skills.reachable_pick(cup(*xy, -186), accept=lambda w, ja: skills.carry_up(w[0][1], ja) is not None)
     assert plan, xy
     via, carry = skills.carry_up(plan[0][0][1], plan[1])
     assert via[2] > plan[0][0][1][2] and np.allclose(kinematics.pose(carry)[:3], kinematics.pose(motion.poses()["carry"])[:3], atol=0.1)
-plan = skills.reachable_pick(cup(-104, 694, -186), accept=lambda w, ja: skills.carry_up(w[0][1], ja) is not None,
+# the live (-104, 694) is (-92, 689) with the camera fixed: 9 mm past the trusted-turn edge; just inside it
+plan = skills.reachable_pick(cup(-92, 680, -186), accept=lambda w, ja: skills.carry_up(w[0][1], ja) is not None,
                              max_yaw=skills.TRUSTED_YAW_DEG)
 assert plan and abs(skills.yaw_of(plan[0][1][1])) <= 15.5, plan
 
@@ -111,7 +113,8 @@ assert np.isclose(np.hypot(*(np.subtract((t["x"], t["y"]), C))), np.hypot(*(np.s
 assert t["x"] > o["x"]                                      # waist left: a thing on the left comes ahead
 assert np.allclose([fetch.turned(t, -30.0)[k] for k in "xy"], [o[k] for k in "xy"])
 
-for r, b in ((600, 60), (600, -60), (550, 90), (600, -100), (730, 7), (720, 25)):   # beside it and the live ones
+for r, b in ((600, 60), (600, -60), (550, 90), (600, -100), (720, 7), (720, 25)):   # beside it and the live ones
+    # (the live 730 mm one is 1 cm past the trusted reach since the grasp point was fixed, 2026-10-27)
     o = around(r, b)
     assert trusted(o) is None, (r, b)                         # not from here ...
     turns = fetch.waist_for(o)
@@ -125,9 +128,10 @@ for r, b in ((1000, 0), (950, 40)):                         # too far for any wa
 LIVE = (((262, 774, -189), "base"), ((267, 763, -188), "base"), ((260, 722, -186), "base"),   # missed at -45 / -30
         ((300, 621, -191), "waist"), ((-99, 738, -181), "waist"),       # missed at -30 / carry line jumped at -30
         ((-141, 869, -186), "base"), ((-117, 960, -186), "base"),       # across the table / far
-        ((-104, 694, -186), "here"), ((-73, 588, -186), "here"), ((-96, 598, -260), "here"))   # carried / picked
-for (x, y, top), how in LIVE:
-    o = cup(x, y, top)
+        ((-104, 694, -186), "waist"), ((-73, 588, -186), "here"), ((-96, 598, -260), "here"))   # carried / picked
+# (694: picked from here live; at the trusted-turn edge since the grasp point was fixed, a small waist turn first)
+for (x, y, top), how in LIVE:                               # seen before the camera's error was fixed
+    o = cup(x + skills.objects.ROUND_FIX_MM[0], y + skills.objects.ROUND_FIX_MM[1], top)
     got = "here" if trusted(o) else "waist" if any(trusted(fetch.turned(o, d)) for d in fetch.waist_for(o)) else "base"
     assert got == how, ((x, y, top), got, how)
 body["waist"] = 100.0                                       # the waist near its limit (140): no turn past it

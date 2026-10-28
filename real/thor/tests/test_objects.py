@@ -27,7 +27,7 @@ box = (us.min() - 5, vs.min() - 5, us.max() + 5, vs.max() + 5)
 m = objects.measure(color, depth, box, INTR, T, round_=True)
 print(m)
 assert m["colour"] == "red"
-cx, cy, cz = m["position_mm"]
+cx, cy, cz = np.subtract(m["position_mm"], [*objects.ROUND_FIX_MM, 0])     # the measured camera error added
 assert abs(cx) < 5 and abs(cy - D) < 10 and abs(cz) < 5, m
 assert abs(m["width_mm"] - 2 * R) < 8, m
 assert abs(m["height_mm"] - H) < 12, m

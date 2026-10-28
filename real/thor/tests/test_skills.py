@@ -162,7 +162,8 @@ assert np.allclose(np.array(d[:3]) + R @ (skills.GRASP_OFFSET + skills.TIPS_OFFS
 skills._held.clear()
 # the owner's taught tips grasp of the spray can (grasp_tips_teach.json): the same flange within a few mm, 2 deg
 t = skills.TIPS_TEACH
-f = skills.flange_for(*t["can_seen"], t["grasp_point_code"][2], skills.yaw_of(t["flange"]), tips=True)
+can = np.add(t["can_seen"][:2], skills.objects.ROUND_FIX_MM)              # seen before the camera's error was fixed
+f = skills.flange_for(*can, t["grasp_point_code"][2], skills.yaw_of(t["flange"]), tips=True)
 assert np.linalg.norm(np.subtract(f[:3], t["flange"][:3])) < 10, f
 
 # ---------- frames after a move: wait for one written after it ended, never longer than FRESH_WAIT_S ----------

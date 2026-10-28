@@ -610,8 +610,8 @@ assert fetch.turn_hits(90) is None
 real_points, real_extr = skills.surface_points, skills.objects.base_from_camera
 skills.objects.base_from_camera = lambda: np.eye(4)
 skills.surface_points = lambda pts, guess_z=-400.0, **kw: [tuple(p) for p in pts]          # depth right at each point
-calls.clear()
-assert fetch._turn(30) is False and not any(c[0] == "go_point" for c in calls)
+calls.clear()                                    # 40 deg: the toy hand (0.23 m out) sweeps past SELF_MM of itself
+assert fetch._turn(40) is False and not any(c[0] == "go_point" for c in calls)
 skills.surface_points = lambda pts, guess_z=-400.0, **kw: [tuple(np.array(p) * 3) for p in pts]   # only far behind them
 assert fetch.depth_hits(30) is None
 # only the head camera, turned to the side of the turn, sees something in the arm's way: no turn; the head stays there
@@ -630,8 +630,8 @@ fetch.head.moveto = head_move
 fetch.head_cam.base_from_head = lambda yaw, pitch: np.eye(4)
 skills.surface_points = lambda pts, guess_z=-400.0, camera="torso", T=None: \
     [tuple(p) if camera == "head" else None for p in pts]
-calls.clear()
-assert fetch._turn(-30) is False and not any(c[0] == "go_point" for c in calls)
+calls.clear()                                    # 40 deg, as above: past SELF_MM of the toy hand
+assert fetch._turn(-40) is False and not any(c[0] == "go_point" for c in calls)
 assert heads == [(-fetch.HEAD_SIDE_DEG, fetch.HEAD_LOW_PITCH)], heads           # no move back: the next look turns it
 skills.surface_points = lambda pts, guess_z=-400.0, **kw: [None] * len(pts)
 
