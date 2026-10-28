@@ -273,6 +273,14 @@ def transcribe(audio, prompt=None):
     return text
 
 
+def quick(audio):
+    """transcribe() for a short window of speech still going on (mic.peek()): not kept in HEARD_DIR, no early run."""
+    text, stt = _hear(audio, None)
+    last_stt.clear()
+    last_stt.update(stt, early=False)
+    return text
+
+
 def early(audio):
     """mic.py, in a pause of an utterance still going on: whisper starts on what was said so far, in the background
     (one run at a time: a newer one waits for the older)."""

@@ -11,7 +11,8 @@ cuts utterances: speech starts when the level stays above START_FACTOR x the bac
 START_FRAMES frames and ends after END_SILENCE of quiet.
 While Lumi itself speaks (mouth.py calls speaking()), the head array records nothing (the speaker is ~25x
 louder than a voice there). The clip mic keeps listening (BARGE_IN): its utterances are marked during_speech, so
-lumi.py can stop talking when the visitor says "stop" / "thanks" or asks something new.
+lumi.py can stop talking when the visitor says "stop" / "thanks" or asks something new. Lumi's voice in the clip mic
+can keep an utterance from ending, so while Lumi talks its last PEEK_WINDOW_S are also offered every PEEK_S (peek()).
 
     python audio/mic.py        # print every utterance: source, length, level and the direction
 """
@@ -49,7 +50,15 @@ MAX_UTTERANCE = 8.0              # s (12 s: in a room with music an utterance ne
 PRE_ROLL = 10                    # frames kept before the start (300 ms)
 AFTER_SPEAKING = 0.4             # s still ignored after Lumi stopped talking (room echo)
 BARGE_IN = True                  # clip mic: keep listening while Lumi talks (interruptions)
+PEEK_S = 0.7                     # clip mic while Lumi talks: every this many s of an utterance still going on ...
+PEEK_WINDOW_S = 2.0              # ... its last this many s go to peek() (a stop word: ~0.5 s of whisper on the GPU).
+                                 # Lumi's voice in the clip mic kept an utterance going to MAX_UTTERANCE: "Stop. Stop.
+                                 # Stop." was heard only when a 17.9 s answer ended (logs/heard/192150.wav, 2026-10-27)
+PEEK_MIN_S = 0.5                 # s an utterance needs before its first peek
 RING_S = 20.0                    # s of head-array audio kept for the sound direction of clip-mic utterances
+DUMP_FLAG = ROOT / "data" / "doa_dump_on"   # while this file exists each clip-mic utterance is saved with its
+DUMP_DIR = ROOT / "logs" / "doa_dump"       # head-array audio (npz), to check the sound direction offline
+DUMP_MARGIN_S = 1.0              # s of head-array audio saved before and after the clip's times ("wide")
 
 
 class Utterance:
@@ -132,6 +141,8 @@ class Mic(threading.Thread):
         self.external = None                                     # ALSA device of the clip mic, when found
         self.muted_until = 0.0
         self.speaking_now = False
+        self.talking_since = None                                # Lumi started talking at (clip mic, during_speech)
+        self.peeked, self.peeked_at = None, 0.0                  # see peek()
         self.error = None
 
     # the active detector's state (ears.py reads these)
@@ -189,6 +200,13 @@ class Mic(threading.Thread):
         with self.ring_lock:
             frames = [x for t, x in self.ring if t_start <= t <= t_end + 0.05]
         return np.concatenate(frames) if frames else np.zeros((0, 6), np.int16)
+
+    def _dump(self, u):
+        """Save a clip-mic utterance with the head array's audio of its time and DUMP_MARGIN_S around it."""
+        DUMP_DIR.mkdir(parents=True, exist_ok=True)
+        wide = self.head_audio(u.t_start - DUMP_MARGIN_S, u.t_end + DUMP_MARGIN_S)
+        np.savez(DUMP_DIR / time.strftime("%H%M%S.npz"), mics=u.mics, mono=u.mono, wide=wide,
+                 t_start=u.t_start, t_end=u.t_end)
 
     # ---------- recording threads ----------
     def run(self):
@@ -249,32 +267,49 @@ class Mic(threading.Thread):
         proc = subprocess.Popen(["arecord", "-q", "-D", dev, "-f", "S16_LE", "-r", str(RATE), "-c", "1", "-t", "raw"],
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         nbytes = FRAME * 2
-        talking_since = None                                     # Lumi started talking at (for during_speech)
+        self.talking_since = None
         try:
             while True:
                 raw = proc.stdout.read(nbytes)
                 if len(raw) < nbytes:
                     return
-                x = np.frombuffer(raw, np.int16)
-                now = time.time()
-                if self.muted():
-                    if not BARGE_IN:
-                        self.clip_seg.reset()
-                        continue
-                    talking_since = talking_since or now
-                elif talking_since and not self.clip_seg.in_speech:
-                    talking_since = None
-                level = float(np.sqrt(np.mean(x.astype(np.float32) ** 2)))
-                done = self.clip_seg.feed(x, level, now)
-                if done:
-                    frames, t0, t1, peak = done
-                    during = talking_since is not None and t1 >= talking_since
-                    self._put(Utterance(self.head_audio(t0, t1), np.concatenate(frames), t0, t1, peak, "clip", during))
-                elif on_quiet and self.clip_seg.quiet_now():
-                    on_quiet(np.concatenate(self.clip_seg.frames))
+                self._clip_frame(np.frombuffer(raw, np.int16), time.time())
         finally:
             proc.kill()
 
+    def _clip_frame(self, x, now):
+        """One 30 ms clip-mic frame (int16 mono)."""
+        if self.muted():
+            if not BARGE_IN:
+                self.clip_seg.reset()
+                return
+            self.talking_since = self.talking_since or now      # Lumi started talking at (for during_speech)
+        elif self.talking_since and not self.clip_seg.in_speech:
+            self.talking_since = None
+        level = float(np.sqrt(np.mean(x.astype(np.float32) ** 2)))
+        done = self.clip_seg.feed(x, level, now)
+        if done:
+            frames, t0, t1, peak = done
+            during = self.talking_since is not None and t1 >= self.talking_since
+            u = Utterance(self.head_audio(t0, t1), np.concatenate(frames), t0, t1, peak, "clip", during)
+            if DUMP_FLAG.exists():
+                self._dump(u)
+            self._put(u)
+        elif on_quiet and self.clip_seg.quiet_now():
+            on_quiet(np.concatenate(self.clip_seg.frames))
+        elif self.speaking_now and self.clip_seg.in_speech and now - self.peeked_at >= PEEK_S and \
+                len(self.clip_seg.frames) * FRAME >= PEEK_MIN_S * RATE:
+            # Lumi's own voice in the clip mic keeps the utterance from ending: its last seconds are offered now
+            mono = np.concatenate(self.clip_seg.frames[-round(PEEK_WINDOW_S * RATE / FRAME):])
+            self.peeked = Utterance(np.zeros((0, 6), np.int16), mono, now - len(mono) / RATE, now,
+                                    self.clip_seg.peak, "clip", True)
+            self.peeked_at = now
+
+    def peek(self):
+        """The newest window of a clip-mic utterance still going on while Lumi talks (a mic.Utterance, once), or None:
+        lumi.py looks for a stop word in it."""
+        u, self.peeked = self.peeked, None
+        return u
 
 _mic = None
 _lock = threading.Lock()
@@ -306,8 +341,8 @@ if __name__ == "__main__":
             u = m.next(1.0)
             if u is None:
                 continue
-            ang = doa.estimate(u.mics) if len(u.mics) else (0.0, 0.0, 0.0)
+            ang = doa.estimate(u.mics, ref=doa.clip_ref(u)) if len(u.mics) else (0.0, 0.0, 0.0)
             print(f"[{u.source}] {u.seconds:4.1f} s  peak {u.peak:5.0f}  noise {m.noise:4.0f}  "
-                  f"direction {ang[0]:+5.0f} deg (confidence {ang[1]:.2f})")
+                  f"direction {ang[0]:+5.0f} deg (confidence {ang[1]:.2f}{doa.clip_note(u.mics, doa.clip_ref(u))})")
     except KeyboardInterrupt:
         pass

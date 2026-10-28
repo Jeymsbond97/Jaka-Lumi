@@ -66,6 +66,13 @@ last_echo = None                              # echo() of the last own_voice() c
 last_voice = 0.0                              # time.time() when the last say_stream() began to play (lumi.py logs it)
 
 
+def saying(since):
+    """What Lumi has been saying from `since` (time.time()) on: the sentence playing then and those after it."""
+    texts = [t for when, t in _recent if when > since]
+    before = [t for when, t in _recent if since - 20.0 < when <= since]   # a long sentence takes 15 s and more
+    return " ".join(before[-1:] + texts)
+
+
 def recent_speech(seconds=30.0):
     """What Lumi said in the last seconds (lumi.py ignores its own voice picked up by the clip mic).
     Long sentences take 15 s and more to say, so the window is long."""
