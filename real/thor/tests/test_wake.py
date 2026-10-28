@@ -7,6 +7,7 @@ import threading
 import time
 import types
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from assistant import brain as brain_mod
 from assistant import lumi
 from tasks import fetch, follow
@@ -24,11 +25,13 @@ lumi.mouth.own_voice = lambda u: False
 lumi.mouth.recent_speech = lambda s: ""
 lumi.mouth.last_echo = 0.0
 lumi.doa.load_calib = lambda: {"fitted": False}
-lumi.doa.estimate = lambda mics, cal: (0.0, 0.0, 0.0)
+lumi.doa.estimate = lambda mics, cal, ref=None: (0.0, 0.0, 0.0)
 lumi.ears.heard_lang = lambda lang: lang
 lumi.ears.transcribe = lambda mono: mono
 lumi.ears.understood = lambda lp: True
 lumi.time.sleep = lambda s: None
+lumi.waist_turned = lambda: 0.0                    # the waist at the front (it reads the body)
+lumi.waist_home = lambda why: True
 M = ["home", "dock2"]
 
 
@@ -106,7 +109,7 @@ def fresh(*tracks, utts=()):
     L.mission_running = lambda: False
     L.mission_hold = None
     L.warm_llm = lambda: None
-    L.who_spoke = lambda u: done.append("who spoke")
+    L.who_spoke = lambda u, text=None: done.append("who spoke")
     lumi.ears.listen = lambda **k: (None, None)
     done.clear()
     up.clear()
@@ -264,9 +267,68 @@ time.sleep(0.2)
 assert moves == [(10.0, 10), (0, lumi.head.HEAD_REST_PITCH)] and not H.look_held(), moves
 moves.clear()
 H.looked_at = H.last_activity = time.time()
-H.head_rest()                                                       # a goodbye / stop word ends the hold
+H.head_rest()                                                       # "be quiet" ends the hold
 time.sleep(0.2)
 assert moves == [(0, lumi.head.HEAD_REST_PITCH)] and H.looked_at == 0.0, moves
 lumi.head.status, lumi.head.turn = real_status, real_turn
+
+# the head stays toward the person while the conversation goes on; it rests only when the conversation is over
+fetch.stop = lambda: done.append("fetch stop")
+L = fresh(a := Track(31, 40))
+a.greeted, L.current, L.looked_at = True, a, time.time()
+L.act = lambda action, target: done.append(("act", action))
+L.stop_all("Stop.")                                    # stopping a song or an answer mid-talk
+assert ("act", "stop") in done and "head" not in done and L.looked_at == 0.0, done
+L = fresh(a := Track(32, 40))
+a.greeted, L.current = True, a
+L.vision.tracks.clear()                                # out of the frame, nobody else greeted
+L.step()
+assert L.current is None and L.voice_until > time.time() and "head" not in done, done
+L.step()                                               # the voice session goes on: still no rest
+assert "head" not in done, done
+L.voice_until = time.time() - 1                        # the session ends by silence, nobody in view
+L.check_wake = lambda: False
+L.step()
+assert "head" in done and L.voice_until == 0.0, done   # end_conversation: yaw 0, rest pitch
+
+# the conversation ends (silence, goodbye, "be quiet"): the waist comes back to the front too, Greeter or Patrol;
+# a held look keeps both (the waist waits like the head)
+homed, back = [], threading.Event()
+real_home, real_turned = lumi.waist_home, lumi.waist_turned
+lumi.waist_home = lambda why: homed.append(why) or back.set() or True
+for patrol in (False, True):
+    L = fresh(a := Track(33, 40))
+    a.greeted, L.current, L.modes.patrol = True, a, patrol
+    L.traveling = lambda: False
+    homed.clear(), back.clear()
+    L.end_conversation(None, quiet=True)
+    assert back.wait(2) and "head" in done and L.current is None and homed, (patrol, done, homed)
+    homed.clear(), back.clear()
+    L.head_rest()                                      # "be quiet"
+    assert back.wait(2) and homed
+L.looked_at = L.last_activity = time.time()            # "look up" just now, then silence ends the talk
+homed.clear(), back.clear()
+L.end_conversation(None, quiet=True)
+assert not back.wait(0.3) and not homed
+
+# someone else takes over (on the right, Lumi turned left for the first one): the waist back to the front, then the
+# head to the new person (their angle from the waist's old place + the turn taken back); not turned: the head only
+lumi.doa.load_calib = lambda: {"fitted": True}
+lumi.doa.clip_ref = lambda u: None
+lumi.doa.estimate = lambda mics, cal, ref=None: (-50.0, 0.9, 0.0)
+for turned, homes, want in ((30.0, True, -20.0), (30.0, False, -50.0), (0.0, True, -50.0)):
+    L = fresh(a := Track(40, 40), b := Track(41, -50))
+    a.greeted, L.current = True, a
+    heads, back = [], threading.Event()
+    L.turn_head = lambda yaw=None, *r, **k: heads.append(yaw) or back.set()
+    lumi.waist_turned = lambda w=turned: w
+    lumi.waist_home = lambda why, ok=homes: homed.append(why) or ok
+    homed.clear()
+    lumi.Lumi.who_spoke(L, U("Lumi, stop.", seconds=1.0))
+    assert back.wait(2) and L.current is b and heads == [lumi.HEAD_SIGN * want], (turned, homes, heads)
+    assert bool(homed) == bool(turned), (turned, homed)
+lumi.waist_home, lumi.waist_turned = real_home, real_turned
+lumi.doa.load_calib = lambda: {"fitted": False}
+lumi.doa.estimate = lambda mics, cal, ref=None: (0.0, 0.0, 0.0)
 
 print("ok: wake words, waves, no greeting to passers-by or during tasks, answers never cut, names")

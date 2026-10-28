@@ -41,8 +41,8 @@ Modes (switched live from the dashboard through /dev/shm/lumi_modes.json, see ap
 - patrol:  while driving anywhere (a marker picked on the dashboard, "go to p2", a --patrol route), stop for a
            person in the path, greet and talk, then drive on to the same destination. Patrol also allows the
            base and the waist by voice: with it off (Greeter only) Lumi does what it can standing in place (talk,
-           head, lift, arm and gripper within reach, wave) and refuses a drive, a base turn or a waist turn
-           (base_off says BASE_OFF_SAY; a task runs with fetch.stay_put). Tasks from the dashboard's Command box obey
+           head, lift, arm and gripper within reach, wave, the waist turned to a person for "reach out to me") and
+           refuses a drive, a base turn or a waist turn (base_off says BASE_OFF_SAY; a task runs with fetch.stay_put). Tasks from the dashboard's Command box obey
            the same (api/server.py _switches). The dashboard's own buttons and "stop" work either way.
 - wave / drive: wave when asked; allow "come here" and voice "go to".
 The dashboard's Go / Cancel are sent to this program (/dev/shm/lumi_cmd.json) while it runs, so it can stop
@@ -172,6 +172,8 @@ FIX_SAY = (("Okay.", "네."),                                        # a command
            ("Sorry, which one did you mean? Please say it again.", "죄송해요, 어느 쪽 말씀이세요? 다시 한 번 말씀해 주세요."))
 BASE_OFF_SAY = ("I can't drive or turn my waist right now. Switch on Patrol for that.",   # Greeter only: a base /
                 "지금은 이동하거나 허리를 돌릴 수 없어요. 패트롤을 켜 주세요.")             # waist motion asked for
+WAIST_BACK_SAY = ("I can't turn back to the front right now, so I won't drive.",   # a drive with the waist turned
+                  "지금은 앞으로 돌아설 수 없어서 이동하지 않을게요.")                   # and it can't come back (waist_home)
 ARM_OFF_SAY = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")   # an arm action with the arm switched off
 ARM_TASKS = {"pick", "put", "move_object", "fetch", "give", "place", "receive", "wave"}   # + arm reach / fold
 
@@ -181,15 +183,47 @@ def needs_arm(action, target=""):
     return action in ARM_TASKS or action == "arm" and target not in ("open", "close")
 
 
-def reach_turn(angle, patrol):
+def reach_turn(angle):
     """Waist turn (deg, + left) before "reach out to me" to a person at the waist-frame `angle` (None: nobody seen or
-    heard): 0 within REACH_FRONT_DEG of the front, the angle with Patrol on, else None (they are asked to stand in
-    front: Greeter never turns the base or the waist)."""
+    heard): 0 within REACH_FRONT_DEG of the front, else the angle. Greeter only turns the waist for it too: the base
+    stays (fetch.reach)."""
     if angle is None:
         return None
-    if abs(angle) <= REACH_FRONT_DEG:
-        return 0.0
-    return float(angle) if patrol else None
+    return 0.0 if abs(angle) <= REACH_FRONT_DEG else float(angle)
+
+
+_waist_lock = threading.Lock()     # one waist return at a time (a conversation's end and the drive after it)
+
+
+def waist_turned():
+    """How far (deg, + left) the waist is turned from the front now; 0 when it can't be read."""
+    from tasks import fetch
+    return safe(fetch._waist_turn, default=0.0) or 0.0
+
+
+def waist_home(why):
+    """The waist back to the front: at a conversation's end, before every drive or base turn, when someone else takes
+    over the talk. In place (the base stays), so with Greeter only too; fetch._waist_to checks the arm's sweep and the
+    limits. Not while a task runs (it turns the waist itself) or the arm is out of look (a hand held out): logged, the
+    waist stays. True when the waist is at the front."""
+    from tasks import fetch
+    with _waist_lock:
+        try:
+            if abs(fetch._waist_turn()) < 1.0:
+                return True
+            if fetch.state().get("status") == "running":
+                log(f"  waist stays turned ({why}): a task runs")
+                return False
+            if not fetch._at_pose(fetch._look()):
+                log(f"  waist stays turned ({why}): my arm is not folded in look")
+                return False
+            fetch._stop.clear()                       # no task runs: an old stop must not end this; a new one does
+            if fetch._waist_to(0.0, in_place=True):
+                log(f"  waist to the front ({why})")
+                return True
+        except Exception as e:
+            log(f"  waist stays turned ({why}): {e!r}")
+        return False
 LIFT_VEL = 20                       # speed ratio % for a lift move asked by voice (head.VEL is 40)
 LIMIT_SAY = {"yaw": (f"I can turn my head up to {head.AXIS_LIMITS[2][1]:g} degrees each way.",
                      f"고개는 좌우로 {head.AXIS_LIMITS[2][1]:g}도까지 돌릴 수 있어요."),
@@ -336,7 +370,23 @@ ANSWER_ECHO_S = 10.0               # s of Lumi's speech a dialog answer is check
                                    # (the wake reply "Yes?" 20 s earlier swallowed the answer "Yes. Yes.", 2026-10-21)
 VOICE_SESSION_S = 15.0             # s a conversation started by voice (nobody in view) waits for the next words
 SPEAKER_MATCH_DEG = 25.0           # a voice direction belongs to the visible person within this angle
+FOCUS_EVERY_S = 0.5                # s between checks that the head is still on the person Lumi talks with
+FOCUS_DEG = 8.0                    # deg that person may move off the head's direction before the head follows
+FOCUS_REFIND_DEG = 15.0            # a lost track's person is found again as the new track within this angle of it
+LOOK_ME_PITCH = 0.0                # deg, head pitch of the first turn to a person ("look at me"): level, a far person
+                                   # fits whole; the head camera then tilts it to their height (look_me_pitch)
+LOOK_ME_SETTLE_S = 0.6             # s after a head move before its camera is asked who is there
+LOOK_ME_TOP_ROW = 0.08             # share of the image height from the top where the person's head should be
+LOOK_ME_EDGE_PX = 8                # a box edge this near the frame edge is cut by it
+LOOK_ME_UP_STEP = 10.0             # deg up when the person's head is cut by the frame top (how much is cut is unknown)
+LOOK_ME_MIN_DEG = 2.0              # smaller pitch corrections are not made
+LOOK_ME_TRIES = 3                  # pitch corrections at most
+TORSO_FRESH_S = 2.0                # s; older torso detections are not used (idle, the service detects 1 per second)
 DOA_MIN_CONF = 0.12                # below this the sound direction is not trusted
+LOOK_WAIST_MAX = 120.0             # deg; "look at me" from behind with Patrol off: the waist turns at most this far
+VOICE_KEEP_S = 20.0               # s a sure voice direction stands for the next words whose own sound is too weak
+DOA_CLIP_MIN_CONF = 0.05           # the same with the clip voice found in the array: clip-weighted confidences run
+                                   # lower (0.07 at the right -90 deg live, 2026-10-27); estimate, check live
 FOLLOW_VOICE_DEG = 35.0            # while following, a voice this near the followed person's angle is theirs (estimate:
                                    # the sound direction's median error was 22-31 deg on 2026-10-22)
 FOLLOW_SORRY_S = 20.0              # s; "Sorry, I'm following someone" at most this often
@@ -344,11 +394,9 @@ COME_STOP = 1.1                    # m; driving to a person stops when the camer
 COME_TIMEOUT = 60.0                # s
 MAX_MOVE_M = 3.0                   # m; "move forward N metres" is limited to this
 REACH_FRONT_DEG = 20.0             # deg; "reach out to me": a person further to the side than this is turned to first
-                                   # (Patrol) or asked to stand in front (Greeter). Estimate: the reach after give
-                                   # moves at most fetch.RECEIVE_REACH_MM sideways
+                                   # (the waist, Greeter or Patrol). Estimate: the reach after give moves at most
+                                   # fetch.RECEIVE_REACH_MM sideways
 STAND_IN_FRONT_SAY = ("Please stand in front of me.", "제 앞에 서 주세요.")
-GREETER_FRONT_SAY = ("I stay in place now, so I can't turn to you. Please stand in front of me.",   # Greeter: the person
-                     "지금은 제자리에 있어야 해서 돌 수 없어요. 제 앞에 서 주세요.")                       # is seen to the side
 REACH_HOLD_S = 30.0                # s the hand stays held out after a reach, then the arm folds back to look (estimate)
 REACH_DONE = re.compile(r"\b(?:thanks?|thank you|thx|ok(?:ay)?|got it|done|that'?s (?:it|all|enough)|enough|good|great|"
                         r"nice|cool|alright|all right)\b|고마워|고맙|감사|됐어|됐습니다|됐다|좋아|오케이|그만", re.I)
@@ -407,6 +455,11 @@ def log(msg):
         pass
 
 
+def voice_min_conf(u):
+    """The confidence from which this utterance's sound direction is trusted."""
+    return DOA_CLIP_MIN_CONF if doa.clip_found(u.mics, doa.clip_ref(u)) else DOA_MIN_CONF
+
+
 def safe(fn, *args, default=None):
     """Call a robot function; on a network error log it and carry on instead of crashing."""
     try:
@@ -453,6 +506,21 @@ class Track:
 def too_close(people, frame_h):
     """People really closer than TOO_CLOSE: small depth AND a box that fills the frame."""
     return [p for p in people if p["distance_m"] < TOO_CLOSE and (p["box"][3] - p["box"][1]) > CLOSE_BOX * frame_h]
+
+
+def look_me_pitch(box, height, pitch, fy, cy):
+    """Head pitch (deg, + up) that puts a person's head (their box top) near the top of the head camera's view with as
+    much of them below as fits, or None when the head may stay: the whole person is in view (far), or the change is
+    small. Pinhole angles without the lens distortion; the next frame corrects what is left."""
+    top, bottom = box[1], box[3]
+    if top <= LOOK_ME_EDGE_PX:                           # their head is cut: tilt up
+        new = pitch + LOOK_ME_UP_STEP
+    elif bottom < height - LOOK_ME_EDGE_PX:              # all of them is in view
+        return None
+    else:
+        new = pitch + math.degrees(math.atan((cy - top) / fy) - math.atan((cy - LOOK_ME_TOP_ROW * height) / fy))
+    new = max(head.PITCH_RANGE[0], min(head.PITCH_RANGE[1], new))
+    return new if abs(new - pitch) >= LOOK_ME_MIN_DEG else None
 
 
 class Vision(threading.Thread):
@@ -603,6 +671,38 @@ class Vision(threading.Thread):
             best = min(self.tracks, default=None, key=lambda t: abs(t.angle - angle))
         return best if best is not None and abs(best.angle - angle) <= max_diff else None
 
+    def seen(self):
+        """Everyone in view as (waist-frame angle, distance): this camera's people and, while the head camera is in
+        use, the torso camera's fresh ones too (someone beside Lumi is often outside the turned head camera's view)."""
+        with self.lock:
+            out = [(t.angle, t.distance) for t in self.tracks if t.distance <= STAY_MAX]
+        if self.camera != "torso":
+            camview.want("torso")
+            try:
+                d = json.loads(camview.det_path("torso").read_text())
+                if time.time() - d["time"] <= TORSO_FRESH_S:
+                    out += [(p["angle_deg"], p["distance_m"]) for p in d["people"]
+                            if p["distance_m"] is not None and p["distance_m"] <= STAY_MAX]
+            except (FileNotFoundError, ValueError, KeyError):
+                pass
+        return out
+
+    @staticmethod
+    def head_person(angle, since):
+        """The head camera's person nearest this waist-frame angle in a frame newer than `since`, as {box, height,
+        pitch (head pitch of that frame), fy, cy}, or None."""
+        intr = camview.intrinsics("head")
+        try:
+            d = json.loads(camview.det_path("head").read_text())
+            people = [p for p in d["people"] if abs(p["angle_deg"] - angle) <= SPEAKER_MATCH_DEG]
+            if d["time"] <= since or not people or intr is None or not d.get("head_pose"):
+                return None
+            p = min(people, key=lambda p: abs(p["angle_deg"] - angle))
+            return {"box": p["box"], "height": d["height"], "pitch": d["head_pose"][3],
+                    "fy": intr["fy"], "cy": intr["cy"]}
+        except (FileNotFoundError, ValueError, KeyError):
+            return None
+
     def only_person(self):
         with self.lock:
             near = [t for t in self.tracks if t.distance <= 3.0]
@@ -672,9 +772,12 @@ class Patrol:
                 log(f"battery {battery} % - patrol again")
                 self.mode = "patrol"
             return
-        if self.mode == "patrol" and battery < LOW_BATTERY:
+        if self.mode == "patrol" and battery < LOW_BATTERY and now >= self.wait_until:
             log(f"battery {battery} % - going home to charge")
             self.pause()
+            if not waist_home("going home"):          # every drive starts with the waist at the front
+                self.wait_until = now + 5
+                return
             ok, msg = safe(agv.go, "home", default=(False, "error"))
             self.mode, self.moving = ("going_home", True) if ok else ("patrol", False)
             return
@@ -721,6 +824,12 @@ class Patrol:
         if (ms == "running" and not force) or now < self.wait_until:   # something else is driving, or waiting
             return
         target = self.route[self.i]
+        if not waist_home("driving"):                   # every drive starts with the waist at the front
+            if self.once:                               # said by say_stuck
+                self.stuck, self.stuck_why, self.mode = target, WAIST_BACK_SAY, "done"
+            else:
+                self.wait_until = now + 5
+            return
         if isinstance(target, (tuple, list)):
             ok, msg = safe(agv.go_point, *target, default=(False, "error"))
         else:
@@ -832,6 +941,47 @@ class Lumi:
         """End a held look and send the head to rest: ahead, looking down."""
         self.looked_at = 0.0
         self.turn_head(0, head.HEAD_REST_PITCH)
+        self.waist_rest()
+
+    def waist_rest(self, why="the conversation is over"):
+        """The waist back to the front too when a conversation ends (waist_home, in the background), Greeter or
+        Patrol; it waits like the head while a look is held."""
+        if not self.look_held():
+            threading.Thread(target=waist_home, args=(why,), daemon=True).start()
+
+    def keep_focus(self):
+        """In the background: the head stays on the person Lumi talks with (self.current) as they move, a turn when
+        they are more than FOCUS_DEG off. A held look waits (turn_head), except one held by "look at me": it follows
+        that person (self.look_me). Not during a task, a follow, a song or a "look at me" search (head_busy)."""
+        while True:
+            time.sleep(FOCUS_EVERY_S)
+            try:
+                self.focus_step()
+            except Exception as e:
+                log(f"focus error: {e!r}")
+
+    def focus_step(self):
+        from tasks import follow
+        t = self.current
+        if t is None or getattr(self, "head_busy", False) or time.time() < self.calib_until or \
+                self.doing() or follow.running() or not self.vision.present(t):
+            return
+        want = HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, t.angle))
+        if abs(want - self.det_yaw()) > FOCUS_DEG:
+            self.turn_head(want, force=t is getattr(self, "look_me", None))
+
+    def face(self, track):
+        """Turn to the person who now speaks: a waist turned for someone else comes back to the front first
+        (waist_home), then the head turns to them (their angle from where the waist was, plus the turn taken back)."""
+        w = waist_turned()
+        if abs(w) < 1.0:
+            self.turn_head(HEAD_SIGN * track.angle)
+            return
+        angle = track.angle
+
+        def run():
+            self.turn_head(HEAD_SIGN * (angle + w if waist_home("someone else speaks") else angle))
+        threading.Thread(target=run, daemon=True).start()
 
     def wave(self, ok=None, quiet=False):
         """Wave because someone asked or said "bye bye" in view (never on a greeting): manipulation/wave.py checks the
@@ -905,16 +1055,8 @@ class Lumi:
             log(f"  {action} refused: on a mission")             # the LLM's action must not take Lumi off its task
             return
         if action == "look" and target == "me":           # "look at me", "이쪽 봐": the speaker, never just the centre
-            track = self.current if self.current and self.vision and self.vision.present(self.current) else None
-            if self.voice_trusted and (track is None or abs(track.angle - self.voice_angle) > SPEAKER_MATCH_DEG):
-                track = self.vision.near_angle(self.voice_angle) if self.vision else None
-                angle = track.angle if track else self.voice_angle
-            else:
-                track = track or (self.vision.only_person() if self.vision else None)
-                angle = track.angle if track else None      # no idea where they are: the head stays
             self.looked_at = time.time()                    # held like any look
-            self.turn_head(None if angle is None else HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), 10,
-                           force=True)
+            threading.Thread(target=self.look_at_speaker, daemon=True).start()
         elif action == "look" and target.split()[0:1] and (target.split()[0] in LOOK or target == "away"):
             return self.look(target)                        # a LIMIT_SAY key when the head is at its end
         elif action == "lift":
@@ -950,6 +1092,86 @@ class Lumi:
             if self.fetch_status() == "holding":
                 self.fetch_finish(action)
 
+    def look_at_speaker(self):
+        """"Look at me": the person seen nearest the voice (both cameras). Nobody seen there: the head turns to the
+        voice first, then to whoever the head camera finds there; nobody there either (the voice direction can be
+        off): the person talked to, else the nearest person seen. Nobody seen and no voice: the head stays. Then the
+        head tilts until the head camera sees the person from their head down (look_me_pitch). That person becomes
+        the one talked with, and while the look is held the head follows them (look_me, keep_focus)."""
+        if not self.vision:
+            return
+        self.head_busy = True                               # keep_focus waits: the head is turned here
+        try:
+            self._look_at_speaker()
+        finally:
+            self.head_busy = False
+
+    def _look_at_speaker(self):
+        def near(seen, angle):
+            return min((s for s in seen if abs(s[0] - angle) <= SPEAKER_MATCH_DEG),
+                       key=lambda s: abs(s[0] - angle), default=None)
+
+        def face(angle, pitch=LOOK_ME_PITCH):
+            safe(head.turn, HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), pitch)
+
+        recent = time.time() - getattr(self, "voice_at", 0.0) <= VOICE_KEEP_S   # this turn's sound too weak: the
+        voice = self.voice_angle if self.voice_trusted or recent else None    # caller's last sure direction
+        seen = self.vision.seen()
+        found = near(seen, voice) if voice is not None else None
+        if found is None and voice is not None and abs(voice) > head.YAW_LIMIT:
+            voice = self.turn_body_to(voice)               # behind or far aside: the head alone can't get there
+        if found is None and voice is not None:
+            log(f"  look me: nobody seen at the voice ({voice:+.0f} deg), turning there first")
+            face(voice)
+            time.sleep(LOOK_ME_SETTLE_S)                    # new head camera frames from there
+            seen = self.vision.seen()
+            found = near(seen, voice)
+        why = "nearest the voice"
+        if found is None:
+            cur = self.current if self.current and self.vision.present(self.current) else None
+            if cur:
+                found, why = (cur.angle, cur.distance), f"the person talked with (#{cur.id})"
+            elif voice is not None:                          # the voice off: the person nearest its direction, not
+                found = min(seen, key=lambda s: abs(s[0] - voice), default=None)   # the nearest one far off it
+                why = f"nearest the voice's side ({voice:+.0f} deg)"
+            else:
+                found, why = min(seen, key=lambda s: s[1], default=None), "the nearest seen, no voice direction"
+        if found is None:
+            log(f"  look me: nobody seen{'' if voice is None else ' at the voice either'}, the head stays")
+            return
+        log(f"  look me: person at {found[0]:+.0f} deg, {found[1]:.2f} m ({why})")
+        face(found[0])
+        for _ in range(LOOK_ME_TRIES):
+            since = time.time()
+            time.sleep(LOOK_ME_SETTLE_S)                    # new head camera frames from there
+            p = self.vision.head_person(found[0], since)
+            pitch = p and look_me_pitch(p["box"], p["height"], p["pitch"], p["fy"], p["cy"])
+            if pitch is None:
+                break
+            log(f"  look me: box top {p['box'][1]}, pitch {p['pitch']:+.0f} -> {pitch:+.0f} deg")
+            face(found[0], pitch)
+        t = self.vision.near_angle(found[0], SPEAKER_MATCH_DEG)
+        if t is not None:                                    # the focus: talked with, the held look follows them
+            log(f"  look me: focus on person #{t.id}")
+            t.greeted, self.current, self.look_me = True, t, t
+
+    def turn_body_to(self, angle):
+        """A voice past the head's reach (waist-frame deg): with Patrol the base turns to it (look_toward), else the
+        waist turns in place toward it (the base stays; fetch._waist_to checks the arm's sweep). Returns the voice's
+        waist-frame angle after the turn (unchanged when nothing could turn)."""
+        from tasks import fetch
+        if self.modes.drive and self.modes.patrol:
+            self.look_toward(angle)
+            return 0.0
+        w = waist_turned()
+        want = max(-LOOK_WAIST_MAX, min(LOOK_WAIST_MAX, w + angle))
+        log(f"  look me: the voice at {angle:+.0f} deg is past the head: waist to {want:+.0f} deg")
+        try:
+            fetch._waist_to(want, in_place=True, look=angle)
+        except Exception as e:
+            log(f"  look me: waist did not turn: {e!r}")
+        return angle - (waist_turned() - w)
+
     def look(self, target):
         """'left', 'left 30', 'down small' (brain.head_goal): the head, cut to its range. Returns "yaw" / "pitch"
         when a number asked for was past the range, the direction ("down") when the head already stands at that end
@@ -957,7 +1179,7 @@ class Lumi:
         cur = safe(head.status)
         if cur is None:
             return None
-        self.looked_at = time.time()
+        self.looked_at, self.look_me = time.time(), None     # held where asked, not on a person
         yaw, pitch, limited = brain_mod.head_goal(target, cur[2], cur[3], LOOK)   # the body's full range (AXIS_LIMITS):
         if limited in ("left", "right", "up", "down"):
             log(f"  look {target}: already at the end (yaw {cur[2]:.0f}, pitch {cur[3]:.0f})")
@@ -1218,7 +1440,8 @@ class Lumi:
         if self.patrol:
             self.patrol.pause()
             self.patrol = None
-        self.head_rest()                                   # a stop word ends a held look
+        self.looked_at = 0.0                               # a stop word ends a held look; the head stays with the
+                                                           # person, it rests when the conversation ends
         self.fetch_say("Okay, I stopped.", "네, 멈췄어요.")
         self.keep_listening()
 
@@ -1281,7 +1504,14 @@ class Lumi:
         self.last_song = song
         self.brain.history.append((text, f"ACTION: sing {song}"))
         log(f"  singing {song}")
-        done = sing.sing(song, abort=self.song_abort)
+        t = self.current                                   # dance toward the listener, never back at yaw 0
+        yaw = HEAD_SIGN * t.angle if t is not None and self.vision and self.vision.present(t) else self.det_yaw()
+        self.song_request = (text, time.time())            # the request said again is no new one (song_abort)
+        self.head_busy = True                              # keep_focus waits: the dance moves the head
+        try:
+            done = sing.sing(song, abort=self.song_abort, centre_yaw=yaw)   # sing.around keeps it inside YAW_LIMIT
+        finally:
+            self.head_busy = False
         log(f"  song {'finished' if done else 'stopped'}")
         self.keep_listening()
 
@@ -1290,6 +1520,8 @@ class Lumi:
         it and is answered next (pending_text). The song's own words and unclear sounds are ignored."""
         # not self.interrupted(): the head dances away from the listener, who then "left" (songs cut after 2-4 s,
         # 2026-10-23); only words end a song
+        if self.peeked_stop(sing.stop_words):
+            return True
         u = self.mic.next(0.0)
         if u is None or not getattr(u, "during_speech", False) or u.seconds < 0.25 or mouth.own_voice(u):
             return False
@@ -1300,6 +1532,13 @@ class Lumi:
             log(f"  stop singing: {text!r}")
             return True
         if brain_mod.is_backchannel(text):                 # "thank you": often whisper's guess on music; "wow"
+            return False
+        # the clip mic hears the song too, and the sound match (own_voice) does not know music through the room (0.2-0.4
+        # against the song itself): whisper's words from it, single words and the request said again leave it going
+        request, started = self.song_request
+        why = sing.ignored_over_song(text, request, time.time() - started, ears.last_stt.get("speech_s"))
+        if why:
+            log(f"  ignored while singing ({why}): {text!r}")
             return False
         log(f"  song interrupted: {text!r}")
         self.pending_text = text
@@ -1850,7 +2089,8 @@ class Lumi:
                 said, done = (f"Okay, I'll pick up the {target}.", "네, 집어 볼게요."), ("I've got it.", "잡았어요.")
                 def run():                                   # the held name for the dashboard and the replies
                     from tasks import fetch
-                    skills.pick(name, colour)
+                    self.stay()                              # Greeter only: the waist turns in place, the base stays
+                    fetch.pick_here(name, colour, say=self.fetch_say)
                     fetch.held_by_skill({"object": name, "colour": colour})
             else:
                 said, done = (f"Okay, I'll move the {target}.", "네, 옮겨 볼게요."), ("Done.", "다 옮겼어요.")
@@ -1859,10 +2099,13 @@ class Lumi:
             mouth.say(said[0] if en else said[1])
 
         def work():
+            from tasks import fetch
             try:
                 run()
                 mouth.say(done[0] if en else done[1])
-            except skills.SkillError as e:
+            except fetch.Stopped:
+                log(f"  {action} {target}: stopped")
+            except (skills.SkillError, fetch.FetchError) as e:
                 log(f"  {action} {target}: {e}")
                 mouth.say(e.args[0] if en else e.args[1] if len(e.args) > 1 else "죄송해요, 지금은 할 수 없어요.")
             except (motion.MotionError, ConnectionError, OSError) as e:
@@ -1873,8 +2116,8 @@ class Lumi:
         self.keep_listening()
 
     def arm_pose(self, target):
-        """'reach': the hand out to the person (reach_out); 'fold': to look along the pose graph (arm_route, checked
-        first, moved in the background); 'open' / 'close': the gripper, never opened on something held. True when
+        """'reach': the hand out to the person (reach_out); 'fold' / 'carry' / 'ready': to look / that pose along the
+        pose graph (arm_route, checked first, moved in the background); 'open' / 'close': the gripper, never opened on something held. True when
         started, False when not learned, None when refused (the reason is said)."""
         from tasks import fetch
         held = target in ("reach", "open") and self.held_now()
@@ -1891,7 +2134,7 @@ class Lumi:
         self.reached_at = 0.0                              # folding: no auto fold after it
         try:
             holding = self.fetch_status() == "holding"
-            seq = arm_route.plan(arm_route.HOME, holding=holding)
+            seq = arm_route.plan(arm_route.HOME if target == "fold" else target, holding=holding)   # "carry", "ready"
             threading.Thread(target=safe, args=(arm_route.move, seq, None, holding), daemon=True).start()
             return True
         except arm_route.RouteError as e:
@@ -1905,9 +2148,8 @@ class Lumi:
     def reach_out(self, held):
         """"Reach out to me", "give me your hand", "손 내밀어": something in the hand = hand it over. Else toward the
         person (the tracked one, else the one the voice came from, else the voice's direction): the head turns to
-        them; further to the side than REACH_FRONT_DEG the waist turns first with Patrol on, Greeter says it stays in
-        place and asks them to stand in front (reach_turn); then fetch.reach (give pose along the graph, a short checked
-        move toward their hand). The arm folds back on "thanks" / "okay" or after REACH_HOLD_S (reach_done).
+        them; further to the side than REACH_FRONT_DEG the waist turns first (reach_turn, Greeter only too: the base
+        stays); then fetch.reach (give pose along the graph, a short checked move toward their hand). The arm folds back on "thanks" / "okay" or after REACH_HOLD_S (reach_done).
         True when started, None when refused or handed over (said)."""
         from tasks import fetch
         if held:
@@ -1916,17 +2158,20 @@ class Lumi:
         if self.skill_thread is not None and self.skill_thread.is_alive():
             self.fetch_say("I'm still busy with my arm.", "아직 팔로 하는 일이 있어요.")
             return None
+        with _waist_lock:                                  # a waist coming back to the front (face) ends first
+            pass
         track = None
         if self.vision:
             track = self.current if self.current and self.vision.present(self.current) else \
                 self.vision.near_angle(self.voice_angle) if self.voice_trusted else self.vision.only_person()
         angle = track.angle if track else self.voice_angle if self.voice_trusted else None
-        turn = reach_turn(angle, self.modes.patrol)
+        turn = reach_turn(angle)
         log(f"  reach: person at {'?' if angle is None else f'{angle:+.0f}'} deg, waist turn {turn}")
         if turn is None:
-            self.fetch_say(*(STAND_IN_FRONT_SAY if angle is None else GREETER_FRONT_SAY))
+            self.fetch_say(*STAND_IN_FRONT_SAY)
             return None
-        self.turn_head(0 if turn else HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), force=True)
+        if not turn:          # a waist turn takes the head along onto them (fetch._waist_to look): no head move here,
+            self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), force=True)   # it raced it
         self.stay()
         try:
             fetch.reach(turn, say=self.fetch_say)
@@ -2136,7 +2381,7 @@ class Lumi:
             log("  calibration: someone else stands in the same direction - skipped")
             return
         self.calib_n += 1
-        c = doa.add_sample(u.mics, me.angle - HEAD_SIGN * self.det_yaw())
+        c = doa.add_sample(u.mics, me.angle - HEAD_SIGN * self.det_yaw(), doa.clip_ref(u))
         log(f"  calibration sample {self.calib_n}: person at {me.angle:+.0f} deg, {me.distance:.1f} m"
             + (f" -> calibrated {c}" if c else ""))
         self.write_calib("calibrated" if c else "collecting", c)
@@ -2147,14 +2392,18 @@ class Lumi:
         return self.interrupted() or self.barge_in()
 
     def barge_in(self):
-        u = self.mic.next(0.0)
-        if u is None:
-            return False
-        if not getattr(u, "during_speech", False) or u.seconds < 0.25:
-            return False
-        own = mouth.own_voice(u)                         # the speaker's sound in the clip mic (mouth.echo)
-        text = (ears.transcribe(u.mono) or "").strip()
         from tasks import follow
+        text = self.peeked_stop(lambda t: stop_order(t, self.markers) or follow.running() and follow.stop_word(t))
+        if text is None:
+            u = self.mic.next(0.0)
+            if u is None:
+                return False
+            if not getattr(u, "during_speech", False) or u.seconds < 0.25:
+                return False
+            own = mouth.own_voice(u)                     # the speaker's sound in the clip mic (mouth.echo)
+            text = (ears.transcribe(u.mono) or "").strip()
+            if self.own_stop(text, u):                   # Lumi's own "stop" ("say stop to end") is no stop
+                text = ""
         if follow.running() and follow.stop_word(text):   # following: the base stops now, "stop" is answered next
             follow.stop()                                  # (anyone's: safety, never dropped as an echo)
             self.pending_text = "stop"
@@ -2198,6 +2447,27 @@ class Lumi:
             self.pending_text = text
             return True
         return False
+
+    def peeked_stop(self, is_stop):
+        """A stop word in the last seconds the clip mic heard while Lumi talks (mic.peek()), before that utterance
+        ends: Lumi's own voice in the clip mic keeps it going (a 17.9 s answer was stopped only at its end, 2026-10-27).
+        Not Lumi's own sound (mouth.own_voice) or a stop word Lumi says itself. The words heard, else None."""
+        u = getattr(self.mic, "peek", lambda: None)()
+        if u is None or mouth.own_voice(u):
+            return None
+        text = (ears.quick(u.mono) or "").strip()
+        if not text or not is_stop(text) or not ears.heard_clearly(BARGE_IN_LOGPROB) or self.own_stop(text, u):
+            return None
+        log(f"  stop word while talking: {text!r}")
+        return text
+
+    @staticmethod
+    def own_stop(text, u):
+        """Every word heard is in what Lumi was saying then (its own "stop" picked up by the clip mic)."""
+        said = set(re.findall(r"\w+", mouth.saying(time.time() - u.seconds - 1.0).lower()))   # just heard; the
+        # clip mic lags up to 1 s
+        words = set(re.findall(r"\w+", (text or "").lower()))
+        return bool(words) and words <= said
 
     @staticmethod
     def own_echo(text, seconds=30.0, share=0.6):
@@ -2265,7 +2535,7 @@ class Lumi:
             text, self.pending_text = self.pending_text, None
             call, self.pending_call = getattr(self, "pending_call", None), None
             if call and call[0] == text:                   # a call while Lumi talked: turn to the caller first
-                self.who_spoke(call[1])
+                self.who_spoke(call[1], text)
             self.answer(text)
             return True
         self.warm_llm()                                    # the LLM's prompt start cached while they speak
@@ -2302,16 +2572,16 @@ class Lumi:
         if self.follow_filter(text, u):                    # following: only the followed person is listened to
             return True
         if not follow.running():                           # following: the head stays on the followed person
-            self.who_spoke(u)
+            self.who_spoke(u, text)
         self.answer(text)
         if self.mission_hold == "talk" and not self.asked_go_on and self.mission_running():
             self.asked_go_on = True                        # answered while halted for them: may I go on?
             self.fetch_say("Can I go on with my task?", "하던 일 계속해도 될까요?")
         return True
 
-    def _doa_sample(self, mics, true_deg):
+    def _doa_sample(self, mics, true_deg, ref=None):
         try:
-            c = doa.add_sample(mics, true_deg)
+            c = doa.add_sample(mics, true_deg, ref)
             if c:
                 log(f"sound direction calibrated: {c}")
         finally:
@@ -2410,8 +2680,10 @@ class Lumi:
                       else "지금은 다른 분을 따라가는 중이에요.")
         return True
 
-    def who_spoke(self, u):
-        """Use the sound direction: pick the visible person who spoke; meanwhile collect calibration samples."""
+    def who_spoke(self, u, text=None):
+        """Use the sound direction: pick the visible person who spoke; meanwhile collect calibration samples. Someone
+        else near the voice takes the talk over (and the head) only with a call, a stop word or an order in `text`;
+        other words keep the focus on the person talked with."""
         if not self.vision or u is None:
             return
         self.voice_trusted = False                         # set again below only from this turn's own sound
@@ -2420,22 +2692,34 @@ class Lumi:
         if only is not None and only is self.current and only.distance <= 1.6 and u.seconds >= 0.8:
             # the only person in view is the one we talk to, close by: their angle is the truth
             if _doa_fit.acquire(blocking=False):          # the refit takes seconds (a grid over all samples): in the
-                threading.Thread(target=self._doa_sample, args=(u.mics, only.angle - HEAD_SIGN * yaw),   # background,
-                                 daemon=True).start()       # never before the answer (it held answers ~15 s, 2026-10-21)
+                threading.Thread(target=self._doa_sample, args=(u.mics, only.angle - HEAD_SIGN * yaw, doa.clip_ref(u)),
+                                 daemon=True).start()       # background, never before the answer (it held answers ~15 s)
             return
         cal = doa.load_calib()
         if not cal["fitted"]:
             return
-        ang, conf, _ = doa.estimate(u.mics, cal)
-        if conf < DOA_MIN_CONF:
+        ang, conf, _ = doa.estimate(u.mics, cal, doa.clip_ref(u))   # with the clip mic: its wearer's voice
+        trusted = conf >= voice_min_conf(u)
+        log(f"  voice at {HEAD_SIGN * yaw + ang:+.0f} deg (confidence {conf:.2f}{doa.clip_note(u.mics, doa.clip_ref(u))}"
+            f"{'' if trusted else ', not trusted'})")
+        if not trusted:
             return
         self.voice_angle, self.voice_trusted = HEAD_SIGN * yaw + ang, True   # "이쪽 봐": this voice, also out of view
+        self.voice_at = time.time()
         t = self.vision.near_angle(HEAD_SIGN * yaw + ang)
         if t is not None and t is not self.current:
+            cur = self.current
+            rule = text and brain_mod.intent(text, self.markers)   # an order; a weather or web question is no
+            if text and cur is not None and self.vision.present(cur) and not (    # order ("nice weather today")
+                    WAKE.search(text) or stop_order(text, self.markers) or rule and rule[0] not in ("weather", "search")):
+                log(f"  voice near person #{t.id}, no call, stop or order: focus stays on #{cur.id}")
+                return
             log(f"  voice from {HEAD_SIGN * yaw + ang:+.0f} deg: person #{t.id} is speaking")
             t.greeted = True
             self.current = t
-            self.turn_head(HEAD_SIGN * t.angle)
+            if getattr(self, "look_me", None) is not None:   # a "look at me" hold was for the one before
+                self.looked_at, self.look_me = 0.0, None
+            self.face(t)
 
     def det_yaw(self):
         """Current head yaw (deg), read from the body every 0.3 s (the torso camera does not know it)."""
@@ -2533,6 +2817,7 @@ class Lumi:
         if not quiet:                                # a goodbye ends a held look; silence keeps it (LOOK_HOLD_S)
             self.looked_at = 0.0
         self.turn_head(0, head.HEAD_REST_PITCH)      # waits while a look is held
+        self.waist_rest()
         if self.traveling():
             log("  conversation over - driving on")
             self.patrol.wait_until = time.time() + 0.5
@@ -2640,7 +2925,7 @@ class Lumi:
                 mouth.say(done[target][0] if en else done[target][1])
             ok = self.arm_pose(target)
             if ok:
-                if target == "fold":
+                if target in ("fold", "carry", "ready"):
                     mouth.say("Okay." if en else "네.")
                 elif target not in done:
                     mouth.say("Here you go." if en else "여기요.")
@@ -2904,6 +3189,8 @@ class Lumi:
             head_["action"] = "end"                        # "thanks, that's all" -> "Have a great day!": it took leave
         if head_["action"] in ("end", "go_to"):
             self.current, self.voice_until = None, 0.0     # stay quiet with this person until a new visit
+            if head_["action"] == "end":                   # the model took leave: head and waist to rest
+                self.head_rest()
         elif self.current is None:
             self.voice_until = time.time() + VOICE_SESSION_S
         if fate == "close" and head_["action"] == "none":   # "thanks" taken as heard: silence now ends the talk
@@ -2938,12 +3225,14 @@ class Lumi:
         lang = ears.heard_lang("ko" if re.search(r"[가-힣]", text) else "en")
         self.lang = lang
         cal = doa.load_calib()
-        ang, conf, raw = doa.estimate(u.mics, cal)
-        trusted = cal["fitted"] and conf >= DOA_MIN_CONF
+        ang, conf, raw = doa.estimate(u.mics, cal, doa.clip_ref(u))   # with the clip mic: its wearer's voice
+        trusted = cal["fitted"] and conf >= voice_min_conf(u)
         robot_angle = HEAD_SIGN * self.det_yaw() + ang
         self.voice_angle, self.voice_trusted = robot_angle, trusted
+        if trusted:
+            self.voice_at = time.time()
         log(f"WAKE {text!r}: voice at {robot_angle:+.0f} deg (confidence {conf:.2f}, "
-            f"{'calibrated' if cal['fitted'] else 'NOT calibrated'})")
+            f"{'calibrated' if cal['fitted'] else 'NOT calibrated'}{doa.clip_note(u.mics, doa.clip_ref(u))})")
         if self.traveling():                                  # someone calls while driving: stop for them
             log("  called while driving - stop and talk, then drive on")
             self.patrol.pause()
@@ -2955,7 +3244,7 @@ class Lumi:
         if target is not None:
             target.greeted = True
             self.current = target
-            self.turn_head(HEAD_SIGN * target.angle)
+            self.face(target)
         if not command:                                       # just "Hi Lumi": a short answer, then listen
             mouth.say(WAKE_REPLY[lang])
         self.voice_until = time.time() + VOICE_SESSION_S
@@ -2976,31 +3265,47 @@ class Lumi:
         if t is not None:
             return t
         view = CAMERA_HALF_FOV + (head.YAW_LIMIT if self.vision.camera == "head" else 0.0)
-        if abs(robot_angle) > view and self.modes.drive and self.modes.patrol:
+        w = waist_turned() if abs(robot_angle) > view and self.modes.drive and self.modes.patrol else None
+        if w is not None and waist_home("turning to a caller"):
             log(f"  caller outside the camera ({robot_angle:+.0f} deg): turning toward the voice")
-            self.turn_head(0)
-            safe(agv.turn_by, math.radians(robot_angle))
+            self.turn_head(0, force=True)                     # a call or an order: also over a held look
+            safe(agv.turn_by, math.radians(robot_angle + w))      # from the base's front: the waist is there now
             t0 = time.time()
             time.sleep(0.6)
             while time.time() - t0 < 8 and (safe(agv.status, default={}) or {}).get("move_status") == "running":
                 time.sleep(0.2)
             time.sleep(0.8)                                   # let detection catch up
             self.voice_angle = 0.0
-            return self.vision.near_angle(0.0, 35) or self.vision.only_person()
-        self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, robot_angle)))
-        if self.vision.camera == "head":                      # the camera turned with the head: look again
-            time.sleep(1.5)
-            return self.vision.near_angle(robot_angle)
-        return None
+            t = self.vision.near_angle(0.0, 35) or self.vision.only_person()
+            log("  after the turn: " + (f"person #{t.id} at {t.angle:+.0f} deg, {t.distance:.2f} m" if t else "nobody ahead"))
+            return t
+        was = self.det_yaw()
+        self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, robot_angle)), force=True)
+        if self.vision.camera != "head":
+            return None
+        time.sleep(1.5)                                       # the camera turned with the head: look again
+        t = self.vision.near_angle(robot_angle)
+        if t is None:                                         # nobody there (the voice direction can be off): the
+            near = min(self.vision.seen(), key=lambda s: abs(s[0] - robot_angle), default=None)   # person seen
+            log(f"  nobody at the voice ({robot_angle:+.0f} deg): "  # nearest its side (not the nearest far off it)
+                + (f"person seen at {near[0]:+.0f} deg, {near[1]:.2f} m" if near else "head back"))
+            self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, near[0])) if near else was, force=True)
+            if near:
+                time.sleep(1.5)
+                t = self.vision.near_angle(near[0])
+        return t
 
     def look_toward(self, robot_angle):
         """Turn the head toward a waist-frame angle; turn the base too if it is outside the head's range."""
         if abs(robot_angle) <= head.YAW_LIMIT:
             self.turn_head(HEAD_SIGN * robot_angle)
         elif self.modes.drive and self.modes.patrol:
+            w = waist_turned()
+            if not waist_home("turning to a voice"):
+                return
             log(f"  voice behind ({robot_angle:+.0f} deg): turning the base")
             self.turn_head(0)
-            safe(agv.turn_by, math.radians(robot_angle))
+            safe(agv.turn_by, math.radians(robot_angle + w))      # from the base's front: the waist is there now
             t = time.time()
             time.sleep(0.5)
             while time.time() - t < 8 and (safe(agv.status, default={}) or {}).get("move_status") == "running":
@@ -3035,6 +3340,9 @@ class Lumi:
         if goal is None:
             mouth.say("Sorry, I can't get closer from here.")
             return
+        if not waist_home("coming to a person"):         # every drive starts with the waist at the front
+            mouth.say(WAIST_BACK_SAY[0 if self.lang == "en" else 1])
+            return
         ok, msg = safe(agv.go_point, *goal, default=(False, "error"))
         if not ok:
             log(f"  base refused: {msg}")
@@ -3060,14 +3368,14 @@ class Lumi:
                     log(f"  person #{track.id} is {track.distance:.2f} m away - stop")
                     safe(agv.cancel)
                     break
-                if time.time() - last_look > 1.0:             # keep looking at them while driving
-                    self.turn_head(HEAD_SIGN * track.angle)
-                    last_look = time.time()
+                if time.time() - last_look > 1.0:             # keep looking at them while driving (also over
+                    self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, track.angle)), force=True)
+                    last_look = time.time()                   # a held "look at me": it was them)
             time.sleep(0.2)
         else:
             safe(agv.cancel)
         if self.vision.present(track):
-            self.turn_head(HEAD_SIGN * track.angle)
+            self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, track.angle)), force=True)
         self.last_activity = time.time()
 
     def pointed_drive(self, text):
@@ -3091,6 +3399,9 @@ class Lumi:
             self.keep_listening()
             return True
         far = spot["clamped"]
+        if not waist_home("driving where pointed"):      # every drive starts with the waist at the front
+            mouth.say(WAIST_BACK_SAY[0 if en else 1])
+            return True
         mouth.say((f"Going that way, {pointing.MAX_M:g} meters." if far else "Going there.") if en else
                   (f"그쪽으로 {pointing.MAX_M:g}미터 갈게요." if far else "그곳으로 갈게요."))
         ok, msg = safe(agv.go_point, *spot["map"], default=(False, "error"))
@@ -3163,6 +3474,7 @@ class Lumi:
         self.last_activity, self.prompts = time.time(), 0
         self.alive = time.time()
         threading.Thread(target=self.watchdog, daemon=True).start()
+        threading.Thread(target=self.keep_focus, daemon=True).start()
         while True:
             self.alive = time.time()
             try:
@@ -3177,7 +3489,7 @@ class Lumi:
         self.poll_commands()
         self.reach_done()                                  # the hand held out REACH_HOLD_S: back to look
         self.publish_busy(self.doing())
-        if self.patrol and self.patrol.mode == "done" and not self.a.patrol:
+        if self.patrol and self.patrol.mode == "done" and not self.a.patrol and not self.patrol.stuck:   # said first
             self.patrol = None                             # a dashboard / voice trip has arrived
         moving = self.traveling()
         # on the way only people in the path, close by; standing: everyone in the greeting zone
@@ -3194,7 +3506,7 @@ class Lumi:
         from tasks import follow
         following = follow.running()                       # no greetings (the head would turn away), keep listening
         greet_now = self.modes.greeter and not moving and time.time() > self.quiet_until and not following \
-            and not self.doing()                           # never during a task: standing, idle or talking only
+            and not self.doing() and self.current is None  # never during a task or while talking with someone
         candidate = self.waver() if greet_now else None    # Lumi never speaks to someone who only stands there or
         focus = self.current or candidate                  # walks past: a wave (or the wake word) calls it
         self.vision.det.focus_angle = focus.angle if focus else None    # drawn red in the dashboard
@@ -3205,15 +3517,22 @@ class Lumi:
             return
 
         if self.current and not self.vision.present(self.current):
+            gone = self.current                            # often the same person under a new track id (#5 -> #7 at
+            again = None if following else self.vision.near_angle(gone.angle, FOCUS_REFIND_DEG)   # 19:24, 2026-10-27)
+            if again is not None:
+                log(f"person #{gone.id} seen again as #{again.id} at {again.angle:+.0f} deg")
+                again.greeted, self.current = True, again
+                if getattr(self, "look_me", None) is gone:
+                    self.look_me = again
+                return
             log(f"person #{self.current.id} left - stop talking")
             self.current = None if following else self.vision.nearest_greeted()   # someone else still here?
             if self.current:
                 self.turn_head(HEAD_SIGN * self.current.angle)
             else:
                 # often still there, out of the frame (beside the arm): keep listening without the wake word
-                # for a while, like a conversation started by voice. After "look left" the head stays there
-                if not self.look_held():
-                    self.turn_head(0, head.HEAD_REST_PITCH)
+                # for a while, like a conversation started by voice. The head stays their way; it rests when this
+                # voice session ends by silence (end_conversation)
                 self.voice_until = time.time() + VOICE_SESSION_S
             self.last_activity, self.prompts = time.time(), 0
             return

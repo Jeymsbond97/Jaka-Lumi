@@ -112,6 +112,8 @@ def plan(text, markers=(), cant=None):
     from assistant import intent_bank
     if brain.held_back(text) or PAST.search(text) or intent_bank.TAG.search(text) or intent_bank.PAST_EN.search(text) or intent_bank.past_ko(text):
         return None                                      # "so you got shorter, didn't you?": talk about it, no order
+    if brain.speaker_side(text):
+        return None                                      # "I'm on your right, look at me": one look that way
     if re.search(r"(?:^|[\s,.!?—–-])(?:no,? no|아니(?:야|요|지)?|아 ?아니|i mean|sorry|correction|oops|actually|잘못 말했다)"
                  r"(?=[\s,.!?—–:-]|$)", text, re.I):
         return None                                      # a correction: the last thing said counts (brain.self_correct)

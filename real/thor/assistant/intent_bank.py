@@ -1195,6 +1195,8 @@ def read(text, markers=(), holding=False):
                                                        # "팔 접을 수 있으세요?" (ko_plain makes it "접어 줘?"): asked
         return None                                    # lumi.route holds these before the bank too: a later time, a
                                                        # quote, "it's going to ...", "for the demo, let's have it ..."
+    if brain.ARM_POSE_OTHER.search((said or "").lower()) and not brain.ARM_POSE.search((said or "").lower()):
+        return None                                    # "arm in tuck position": a pose not taught, the model asks
     kind = kind_of(text, markers)
     if isinstance(kind, tuple):                        # two motions close: only when the words fit one of them
         kind, other = kind
