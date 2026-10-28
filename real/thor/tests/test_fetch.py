@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
+import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from robot import head
 assert head.LIFT_MAX_MM == 0.0   # live: the lift stays at the bottom (head camera cable); the cases below are the long cable's
 head.LIFT_MAX_MM, head.AXIS_LIMITS = 105.0, ((0.0, 105.0),) + head.AXIS_LIMITS[1:]
@@ -974,7 +975,7 @@ scene["person_in_front"] = {"position_mm": ahead(900.0), "hands": {"left": {"pos
                             "distance_m": 1.1}, "right": {"position_mm": ahead(400.0), "distance_m": 0.9}}}
 turns = []
 real_waist_to = fetch._waist_to
-fetch._waist_to = lambda deg: turns.append(deg) or deg < 90
+fetch._waist_to = lambda deg, in_place=False, look=None: turns.append(deg) or in_place and deg < 90   # in place
 
 
 def reached(angle=0.0):
@@ -998,8 +999,10 @@ assert st["status"] == "done" and poses()[-1] == "give" and not moves, (st, move
 scene["person_in_front"] = None                                                   # nobody seen: the hand at give
 st, moves = reached()
 assert st["status"] == "done" and poses()[-1] == "give" and not moves, (st, moves)
-st, moves = reached(40.0)                                     # to the side (Patrol): the waist turns first, by the
+fetch.stay_put = True                                         # Greeter only: the waist still turns (the base stays)
+st, moves = reached(40.0)                                     # to the side: the waist turns first, by the
 assert turns == [40.0 + fetch._waist_turn()] and poses()[-1] == "give", (turns, poses())   # waist's offset too
+fetch.stay_put = False
 turns.clear()
 said.clear()
 st, moves = reached(120.0)                                    # the waist turn refused (sweep): the arm stays
@@ -1008,6 +1011,30 @@ turns.clear()
 st, moves = reached(160.0)                                    # past the waist's limit (-15 + 160 > 140): stand in front
 assert st["status"] == "failed" and not turns and not poses() and said[-1] == fetch.TURN_TO_PERSON[0], (st, turns)
 fetch._waist_to = real_waist_to
+# the head on the person through the whole reach (live: the waist turned with the head kept at +46 on it, so the
+# head looked 90 deg left, away, until head_ahead at the end): Greeter only, person at -40 deg (waist frame), the
+# head on them; the sweep check turns the head to that side (head_hits); every head command looks their way, the
+# last one right at them (head yaw = -40 - the waist's turn), and nothing turns it ahead after
+real_status, real_move, real_blocked = fetch.head.status, fetch.head.moveto, fetch._sweep_blocked
+hp = {"waist": -15.0, "yaw": -40.0, "pitch": 10.0}
+gaze = []                                                     # waist-frame (as before the turn) angle of each command
+fetch.head.status = lambda: [75.0, hp["waist"], hp["yaw"], hp["pitch"]]
+def head_cmd(pos, **kw):
+    hp.update(waist=pos[1], yaw=pos[2], pitch=pos[3])
+    gaze.append(pos[1] + 15.0 + pos[2])
+fetch.head.moveto = head_cmd
+fetch._sweep_blocked = lambda deg, what: head_cmd([75.0, hp["waist"], math.copysign(fetch.HEAD_SIDE_DEG, deg),
+                                                   fetch.HEAD_LOW_PITCH]) and False
+fetch.stay_put = True
+st, moves = reached(-40.0)
+assert st["status"] == "done" and poses()[-1] == "give", st
+assert hp["waist"] == -55.0 and hp["yaw"] == 0.0 and hp["pitch"] == 10.0, hp
+assert gaze[-1] == -40.0 and all(g < 0 for g in gaze), gaze
+gaze.clear()
+st, moves = reached(0.0)                                      # in front: no waist turn, the head left on them
+assert st["status"] == "done" and not gaze and hp["yaw"] == 0.0, gaze
+fetch.stay_put = False
+fetch.head.status, fetch.head.moveto, fetch._sweep_blocked = real_status, real_move, real_blocked
 fetch._line_rows, fetch._scene = real_line_rows, real_scene
 hand["front"] = False
 # the cup is in the hand but nobody says okay: the hand never closes (their fingers may be in it)
@@ -1274,6 +1301,57 @@ assert st["status"] == "failed" and st["holding"] and "Where should I put it?" i
 fetch._set(holding=False, status="idle")
 skills._held.clear()
 fetch._scene, skills.on_table = real_scene, real_on_table
+
+# ---------- the voice pick (pick_here): trusted turns only; here, the waist in place, the base with Patrol, or ask ----
+real = {k: getattr(fetch, k) for k in ("_waist_to", "waist_for", "turned", "_approach", "pick_goal", "at_edge",
+                                       "_see_again")}
+yaws = []
+def trusted_x(obj, start=None, accept=None, max_yaw=None):               # reached only from x > 0 (after the waist turn)
+    yaws.append(max_yaw)
+    return (skills.plan_pick(obj), [0.0] * 6) if obj["x"] > 0 or reach["ok"] else None
+skills.reachable_pick = trusted_x
+fetch._waist_to = lambda rel, in_place=False: calls.append(("waist", in_place)) or in_place or not fetch.stay_put
+fetch.waist_for = lambda obj: [40.0]
+fetch.turned = lambda obj, deg: {**obj, "x": obj["x"] + 300.0}
+fetch._approach = lambda obj, yaw, tried, **kw: calls.append(("approach",)) or False   # as near as the base brings it
+fetch.pick_goal = lambda obj: fetch.PICK_ZONE_CENTRE
+fetch.at_edge = lambda obj: False
+fetch._see_again = lambda task, mem, yaw, say: dict(CUP)
+fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2}))
+base_moves = lambda: [c for c in calls if c[0] in ("approach", "go", "go_point", "joy")]
+for patrol in (False, True):
+    fetch.stay_put = not patrol
+    reset()
+    fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2}))
+    calls.clear(), yaws.clear()
+    skills.look = lambda frames=None, **kw: []
+    assert fetch.pick_here("apple", "red", say)["x"] == CUP["x"]                 # in reach from here: nothing turns
+    assert ("pick", "apple") in calls and not [c for c in calls if c[0] == "waist"] and not base_moves(), calls
+    reach["ok"] = False                                                          # only after a waist turn
+    calls.clear(), yaws.clear()
+    skills.look = lambda frames=None, **kw: [fetch.turned(dict(CUP), 40.0)] if ("waist", True) in calls else []
+    assert fetch.pick_here("apple", "red", say)["x"] > 0
+    assert ("waist", True) in calls and ("pick", "apple") in calls and not base_moves(), calls
+    assert None not in yaws, yaws                                                # never an untrusted grasp turn
+fetch.waist_for = lambda obj: []                                                 # no waist turn reaches it either
+skills.look = lambda frames=None, **kw: []
+for patrol in (True, False):
+    fetch.stay_put = not patrol
+    calls.clear(), yaws.clear(), said.clear()
+    try:
+        fetch.pick_here("apple", "red", say)
+        raise AssertionError("picked out of reach")
+    except fetch.FetchError as e:
+        assert e.args[0] == "I still can't reach it.", e.args
+    assert bool(base_moves()) == patrol, (patrol, calls)                         # Patrol on: the base came closer first
+    assert said[-1] == "I can't reach it, please move it closer to me." and None not in yaws, (said, yaws)
+    assert not [c for c in calls if c[0] in ("pick", "line", "waist") or c[0] == "pose" and not patrol], calls
+                                                       # the arm never moved (to look only before a base move)
+fetch.stay_put = False
+for k, v in real.items():
+    setattr(fetch, k, v)
+skills.reachable_pick = fake_reachable
+reset()
 
 print("fetch ok")
 

@@ -450,7 +450,7 @@ def _line_holding(name):
     if _at_pose(name):
         return
     try:
-        names = arm_route.hops(skills._joints(), name, leaf=True)
+        names = arm_route.hops(skills._joints(), name, leaf=True, holding=True)
     except arm_route.RouteError as e:
         raise FetchError(*e.args) from e
     lines, start = [], None
@@ -696,15 +696,19 @@ def _sweep_blocked(deg, what):
     return False
 
 
-def _waist_to(rel):
+def _waist_to(rel, in_place=False, look=None):
     """Turn the waist to `rel` deg from the front (the waist of measure-axis), lift and head stay; the arm keeps its
-    pose; `rel` is cut to the body's limit. False when the arm's sweep is not clear (_sweep_blocked)."""
+    pose; `rel` is cut to the body's limit. False when the arm's sweep is not clear (_sweep_blocked), or with Patrol
+    off (stay_put) unless `in_place` (reach: turning to the person in front of Lumi, the base stays). `look`: the
+    waist-frame angle (deg, + left, as before the turn) the head keeps facing: it sits on the waist, so its yaw goes to
+    look minus the turn (cut to head.YAW_LIMIT) in the same body move. Without it the head keeps its yaw and turns
+    with the waist."""
     waist = head.status()[1]
     lo, hi = head.AXIS_LIMITS[1]
     d = max(lo, min(hi, waist - _waist_turn() + rel)) - waist
     if abs(d) < 1.0:
         return True
-    if stay_put:
+    if stay_put and not in_place:
         log("not turning my waist: Patrol is off")
         return False
     _go_on()
@@ -712,6 +716,9 @@ def _waist_to(rel):
     if _sweep_blocked(d, "turning my waist"):
         return False
     lift, waist = head.status()[:2]
+    if look is not None:
+        yaw = max(-head.YAW_LIMIT, min(head.YAW_LIMIT, look - d))
+        log(f"head yaw {yaw:+.0f} deg with the waist: still on {look:+.0f} deg")
     log(f"waist {waist:.0f} -> {waist + d:.0f} deg")
     _body_move([lift, waist + d, yaw, pitch], vel=WAIST_VEL, acc=20, timeout=60)
     skills.moved()
@@ -1067,8 +1074,9 @@ def waist_for(obj):
 def _waist_reach(task, obj, say):
     """(obj, waypoints, joints above) of a pick after a waist turn, for an object the arm doesn't reach from here: the
     first turn of waist_for whose pick, planned where the object will be (turned), passes; the waist turns (its sweep
-    checked), the camera looks again and the pick is planned from what it sees. None when no turn reaches it or the
-    object is not seen again where it should be (then the base moves)."""
+    checked), the camera looks again and the pick is planned from what it sees. The waist turns in place, also with
+    Patrol off (the base stays). None when no turn reaches it or the object is not seen again where it should be (then
+    the base moves)."""
     for deg in waist_for(obj):
         try:
             if not _reachable(turned(obj, deg)):
@@ -1077,7 +1085,7 @@ def _waist_reach(task, obj, say):
             return None
         _step("turning my waist to reach it", say)
         _pose(_look())
-        if not _waist_to(_waist_turn() + deg):
+        if not _waist_to(_waist_turn() + deg, in_place=True):
             return None
         want = turned(obj, deg)
         hits = [o for o in skills.look() if _is_task(o, task) and o["seen"] >= skills.MIN_SEEN
@@ -1528,23 +1536,26 @@ def _reach_at(obj, g):
         return True                                   # the width decides up close
 
 
-def _reach(task, obj, say):
+def _reach(task, obj, say, voice=False):
     """Step 5: (obj, waypoints, joints above) of a pick that passes IK. A cup past COMFORT_R_MM (the arm almost
     straight knocks it over) is not taken from here while the base can bring it in; out of reach: the waist, then a
     base move (_approach to pick_goal, every move measured, a way that did nothing not tried again). After every
     attempt to move, also one that failed half way, the cup is looked at again where it is kept (_see_again): a plan
     never uses a position from before a move. Up to APPROACH_TRIES times (never on the charger). A cup the base can't
-    bring nearer is taken from where it stands (any grasp turn as the last resort); else ask the person, saying why."""
+    bring nearer is taken from where it stands (any grasp turn as the last resort); else ask the person, saying why.
+    `voice` (the voice pick, pick_here): never a grasp turn past skills.TRUSTED_YAW_DEG (+15 deg missed 2 of 2 live),
+    and with Patrol off no base move is tried: the waist only, then the person is asked."""
     yaw, tried, why = arm_yaw(), set(), None       # grasp turns past skills.TRUSTED_YAW_DEG only when the base can't help
     _width_far["moves"] = 0
     for i in range(APPROACH_TRIES + 1):
-        can_move = yaw is not None and i < APPROACH_TRIES and not _charging() and "stuck" not in tried
+        can_move = yaw is not None and i < APPROACH_TRIES and not (voice and stay_put) and not _charging() and \
+            "stuck" not in tried
         edge = can_move and not stay_put and "edge" not in tried and at_edge(obj)
         if edge:
             log(f"the {task['object']} at ({obj['x']:.0f}, {obj['y']:.0f}) is at the edge of my reach: closer first")
         else:
             try:
-                plan = _reachable(obj) or ((not can_move or "edge" in tried) and _reachable(obj, None))
+                plan = _reachable(obj) or ((not can_move or "edge" in tried) and not voice and _reachable(obj, None))
             except skills.SkillError:                 # too big / small: another one of them here may do
                 other = _other_here(task, obj) if i == 0 else None
                 if other:
@@ -1567,7 +1578,7 @@ def _reach(task, obj, say):
             if edge:
                 tried.add("edge")
                 continue
-            plan = _reachable(obj, None)
+            plan = not voice and _reachable(obj, None)
             if plan:
                 return (obj, *plan)
             raise
@@ -1601,7 +1612,7 @@ def _reach(task, obj, say):
             why = blocked
             break
     if why:
-        plan = _reachable(obj, None)                  # the base can't do better: any grasp turn (P2: the last resort)
+        plan = not voice and _reachable(obj, None)    # the base can't do better: any grasp turn (P2: the last resort)
         if plan:
             return (obj, *plan)
         log(f"asking for help: {why}")
@@ -1611,7 +1622,7 @@ def _reach(task, obj, say):
         ("I can't reach it, please move it closer to me.", "손이 닿지 않아요. 저에게 조금 더 가까이 놓아 주세요.")))
     deadline = time.time() + ASK_WAIT_S
     while time.time() < deadline:
-        if _stop.wait(ASK_EVERY_S):
+        if _stop.wait(ASK_EVERY_S) or skills._cancel.is_set():
             raise Stopped()
         try:
             obj = _find(task)
@@ -2320,7 +2331,7 @@ def _new_run():
     _clear()
 
 
-def _launch(fn, *a):
+def _launch(fn, *a, ahead=True):
     global _thread
     from tasks import follow                     # imported here: follow imports this module
     if follow.running():                         # its joy_control commands would fight this task's (2026-10-23:
@@ -2330,7 +2341,7 @@ def _launch(fn, *a):
 
     def run():
         fn(*a)
-        if not _stop.is_set():                   # done or failed: the head looks ahead again (not after a STOP)
+        if ahead and not _stop.is_set():         # done or failed: the head looks ahead again (not after a STOP)
             try:
                 head_ahead()
             except Exception as e:
@@ -2396,6 +2407,25 @@ def held_by_skill(what):
     with _lock:
         skills._held["what"] = {"object": what.get("object"), "colour": what.get("colour")}
         _set(holding=True, held_object=skills._held["what"], status="holding", step="holding")
+
+
+def pick_here(name, colour=None, say=None):
+    """The voice pick ("take the cup", assistant/lumi.py's skill thread): the `name` (`colour`) seen from where Lumi
+    stands is reached as a fetch reaches it, with trusted grasp turns only (_reach voice=True: from here, else the
+    waist in place, else with Patrol on the base, else the person is asked) and picked; it ends held just above the
+    table. Returns the object."""
+    task = {"object": name, "colour": colour}
+    _clear()
+    try:
+        obj = _find(task)
+        log(f"found {obj['colour']} {obj['name']} at ({obj['x']:.0f}, {obj['y']:.0f}) top {obj['top_mm']:.0f} "
+            f"width {obj['width_mm']:.0f}")
+        obj, waypoints, ja = _reach(task, obj, say, voice=True)
+        _step("picking")
+        skills._guarded(skills._do_pick, obj, waypoints, ja)
+    finally:
+        _set(step="")
+    return obj
 
 
 def _hold_again():
@@ -2909,8 +2939,9 @@ def _person_point():
 
 def reach(angle=0.0, say=None):
     """Hold the hand out to the person ("reach out to me", "손 내밀어"): first, when `angle` (deg, + left, waist
-    frame: the person tracker's) is not 0, the waist turns to face them (_waist_to: Patrol only, its arm sweep
-    checked; past the waist's limits they are asked to stand in front), then the arm along the pose graph to give
+    frame: the person tracker's) is not 0, the waist turns to face them (_waist_to, also with Patrol off: the base
+    stays; its arm sweep checked; past the waist's limits they are asked to stand in front; the waist stays turned
+    after; the head turns with it onto them and stays on them, also after), then the arm along the pose graph to give
     (arm_route, every move checked), then at most RECEIVE_REACH_MM straight towards their hand or body
     (_person_point, _reach_to_hand). The arm stays out; "fold" brings it back to look."""
     if "give" not in motion.poses():
@@ -2926,7 +2957,8 @@ def reach(angle=0.0, say=None):
         try:
             if angle:                                 # the waist, not the base: the person stays where they are
                 lo, hi = head.AXIS_LIMITS[1]
-                if not lo <= head.status()[1] + angle <= hi or not _waist_to(angle + _waist_turn()):
+                if not lo <= head.status()[1] + angle <= hi or \
+                        not _waist_to(angle + _waist_turn(), in_place=True, look=angle):
                     raise FetchError(*TURN_TO_PERSON)
             _pose("give")
             _reach_to_hand(*_person_point())
@@ -2934,7 +2966,7 @@ def reach(angle=0.0, say=None):
             log("reached out")
         except Exception as e:
             _fail(e, say)
-    _launch(run)
+    _launch(run, ahead=False)                    # the head stays on the person, not ahead
 
 
 def _arm(pose):
