@@ -94,8 +94,8 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `tasks/fetch.py` | `PICK_ZONE_CENTRE` | (−100, 580) mm | Where a base move brings an object (arm base frame) |
 | `tasks/fetch.py` | `LOST_BACK_M`, `LOST_TURN_DEG` | 0.15 m, 20° | An object lost after a base move: back off, turn each way, look again |
 | `tasks/fetch.py` | `WIDTH_NEAR_MM` | 250 mm | A width further than this from the pick zone does not refuse a pick (far widths read ~8 mm too wide); measured again up close |
-| `manipulation/skills.py` | `MIN_WIDTH`, `MAX_WIDTH` | 72, 92 mm | Object widths the gripper takes (belly open 96, closed 70; tips open 88 / close to 59; [10_GRIPPER.md](10_GRIPPER.md)). `MIN_WIDTH` 61 enables the finger-tip grasp (61–72 mm) |
-| `manipulation/skills.py` | `BELLY_MIN_MM` | 72 mm | Thinner objects are held between the finger tips (the belly closes only to 70 mm) |
+| `manipulation/skills.py` | `MIN_WIDTH`, `MAX_WIDTH` | 70, 90 mm | Object widths the gripper takes (belly open 94, closed 68; tips open 89 / close to 63; [10_GRIPPER.md](10_GRIPPER.md)). `MIN_WIDTH` 61 enables the finger-tip grasp (61–72 mm) |
+| `manipulation/skills.py` | `BELLY_MIN_MM` | 70 mm | Thinner objects are held between the finger tips (the belly closes only to 68 mm) |
 | `manipulation/skills.py` | `TIPS_OFFSET` (`data/grasp_tips_teach.json` `tips_offset_flange`) | [−0.4, −4.6, 28.2] mm | Finger-tip grasp: the object's axis goes this far from the hooks' belly centre (flange frame, level, turned with the grasp); taught |
 | `manipulation/skills.py` | `TIP_CLEAR_MM`, `ROUND_BITE_MM` | 10, 10 mm | Round things (apple, orange, ball): the finger tips (`TIP_MM` 60, estimate) stay this far above the table; the grasp point at least this far below the top, else refused. Estimates |
 | `manipulation/skills.py` | `BELOW_SHOULDER_MM` | 80 mm | Bottles: the grasp point this far below where the body begins; the hand's lowest part (`TIP_MM` below) must stay `TIP_CLEAR_MM` above the table under it (`table_near`, else the bottle's lowest point seen) |
