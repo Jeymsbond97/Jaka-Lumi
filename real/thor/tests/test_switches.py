@@ -27,6 +27,7 @@ arm_state = {"power": 1, "enable": 1}
 lumi.arm.cmd = lambda name, **a: dict(arm_state) if name == "get_robot_state" else forbid()
 
 L = lumi.Lumi.__new__(lumi.Lumi)
+L._yaw, L._yaw_time = 0.0, float("inf")                 # the head at the front (det_yaw reads no body)
 L.lang, L.markers, L.current, L.patrol, L.vision, L.voice_angle = "en", M, None, None, None, 0.0
 L.turn_head = lambda *a, **k: moved.append("head")
 L.brain = types.SimpleNamespace(history=[])

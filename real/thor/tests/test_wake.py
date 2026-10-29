@@ -231,6 +231,16 @@ L.mic = Mic(U("루미야, 뭐 보여?"))
 L.step()
 assert ("answer", "뭐 보여") in done, done
 
+# the person talked with, still tracked but past STAY_MAX (come here took a far one): gone, never "seen again" as
+# itself (that looped ~33000 times a s, the assistant went deaf, 2026-10-28 18:06)
+L = fresh(a := Track(10, 186.0, 4.7))
+a.greeted, L.current = True, a
+L.vision.present = lambda t: t in L.vision.tracks and t.distance <= lumi.STAY_MAX
+L.vision.nearest_greeted = lambda: None
+lumi.ears.listen = lambda **k: (None, None)
+L.step()
+assert L.current is None, L.current
+
 L = fresh()                                            # a talk started by voice ends the same way
 L.voice_until = time.time() - 1
 L.brain.history = [("hi", "hello")]

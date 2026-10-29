@@ -182,6 +182,7 @@ print("too close: stands still")
 
 # every stop word ends it at once (lumi.follow_stop, as answer() calls it); then "follow me" starts again
 L = lumi.Lumi.__new__(lumi.Lumi)
+L._yaw, L._yaw_time = 0.0, float("inf")                 # the head at the front (det_yaw reads no body)
 stops = []
 L.stop_all = lambda: stops.append(1)
 STOP = ["stop", "Stop!", "enough", "that's enough", "wait", "wait, Lumi", "stay here", "you can stop", "hold on",
@@ -664,8 +665,10 @@ L.current, started[:] = None, []
 L.follow_me()
 assert not started and "can't see you" in spoken[-1]
 L.find_caller = lambda angle, trusted: track                                       # where the voice came from
+L.voice_trusted = True                                                             # (only a sure direction counts)
 L.follow_me()
 assert started and L.current is track
+L.voice_trusted = False
 started.clear()
 L.modes.drive = False
 L.follow_me()
@@ -675,6 +678,7 @@ L.follow_me()
 assert not started and "on a task" in spoken[-1]
 L.skill_busy, real_ready = (lambda: False), follow.ready
 follow.ready = lambda: fetch.ARM_UNSEEN                                              # checked before "Okay"
+L.voice_trusted = True                                                             # the person found by the voice
 L.follow_me()
 assert not started and spoken[-1] == fetch.ARM_UNSEEN[0] and not any("follow you" in x for x in spoken[-1:])
 follow.ready = real_ready
