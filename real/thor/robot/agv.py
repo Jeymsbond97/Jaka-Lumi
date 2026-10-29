@@ -23,6 +23,15 @@ _conn_lock = threading.Lock()
 # robot/nav_guard.py's state of the navigation move this process sent: gen counts go / go_point / cancel (a guard
 # whose gen is old stops); held: the guard cancelled it until the way is clear; reason: (en, ko) why it ended it.
 _guard = {"gen": 0, "held": False, "reason": None}
+# max_speed_linear / max_speed_angular (m/s, rad/s) sent before every navigation move (tasks/fetch.py sets them): the
+# base caps navigation and joy_control by them and forgets them at its restart (its own 0.3 m/s; follow asked 0.5 and
+# drove 0.30, 2026-10-28). None: the base's own.
+max_speed = {"linear": None, "angular": None}
+
+
+def set_max_speed(linear, angular):
+    """Cap navigation and joy_control at `linear` m/s, `angular` rad/s (/api/set_params, 0.1-1.0 / 0.5-3.5)."""
+    return request(f"/api/set_params?max_speed_linear={linear:g}&max_speed_angular={angular:g}")
 
 
 def _ask(command, tag, timeout):
@@ -82,6 +91,8 @@ def _move(command):
     """Send a navigation move (cancelling one that runs) and guard the arm along it (robot/nav_guard.py)."""
     if status().get("move_status") == "running":
         cancel()
+    if max_speed["linear"]:
+        set_max_speed(max_speed["linear"], max_speed["angular"])
     r = request(command)
     ok = r.get("status") == "OK"
     _guard.update(gen=_guard["gen"] + 1, held=False, reason=None)
