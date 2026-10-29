@@ -69,7 +69,47 @@ the waist in place, then the base (Patrol), else asks to move the cup closer (`f
   `WAIST_DRIVE_DEG` 15°; waist / head unwind to 0. Follow starts with the waist where it is.
 - **Tests**: every test imports the `tests/no_robot.py` guard (a test reaching the robot fails).
 
+## Left half done (do first)
+- `api/server.py` (supervisor started only in `__main__`, see below) is edited but **not committed**: run all
+  `tests/test_*.py`, commit ("Improve service supervision"), then `tools/gitea_push.sh` (start it detached with
+  `setsid … &`: a plain background run was killed twice). Everything else of 2026-10-28 is on Gitea.
+- `data/fetch_calib.json` (arm place measured 2026-10-27) and `data/hover_readings.json` (old fingers) stay
+  uncommitted until the new gripper is measured.
+
+## Open problems from the live test (fix these first; logs: `logs/lumi.log`, `logs/lumi_console.log`, times 2026-10-28)
+- **"Look at me" does not work from 2 m and more** (clip mic worn). The owner: it worked until Friday 2026-10-23, also
+  from 5-6 m. Facts: wake direction confidence median 0.20 (85 calls before 2026-10-27) -> 0.07-0.13 since Tuesday
+  ~17:30; `DOA_MIN_CONF` 0.12; unsure directions were off by up to 90 deg (person at +187, read +244 / +94 / +106);
+  one "sure" 0.24 read +166 with the owner in front (19:13:36). The direction code and calibration did not change
+  (`doa.USE_CLIP_REF` False, `data/doa_calib.json` offset 30 = the 2026-10-23 one). `logs/doa_dump/*.npz` (16:38-16:39,
+  record more with `touch data/doa_dump_on`, `rm` to stop): the clip voice is barely in the head array (score
+  3.5-5.4, unrelated audio ~4-5), aligned within 0.05 s when found. Not found yet: what changed physically or in the
+  head array audio since Tuesday (ask the owner about the head mic board; compare a Friday utterance if any is kept).
+  Possible fix to discuss: when the voice is unsure, the head sweeps -60 / 0 / +60 with the head camera to find them.
+- **Dashboard "go dock2" did not move** from (-5.29, 10.33) beside the charger (accepted, never moved, STUCK after 20 s);
+  from (-4.87, 10.24) it drove at once. Not the speed: `get_params` reads angular 0.5 (the base keeps its minimum).
+  A stuck drive now logs the base's `running_status` and planned path (`logs/api.log`, robot/drive_log.py): try it
+  again from beside the charger and read that line. If the path is empty there, a short straight drive off the wall
+  before the navigation move.
+- **Arm speed**: long joint moves ~7 deg/s (look -> give 8.8 s) although 40 deg/s is asked; `traj_rapidrate` is 1.0.
+  Cobo π joint speed limit raised 40 -> 50 by the owner; waiting for photos of "Robot limit" / "Joint limit" (likely
+  a TCP speed limit). Then time look -> give live and raise `motion.JOINT_SPEED`.
+- **Not live yet** (pushed 2026-10-28): who gave the order (`Lumi.speaker_track`: sure voice, the one talked with, the
+  one the head looks at, the only one seen, else "raise your hand"); come here / reach to a far person; follow turning
+  0.6 rad/s with the base's cap raised; follow arm check counts only nearer points; `motion.BLIND_S` 3 s; the arm
+  folded to look before a drive (`waist_home(fold=True)`); "What did you say?" repeats the last answer; "Yes?" / "네?"
+  to the name mid-talk; drive speed 0.5 m/s (`fetch.NAV_SPEED_MPS`, sent before every move).
+  Also: "go back 1 m" beside something (the arm check counts only points coming nearer, `fetch.line_hits`, and logs
+  the point's clearance now / after); "charger" / "charging station" / 충전 go to the marker `charge` when the map
+  has one (else `home`).
+
 ## Next
+0. **New gripper fingers first** (fitted; gaps measured, docs/gripper/README.md: belly 9.4 / 6.8 cm, tips 8.9 / 6.3,
+   neck 5.7 / 3.0). Before any pick: `robot/gripper.py` `GAP_MM`, `skills.MIN_WIDTH` / `MAX_WIDTH` / `BELLY_MIN_MM`
+   from them; AI_1 open / closed empty / on a cup read live; the lowest point below the grasp point (`TIP_MM`); the
+   grasp pose taught again by hand on a cup (`data/grasp_teach.json`, `grasp_tips_teach.json`); then the hover check
+   (old `data/hover_readings.json` was for the old fingers). Arm speed: the owner's "Robot limit" / "Joint limit"
+   screens (joint speed now 50), then look -> give timed live.
 1. **Live test** (owner at the STOP, slow). Before: Patrol on, robot off the charger, arm enabled at `look`, waist at
    the front, lift 0, base idle; one white 80–85 mm tumbler, upright. Watch logs/api.log. After each step: where the
    fingers landed and whether the base did anything twice. Stop at the first wrong motion.
