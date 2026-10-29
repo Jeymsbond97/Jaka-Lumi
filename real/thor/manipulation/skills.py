@@ -65,14 +65,14 @@ LIFT_MM = 30.0                                   # first lift after closing, the
 MAX_TILT_DEG = 15.0                              # deg; a held cup's axis may lean this far from vertical on a joint
                                                  # move with it (place_options; tasks/fetch.py uses the same)
 PLACE_EXTRA_MM = 3.0                             # put down this much higher than it was picked (same table)
-MIN_WIDTH, MAX_WIDTH = 72.0, 92.0                # mm: the hooks' belly goes round the cup (open 96, closed 70). The tips
+MIN_WIDTH, MAX_WIDTH = 70.0, 90.0                # mm: the hooks' belly goes round the cup (open 94, closed 68). The tips
                                                  # grasp (61-72) missed twice live on a 66 mm can (2026-10-22): off by the
                                                  # owner until it is checked; 61 brings it back. Over 84 is the owner's
                                                  # call (2026-10-19), not tried live yet
 SEEN_UNDER_MM = 8.0                              # the camera's width is this much under the width the fingers meet
                                                  # (2026-10-19: 73 seen / 85 by tape, 81 seen / 85 by AI_1); the
                                                  # limits here are the fingers', compared with grip_width()
-BELLY_MIN_MM = 72.0                              # thinner is held between the finger tips: the belly closes only to 70
+BELLY_MIN_MM = 70.0                              # thinner is held between the finger tips: the belly closes only to 68
                                                  # (a 70 mm steel cup was missed there and knocked over, 2026-10-19)
 FRAMES = 8                                       # camera frames looked at by find()
 FRAME_GAP_S = 0.2                                # s between them
