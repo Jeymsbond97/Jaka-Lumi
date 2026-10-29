@@ -217,10 +217,15 @@ assert L.reach_out(False) is None and not reached and not came and said == [lumi
 L.modes.drive, person.distance = True, 1.0
 fetch.give_bearing = lambda: 0.0
 L.turn_head = lambda *a, **k: moved.append("head")
-L.vision = None                                          # nobody seen, the voice's direction not trusted: ask
+seen_vision, L.vision = L.vision, None                   # nobody seen, the voice's direction not trusted: ask
 reached.clear(), said.clear()
 assert L.reach_out(False) is None and not reached and said == [lumi.STAND_IN_FRONT_SAY[0]]
-L.voice_trusted, L.voice_angle, L.modes.patrol = True, -50.0, True   # heard from the right: turn to the voice
+L.voice_trusted, L.voice_angle, L.modes.patrol = True, -50.0, True   # heard from the right, nobody seen there:
+L.find_caller = lambda angle, trusted: None                          # no reach to a bare voice direction (it was
+reached.clear(), said.clear()                                        # 166 deg off, 2026-10-28)
+assert L.reach_out(False) is None and not reached and said == [lumi.STAND_IN_FRONT_SAY[0]]
+L.find_caller = lambda angle, trusted: person                        # someone seen there: to them
+person.angle, L.vision = -50.0, seen_vision
 assert L.reach_out(False) and reached == [-50.0]
 moved.clear(), reached.clear(), said.clear()
 L.fetch_status = lambda: "holding"
@@ -259,7 +264,7 @@ for n, f in real.items():
 # ---------- every drive and base turn starts with the waist at the front ----------
 order = []
 real_home = lumi.waist_home
-lumi.waist_home = lambda why: order.append("waist") or True
+lumi.waist_home = lambda why, fold=False: order.append("waist") or True
 lumi.agv.status = lambda: {"move_status": "idle", "power_percent": 90}
 lumi.agv.go = lambda m: order.append(("go", m)) or (True, "OK")
 lumi.agv.go_point = lambda x, y, th: order.append(("go", (x, y, th))) or (True, "OK")
@@ -278,7 +283,7 @@ real_turned, lumi.waist_turned = lumi.waist_turned, lambda: 30.0   # turned 30 l
 order.clear()
 L.look_toward(150.0)                                     # a voice behind: the base turns to it from the base's front
 assert order == ["waist", ("turn", 180)], order
-lumi.waist_home = lambda why: order.append("waist") or False   # it can't come back: no drive, no turn, said why
+lumi.waist_home = lambda why, fold=False: order.append("waist") or False   # it can't come back: no drive, no turn, said why
 order.clear()
 P = lumi.Patrol(["p3"], once=True)
 P.tick(force=True)

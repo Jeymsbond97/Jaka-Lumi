@@ -31,7 +31,7 @@ lumi.ears.transcribe = lambda mono: mono
 lumi.ears.understood = lambda lp: True
 lumi.time.sleep = lambda s: None
 lumi.waist_turned = lambda: 0.0                    # the waist at the front (it reads the body)
-lumi.waist_home = lambda why: True
+lumi.waist_home = lambda why, fold=False: True
 M = ["home", "dock2"]
 
 
@@ -309,7 +309,7 @@ assert "head" in done and L.voice_until == 0.0, done   # end_conversation: yaw 0
 # a held look keeps both (the waist waits like the head)
 homed, back = [], threading.Event()
 real_home, real_turned = lumi.waist_home, lumi.waist_turned
-lumi.waist_home = lambda why: homed.append(why) or back.set() or True
+lumi.waist_home = lambda why, fold=False: homed.append(why) or back.set() or True
 for patrol in (False, True):
     L = fresh(a := Track(33, 40))
     a.greeted, L.current, L.modes.patrol = True, a, patrol
@@ -336,7 +336,7 @@ for turned, homes, want in ((30.0, True, -20.0), (30.0, False, -50.0), (0.0, Tru
     heads, back = [], threading.Event()
     L.turn_head = lambda yaw=None, *r, **k: heads.append(yaw) or back.set()
     lumi.waist_turned = lambda w=turned: w
-    lumi.waist_home = lambda why, ok=homes: homed.append(why) or ok
+    lumi.waist_home = lambda why, ok=homes, fold=False: homed.append(why) or ok
     homed.clear()
     lumi.Lumi.who_spoke(L, U("Lumi, stop.", seconds=1.0))
     assert back.wait(2) and L.current is b and heads == [lumi.HEAD_SIGN * want], (turned, homes, heads)

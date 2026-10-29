@@ -115,7 +115,7 @@ lumi.doa.estimate = lambda mics, cal, ref=None: (-40.0, 0.9, 0.0)
 lumi.waist_turned = lambda: 0.0
 from tasks import fetch as _fetch                    # noqa: E402
 _fetch._waist_to = lambda rel, in_place=False, look=None: True   # "look at me" past the head turns the waist
-lumi.waist_home = lambda why: True
+lumi.waist_home = lambda why, fold=False: True
 lumi.agv.turn_by = lambda rad: None                  # "look at me" past the head with Patrol turns the base
 lumi.agv.status = lambda: {"move_status": "succeeded"}
 U = types.SimpleNamespace(mics=None, seconds=1.0, source="clip")
@@ -165,7 +165,7 @@ lumi.agv.go_point = lambda *a: (True, "")
 lumi.agv.turn_by = lambda a: (_ for _ in ()).throw(AssertionError("the base turned away from the caller"))
 lumi.nav.person_on_map = lambda *a: (3.0, 0.0)
 lumi.nav.approach = lambda *a: (2.0, 0.0, 0.0)
-lumi.waist_home = lambda why: True
+lumi.waist_home = lambda why, fold=False: True
 L = fresh(a := Track(5, -19.0, 2.5), Track(8, 30.0, 2.4))
 L.current, L.look_me, L.looked_at = a, a, time.time()
 L.voice_angle, L.voice_trusted = -107.0, True       # the voice read far off (19:24:22): the focus wins

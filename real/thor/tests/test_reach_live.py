@@ -101,4 +101,22 @@ assert not L.reach_done("thanks") and not folds and not L.reached_at
 L.reached_at = 0.0
 status["now"] = "done"
 assert not L.reach_done("thanks") and not folds                  # no reach out: "thanks" moves nothing
+
+# an arm left half way (a reach stopped by a lost state reply) and the waist turned: an order to drive folds the empty
+# arm along the checked route, then the waist comes to the front; a conversation's end or a held thing never folds it
+# (live 2026-10-28 19:08-19:13: every "come here" said "I can't turn back to the front")
+route, waist = [], {"turn": 26.0}
+real = (fetch._waist_turn, fetch.state, fetch._at_pose, fetch._waist_to, lumi.arm_route.plan, lumi.arm_route.move)
+fetch._waist_turn = lambda: waist["turn"]
+fetch._at_pose = lambda name: bool(route)
+fetch._waist_to = lambda deg, in_place=False, look=None: waist.update(turn=deg) or True
+lumi.arm_route.plan = lambda target, holding=False: [(target, [0] * 6)]
+lumi.arm_route.move = lambda seq, speed=None, holding=False: route.append(seq[-1][0])
+fetch.state = lambda: {"status": "failed", "holding": False}
+assert not lumi.waist_home("the conversation is over") and not route and waist["turn"] == 26.0
+assert lumi.waist_home("coming to a person", fold=True) and route == ["look"] and waist["turn"] == 0.0
+route.clear(), waist.update(turn=26.0)
+fetch.state = lambda: {"status": "failed", "holding": True}       # something in the hand: never moved for a drive
+assert not lumi.waist_home("coming to a person", fold=True) and not route
+(fetch._waist_turn, fetch.state, fetch._at_pose, fetch._waist_to, lumi.arm_route.plan, lumi.arm_route.move) = real
 print(f"reach live ok ({len(REACH) + len(NOT_REACH)} wordings, stop during a hung body move, held state, auto fold)")

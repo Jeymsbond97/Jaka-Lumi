@@ -22,7 +22,7 @@ lumi.motion.stop = lambda: done.append("arm stop")
 follow.stop = lambda: done.append("follow stop")
 fetch.stop = lambda: done.append("fetch stop")
 fetch.state = lambda: {"status": "idle"}
-lumi.waist_home = lambda why: True                # the waist at the front before a drive (it reads the body and arm)
+lumi.waist_home = lambda why, fold=False: True                # the waist at the front before a drive (it reads the body and arm)
 lumi.waist_turned = lambda: 0.0
 lumi.mouth.say = lambda text, **k: done.append(("say", text))
 lumi.mouth.own_voice = lambda u: False
