@@ -340,7 +340,8 @@ def _run(see, say, people):
         if _fresh(got):
             person.seen(_to_map(_seen_from(agv.pose(), fetch._waist_turn()), *got[:2]), time.time() - got[2])
         arm_pts = prepare()
-        lift, waist, yaw = head.status()[:3]
+        agv.set_max_speed(FOLLOW_MAX_MS, fetch.NAV_TURN_RADS)   # joy_control is capped by it too (the next
+        lift, waist, yaw = head.status()[:3]                   # navigation move sends its own again)
         turned = fetch._waist_turn()
         front, gaze = waist - turned, turned + yaw        # the waist's reading at the front; where the head looks
         waist_free = bool(arm_pts)                        # its sweep can be checked ...
