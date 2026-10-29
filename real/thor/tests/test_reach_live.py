@@ -44,6 +44,7 @@ fetch._turn = lambda deg, **kw: (fetch._head_to(-30.0, 0.0), True)[1]   # the tu
 fetch._pose = lambda name: moved.append(name)
 fetch._person_point = lambda: ((0.0, 600.0, 0.0), 100.0)
 fetch._reach_to_hand = lambda *a: moved.append("hand")
+fetch._sweep_blocked = lambda *a, **k: False      # never the real base's pose and map (it failed at the charger)
 
 fetch.reach(-22.7)
 time.sleep(0.3)

@@ -748,4 +748,17 @@ for k in range(300):                                                      # 0.1 
         assert v > 0.45, (t, v)                                            # keeps up with a 0.5 m/s walk
 assert v == 0.0 and gap < follow.FOLLOW_GAP_M + 0.2, (v, gap)
 
+# the arm close beside a wall: driving along it goes on, driving at it stops (live 18:03:25: stopped beside one)
+real_clear, real_pose = agv.clearance, agv.pose
+arm = [np.array([0.4, -0.3])]                                    # the hand out to the right
+agv.pose = lambda: (0.0, 0.0, 0.0)
+agv.clearance = lambda x, y: y + 0.36                            # a wall along x at y = -0.36: the hand 0.06 m off it
+assert follow.blocked(0.5, 0.0, arm) is None                     # along the wall: no nearer
+assert follow.blocked(0.5, -0.6, arm)                            # turning the hand into it: stops
+agv.clearance = lambda x, y: 1.0 - x                             # a wall ahead at x = 1.0, the hand 0.6 m from it
+assert follow.blocked(0.5, 0.0, arm) is None                     # far yet
+agv.clearance = lambda x, y: 0.7 - x                             # ... at x = 0.7: the hand 0.3 m, then 0.05 m
+assert follow.blocked(0.5, 0.0, arm) is not None and "arm" in follow.blocked(0.5, 0.0, arm)
+agv.clearance, agv.pose = real_clear, real_pose
+
 print("all follow checks passed")
