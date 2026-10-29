@@ -86,6 +86,18 @@ def marker_positions():
     return xy
 
 
+def _path_info():
+    """The base's planned path as "N points, from (x, y) to (x, y)", or why it can't be read."""
+    try:
+        path = agv.request("/api/get_planned_path").get("results", {}).get("path") or []
+    except (ConnectionError, OSError) as e:
+        return f"not read ({e})"
+    if not path:
+        return "empty"
+    a, b = path[0], path[-1]
+    return f"{len(path)} points, from ({a[0]:.2f}, {a[1]:.2f}) to ({b[0]:.2f}, {b[1]:.2f})"
+
+
 def watch(log=print):
     d, down = DriveLog(marker_positions()), False
     while True:
@@ -102,6 +114,9 @@ def watch(log=print):
             down = False
         for line in d.update(st, time.time()):
             log(line)
+            if "seems stuck" in line and not d.drive.get("why"):
+                d.drive["why"] = True                  # once per drive: what the base planned and how it runs
+                log(f"  base {st.get('running_status')}, planned path {_path_info()}")
         time.sleep(POLL_S)
 
 
