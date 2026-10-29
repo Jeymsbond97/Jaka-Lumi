@@ -58,6 +58,8 @@ class Base:
             if cmd == "/api/move/cancel":
                 self.status = "canceled" if self.status == "running" else self.status
                 return {"status": "OK"}
+            if cmd.startswith("/api/set_params?"):   # the speed, sent before every move (robot/agv.py)
+                return {"status": "OK"}
             if cmd == "/api/get_planned_path":
                 return {"results": {"path": [[self.x + k * 0.05, 0.0] for k in range(int((self.goal - self.x) / 0.05) + 1)]
                                     if self.status == "running" else []}}
