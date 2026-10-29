@@ -607,6 +607,10 @@ assert fetch._turn(30) is False and not any(c[0] == "go_point" for c in calls), 
 room["clear"] = lambda x, y: 1.0
 assert fetch._turn(30) is True and any(c[0] == "go_point" for c in calls)
 assert fetch.turn_hits(90) is None
+# the arm already near a wall in front (+x): driving back takes it away and is let through, forward is not
+room["clear"] = lambda x, y: max(0.0, 0.4 - x)
+assert fetch.line_hits(-1.0) is None and fetch.line_hits(1.0) is not None
+room["clear"] = lambda x, y: 1.0
 # the torso camera sees something where the arm will be (a table top's edge the lidar misses): no turn
 real_points, real_extr = skills.surface_points, skills.objects.base_from_camera
 skills.objects.base_from_camera = lambda: np.eye(4)

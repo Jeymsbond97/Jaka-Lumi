@@ -2771,16 +2771,21 @@ def instruct(new_steps):
 
 def line_hits(dist):
     """Like turn_hits for a straight drive of `dist` m (+ forward): the map point where the arm would come closer than
-    ARM_CLEAR_M to something the lidar or the map shows, checked every PROBE_STEP_M; None when clear."""
+    ARM_CLEAR_M to something the lidar or the map shows, checked every PROBE_STEP_M; None when clear. As in
+    follow.blocked only coming nearer counts: an arm point already near something may drive away from it."""
     if arm_yaw() is None:
         return None
     pts, (x, y, th) = arm_points(), agv.pose()
     R, u = _rot(math.degrees(th)), np.array([math.cos(th), math.sin(th)])
+    start = [np.array([x, y]) + R @ p for p in pts]
+    now = [agv.clearance(*w) for w in start]
     n = max(1, math.ceil(abs(dist) / PROBE_STEP_M))
     for k in range(1, n + 1):
-        for p in pts:
-            w = np.array([x, y]) + R @ p + u * dist * k / n
-            if agv.clearance(*w) < ARM_CLEAR_M:
+        for w0, c0 in zip(start, now):
+            w = w0 + u * dist * k / n
+            near = agv.clearance(*w)
+            if near < ARM_CLEAR_M and near < c0:
+                log(f"arm point ({w0[0]:.2f}, {w0[1]:.2f}) {c0:.2f} m clear now, {near:.2f} m after {dist * k / n:+.2f} m")
                 return w
     return None
 
