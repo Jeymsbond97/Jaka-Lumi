@@ -121,6 +121,10 @@ def through_answer():
 
 def main():
     bad = 0
+    for said in sum(qa.KINDS["name"][1].values(), []):   # only asked: "nice to meet you" comes from the talk (LLM)
+        if re.search(r"nice to meet|반가", said, re.I):
+            bad += 1
+            print(f"FAIL name answer {said!r}: nobody introduced themselves")
     for words, want in KIND.items():
         got = qa.kind_of(words)
         if got != want:

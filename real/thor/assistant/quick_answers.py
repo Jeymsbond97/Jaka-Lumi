@@ -39,8 +39,8 @@ KINDS = {
         "이름이 뭐야", "이름이 뭐예요", "이름이 어떻게 돼요", "너 이름 뭐야", "성함이 어떻게 되세요", "이름 알려 줘", "이름이 뭡니까",
         "넌 이름이 뭐니", "이름 있어요", "뭐라고 부르면 돼요", "니 이름 머야", "너 이름이 뭐꼬", "이름이 뭐당가", "네임이 뭐야",
         "your name 뭐야", "이 로봇 이름이 뭐예요",
-    ], {"en": ["I'm Lumi.", "My name is Lumi.", "Lumi. Nice to meet you."],
-        "ko": ["저는 루미예요.", "제 이름은 루미예요.", "루미라고 해요. 반가워요."]}),
+    ], {"en": ["I'm Lumi.", "My name is Lumi."],       # no "nice to meet you": only asked, nobody introduced
+        "ko": ["저는 루미예요.", "제 이름은 루미예요.", "루미라고 해요."]}),   # themselves (that is the LLM's, from the talk)
     "name_meaning": ([
         "what does your name mean", "why are you called lumi", "where does the name lumi come from", "what does lumi mean",
         "meaning of your name", "why lumi", "who named you lumi", "루미가 무슨 뜻이야", "이름이 무슨 뜻이에요", "왜 이름이 루미예요",
