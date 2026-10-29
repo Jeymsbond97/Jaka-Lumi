@@ -427,6 +427,11 @@ PROMPT = {"en": "How can I help you?", "ko": "무엇을 도와드릴까요?"}
 WELCOME_BACK = {"en": "Welcome back! How can I help you?", "ko": "다시 오셨네요, 무엇을 도와드릴까요?"}
 WAVE_CHECK_S = 0.4                 # s between two looks for a raised hand (pose net, ~20 ms); two looks in a row
 WAVE_MATCH_DEG = 15.0              # deg; a raised hand belongs to the tracked person within this angle
+GAZE_MATCH_DEG = 15.0              # deg; the person this near where the head looks is the one Lumi looks at (estimate)
+RAISE_HAND_S = 6.0                 # s a "raise your hand" waits for the one who gave the order
+RAISE_HAND_SAY = ("Who asked? Please raise your hand.", "누가 말씀하셨어요? 손을 들어 주세요.")
+WHO_ASKED_SAY = ("Sorry, I couldn't tell who asked. Please come in front of me.",
+                 "누가 말씀하셨는지 모르겠어요. 제 앞으로 와 주세요.")
 IN_VIEW_S = 0.5                    # s; a track seen this recently is someone else in view (not the one coming back)
 PATH_HALF_WIDTH = 0.4              # m to each side of the robot's centre line; on patrol only people in this
                                    # corridor are greeted (not people sitting at desks beside the aisle)
@@ -717,6 +722,11 @@ class Vision(threading.Thread):
         """Is this person tracked now, at any distance ("come here" is for far people; present() ends at STAY_MAX)?"""
         with self.lock:
             return track in self.tracks
+
+    def anyone(self):
+        """Is anybody tracked now, at any distance?"""
+        with self.lock:
+            return bool(self.tracks)
 
     def only_seen(self):
         """The one person tracked, at any distance (4.7 m away, "do you see me?" yes, "come here" said "I can't see
@@ -2179,8 +2189,9 @@ class Lumi:
             pass
         track = None
         if self.vision:
-            track = self.current if self.current and self.vision.visible(self.current) else \
-                self.vision.near_angle(self.voice_angle) if self.voice_trusted else self.vision.only_seen()
+            track = self.speaker_track()                   # who asked: the voice, the talk, the look, a raised hand
+            if track is None and self.vision.anyone():     # several seen, nobody raised a hand: raised_hand said so
+                return None
         if track is not None and track.distance > REACH_COME_M:   # far: go to them first, never reach from afar
             if not self.modes.drive:
                 self.fetch_say(*COME_CLOSER_SAY)
@@ -3281,6 +3292,50 @@ class Lumi:
             self.answer(command)
         return True
 
+    def speaker_track(self):
+        """Who gave the order ("come here", "give me your hand", "follow me"), in this order, never a guess:
+        1) this turn's voice direction when sure (find_caller: the person there, else it turns there and looks);
+        2) the person talked with, still tracked (at any distance); 3) the person the head looks at (GAZE_MATCH_DEG:
+        "look at me" left it on them); 4) the one person tracked; 5) else the one who raises a hand when asked
+        (raised_hand). A voice direction that is not sure is never used: it was off by up to 90 deg (2026-10-28).
+        None when nobody can be told."""
+        if not self.vision:
+            return None
+        if self.voice_trusted:
+            t = self.find_caller(self.voice_angle, True)
+            if t is not None:
+                return t
+        if self.current is not None and self.vision.visible(self.current):
+            return self.current
+        t = self.vision.near_angle(HEAD_SIGN * self.det_yaw(), GAZE_MATCH_DEG)
+        if t is not None:
+            log(f"  speaker: person #{t.id}, the one I look at")
+            return t
+        return self.vision.only_seen() or self.raised_hand()
+
+    def raised_hand(self):
+        """Several people in view and nothing tells who spoke: they are asked to raise a hand; the tracked person whose
+        hand is up in two looks is taken. None (said) when nobody does in RAISE_HAND_S; None at once when nobody is
+        tracked (the caller says it can't see them)."""
+        if not self.vision.anyone():
+            return None
+        self.fetch_say(*RAISE_HAND_SAY)
+        from vision import scene
+        ups, end = {}, time.time() + RAISE_HAND_S
+        while time.time() < end:
+            frames = safe(scene.snapshot, (self.vision.camera,), default=[]) or []
+            for w in safe(hands_up, frames, default=[]) or []:
+                t = self.vision.near_angle(w, WAVE_MATCH_DEG)
+                if t is not None:
+                    ups[t.id] = ups.get(t.id, 0) + 1
+                    if ups[t.id] >= 2:
+                        log(f"  speaker: person #{t.id}, hand raised at {t.angle:+.0f} deg, {t.distance:.2f} m")
+                        return t
+            time.sleep(WAVE_CHECK_S)
+        log("  speaker: nobody raised a hand")
+        self.fetch_say(*WHO_ASKED_SAY)
+        return None
+
     def find_caller(self, robot_angle, trusted):
         """The visible person who called (voice direction + camera). If the voice comes from outside what the
         camera can see (the head camera also by turning the head), turn the base toward it first, then look for
@@ -3347,10 +3402,10 @@ class Lumi:
             mouth.say("Sorry, driving is switched off.")
             return
         if track is None or not self.vision or not self.vision.visible(track):
-            track = self.find_caller(self.voice_angle, self.voice_trusted)   # look where the voice came from
-            if track is None and self.vision:              # the voice unsure: the one person in view, also far
-                track = self.vision.only_seen()
+            track = self.speaker_track()                   # who said it: the voice, the talk, the look, a raised hand
             if track is None:
+                if self.vision and self.vision.anyone():   # several seen, nobody raised a hand: raised_hand said so
+                    return
                 mouth.say("I can't see you. Could you wave or step in front of me?" if self.lang == "en"
                           else "보이지 않아요. 손을 흔들거나 제 앞으로 와 주시겠어요?")
                 return
@@ -3470,9 +3525,9 @@ class Lumi:
         if self.skill_busy():
             self.fetch_say("Sorry, I'm on a task right now.", "죄송해요, 지금 다른 일을 하고 있어요.")
             return
-        track = self.current if self.current is not None and self.vision and self.vision.present(self.current) else None
-        if track is None and self.vision:
-            track = self.find_caller(self.voice_angle, self.voice_trusted)
+        track = self.speaker_track()                       # who asked: the voice, the talk, the look, a raised hand
+        if track is None and self.vision and self.vision.anyone():   # nobody raised a hand: raised_hand said so
+            return
         if track is None:
             mouth.say("I can't see you. Could you step in front of me?" if en else "보이지 않아요. 제 앞으로 와 주시겠어요?")
             self.keep_listening()
@@ -3549,6 +3604,8 @@ class Lumi:
         if self.current and not self.vision.present(self.current):
             gone = self.current                            # often the same person under a new track id (#5 -> #7 at
             again = None if following else self.vision.near_angle(gone.angle, FOCUS_REFIND_DEG)   # 19:24, 2026-10-27)
+            if again is gone or again is not None and again.distance > STAY_MAX:   # the same track, only far: gone
+                again = None                               # (else "seen again as" itself, ~33000 times a s, 2026-10-28)
             if again is not None:
                 log(f"person #{gone.id} seen again as #{again.id} at {again.angle:+.0f} deg")
                 again.greeted, self.current = True, again
