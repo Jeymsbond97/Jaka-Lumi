@@ -713,6 +713,17 @@ class Vision(threading.Thread):
             near = [t for t in self.tracks if t.distance <= 3.0]
         return near[0] if len(near) == 1 else None
 
+    def visible(self, track):
+        """Is this person tracked now, at any distance ("come here" is for far people; present() ends at STAY_MAX)?"""
+        with self.lock:
+            return track in self.tracks
+
+    def only_seen(self):
+        """The one person tracked, at any distance (4.7 m away, "do you see me?" yes, "come here" said "I can't see
+        you", 2026-10-28), else None."""
+        with self.lock:
+            return self.tracks[0] if len(self.tracks) == 1 else None
+
     def anyone_near(self):
         with self.lock:
             return any(t.distance <= STAY_MAX for t in self.tracks)
@@ -2168,8 +2179,8 @@ class Lumi:
             pass
         track = None
         if self.vision:
-            track = self.current if self.current and self.vision.present(self.current) else \
-                self.vision.near_angle(self.voice_angle) if self.voice_trusted else self.vision.only_person()
+            track = self.current if self.current and self.vision.visible(self.current) else \
+                self.vision.near_angle(self.voice_angle) if self.voice_trusted else self.vision.only_seen()
         if track is not None and track.distance > REACH_COME_M:   # far: go to them first, never reach from afar
             if not self.modes.drive:
                 self.fetch_say(*COME_CLOSER_SAY)
@@ -3335,8 +3346,10 @@ class Lumi:
         if not self.modes.drive:
             mouth.say("Sorry, driving is switched off.")
             return
-        if track is None or not self.vision or not self.vision.present(track):
+        if track is None or not self.vision or not self.vision.visible(track):
             track = self.find_caller(self.voice_angle, self.voice_trusted)   # look where the voice came from
+            if track is None and self.vision:              # the voice unsure: the one person in view, also far
+                track = self.vision.only_seen()
             if track is None:
                 mouth.say("I can't see you. Could you wave or step in front of me?" if self.lang == "en"
                           else "보이지 않아요. 손을 흔들거나 제 앞으로 와 주시겠어요?")
