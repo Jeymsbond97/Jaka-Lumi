@@ -41,7 +41,9 @@ SLOW_DEG_S = 5.0                                     # deg/s; long joint moves r
                                                      # (measured: 157 deg of J6 in 37 s, 60 deg of J1 in 8.5 s)
 STILL_S = 2.0                                        # s without joint motion (and not there) -> the move ended short
 STILL_DEG = 0.05                                     # joint change that counts as motion
-BLIND_S = 1.0                                        # s without a valid state reply while moving -> stop the arm
+BLIND_S = 3.0                                        # s without a valid state reply while moving -> stop the arm
+                                                     # (the controller drops its connections ~0.5 s every few s and
+                                                     # arm.cmd retries for up to ~3 s: at 1.0 a reach stopped half way)
 SETTLE_S = 0.3                                       # s the arm stands at a pose before the next move (estimate;
                                                      # going straight on shook the whole robot, 2026-10-21)
 
@@ -125,12 +127,12 @@ def _wait(arrived, limit_s, queued=False):
             raise MotionError("stopped")
         try:
             d = arm.cmd("get_data")
-        except (ConnectionError, OSError):
-            d = {}
+        except (ConnectionError, OSError) as e:
+            d = {"error": repr(e)}
         if "joint_actual_position" not in d:     # the controller now and then answers a poll with nothing
             if time.time() - last_seen > BLIND_S:
                 stop()
-                raise MotionError("lost the arm state while moving - stopped")
+                raise MotionError(f"lost the arm state while moving - stopped (last reply: {str(d)[:120]})")
             time.sleep(POLL_S)
             continue
         last_seen = time.time()
