@@ -203,11 +203,13 @@ def waist_turned():
     return safe(fetch._waist_turn, default=0.0) or 0.0
 
 
-def waist_home(why):
+def waist_home(why, fold=False):
     """The waist back to the front: at a conversation's end, before every drive or base turn, when someone else takes
     over the talk. In place (the base stays), so with Greeter only too; fetch._waist_to checks the arm's sweep and the
     limits. Not while a task runs (it turns the waist itself) or the arm is out of look (a hand held out): logged, the
-    waist stays. True when the waist is at the front."""
+    waist stays, unless `fold` (an order to drive or turn): an empty arm goes back to look along the checked pose
+    graph first (an arm left half way by a failed reach refused every drive after it, 2026-10-28). True when the
+    waist is at the front."""
     from tasks import fetch
     with _waist_lock:
         try:
@@ -217,8 +219,11 @@ def waist_home(why):
                 log(f"  waist stays turned ({why}): a task runs")
                 return False
             if not fetch._at_pose(fetch._look()):
-                log(f"  waist stays turned ({why}): my arm is not folded in look")
-                return False
+                if not fold or fetch.state().get("holding"):
+                    log(f"  waist stays turned ({why}): my arm is not folded in look")
+                    return False
+                log(f"  arm back to look first ({why})")
+                arm_route.move(arm_route.plan(arm_route.HOME, holding=False), None, False)
             fetch._stop.clear()                       # no task runs: an old stop must not end this; a new one does
             if fetch._waist_to(0.0, in_place=True):
                 log(f"  waist to the front ({why})")
@@ -801,7 +806,7 @@ class Patrol:
         if self.mode == "patrol" and battery < LOW_BATTERY and now >= self.wait_until:
             log(f"battery {battery} % - going home to charge")
             self.pause()
-            if not waist_home("going home"):          # every drive starts with the waist at the front
+            if not waist_home("going home", fold=True):          # every drive starts with the waist at the front
                 self.wait_until = now + 5
                 return
             ok, msg = safe(agv.go, "home", default=(False, "error"))
@@ -850,7 +855,7 @@ class Patrol:
         if (ms == "running" and not force) or now < self.wait_until:   # something else is driving, or waiting
             return
         target = self.route[self.i]
-        if not waist_home("driving"):                   # every drive starts with the waist at the front
+        if not waist_home("driving", fold=True):                   # every drive starts with the waist at the front
             if self.once:                               # said by say_stuck
                 self.stuck, self.stuck_why, self.mode = target, WAIST_BACK_SAY, "done"
             else:
@@ -2201,7 +2206,8 @@ class Lumi:
             if not self.vision.present(track) or track.distance > REACH_COME_M:
                 self.fetch_say(*COME_CLOSER_SAY)
                 return None
-        angle = track.angle if track else self.voice_angle if self.voice_trusted else None
+        angle = track.angle if track else None              # only to someone seen: a "sure" voice was 166 deg
+                                                            # off with the person in front (2026-10-28 19:13)
         hand = safe(fetch.give_bearing, default=0.0) or 0.0
         turn = reach_turn(angle, hand)
         log(f"  reach: person at {'?' if angle is None else f'{angle:+.0f}'} deg, hand at {hand:+.0f} deg, "
@@ -3349,7 +3355,7 @@ class Lumi:
             return t
         view = CAMERA_HALF_FOV + (head.YAW_LIMIT if self.vision.camera == "head" else 0.0)
         w = waist_turned() if abs(robot_angle) > view and self.modes.drive and self.modes.patrol else None
-        if w is not None and waist_home("turning to a caller"):
+        if w is not None and waist_home("turning to a caller", fold=True):
             log(f"  caller outside the camera ({robot_angle:+.0f} deg): turning toward the voice")
             self.turn_head(0, force=True)                     # a call or an order: also over a held look
             safe(agv.turn_by, math.radians(robot_angle + w))      # from the base's front: the waist is there now
@@ -3384,7 +3390,7 @@ class Lumi:
             self.turn_head(HEAD_SIGN * robot_angle)
         elif self.modes.drive and self.modes.patrol:
             w = waist_turned()
-            if not waist_home("turning to a voice"):
+            if not waist_home("turning to a voice", fold=True):
                 return
             log(f"  voice behind ({robot_angle:+.0f} deg): turning the base")
             self.turn_head(0)
@@ -3425,7 +3431,7 @@ class Lumi:
         if goal is None:
             mouth.say("Sorry, I can't get closer from here.")
             return
-        if not waist_home("coming to a person"):         # every drive starts with the waist at the front
+        if not waist_home("coming to a person", fold=True):         # every drive starts with the waist at the front
             mouth.say(WAIST_BACK_SAY[0 if self.lang == "en" else 1])
             return
         ok, msg = safe(agv.go_point, *goal, default=(False, "error"))
@@ -3484,7 +3490,7 @@ class Lumi:
             self.keep_listening()
             return True
         far = spot["clamped"]
-        if not waist_home("driving where pointed"):      # every drive starts with the waist at the front
+        if not waist_home("driving where pointed", fold=True):      # every drive starts with the waist at the front
             mouth.say(WAIST_BACK_SAY[0 if en else 1])
             return True
         mouth.say((f"Going that way, {pointing.MAX_M:g} meters." if far else "Going there.") if en else
