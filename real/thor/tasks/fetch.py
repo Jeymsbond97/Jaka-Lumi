@@ -180,7 +180,9 @@ SHORT_MOVE_M = 0.10          # m; a shorter move goes at AXIS_SPEED (0.100 m dri
 SPEED_STEP = 0.2             # "faster" / "slower" by voice changes the drive speed by this part of the normal speed ...
 SPEED_MIN = 0.4              # ... down to this part of it ...
 SPEED_MAX = 1.6              # ... up to this (moves 0.16 m/s; estimate, still below navigation's NAV_SPEED_MPS)
-NAV_SPEED_MPS = 0.3          # m/s; navigation's max_speed_linear as the base has it (get_params, 2026-10-21) = normal;
+NAV_SPEED_MPS = 0.5          # m/s; navigation's max_speed_linear (sent before every move, robot/agv.py) = normal: the
+                             # base plans its own speed under it, full on a clear straight way, slower into turns and
+                             # near obstacles (its own value is 0.3, owner 2026-10-28: faster on straight ways);
 NAV_TURN_RADS = 0.3          # rad/s; its max_speed_angular, sent unchanged. Navigation is only ever slowed, never faster
 RECEIVE_WAIT_S = 30.0        # s; receive: nothing put in the hand by then -> the mission fails, hand open
 RECEIVE_DI_S = 0.5           # s; DI_1 (finger sensor) sees something this long -> Lumi asks the person to let go;
@@ -1225,6 +1227,7 @@ def _fitted(task, obj):
 
 
 speed_factor = 1.0          # the drive speed by voice: x MOVE_SPEED for moves, x NAV_SPEED_MPS (at most 1) for navigation
+agv.max_speed.update(linear=NAV_SPEED_MPS, angular=NAV_TURN_RADS)
 
 
 def set_speed(factor):
@@ -1234,8 +1237,9 @@ def set_speed(factor):
     global speed_factor
     factor = round(min(SPEED_MAX, max(SPEED_MIN, factor)), 2)
     nav = round(NAV_SPEED_MPS * min(factor, 1.0), 3)
+    agv.max_speed.update(linear=nav, angular=NAV_TURN_RADS)    # every later move; and the one running now:
     if nav != round(NAV_SPEED_MPS * min(speed_factor, 1.0), 3):
-        agv.request(f"/api/set_params?max_speed_linear={nav}&max_speed_angular={NAV_TURN_RADS}")
+        agv.set_max_speed(nav, NAV_TURN_RADS)
     speed_factor = factor
     log(f"drive speed x{factor:g} (moves {MOVE_SPEED * factor:.3f} m/s, navigation {nav:g} m/s)")
     return factor
@@ -2937,13 +2941,28 @@ def _person_point():
     return p.get("position_mm"), REACH_BODY_MM
 
 
-def reach(angle=0.0, say=None):
+def give_bearing():
+    """Where the hand points in `give` (deg, + left, waist frame: from the waist's axis, the waist at the front): the
+    taught pose holds it 21 deg to the right, so a waist turned straight at the person held the hand out beside them
+    (owner, 2026-10-28). 0 when the arm's place on the base is not measured."""
+    try:
+        cal = json.loads(CALIB_FILE.read_text())
+        yaw, xy = float(cal["arm_yaw_in_base_deg"]), np.array(cal["arm_xy_in_base_m"], float)
+    except (FileNotFoundError, ValueError, KeyError):
+        return 0.0
+    from robot import kinematics
+    hand = _rot(yaw) @ (np.array(kinematics.pose(motion.poses()["give"])[:2]) / 1000.0) + xy
+    return math.degrees(math.atan2(hand[1], hand[0]))
+
+
+def reach(angle=0.0, say=None, look=None):
     """Hold the hand out to the person ("reach out to me", "손 내밀어"): first, when `angle` (deg, + left, waist
     frame: the person tracker's) is not 0, the waist turns to face them (_waist_to, also with Patrol off: the base
     stays; its arm sweep checked; past the waist's limits they are asked to stand in front; the waist stays turned
     after; the head turns with it onto them and stays on them, also after), then the arm along the pose graph to give
     (arm_route, every move checked), then at most RECEIVE_REACH_MM straight towards their hand or body
-    (_person_point, _reach_to_hand). The arm stays out; "fold" brings it back to look."""
+    (_person_point, _reach_to_hand). The arm stays out; "fold" brings it back to look. `look`: the person's angle the
+    head stays on when the waist turns by another `angle` (to bring the hand, not the waist's front, onto them)."""
     if "give" not in motion.poses():
         raise FetchError("I haven't learned how to reach out yet.", "아직 손 내미는 법을 못 배웠어요.")
     _adopt()
@@ -2958,7 +2977,7 @@ def reach(angle=0.0, say=None):
             if angle:                                 # the waist, not the base: the person stays where they are
                 lo, hi = head.AXIS_LIMITS[1]
                 if not lo <= head.status()[1] + angle <= hi or \
-                        not _waist_to(angle + _waist_turn(), in_place=True, look=angle):
+                        not _waist_to(angle + _waist_turn(), in_place=True, look=angle if look is None else look):
                     raise FetchError(*TURN_TO_PERSON)
             _pose("give")
             _reach_to_hand(*_person_point())
