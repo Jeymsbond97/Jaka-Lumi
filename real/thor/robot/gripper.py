@@ -25,9 +25,9 @@ CLOSED_AI = 400              # AI_1 above this = closed on something (open reads
                              # held in the cup fingers reads ~2200-2300, 2026-10-13)
 EMPTY_AI = 3900              # closed above this = nothing between the fingers (empty reads 4100-4200, noise +-50)
 AI_OPEN, AI_SHUT = 140.0, 4160.0   # AI_1 fully open / closed on nothing (2026-10-19)
-# inner gap (mm) between the fingers, (open, closed), measured with a tape 2026-10-19 (docs/gripper/README.md); the gap
-# is taken as linear in AI_1: an 82 mm metal cup read 2189-2310 (2026-10-13), the line gives 81-83 mm at the belly
-GAP_MM = {"tips": (88.0, 59.0), "belly": (96.0, 70.0), "neck": (73.0, 47.0), "shank": (66.0, 39.0)}
+# inner gap (mm) between the fingers, (open, closed), measured with a tape (docs/gripper/README.md; the straight part
+# "shank" not measured on these fingers, the earlier one kept); the gap is taken as linear in AI_1
+GAP_MM = {"tips": (89.0, 63.0), "belly": (94.0, 68.0), "neck": (57.0, 30.0), "shank": (66.0, 39.0)}
 MOVE_S = 1.5                 # s a full stroke takes (measured ~1 s)
 SENSOR_DI = 0                # DI_1
 READ_TRIES, READ_GAP_S = 5, 0.1   # get_data now and then answers without the tool I/O: ask again
