@@ -27,6 +27,13 @@ def _guard(real):
 socket.socket.connect = _guard(socket.socket.connect)
 socket.socket.connect_ex = _guard(socket.socket.connect_ex)
 
+# the running assistant's blocked-drive state (/dev/shm): a test must not read it (after a live STUCK, "look at that"
+# became "go around" and the intents test failed, 2026-10-28)
+from assistant import detour as _detour                  # noqa: E402
+import tempfile as _tempfile                             # noqa: E402
+from pathlib import Path as _Path                        # noqa: E402
+_detour.STATE_FILE = _Path(_tempfile.mkdtemp()) / "lumi_stuck.json"
+
 
 @atexit.register
 def _report():
