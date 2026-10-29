@@ -132,7 +132,8 @@ WAKE = re.compile(rf"\b(hi|hey|hello|okay|ok|hai|high|{WAKE_UP_EN})?[\s,.!]*(lum
 # ^ "Hey Lumi", "Lumi", "wake up (Lumi)", "Lumi, wake up", "루미야", "헤이 루미", "루미야 일어나", "일어나세요";
 #   a bare "wake up" / "일어나" only as the whole utterance ("I wake up at 7" is no call)
 WAKE_REPLY = {"en": "Yes? How can I help?", "ko": "네? 무엇을 도와드릴까요?"}
-NAME_ONLY = re.compile(r"^\s*(hi |hey |hello )?(lumi|loomi|rumi|루미)[\s,.!?]*$", re.I)
+NAME_ONLY = re.compile(r"^\s*(?:(?:hi|hey|hello|헤이|하이)[\s,]+)?(?:lumi|loomi|rumi|루미|누미)(?:야|아)?[\s,.!?~]*$", re.I)
+# ^ only the name, also "루미야" / "헤이 루미" (went to the LLM: "안녕하세요! 제 이름 불러 주셔서 기뻐요." after 2.3 s)
 FETCH_STOP = re.compile(r"\b(sto+pp?|stob|halt|freeze|don'?t move)\b|^\W*(?:lumi\W+)?stopped\W*$|스탑|스텁|멈추(?:세요|십시오)|^\W*abort\W*$|\babort (?:the |this |your )?(?:mission|task|trip)\b|\bcancel (?:the |this |your )?(?:mission|task|trip)\b|"
                         r"머+엄*춰|머+엄*추(?:세요|십시오)|멈춰|멈추(?:게|시게|게나|시오|어라)|그만|정지|스톱|스땁|스떱|미션 ?취소|작업 ?취소|"
                         r"거기 ?서(?: ?봐| ?있어)?(?=[\s!.~,]*$)|(?:^|[\s,])서(?:라|요)?(?=[\s!.~,]*$)|\bhold it(?: right)? (?:there|here)\b|"
@@ -183,13 +184,14 @@ def needs_arm(action, target=""):
     return action in ARM_TASKS or action == "arm" and target not in ("open", "close")
 
 
-def reach_turn(angle):
+def reach_turn(angle, hand=0.0):
     """Waist turn (deg, + left) before "reach out to me" to a person at the waist-frame `angle` (None: nobody seen or
-    heard): 0 within REACH_FRONT_DEG of the front, else the angle. Greeter only turns the waist for it too: the base
-    stays (fetch.reach)."""
+    heard) that brings the hand, held out at `hand` deg in give (fetch.give_bearing), onto them: 0 within
+    REACH_FRONT_DEG, else angle - hand. Greeter only turns the waist for it too: the base stays (fetch.reach)."""
     if angle is None:
         return None
-    return 0.0 if abs(angle) <= REACH_FRONT_DEG else float(angle)
+    turn = float(angle) - hand
+    return 0.0 if abs(turn) <= REACH_FRONT_DEG else turn
 
 
 _waist_lock = threading.Lock()     # one waist return at a time (a conversation's end and the drive after it)
@@ -393,9 +395,12 @@ FOLLOW_SORRY_S = 20.0              # s; "Sorry, I'm following someone" at most t
 COME_STOP = 1.1                    # m; driving to a person stops when the camera sees them this close
 COME_TIMEOUT = 60.0                # s
 MAX_MOVE_M = 3.0                   # m; "move forward N metres" is limited to this
-REACH_FRONT_DEG = 20.0             # deg; "reach out to me": a person further to the side than this is turned to first
-                                   # (the waist, Greeter or Patrol). Estimate: the reach after give moves at most
-                                   # fetch.RECEIVE_REACH_MM sideways
+REACH_FRONT_DEG = 10.0             # deg; "reach out to me": a person further than this from where the hand points is
+                                   # turned to first (the waist, Greeter or Patrol); the reach after give moves at most
+                                   # fetch.RECEIVE_REACH_MM sideways (estimate)
+REACH_COME_M = 1.5                 # m; a person further than this is driven to first (come_to, COME_STOP), the hand is
+                                   # never held out from afar (owner, 2026-10-28)
+COME_CLOSER_SAY = ("Please come a little closer.", "조금 더 가까이 와 주세요.")
 STAND_IN_FRONT_SAY = ("Please stand in front of me.", "제 앞에 서 주세요.")
 REACH_HOLD_S = 30.0                # s the hand stays held out after a reach, then the arm folds back to look (estimate)
 REACH_DONE = re.compile(r"\b(?:thanks?|thank you|thx|ok(?:ay)?|got it|done|that'?s (?:it|all|enough)|enough|good|great|"
@@ -2147,8 +2152,9 @@ class Lumi:
 
     def reach_out(self, held):
         """"Reach out to me", "give me your hand", "손 내밀어": something in the hand = hand it over. Else toward the
-        person (the tracked one, else the one the voice came from, else the voice's direction): the head turns to
-        them; further to the side than REACH_FRONT_DEG the waist turns first (reach_turn, Greeter only too: the base
+        person (the tracked one, else the one the voice came from, else the voice's direction): further than
+        REACH_COME_M the base comes to them first (come_to); the head turns to them; the hand further from them than
+        REACH_FRONT_DEG: the waist turns first, until the hand (not the waist's front) points at them (reach_turn, Greeter only too: the base
         stays); then fetch.reach (give pose along the graph, a short checked move toward their hand). The arm folds back on "thanks" / "okay" or after REACH_HOLD_S (reach_done).
         True when started, None when refused or handed over (said)."""
         from tasks import fetch
@@ -2164,9 +2170,20 @@ class Lumi:
         if self.vision:
             track = self.current if self.current and self.vision.present(self.current) else \
                 self.vision.near_angle(self.voice_angle) if self.voice_trusted else self.vision.only_person()
+        if track is not None and track.distance > REACH_COME_M:   # far: go to them first, never reach from afar
+            if not self.modes.drive:
+                self.fetch_say(*COME_CLOSER_SAY)
+                return None
+            log(f"  reach: person #{track.id} {track.distance:.2f} m away: coming closer first")
+            self.come_to(track)
+            if not self.vision.present(track) or track.distance > REACH_COME_M:
+                self.fetch_say(*COME_CLOSER_SAY)
+                return None
         angle = track.angle if track else self.voice_angle if self.voice_trusted else None
-        turn = reach_turn(angle)
-        log(f"  reach: person at {'?' if angle is None else f'{angle:+.0f}'} deg, waist turn {turn}")
+        hand = safe(fetch.give_bearing, default=0.0) or 0.0
+        turn = reach_turn(angle, hand)
+        log(f"  reach: person at {'?' if angle is None else f'{angle:+.0f}'} deg, hand at {hand:+.0f} deg, "
+            f"waist turn {turn}")
         if turn is None:
             self.fetch_say(*STAND_IN_FRONT_SAY)
             return None
@@ -2174,7 +2191,7 @@ class Lumi:
             self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), force=True)   # it raced it
         self.stay()
         try:
-            fetch.reach(turn, say=self.fetch_say)
+            fetch.reach(turn, say=self.fetch_say, look=angle)
         except fetch.FetchError as e:
             log(f"  reach refused: {e}")
             self.fetch_say(e.args[0], e.args[1] if len(e.args) > 1 else "죄송해요, 지금은 할 수 없어요.")
@@ -3455,9 +3472,9 @@ class Lumi:
         self.current, track.greeted = track, True
         self.follow_by_clip = getattr(getattr(self, "last_u", None), "source", None) == "clip"
         log(f"FOLLOW person #{track.id} at {track.distance:.2f} m {track.angle:+.0f} deg")
-        mouth.say("Okay, I'll follow you. Say stop when you want me to stay." if en
-                  else "네, 따라갈게요. 멈추려면 멈춰라고 하세요.")
         follow.start(lambda: self.vision.follow_view(track), say=self.fetch_say, people=self.vision.follow_views)
+        mouth.say("Okay, I'll follow you." if en else "네, 따라갈게요.")   # while it already moves (owner: no waiting
+                                                                          # for a long sentence first)
         self.keep_listening()
 
     def follow_stop(self, text):
