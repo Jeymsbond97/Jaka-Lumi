@@ -1498,8 +1498,6 @@ def _supervise():
             pass
 
 
-threading.Thread(target=_supervise, daemon=True).start()
-
 @app.get("/health", tags=["status"])
 def health():
     return {"ok": True}
@@ -1528,4 +1526,6 @@ if __name__ == "__main__":
     camview.ensure_running()                             # the camera service owns both cameras
     threading.Thread(target=start_services, daemon=True).start()
     threading.Thread(target=_drive_log, daemon=True).start()
+    # the supervisor here, not on import: a test importing this module started real lumi.py processes (2026-10-28)
+    threading.Thread(target=_supervise, daemon=True).start()
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
