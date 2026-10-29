@@ -42,6 +42,9 @@ class Vision:
 
     visible = present
 
+    def anyone(self):
+        return bool(self.tracks)
+
     def only_seen(self):
         return self.tracks[0] if len(self.tracks) == 1 else None
 
@@ -196,4 +199,28 @@ L.turn_head = lambda yaw=None, pitch=None, force=False: heads.append((round(yaw)
 L.find_caller(50.0, True)
 lumi.time.sleep = real_sleep
 assert heads == [(S * 50, True), (S * 38, True)], heads
+# ---- who gave the order (speaker_track): never the wrong one of several people ----
+owner, other = Track(20, 60.0, 4.0), Track(21, 0.0, 2.0)
+L = fresh(owner, other)                              # the owner far behind the head's turn, someone else near ahead:
+L._yaw = S * 60.0                                    # the head looks at the owner ("look at me" left it there)
+L.voice_trusted = False
+assert L.speaker_track() is owner and not said
+L = fresh(owner, other)
+L.voice_trusted, L.voice_angle = True, 2.0           # a sure voice wins over the look
+assert L.speaker_track() is other
+L = fresh(owner, other)                              # the voice unsure, the head between them, nobody talked with:
+L.voice_trusted, L.voice_angle, L._yaw = False, 5.0, S * 30.0   # asked to raise a hand, the one who does is taken
+up.append(60.0)
+assert L.speaker_track() is owner and said == [lumi.RAISE_HAND_SAY[0]], said
+up.clear()
+L = fresh(owner, other)                              # nobody raises a hand: nobody is taken, it says so
+L.voice_trusted, L._yaw, real_raise, lumi.RAISE_HAND_S = False, S * 30.0, lumi.RAISE_HAND_S, 0.3
+assert L.speaker_track() is None and said == [lumi.RAISE_HAND_SAY[0], lumi.WHO_ASKED_SAY[0]], said
+goals = []                                           # ... and "come here" then drives nowhere, no "can't see you"
+lumi.agv.go_point = lambda *a: goals.append(a) or (True, "")
+L = fresh(owner, other)
+L.voice_trusted, L._yaw = False, S * 30.0
+L.come_to(None)
+assert not goals and said == [lumi.RAISE_HAND_SAY[0], lumi.WHO_ASKED_SAY[0]], said
+lumi.RAISE_HAND_S, lumi.agv.go_point = real_raise, (lambda *a: (True, ""))
 print("focus ok")
