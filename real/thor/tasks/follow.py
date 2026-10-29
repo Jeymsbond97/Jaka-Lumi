@@ -164,9 +164,12 @@ def blocked(v, w, arm_pts, pose=None):
         if ahead < BASE_CLEAR_M and ahead < agv.clearance(x, y):
             return f"an obstacle {ahead:.2f} m from the base's way"
     c, s = math.cos(th2), math.sin(th2)
+    c0, s0 = math.cos(th), math.sin(th)
     for p in arm_pts:
         px, py = x2 + c * p[0] - s * p[1], y2 + s * p[0] + c * p[1]
-        if agv.clearance(px, py) < ARM_CLEAR_M:
+        near = agv.clearance(px, py)
+        # as the base's: only coming nearer counts (beside a wall, driving along it stopped the follow, 2026-10-28)
+        if near < ARM_CLEAR_M and near < agv.clearance(x + c0 * p[0] - s0 * p[1], y + s0 * p[0] + c0 * p[1]):
             return f"my arm would hit something at ({px:.2f}, {py:.2f})"
     return None
 
@@ -340,7 +343,7 @@ def _run(see, say, people):
         if _fresh(got):
             person.seen(_to_map(_seen_from(agv.pose(), fetch._waist_turn()), *got[:2]), time.time() - got[2])
         arm_pts = prepare()
-        agv.set_max_speed(FOLLOW_MAX_MS, fetch.NAV_TURN_RADS)   # joy_control is capped by it too (the next
+        agv.set_max_speed(FOLLOW_MAX_MS, TURN_MAX_RS)          # joy_control is capped by it too (the next
         lift, waist, yaw = head.status()[:3]                   # navigation move sends its own again)
         turned = fetch._waist_turn()
         front, gaze = waist - turned, turned + yaw        # the waist's reading at the front; where the head looks
