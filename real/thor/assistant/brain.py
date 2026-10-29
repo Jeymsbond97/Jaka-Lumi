@@ -2824,7 +2824,12 @@ HELP_OFFER = re.compile(r"\b(how|what) (can|may) i (help|assist|do for) you\b|\b
                         r"(?:더 |또 )?궁금한 (?:게|거|것이|점이?) (?:더 |또 )?(?:있으시면|생기면|있으면)|언제든(?:지)? (?:물어|말씀)", re.I)   # owner: never tacked on after an answer
 SAY_AGAIN = re.compile(r"\b(say (it|that) again|repeat (it|that|please)|again,? please|one more time|come again|"
                        r"pardon|say again)\b|^\s*again\s*\??\s*$|다시 ?(한 ?번|말해|말씀|해 ?줘)|한 ?번 ?더|"
-                       r"^\s*뭐라고(요)?\s*\??\s*$", re.I)
+                       r"^\s*뭐라고(요)?\s*\??\s*$|"
+                       # "What did you say?" went to the LLM, which repeated the answer before the last (2026-10-28)
+                       r"^\W*(?:(?:sorry|okay|ok|and|so|wait)\W+)?what did you (?:just )?say\W*$|"
+                       r"^\W*(?:sorry\W+)?what was that\W*$|"
+                       r"^\W*(?:방금|아까|지금)?\s*뭐라고\s*(?:했어|했어요|했니|했지|했죠|하셨어요|하셨죠|말했어|말했어요|그랬어|그랬어요)\s*\??\s*$",
+                       re.I)
 IN_LANGUAGE = re.compile(r"^\s*(and |then |now |okay,? |and say it |say (it|that) )?(in|into) (korean|english)\b|"
                          r"\b(say|tell me) (it|that) in (korean|english)\b|"
                          r"^\s*(그거|그걸|그럼|다시|이번엔|이제)?\s*(한국어|영어|korean|english)\s?로(?!.*(대화|할 ?수|할 ?줄|돼요\?|되나))"

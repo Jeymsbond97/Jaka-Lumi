@@ -150,6 +150,14 @@ if __name__ == "__main__":
     b.history = [("what's a lidar?", "ACTION: none -\nA laser scanner.")]
     assert b._after({"action": "quiet", "target": ""}, "에이, 거짓말하지 마")["action"] == "none"
     assert b.again("one more time") == "same" and b._after({"action": "none", "target": ""}, "again")["action"] == "none"
+    # "What did you say?" repeats the LAST answer (a seeing one too), not the one before (live 2026-10-28 16:42)
+    b.history = [("What is in my hand?", "ACTION: none -\nYou're holding a grey remote in your right hand."),
+                 ("What is the color of my t-shirt?", "ACTION: none -\nYour t-shirt looks grey.")]
+    for t in ("What did you say?", "Sorry, what did you say?", "what was that?", "방금 뭐라고 했어?", "뭐라고 하셨어요?"):
+        assert b.again(t) == "same", t
+    assert list(b.repeat("What did you say?", "same"))[1:] == ["Your t-shirt looks grey."]
+    for t in ("What did you say about the arm?", "What do you say?", "what was that song?"):
+        assert not b.again(t), t
     from assistant import driving                       # "more" right after a look: the head a step further (live 2026-10-23)
     looked = driving.last_command([("Look at the left side.", "ACTION: look left")])
     for said in ("More again.", "Look at more.", "Look at the left side more.", "more", "a bit more", "again", "더", "조금 더",
