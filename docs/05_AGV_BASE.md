@@ -133,6 +133,7 @@ print(agv("/api/robot_status"))
 
 - **One command lasts 0.5 s**, then the base stops. Send at > 2 Hz (10 Hz recommended) for continuous motion.
 - Overrides navigation (`/api/move`).
+- Also capped by `max_speed_linear` (`/api/set_params`, default 0.3 m/s): 0.5 commanded drives 0.30 until it is raised.
 - Vendor keyboard example: every 0.1 s, v = 0.5 m/s, w = 0.3 rad/s.
 
 ```python
@@ -190,7 +191,7 @@ Keep the socket open to receive the callbacks.
 
 | Command | Notes |
 |---|---|
-| `/api/set_params?max_speed_linear=0.3&max_speed_angular=0.5` | 0.1–1.0 m/s, 0.5–3.5 rad/s; reset at restart; always answers `OK`, confirm with `/api/get_params` |
+| `/api/set_params?max_speed_linear=0.3&max_speed_angular=0.5` | 0.1–1.0 m/s, 0.5–3.5 rad/s; caps navigation and `joy_control`; reset at restart (0.3 / 0.3), so `robot/agv.py` sends it before every move; always answers `OK`, confirm with `/api/get_params` |
 | `/api/estop?flag=true` / `false` | Software E-stop (motors free, base can be pushed). Separate from the hardware E-stop; neither releases the other; reset to false at restart |
 | `/api/map/list`, `/api/map/get_current_map` (resolution, width, height, origin), `/api/map/set_current_map?map_name=..&floor=..`, `/api/map/list_info` | Maps (setting a map restarts the base service) |
 | `/api/map/accessible_point_query?x=..&y=..`, `/api/map/distance_probe?x=..&y=..` | Nearest reachable point; distance to obstacles |
