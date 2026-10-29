@@ -93,6 +93,9 @@ class World:
         self.t = now
 
     def request(self, cmd):
+        if cmd.startswith("/api/set_params?"):     # the base's cap on joy_control: follow raises it to FOLLOW_MAX_MS
+            self.cap = float(re.search(r"max_speed_linear=([\d.]+)", cmd)[1])
+            return {"status": "OK"}
         m = re.match(r"/api/joy_control\?linear_velocity=(-?[\d.]+)&angular_velocity=(-?[\d.]+)$", cmd)
         if not m:
             forbid()
@@ -156,6 +159,7 @@ w = World(person=(2.2, 0.4), walk=(0.3, 0.05), walk_s=2.0)
 follow.start(w.see, say)
 time.sleep(6.0)
 assert follow.running()
+assert w.cap == follow.FOLLOW_MAX_MS, getattr(w, "cap", None)   # else the base's own 0.3 caps it (2026-10-28)
 assert follow.stop() and wait_end(0.5)
 vs, ws = [c[1] for c in w.cmds], [c[2] for c in w.cmds]
 assert max(vs) <= follow.FOLLOW_MAX_MS + 1e-9 and max(vs) > 0.85 * follow.FOLLOW_MAX_MS, max(vs)          # capped, and it got there
