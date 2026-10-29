@@ -40,11 +40,17 @@ class Vision:
     def present(self, t):
         return t in self.tracks
 
+    visible = present
+
+    def only_seen(self):
+        return self.tracks[0] if len(self.tracks) == 1 else None
+
     def to_greet(self):
         return next((t for t in self.tracks if not t.greeted), None)
 
-    def only_person(self):
-        return self.tracks[0] if len(self.tracks) == 1 else None
+    def only_person(self):                          # as lumi.Vision: within 3 m
+        near = [t for t in self.tracks if t.distance <= 3.0]
+        return near[0] if len(near) == 1 else None
 
     def nearest_greeted(self):
         return next((t for t in self.tracks if t.greeted), None)
@@ -165,6 +171,19 @@ threading.Timer(1.5, lambda: base.update(move_status="succeeded")).start()
 L.come_to(L.current, say=True)
 settle()
 assert moves and set(moves) == {S * -19}, moves
+
+# ---- "come here" to the one person seen 4.7 m away, the voice unsure: drives to them (live 2026-10-28 17:42: "do you
+# see me?" yes, "come here" said "I can't see you": present() ends at STAY_MAX, only_person() at 3 m) ----
+goals = []
+lumi.agv.go_point = lambda *a: goals.append(a) or (True, "")
+L = fresh(Track(13, 187.0, 4.7))
+L.current, L.voice_angle, L.voice_trusted = None, 244.0, False
+base["move_status"] = "running"
+threading.Timer(1.0, lambda: base.update(move_status="succeeded")).start()
+L.come_to(L.current, say=True)
+settle()
+assert goals == [(2.0, 0.0, 0.0)] and L.current is not None and L.current.id == 13, (goals, L.current)
+lumi.agv.go_point = lambda *a: (True, "")
 
 # ---- after turning to the voice: the person nearest its side, not the nearest one far off it ----
 heads = []

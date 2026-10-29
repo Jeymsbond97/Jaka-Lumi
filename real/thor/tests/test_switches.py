@@ -189,7 +189,8 @@ fetch.give_bearing = lambda: 0.0
 L.fetch_finish = lambda how, **k: moved.append(how)
 L.skill_thread, L.voice_trusted = None, False
 person = types.SimpleNamespace(angle=35.0, distance=1.0, id=8)
-L.vision = types.SimpleNamespace(present=lambda t: False, near_angle=lambda a, d=25: None, only_person=lambda: person)
+L.vision = types.SimpleNamespace(present=lambda t: False, near_angle=lambda a, d=25: None, only_person=lambda: person,
+                                  visible=lambda t: False, only_seen=lambda: person)
 L.turn_head = lambda yaw=None, pitch=None, force=False: moved.append(("head", yaw))
 for patrol, angle, want in ((False, 35.0, [35.0]), (True, 35.0, [35.0]), (False, -40.0, [-40.0]), (False, -8.0, [0.0]),
                            (True, -8.0, [0.0])):

@@ -119,7 +119,7 @@ class Track:
 
 
 class Vision:
-    present = lambda self, t: True
+    present = visible = lambda self, t: True
 
 
 lumi.agv.pose = lambda: (0.0, 0.0, 0.0)
