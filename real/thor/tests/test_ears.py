@@ -53,6 +53,9 @@ assert ears.transcribe(AUDIO) == "" and asked == [None, "no prompt"], asked
 # the name really said: kept
 asked = fake({None: ("Hey Lumi.", "english", 0.9, -0.05), "no prompt": ("Hey, Liumu!", "english", 0.9, -0.8)})
 assert ears.transcribe(AUDIO) == "Hey Lumi." and asked == [None, "no prompt"], asked
+for plain in ("Луны.", "Думай.", "Lume"):           # the name from the clip mic without the prompt (logs/heard 16:18:21)
+    asked = fake({None: ("Lumi.", "english", 0.9, -0.05), "no prompt": (plain, "russian", 0.5, -0.6)})
+    assert ears.transcribe(AUDIO) == "Lumi.", plain
 # tagged Korean but written in Latin letters (understood() would refuse it): asked in English, the same words kept
 asked = fake({None: ("Wait.", "korean", 0.6, -0.01), "en": ("Wait.", "english", None, -0.02)})
 assert ears.transcribe(AUDIO) == "Wait." and ears.understood() and asked == [None, "en"], asked

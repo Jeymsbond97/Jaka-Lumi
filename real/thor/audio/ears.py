@@ -95,6 +95,9 @@ NAME_ONLY = re.compile(r"\W*(lumi|루미야?)\W*", re.I)
 # (2026-10-21 12:00-13:50) were a clap, a thud, music or "はい" without the prompt. Such a text is checked once more
 # without the prompt and dropped when no word there sounds like the name.
 CALL_ONLY = re.compile(r"\W*(?:(?:hi|hey|hello|안녕)\W*)?(lumi|루미야?)\W*", re.I)
+CYRILLIC = str.maketrans("абвгдежзийклмнопрстуфхцчшщыэюяАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЫЭЮЯ",   # without the prompt
+                         "abvgdejziiklmnoprstufhcchsyeuaABVGDEJZIIKLMNOPRSTUFHCCHSYEUA")   # the clip mic's "Lumi" came
+                                 # back Cyrillic ("Луны", "Думай", logs/heard 2026-10-28) and was dropped as no name
 KO_BONUS = 0.3                   # another language named: asked in Korean and in English, a Hangul answer's average
                                  # log-probability counts this much more (tests/asr_check.py: +3 of 898 cases)
 ODD_KO_BONUS = 0.3               # English text with a word no dictionary has: Korean asked too, taken when written in
@@ -216,7 +219,9 @@ def _letters(text):
 
 
 def lumi_like(text):
-    """A word that may be the name as whisper writes it without the prompt ("Louie", "Lumen", "Remia", "루미")."""
+    """A word that may be the name as whisper writes it without the prompt ("Louie", "Lumen", "Remia", "루미"; from
+    the clip mic also in Cyrillic: "Луны", "Думай", read in Latin letters)."""
+    text = text.translate(CYRILLIC)
     if re.search(r"루미|루(?![가-힣])|ルミ|미야|민희|^\W*이미|\b[lr]e?mi|\bb?l[ou]{1,2}m|\bl[ou]{1,2}n(?:e?y|i|e)\b", text,
                  re.I):                                  # "안녕 민희야", "Bloomy", "Looney" (logs/heard 18:35:10)
         return True
