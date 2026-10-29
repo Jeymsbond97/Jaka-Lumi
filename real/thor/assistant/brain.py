@@ -229,7 +229,8 @@ up when someone says "Hi Lumi"."""
 ACTIONS = """
 You can also move. Decide if the visitor asks you to do something:
 - "go_to": drive to a place. "target" must be one of these marker names: {markers}.
-  "home", "charger", "charging station" and "go back" mean "home". Map spoken names to the closest marker
+  "home" and "go back" mean "home"; "charger", "charging station" mean the marker "charge" when it is listed,
+  else "home". Map spoken names to the closest marker
   name (e.g. "point one" or "포인트 원" -> "point1"). If no marker fits, use "none" and say which places you know.
 - "look": turn your head. "target" is one of: left, right, center, up, down.
 - "wave": wave your hand.
@@ -350,8 +351,8 @@ def _chat(messages, fmt=None, temperature=0.3):
 
 ACTIONS_STREAM = """
 You can also move. Decide if the visitor asks you to do something:
-- go_to <marker>: drive to a place. Marker names: {markers}. "home", "charger", "charging station" mean
-  home. Map spoken names to the closest marker name (e.g. "point one" -> p1); the same place said in the other
+- go_to <marker>: drive to a place. Marker names: {markers}. "home" means home; "charger", "charging
+  station" mean the marker "charge" when it is listed, else home. Map spoken names to the closest marker name (e.g. "point one" -> p1); the same place said in the other
   language or letters is that marker ("photo zone" -> 포토존, "레지스트레이션" -> Registration, "the meeting room" ->
   회의실), but a different name or number is not.
 - come: come to the visitor ("come here", "come to me", "come closer", "이리 와", "여기로 와").
@@ -1467,6 +1468,9 @@ def _intent(text, markers=()):
         if action == "go_home":
             if re.search(r"(^|\s)(나|저|우리|저희)(는|도)?\s", t):
                 return None                                 # "나 이제 집에 가": the visitor goes home
+            c = charger(markers)
+            if c and re.search(_CHARGER_WORD, t):
+                return ("go_to", c)                         # "let's go charger" with a charge marker on the map
             return ("go_to", "home") if "home" in markers else None
         if action == "go_point":
             g = m.groups() + (None,) * 5
@@ -1854,6 +1858,13 @@ def _recase(t, text):
 # ---------- fetch tasks (docs/16 §4): strict parsing, nothing is guessed ----------
 _HERE = r"here|me|여기|이쪽|나한테|저한테|나에게|저에게"
 _HOME = r"home|charger|charging station|dock|충전기|충전소"
+_CHARGER_WORD = r"\bcharg(?:er|ing)\b|\bgo (?:re)?charge\b|충전|차지하러"   # the charger, not home, when the map has one
+
+
+def charger(markers):
+    """The map's charger marker ("charge"), None when there is none and the charger is home."""
+    return next((m for m in markers if re.fullmatch(r"charg(?:e|er|ing)", m.lower())), None)
+
 _TABLE = r"table|테이블|책상|탁자"
 _PLACE_WORD = rf"(?:point|marker|포인트)\s*(\d+)|(?<![a-z])p\s?(\d+)(?!\d)|(\d+)\s*번|(?<![a-z])({_HOME}|{_HERE})(?![a-z0-9_])"
 # ^ "dock" alone is home, "dock2" is the marker dock2
@@ -1913,6 +1924,8 @@ def _resolve(m, markers):
     word = next((g for g in m.groups()[3:] if g), "")
     if re.fullmatch(_HERE, word):
         return "here"
+    if re.fullmatch(_HOME, word) and re.search(_CHARGER_WORD, word) and charger(markers):
+        return charger(markers)
     name = f"p{n}" if n else ("home" if re.fullmatch(_HOME, word) else word)
     return wording.marker(name, markers)
 
@@ -1998,6 +2011,10 @@ def named_place(text, marker, markers):
     """True when the words name this marker ("p1", "point one", "피원", "1번", "home", "the charger", "go back").
     A one-letter marker ("a") only after "point" / "marker" or as the last word of "to a": not the article."""
     t = _norm(text, markers)
+    if charger(markers) and re.search(_CHARGER_WORD, t):
+        if marker == charger(markers):
+            return True
+        t = re.sub(_CHARGER_WORD, " ", t)                   # the charger is not home here
     if marker == "home" and re.search(r"\bgo back\b|돌아가|\b(?:home|dock|charger|charging station)\b|집(?:으로|에)|"
                                       r"충전|도크", t):
         return True
