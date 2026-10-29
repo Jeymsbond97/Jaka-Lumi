@@ -117,6 +117,15 @@ assert f == fetch.SPEED_MIN and sent[-1].startswith(f"/api/set_params?max_speed_
 assert all(float(c.split("=")[1].split("&")[0]) <= fetch.NAV_SPEED_MPS for c in sent)
 f = fetch.set_speed(1.0)
 assert sent[-1].startswith(f"/api/set_params?max_speed_linear={fetch.NAV_SPEED_MPS:g}") and f == 1.0
+sent.clear()                                         # every navigation move sends the speed first: the base forgets it
+real_status = fetch.agv.status                       # at its restart (0.3 m/s of its own, 2026-10-28)
+fetch.agv.status = lambda: {"move_status": "idle"}
+fetch.agv.request = lambda cmd, timeout=3.0: sent.append(cmd) or {"status": "FAIL"}
+fetch.agv.go("p1")
+assert sent == [f"/api/set_params?max_speed_linear={fetch.NAV_SPEED_MPS:g}&max_speed_angular={fetch.NAV_TURN_RADS:g}",
+                "/api/move?marker=p1"], sent
+fetch.agv.status = real_status
+fetch.agv.request = lambda cmd, timeout=3.0: sent.append(cmd) or {}
 assert driving.say_speed(1, 1.2, True) == "Okay, a bit faster: 120 percent of my normal speed."
 assert driving.say_speed(1, fetch.SPEED_MAX, False) == "I'm already at my top speed."
 
