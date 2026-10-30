@@ -49,8 +49,8 @@ cup = lambda x, y, top=-260.0: {"name": "cup", "colour": "grey", "x": float(x), 
 reach = lambda o: skills.reachable_pick(o, accept=fetch._carry_ok)
 trusted = lambda o: skills.reachable_pick(o, accept=fetch._carry_ok, max_yaw=skills.TRUSTED_YAW_DEG)   # fetch's first try
 
-plan = reach(cup(-96, 598))                                  # picked live 2026-10-2x 15:39 (J5 +20, no turn): now
-assert plan and round(skills.yaw_of(plan[0][1][1])) == -15, plan   # no IK at the grasp unturned there; -15 is trusted
+plan = reach(cup(-96, 598))                                  # picked live 2026-10-2x 15:39 (J5 +20, no turn): planned
+assert plan and round(skills.yaw_of(plan[0][1][1])) == 0, plan     # unturned, J5 +22
 for xy in ((-171, 697), (-395, 629), (-480, 652)):          # refused live from where it stood: still out of reach
     assert reach(cup(*xy)) is None, xy                      # of the arm alone at waist 0 (base moved then)
 

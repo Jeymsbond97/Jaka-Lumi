@@ -28,9 +28,9 @@
   -301.0
  ],
  "tcp_offset_flange": [
-  88.1,
-  -61.6,
-  179.8
+  85.6,
+  -80.6,
+  175.0
  ],
- "tcp_offset_note": "new fingers, 2026-10-29: mean of 3 owner's free-drive side grasps (data/grasp_side_teach.json; cup in the hooks' belly, grasp turned -24..-33 deg; the cup's centre seen after the hand backed out), spread under 1 mm; then 1 mm to the left across the fingers (the first auto side grasp brushed the cup with the right finger, owner); the old point was 43.5 mm too far out along the fingers. Height kept from the tape (hook bottom 20 mm over a 142 mm cup's rim + 8 mm). Before: [83.2, -69.2, 221.8]"
+ "tcp_offset_note": "new fingers, 2026-10-29: fitted to 7 owner's free-drive top grasps (data/grasp_top_teach.json; the cup centred in the hooks' belly about 5 cm under the rim, grasp turned -45..+32 deg, 4 cup spots) together with the camera's cup-centre error (vision/objects.py ROUND_FIX_MM): every sample within 5 mm; the height so that BELOW_RIM_MM puts the hooks where the owner held them. Before: [88.1, -61.6, 179.8]"
 }
