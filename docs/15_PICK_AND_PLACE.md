@@ -110,6 +110,16 @@ From the aligned depth inside the object mask:
 5. **Lift off** 3–5 cm straight up, read AI_1 and DI_1 again: still holding? Otherwise put back down and report a slip.
 6. Carry with the arm close to the body. Hold low and slow while the base drives.
 
+**Side grasp** (cups too wide at the top for the hooks to come down over them, `skills.side`): when the top's width
+(`grip_width`) is over `MAX_WIDTH`, the torso camera's width profile down the cup (`objects.profile`, median of the
+frames) gives the grasp height nearest `SIDE_AT` of the cup's height where the width the fingers meet stays within
+`MIN_WIDTH`..`SIDE_MAX_WIDTH` over the hooks' thickness, the hooks stay clear of the table and under the rim
+(`skills.side_height`); a short cup is taken lower, a tall one higher. The hand comes down beside the cup at that
+height, `side_back` from the grasp against the finger tips' direction, goes in level so the cup enters between the
+open tips, closes and lifts. After a miss and after putting it down the open hand first backs out the same way, then
+goes up (the rim is wider than the hooks). No height fits: "too wide for my hand, also lower down". Live: an 84 mm
+rim cup (142 mm tall, 71 mm at 45 mm up) picked at 60 mm up and put back (AI_1 3278).
+
 Grip force cannot be set from software with digital outputs. It comes from the gripper's own setting ("Funct" switch). The software side of "not too hard" is: never close on something narrower than the measured width predicts, and refuse objects classed as fragile unless the force setting is known to be safe for them.
 
 ### 3.6 Place and give
@@ -119,7 +129,7 @@ Grip force cannot be set from software with digital outputs. It comes from the g
 
 ### 3.7 Arm pose graph
 
-The arm goes between named poses only by joint moves between taught poses (`manipulation/arm_route.py`). With an empty hand any two poses may be one move apart when that move passes the checks below (never `look` – `wave_start`); the route is the one of least joint travel (each move its largest joint turn plus `STOP_DEG` per stop), each move checked before it is taken, a refused one left out. So from `wave_start` the arm goes straight to `give`, from `look` straight to `give`, from `give` straight to `look`. With something in the hand only the edges below, never a wave pose:
+The arm goes between named poses only by joint moves between taught poses (`manipulation/arm_route.py`). With an empty hand any two poses may be one move apart when that move passes the checks below (never `look` – `wave_start`); the route is the one of least joint travel (each move its largest joint turn plus `STOP_DEG` per stop), each move checked before it is taken, a refused one left out. So from `wave_start` the arm goes straight to `give`, from `look` straight to `give`, from `give` straight to `look`. With `give_pre` taught (the pose one step before `give`), every empty-hand way to `give` goes to `give_pre` first (never through `give`), stands there, and ends with one move `give_pre` → `give` at `GIVE_SPEED`; with something in the hand `give_pre` is not used. With something in the hand only the edges below, never a wave pose:
 
 ```
 give - carry - look - wave_out - wave_start - wave
