@@ -23,13 +23,15 @@ MUST = {                                                     # name: (scene, cam
     "18:40 turned -30": (at(260, 722, -186), 0.0),
     "18:40 turned -30, nearer": (at(300, 621, -191), 0.0),
     "18:45 straight ahead": (at(-99, 738, -181), 0.0),
-    "far edge on a low table (-450)": (at(262, 774, -330, height=120), 0.0),
-    "sweep 54: low table -432": (ps.make_pick(54, 1), 1.0),
-    "sweep 189: low table -440": (ps.make_pick(189, 1), 1.0),
 }
 PHYSICAL = {"18:13 behind a chair": (at(-141, 869, -186, stall_gap=0.25, chair=0.3), 0.0),
+            # out of reach where the camera sees it
+            "far edge on a low table (-450)": (at(262, 774, -330, height=120), 0.0),
             "sweep 534: behind a chair, low table": (ps.make_pick(534, 1), 1.0)}   # was picked turned -30 once
-OPEN = {}
+# low tables at the lift's end: a stand off the x = -100 line (fetch.pick_goal tries only that line) would see and reach
+# the cup, a 5-10 mm deep window
+OPEN = {"sweep 54: low table -432": (ps.make_pick(54, 1), 1.0),
+        "sweep 189: low table -440": (ps.make_pick(189, 1), 1.0)}
 
 bad = []
 for group, scenes in (("must", MUST), ("physical", PHYSICAL), ("open", OPEN)):

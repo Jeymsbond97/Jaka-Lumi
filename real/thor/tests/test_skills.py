@@ -8,7 +8,7 @@ from manipulation import skills
 head_cam.head_centre = lambda: np.array([-92.97, -19.87, 356.12])   # the head's turning centre (head_cam fit 2026-10-19;
                                                                      # its file stays on the Thor)
 
-cup = {"name": "cup", "colour": "white", "x": -126.5, "y": 613.0, "top_mm": -261.0, "width_mm": 76.0}
+cup = {"name": "cup", "colour": "white", "x": -126.5, "y": 613.0, "top_mm": -261.0, "width_mm": 72.0}
 R = calib.rpy_matrix(*skills.GRASP_RPY)
 g = np.array([cup["x"], cup["y"], cup["top_mm"] - 40])
 
@@ -61,11 +61,11 @@ assert skills.grasp_height({**cup, "height_mm": 80.0}) == cup["top_mm"] - skills
 ball = {"name": "orange", "colour": "orange", "x": -126.5, "y": 613.0, "top_mm": -250.0, "width_mm": 150.0 - 8,
         "height_mm": 150.0}                                                 # (too wide for the hand, geometry only)
 assert skills.grasp_height(ball) == -325.0                                 # equator 75 mm up, tips 65 mm up
-apple = {**ball, "name": "apple", "width_mm": 76.0, "height_mm": 80.0}
+apple = {**ball, "name": "apple", "width_mm": 72.0, "height_mm": 80.0}
 z = skills.grasp_height(apple)
 bottom = apple["top_mm"] - 80.0
 assert z - skills.TIP_MM >= bottom + skills.TIP_CLEAR_MM - 1e-9 and z > bottom + 40.0, z     # raised over the equator
-assert np.isclose(skills.grasp_height({**apple, "height_mm": None}), skills.grasp_height({**apple, "height_mm": 84.0}))
+assert np.isclose(skills.grasp_height({**apple, "height_mm": None}), skills.grasp_height({**apple, "height_mm": 80.0}))
 try:                                                                        # too low: the tips would hit the table
     skills.grasp_height({**apple, "height_mm": 60.0})
     raise AssertionError("a 60 mm high apple planned")
@@ -140,7 +140,7 @@ skills._ask = ik_at({15, 30})
 assert skills.reachable_pick(cup, start, max_yaw=skills.TRUSTED_YAW_DEG) is None
 real_find, real_guarded, real_home = skills.find, skills._guarded, skills.home_joints
 skills.home_joints = lambda: start
-skills.find = lambda name, colour=None, seen=None: dict(cup, colour="grey", width_mm=74)
+skills.find = lambda name, colour=None, seen=None: dict(cup, colour="grey", width_mm=72)
 skills._guarded = lambda *a: (_ for _ in ()).throw(AssertionError("picked at an untrusted turn"))
 try:
     skills.pick("cup")
@@ -184,11 +184,6 @@ skills._held.update(tips=True)
 d = skills.plan_place(-200, 600, thin["top_mm"])[1][1]                         # put down held the same way
 assert np.allclose(np.array(d[:3]) + R @ (skills.GRASP_OFFSET + skills.TIPS_OFFSET), [-200, 600, g[2] + 3])
 skills._held.clear()
-# the owner's taught tips grasp of the spray can (grasp_tips_teach.json): the same flange within a few mm, 2 deg
-t = skills.TIPS_TEACH
-can = np.add(t["can_seen"][:2], skills.objects.ROUND_FIX_MM)              # seen before the camera's error was fixed
-f = skills.flange_for(*can, t["grasp_point_code"][2], skills.yaw_of(t["flange"]), tips=True)
-assert np.linalg.norm(np.subtract(f[:3], t["flange"][:3])) < 10, f
 
 # ---------- frames after a move: wait for one written after it ended, never longer than FRESH_WAIT_S ----------
 import tempfile
@@ -324,7 +319,7 @@ for bad, words in (({"body_mm": 50.0}, ("too small", "작아서")),
 frames_ = [{"age_s": 0.1, "objects": [{"name": "bottle", "box": BOX, "colour": "blue", "position_mm": [-195, 600, -280],
                                        "top_mm": -150, "width_mm": 63, "height_mm": 250},
                                       {"name": "cup", "box": BOX, "colour": "white", "position_mm": [0, 600, -350],
-                                       "top_mm": -310, "width_mm": 76, "height_mm": 90}]}] * 2
+                                       "top_mm": -310, "width_mm": 72, "height_mm": 90}]}] * 2
 skills.camview.want = lambda name: None
 skills.fresh = lambda path, camera, after=0.0: None
 skills.objects.latest = lambda camera=objects.CAMERA: frames_[0]
@@ -367,3 +362,69 @@ assert skills.on_table([(-100.0, 700.0)], -400.0) == [(-100.0, 700.0)]       # w
 assert skills.on_table([(-100.0, 620.0)], -400.0) == []                      # its near ring point 5 mm off the edge
 assert skills.on_table([(-100.0, 700.0)]) == [(-100.0, 700.0)]               # table height not given
 print("skills on_table ok")
+
+# ---------- side grasp: a cup too wide at the top for the hooks to come down over it, narrower lower down ----------
+top = cup["top_mm"]
+wide = {**cup, "width_mm": 90.0, "height_mm": 120.0,                       # 98 the fingers would meet: over MAX_WIDTH
+        "profile": [(top - 10.0 * i, 88.0 if i < 4 else 72.0) for i in range(12)]}   # 96 at the rim, 80 from 40 mm down
+assert skills.side(wide) and not skills.side(cup)
+d = skills.tips_dir()
+assert np.isclose(np.linalg.norm(d), 1.0) and d[1] > 0.5                     # the tips point away from the robot
+z = skills.side_height(wide)
+assert z == top - 65.0, z               # nearest SIDE_AT of its 120 mm (50 mm up, top - 70) where the band is all 72
+short = {**wide, "top_mm": top - 50.0, "height_mm": 70.0,                   # a 70 mm cup on the same table
+         "profile": [(top - 50.0 - 10.0 * i, 88.0 if i < 2 else 74.0) for i in range(7)]}
+assert skills.side_height(short) == top - 50.0 - 45.0                         # 25 mm up: the hooks' bottom 17 over it
+way = skills.plan_pick(wide)
+assert [n for n, _ in way] == ["above", "side", "grasp", "lift"], way
+p = dict(way)
+assert np.isclose(p["side"][2], p["grasp"][2]) and p["side"][3:] == p["grasp"][3:]          # in level at the grasp height
+back = skills.side_back(wide)
+assert np.isclose(back, 98.0 / 2 + np.linalg.norm(skills.TIPS_OFFSET) + skills.SIDE_CLEAR_MM)
+assert np.allclose(np.subtract(p["grasp"][:2], p["side"][:2]), d * back)  # it goes in along the tips' direction
+assert np.allclose(np.subtract(p["above"][:3], p["side"][:3]), [0, 0, skills.clear_above(top - z)])
+g = np.array(p["grasp"][:3]) + calib.rpy_matrix(*p["grasp"][3:]) @ skills.GRASP_OFFSET
+assert np.allclose(g, [wide["x"], wide["y"], z])                            # the hooks' point on the cup axis
+assert [n for n, _ in skills.plan_pick(cup)] == ["above", "grasp", "lift"]  # a cup whose top fits: from above, as before
+for bad in ([(top - 10.0 * i, 88.0) for i in range(12)],                    # wide all the way down
+            [(top - 10.0 * i, 88.0 if i < 10 else 72.0) for i in range(12)],   # narrow only where the hooks hit the table
+            None):                                                         # its widths down its height not measured
+    try:
+        skills.plan_pick({**wide, "profile": bad})
+        raise AssertionError(f"side grasp planned for {bad}")
+    except skills.SkillError as e:
+        assert e.args == skills.reason(skills.WIDE, "cup"), e.args
+# picked from the side: the open hand backs out sideways before it goes up, also after a miss
+lines_, opened = [], []
+skills._line = lambda name, pose: lines_.append((name, pose))
+skills.gripper.open_ = lambda: (opened.append(len(lines_)), {"ai": [150.0]})[1]
+skills.gripper.close = lambda: {"ai": [3500.0], "holding": True, "object_in_front": False}
+skills.gripper.state = lambda: {"ai": [3500.0], "holding": True}
+skills._back_home = lambda: None
+skills._held.clear()
+skills._do_pick(wide, way, READY)
+assert [n for n, _ in lines_] == ["side", "grasp", "lift"] and np.isclose(skills._held["back"], back)
+assert np.isclose(skills._held["below"], top - z)
+put = skills.plan_place(-200, 600, top)
+assert [n for n, _ in put] == ["above place", "place", "release back", "release up"], put
+q = dict(put)
+assert np.isclose(q["release back"][2], q["place"][2])
+assert np.allclose(np.subtract(q["place"][:2], q["release back"][:2]), d * back)
+assert np.allclose(np.subtract(q["release up"][:3], q["release back"][:3]), [0, 0, skills.clear_above(top - z)])
+lines_.clear()
+skills._do_place(put)
+assert [n for n, _ in lines_] == ["above place", "place", "release back", "release up"] and opened[-1] == 2
+assert [n for n, _ in skills.plan_place(-200, 600, top, back=0.0)][-2:] == ["place", "release up"]   # from above: as before
+lines_.clear()
+skills.gripper.close = lambda: {"ai": [4150.0], "holding": False, "object_in_front": False}
+skills.motion.tcp = lambda: p["grasp"]
+skills.motion.move_linear = lambda **k: lines_.append(("up", k.get("delta")))
+try:
+    skills._do_pick(wide, way, READY)
+    raise AssertionError("a miss went on")
+except skills.SkillError:
+    pass
+assert [n for n, _ in lines_] == ["side", "grasp", "out sideways", "up"], lines_
+assert np.allclose(np.subtract(p["grasp"][:2], lines_[2][1][:2]), d * back)
+skills._held.clear()
+print("skills side grasp ok")

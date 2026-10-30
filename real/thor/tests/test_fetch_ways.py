@@ -158,7 +158,7 @@ def cups():
         x, y = arm_xy_of(c["map"])
         if visible(x, y) and low_view(x, y, room["z"] + 145.0 / 2):
             out.append({"name": "cup", "colour": "white", "x": x, "y": y, "top_mm": room["z"] + 145.0,
-                        "height_mm": 145.0, "width_mm": 80.0, "seen": 8, "spread": 1.0, "id": c["id"]})
+                        "height_mm": 145.0, "width_mm": 72.0, "seen": 8, "spread": 1.0, "id": c["id"]})
     return out
 
 

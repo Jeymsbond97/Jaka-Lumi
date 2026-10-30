@@ -45,23 +45,25 @@ skills._joints = lambda: list(LOOK)
 lines = []
 fetch.log = skills.log = arm_route.log = lambda *a: lines.append(" ".join(str(x) for x in a))
 cup = lambda x, y, top=-260.0: {"name": "cup", "colour": "grey", "x": float(x), "y": float(y), "top_mm": top,
-                                "width_mm": 76.0, "seen": 8, "spread": 1.0}
+                                "width_mm": 72.0, "seen": 8, "spread": 1.0}
 reach = lambda o: skills.reachable_pick(o, accept=fetch._carry_ok)
 trusted = lambda o: skills.reachable_pick(o, accept=fetch._carry_ok, max_yaw=skills.TRUSTED_YAW_DEG)   # fetch's first try
 
-plan = reach(cup(-96, 598))                                  # picked live 2026-10-2x 15:39 (J5 +20, no turn)
-assert plan and abs(skills.yaw_of(plan[0][1][1])) < 1, plan
+plan = reach(cup(-96, 598))                                  # picked live 2026-10-2x 15:39 (J5 +20, no turn): now
+assert plan and round(skills.yaw_of(plan[0][1][1])) == -15, plan   # no IK at the grasp unturned there; -15 is trusted
 for xy in ((-171, 697), (-395, 629), (-480, 652)):          # refused live from where it stood: still out of reach
     assert reach(cup(*xy)) is None, xy                      # of the arm alone at waist 0 (base moved then)
 
 # 2026-10-26 18:40 at lift 0: (260, 722) top -186 was planned turned -30 deg, J5 +26 (missed live, as every turn
-# over 15 deg): offline the same; within the trusted turns there is none from here (the waist or the base first)
+# over 15 deg). Offline now -30 has no IK at the grasp there: turned -45, J5 +12; within the trusted turns there is
+# none from here (the waist or the base first)
 plan = reach(cup(260, 722, -186))
-assert plan and round(skills.yaw_of(plan[0][1][1])) == -30 and 20 < plan[1][4] < 30, plan
+assert plan and round(skills.yaw_of(plan[0][1][1])) == -45 and 10 < plan[1][4] < 20, plan
 assert skills.reachable_pick(cup(260, 722, -186), accept=fetch._carry_ok, max_yaw=skills.TRUSTED_YAW_DEG) is None
 
-# 17:57 / 18:45: (-104, 694) and (-99, 738) top -186: every straight line to carry refused (a joint jumps); straight up
-# and one joint move to carry takes the cup there instead (upright, clear of the head)
+# 17:57 / 18:45: (-104, 694) and (-99, 738) top -186: every straight line to carry refused live (a joint jumps).
+# With the camera's error fixed both are past the arm's reach from here at this height (it ends near y 660 straight
+# ahead): a waist turn or the base first (LIVE below)
 def line_ok(w, ja):                                         # the straight line alone (fetch._carry_ok also takes carry_up)
     try:
         fetch._line_rows(kinematics.pose(motion.poses()["carry"]), "to carry", start=(w[0][1], ja))
@@ -71,14 +73,14 @@ def line_ok(w, ja):                                         # the straight line 
 for seen in ((-104, 694), (-99, 738)):                     # seen live before the camera's error was fixed
     xy = np.add(seen, skills.objects.ROUND_FIX_MM)
     assert skills.reachable_pick(cup(*xy, -186), accept=line_ok) is None, xy
-    plan = skills.reachable_pick(cup(*xy, -186), accept=lambda w, ja: skills.carry_up(w[0][1], ja) is not None)
-    assert plan, xy
-    via, carry = skills.carry_up(plan[0][0][1], plan[1])
-    assert via[2] > plan[0][0][1][2] and np.allclose(kinematics.pose(carry)[:3], kinematics.pose(motion.poses()["carry"])[:3], atol=0.1)
-# the live (-104, 694) is (-92, 689) with the camera fixed: 9 mm past the trusted-turn edge; just inside it
-plan = skills.reachable_pick(cup(-92, 680, -186), accept=lambda w, ja: skills.carry_up(w[0][1], ja) is not None,
+    assert not list(skills.pick_options(cup(*xy, -186), list(LOOK), skills.TRUSTED_YAW_DEG)), xy
+# just inside the trusted reach: straight up and one joint move to carry takes the cup there too (upright, clear of
+# the head)
+plan = skills.reachable_pick(cup(-92, 640, -186), accept=lambda w, ja: skills.carry_up(w[0][1], ja) is not None,
                              max_yaw=skills.TRUSTED_YAW_DEG)
 assert plan and abs(skills.yaw_of(plan[0][1][1])) <= 15.5, plan
+via, carry = skills.carry_up(plan[0][0][1], plan[1])
+assert via[2] > plan[0][0][1][2] and np.allclose(kinematics.pose(carry)[:3], kinematics.pose(motion.poses()["carry"])[:3], atol=0.1)
 
 # a held IK answer with J4 one turn round (the same pose) is not a joint-limit or flip refusal
 real_ask = skills._ask
@@ -114,8 +116,8 @@ assert np.isclose(np.hypot(*(np.subtract((t["x"], t["y"]), C))), np.hypot(*(np.s
 assert t["x"] > o["x"]                                      # waist left: a thing on the left comes ahead
 assert np.allclose([fetch.turned(t, -30.0)[k] for k in "xy"], [o[k] for k in "xy"])
 
-for r, b in ((600, 60), (600, -60), (550, 90), (600, -100), (720, 7), (720, 25)):   # beside it and the live ones
-    # (the live 730 mm one is 1 cm past the trusted reach since the grasp point was fixed, 2026-10-27)
+for r, b in ((600, 60), (600, -60), (550, 90), (600, -100), (660, 7), (660, 25)):   # beside it and near the edge
+    # (the trusted reach round the column ends near 670 mm: the live 730 mm ones are past it)
     o = around(r, b)
     assert trusted(o) is None, (r, b)                         # not from here ...
     turns = fetch.waist_for(o)
@@ -127,10 +129,10 @@ for r, b in ((1000, 0), (950, 40)):                         # too far for any wa
     assert all(trusted(fetch.turned(o, d)) is None for d in fetch.waist_for(o)), (r, b)
 # the live cases of 2026-10-26 with trusted turns only: from here, after a waist turn, or the base moves (none)
 LIVE = (((262, 774, -189), "base"), ((267, 763, -188), "base"), ((260, 722, -186), "base"),   # missed at -45 / -30
-        ((300, 621, -191), "waist"), ((-99, 738, -181), "waist"),       # missed at -30 / carry line jumped at -30
+        ((300, 621, -191), "base"), ((-99, 738, -181), "base"),         # missed at -30 / carry line jumped at -30
         ((-141, 869, -186), "base"), ((-117, 960, -186), "base"),       # across the table / far
         ((-104, 694, -186), "waist"), ((-73, 588, -186), "here"), ((-96, 598, -260), "here"))   # carried / picked
-# (694: picked from here live; at the trusted-turn edge since the grasp point was fixed, a small waist turn first)
+# (the trusted reach round the column ends near 670 mm: 621 and 738, ~756 mm from it, need the base; 694 a waist turn)
 for (x, y, top), how in LIVE:                               # seen before the camera's error was fixed
     o = cup(x + skills.objects.ROUND_FIX_MM[0], y + skills.objects.ROUND_FIX_MM[1], top)
     got = "here" if trusted(o) else "waist" if any(trusted(fetch.turned(o, d)) for d in fetch.waist_for(o)) else "base"
@@ -186,8 +188,10 @@ assert fetch._waist_reach(task, scene["cup"], None) is None and any(c[0] == "wai
 skills._held.clear()
 skills._held.update(top_mm=-300.0, yaw=0.0, tips=False, below=40.0)
 opts = list(skills.place_options(200.0, 500.0, -300.0, list(LOOK)))
-assert opts and all(w[0][0] == "above place (straight)" for w, _ in opts), [w[0][0] for w, _ in opts]
-way, ja = opts[0]
+# (one joint move there keeps the cup within MAX_TILT_DEG too: it comes first, the straight lines after it)
+straight = [(w, ja) for w, ja in opts if w[0][0] == "above place (straight)"]
+assert straight and all(w[0][0] in ("above place", "above place (straight)") for w, _ in opts), [w[0][0] for w, _ in opts]
+way, ja = straight[0]
 assert np.allclose(kinematics.pose(ja)[:3], way[0][1][:3], atol=0.05)
 moved = []
 real_lin, real_jm, real_place = skills.motion.move_linear, skills.motion.move_joints, skills._do_place

@@ -645,7 +645,7 @@ def make_pick(i, seed):
             "stall_gap": rng.choice(STALL_GAPS), "err_seed": rng.randrange(1 << 30)}
 
 
-def pick_at(x, y, top, grip=80.0, gap=0.10, height=110.0, variant="table", stall_gap=0.10, err_seed=0, chair=None):
+def pick_at(x, y, top, grip=76.0, gap=0.10, height=110.0, variant="table", stall_gap=0.10, err_seed=0, chair=None):
     """A fixed pick scene: the cup seen at (x, y) mm in the arm frame (waist at the front, calibrated arm base) with its
     top at `top`, on a 0.7 x 1.0 m table whose near edge faces the base centre `gap` m before the cup."""
     yaw, org = CALIB["arm_yaw_in_base_deg"], np.asarray(CALIB["arm_xy_in_base_m"])

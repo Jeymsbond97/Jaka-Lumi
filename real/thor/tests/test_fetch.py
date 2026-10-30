@@ -107,7 +107,7 @@ for yaw in (-60.0, 10.0, 95.0):
 
 # ---------- fake base, arm, gripper and camera ----------
 calls = []
-CUP = {"name": "apple", "colour": "red", "x": -150.0, "y": 600.0, "top_mm": -260.0, "width_mm": 76.0,
+CUP = {"name": "apple", "colour": "red", "x": -150.0, "y": 600.0, "top_mm": -260.0, "width_mm": 72.0,
        "seen": 8, "spread": 1.0}
 hand = {"holding": False, "closed": False}
 base = {"pose": (0.0, 0.0, 0.0), "polls": 0, "on_poll": None}
@@ -518,7 +518,7 @@ skills.reachable_pick = width_check
 reset()
 fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2}))
 wide_far = {**CUP, "name": "cup", "x": -69.0, "y": 1142.0, "width_mm": 98.0}
-wide_near = {**wide_far, "x": -100.0, "y": 600.0, "width_mm": 79.0}
+wide_near = {**wide_far, "x": -100.0, "y": 600.0, "width_mm": 72.0}    # 80 with SEEN_UNDER_MM: fits from above
 skills.find = lambda name, colour=None, seen=None: wide_near if any(c[0] == "joy" for c in calls) else wide_far
 st = run(fetch.start, {**ok, "object": "cup", "source": "here", "dest": "here"})
 assert st["status"] == "holding" and any("measure it again up close" in l or "closer first" in l for l in st["log"]), \
@@ -528,8 +528,8 @@ hand.update(holding=False, closed=False)
 reset()
 skills.find = lambda name, colour=None, seen=None: {**wide_near, "width_mm": 95.0}
 st = run(fetch.start, {**ok, "object": "cup", "source": "here", "dest": "here"})
-assert st["status"] == "failed" and "too big" in st["log"][-1], st["log"]
-skills.find, skills.reachable_pick = real_find, real_reach
+assert st["status"] == "failed" and "too wide for my hand, also lower down" in st["log"][-1], st["log"]   # no
+skills.find, skills.reachable_pick = real_find, real_reach              # narrower part measured lower down either
 skills.reachable_pick = fake_reachable
 
 # ---------- put it on a named thing: an orange chair too low for the arm -> said why; one at table height -> on it ----
@@ -601,7 +601,8 @@ assert fetch.lift_for(-703.0) is None and fetch.lift_for(-1060.0) is None    # a
 # ---------- a turn that would take the arm into something is not made ----------
 reset()
 fetch.CALIB_FILE.write_text(json.dumps({"arm_yaw_in_base_deg": -86.2}))
-room["clear"] = lambda x, y: 0.05 if math.hypot(x, y) > 0.2 else 1.0    # free at the base centre, a wall around it
+room["clear"] = lambda x, y: 0.05 if math.hypot(x, y) > 0.1 else 1.0    # free at the fake flange (the base
+                                                                        # centre), the hand 0.19 m off it in a wall
 calls.clear()
 assert fetch._turn(30) is False and not any(c[0] == "go_point" for c in calls), calls
 room["clear"] = lambda x, y: 1.0
