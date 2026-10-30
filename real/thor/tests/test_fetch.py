@@ -979,8 +979,9 @@ ahead = lambda mm, side=0.0: [g0[0] + mm, g0[1] + side, g0[2]]
 scene["person_in_front"] = {"position_mm": ahead(900.0), "hands": {"left": {"position_mm": ahead(600.0, 100.0),
                             "distance_m": 1.1}, "right": {"position_mm": ahead(400.0), "distance_m": 0.9}}}
 turns = []
-real_waist_to = fetch._waist_to
-fetch._waist_to = lambda deg, in_place=False, look=None: turns.append(deg) or in_place and deg < 90   # in place
+real_blocked, real_route_points = fetch._sweep_blocked, fetch._route_points
+fetch._sweep_blocked = lambda deg, what, pts=None: turns.append(deg) or deg >= 90   # the waist turn with the arm
+fetch._route_points = lambda seq: []
 
 
 def reached(angle=0.0):
@@ -1005,8 +1006,8 @@ scene["person_in_front"] = None                                                 
 st, moves = reached()
 assert st["status"] == "done" and poses()[-1] == "give" and not moves, (st, moves)
 fetch.stay_put = True                                         # Greeter only: the waist still turns (the base stays)
-st, moves = reached(40.0)                                     # to the side: the waist turns first, by the
-assert turns == [40.0 + fetch._waist_turn()] and poses()[-1] == "give", (turns, poses())   # waist's offset too
+st, moves = reached(40.0)                                     # to the side: the waist turns with the arm
+assert turns == [40.0] and poses()[-1] == "give", (turns, poses())
 fetch.stay_put = False
 turns.clear()
 said.clear()
@@ -1015,7 +1016,7 @@ assert st["status"] == "failed" and not poses() and said[-1] == fetch.TURN_TO_PE
 turns.clear()
 st, moves = reached(160.0)                                    # past the waist's limit (-15 + 160 > 140): stand in front
 assert st["status"] == "failed" and not turns and not poses() and said[-1] == fetch.TURN_TO_PERSON[0], (st, turns)
-fetch._waist_to = real_waist_to
+fetch._sweep_blocked = real_blocked
 # the head on the person through the whole reach (live: the waist turned with the head kept at +46 on it, so the
 # head looked 90 deg left, away, until head_ahead at the end): Greeter only, person at -40 deg (waist frame), the
 # head on them; the sweep check turns the head to that side (head_hits); every head command looks their way, the
@@ -1028,7 +1029,7 @@ def head_cmd(pos, **kw):
     hp.update(waist=pos[1], yaw=pos[2], pitch=pos[3])
     gaze.append(pos[1] + 15.0 + pos[2])
 fetch.head.moveto = head_cmd
-fetch._sweep_blocked = lambda deg, what: head_cmd([75.0, hp["waist"], math.copysign(fetch.HEAD_SIDE_DEG, deg),
+fetch._sweep_blocked = lambda deg, what, pts=None: head_cmd([75.0, hp["waist"], math.copysign(fetch.HEAD_SIDE_DEG, deg),
                                                    fetch.HEAD_LOW_PITCH]) and False
 fetch.stay_put = True
 st, moves = reached(-40.0)
@@ -1040,6 +1041,7 @@ st, moves = reached(0.0)                                      # in front: no wai
 assert st["status"] == "done" and not gaze and hp["yaw"] == 0.0, gaze
 fetch.stay_put = False
 fetch.head.status, fetch.head.moveto, fetch._sweep_blocked = real_status, real_move, real_blocked
+fetch._route_points = real_route_points
 fetch._line_rows, fetch._scene = real_line_rows, real_scene
 hand["front"] = False
 # the cup is in the hand but nobody says okay: the hand never closes (their fingers may be in it)

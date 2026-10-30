@@ -220,7 +220,6 @@ L.arm_pose = lambda target: order.append("gripper") or True
 L.base_off = lambda *a, **k: False
 L.arm_off = lambda: False
 L.brain = types.SimpleNamespace(history=[])
-L.modes.drive = True
 th = threading.Thread(target=L.quick_command, args=("open your hand", ("arm", "open")))
 th.start()
 th.join(1)

@@ -127,13 +127,13 @@ lumi.head.status = lambda: [0, 0, 0, 0]
 lumi.nav.person_on_map = lambda *a: (3.0, 0.0)
 lumi.nav.approach = lambda *a: (2.0, 0.0, 0.0)
 L = fresh(U("Stop!"), trip=False)
-L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {"drive": True})(), lambda *a, **k: None
+L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {})(), lambda *a, **k: None
 base["move_status"] = "running"
 t = time.time()
 L.come_to(Track())
 assert stopped(L) and time.time() - t < 3, done
 L = fresh(U("What is your name?"), trip=False)
-L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {"drive": True})(), lambda *a, **k: None
+L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {})(), lambda *a, **k: None
 base["move_status"] = "running"
 threading.Timer(1.0, lambda: base.update(move_status="succeeded")).start()
 L.come_to(Track())
@@ -142,7 +142,7 @@ assert "agv cancel" not in done and L.pending_text == "What is your name?", done
 # right after Lumi said "Okay, I stopped.", "Stop." is no echo of it (own_echo counts "stop" in "stopped")
 lumi.mouth.recent_speech = lambda s: "Okay, I stopped. Let's go to p5."
 L = fresh(U("Stop."), trip=False)
-L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {"drive": True})(), lambda *a, **k: None
+L.vision, L.modes, L.turn_head = Vision(), type("Modes", (), {})(), lambda *a, **k: None
 base["move_status"] = "running"
 L.come_to(Track())
 assert stopped(L), done

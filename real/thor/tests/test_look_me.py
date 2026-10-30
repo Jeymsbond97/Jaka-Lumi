@@ -125,7 +125,7 @@ fetch._waist_to = fake_waist_to
 L = lumi.Lumi.__new__(lumi.Lumi)
 L.vision, L.current = Vision([]), None
 L.voice_angle, L.voice_trusted = 170.0, True
-L.modes = type("M", (), {"drive": True, "patrol": False})()
+L.modes = type("M", (), {"patrol": False})()
 turns.clear()
 L.look_at_speaker()
 assert waist["calls"] == [(120, True, 170.0)], waist

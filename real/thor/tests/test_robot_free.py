@@ -39,6 +39,10 @@ def refused(fn, *a):
 JOG = server.JogBody(axis="head_yaw", direction=1)
 manual = (lambda: server.jog(JOG), server.gripper_open, server.gripper_close)
 
+# a modes file from before "Come when called" was dropped still loads, without the old key
+server.MODES_FILE.write_text(json.dumps({"greeter": True, "patrol": False, "wave": True, "drive": False}))
+assert server.read_modes() == {"greeter": True, "patrol": False, "wave": True}, server.read_modes()
+
 # idle, Patrol on: allowed
 server.MODES_FILE.write_text(json.dumps({"greeter": True, "patrol": True}))
 task("idle")

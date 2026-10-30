@@ -221,7 +221,7 @@ skills.flat_points = real_flat
 print("skills fresh / flat ok")
 
 # ---------- a pick stores what put down needs: the table under the object, also when its bottom was not in view ------
-skills._prepare = lambda: None
+real_prepare, skills._prepare = skills._prepare, lambda: None
 skills._cancel.clear()                                                          # cancel() above
 skills.motion.move_joints = lambda j, speed=None: None
 skills.gripper.close = lambda: {"ai": [3500.0], "holding": True, "object_in_front": False}
@@ -428,3 +428,74 @@ assert [n for n, _ in lines_] == ["side", "grasp", "out sideways", "up"], lines_
 assert np.allclose(np.subtract(p["grasp"][:2], lines_[2][1][:2]), d * back)
 skills._held.clear()
 print("skills side grasp ok")
+
+# ---------- a pick stopped on its way in (the open hand beside / around the cup): the next pick backs out the way it
+# came first, never a diagonal move from there; a stop once the fingers hold it leaves it ready to put down ----------
+def stop_at(where, at):                              # STOP while moving to waypoint `where`: the hand ends at `at`
+    def line(name, pose):
+        lines_.append((name, pose))
+        if name == where:
+            skills.motion.tcp = lambda: list(at)
+            raise skills.SkillError("Stopped.")
+        skills.motion.tcp = lambda: list(pose)
+    return line
+skills.gripper.close = lambda: {"ai": [3500.0], "holding": True, "object_in_front": False}
+skills.gripper.state = lambda: {"ai": [150.0], "holding": False}       # open: the stop came before the close
+skills._joints = skills.home_joints = lambda: [0.0] * 6                # back at home after backing out: no route
+mid = list(np.add(p["side"], p["grasp"]) / 2)                          # half way in, beside the cup
+for way_, where, at, want in ((way, "grasp", mid, ["out sideways", "up"]),                  # side grasp, half way in
+                              (way, "grasp", p["grasp"], ["out sideways", "up"]),           # ... around it
+                              (way, "side", p["side"], ["up"]),                             # ... still coming down
+                              (skills.plan_pick(cup), "grasp", grasp, ["up"])):             # down around it from above
+    w = dict(way_)
+    skills._held.update(top_mm=-1.0, x=0.0, y=0.0)                                         # from an earlier pick
+    lines_.clear()
+    skills._line = stop_at(where, at)
+    try:
+        skills._do_pick(wide if "side" in w else cup, way_, READY)
+        raise AssertionError("not stopped")
+    except skills.SkillError:
+        pass
+    try:                                                         # "put it down": nothing is held, nothing moves
+        skills.put_down()
+        raise AssertionError("put down with an open hand")
+    except skills.SkillError as e:
+        assert e.args[0] == "I'm not holding anything I picked.", e.args
+    lines_.clear()
+    real_prepare()                                               # "take the cup" again
+    assert [n for n, _ in lines_] == want, (where, lines_)
+    out, top_ = lines_[-2][1] if len(lines_) > 1 else at, lines_[-1][1]
+    start_ = w.get("side", w["grasp"])
+    assert np.allclose(out[:3], [start_[0], start_[1], at[2]], atol=1e-6), (out, start_)   # out along the way in
+    assert np.allclose(top_[:3], [start_[0], start_[1], w["above"][2]], atol=1e-6)        # then straight up to above
+    lines_.clear()
+    real_prepare()                                               # backed out once: nothing more
+    assert not lines_, lines_
+skills.motion.tcp = lambda: [0.0, 300.0, 0.0] + list(skills.GRASP_RPY)   # moved away since (another task): no lines
+skills._line = stop_at("grasp", grasp)
+try:
+    skills._do_pick(cup, skills.plan_pick(cup), READY)
+except skills.SkillError:
+    pass
+skills.motion.tcp = lambda: [0.0, 300.0, 0.0] + list(skills.GRASP_RPY)
+lines_.clear()
+real_prepare()
+assert not lines_ and not skills._pick_way, lines_
+# STOP in the lift, the fingers holding it: put down knows it (as at the end of a pick), the next pick backs out nothing
+for way_, obj_ in ((way, wide), (skills.plan_pick(cup), cup)):
+    skills._held.clear()
+    skills._line = stop_at("lift", dict(way_)["grasp"])
+    try:
+        skills._do_pick(obj_, way_, READY)
+        raise AssertionError("not stopped")
+    except skills.SkillError:
+        pass
+    assert skills._held["top_mm"] == obj_["top_mm"] and np.isclose(skills._held["back"], back if obj_ is wide else 0.0)
+    assert np.isclose(skills._held["below"], obj_["top_mm"] - skills.grasp_height(obj_)) and not skills._pick_way
+    placed = []
+    real_place_first, skills._place_first = skills._place_first, lambda tries, refusal: placed.append(tries[0])
+    skills.put_down(back=True)
+    skills._place_first = real_place_first
+    assert placed == [(obj_["x"], obj_["y"])], placed
+skills._held.clear()
+print("skills stopped pick ok")

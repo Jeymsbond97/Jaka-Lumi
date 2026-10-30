@@ -11,6 +11,7 @@ import threading
 import time
 from pathlib import Path
 
+import no_robot                                  # noqa: F401  any connection to the robot fails the test
 from assistant import brain
 from tasks import fetch
 
@@ -45,6 +46,10 @@ fetch._pose = lambda name: moved.append(name)
 fetch._person_point = lambda: ((0.0, 600.0, 0.0), 100.0)
 fetch._reach_to_hand = lambda *a: moved.append("hand")
 fetch._sweep_blocked = lambda *a, **k: False      # never the real base's pose and map (it failed at the charger)
+fetch._route_points = lambda seq: []
+real_route = (fetch.arm_route.plan, fetch.arm_route.move)
+fetch.arm_route.plan = lambda target, holding=False, leaf=False, now=None: [(target, [0] * 6)]
+fetch.arm_route.move = lambda seq, speed=None, holding=False: moved.append("route " + seq[-1][0])
 
 fetch.reach(-22.7)
 time.sleep(0.3)
@@ -57,12 +62,14 @@ except fetch.FetchError as e:
 t = time.time()
 fetch.end()                                       # "stop" / a new command
 assert time.time() - t < 1.0 and not fetch._busy(), "stop waited for the hung body call"
-assert fetch.state()["status"] == "stopped" and moved == []
+assert fetch.state()["status"] == "stopped" and moved == ["route give"]   # the arm went with the hung waist turn
+moved.clear()
 
 hung.set()                                        # the body answers again
 fetch.reach(0.0)                                  # the next "give me your hand": starts, not "busy"
 fetch._thread.join(2)
 assert moved == ["give", "hand"] and fetch.state()["status"] == "done", (moved, fetch.state()["status"])
+fetch.arm_route.plan, fetch.arm_route.move = real_route
 # ---------- closed on nothing is empty, whatever the camera sees ----------
 grip = {"ai": [4153.0, 489.0], "holding": False}                 # the live close of 17:40:39
 fetch.gripper.state = lambda: dict(grip)

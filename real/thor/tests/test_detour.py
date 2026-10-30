@@ -171,7 +171,7 @@ class Patrol:
 
 
 class Modes:
-    patrol, drive = True, True
+    patrol = True
 
 
 L = lumi.Lumi.__new__(lumi.Lumi)

@@ -690,7 +690,7 @@ follow.start = lambda see, say=None, people=None: started.append(see)
 track = types.SimpleNamespace(id=7, distance=1.8, angle=10.0, greeted=False, history=[1.7], last_seen=time.time(),
                               look=None)
 L.lang, L.voice_angle, L.voice_trusted = "en", 0.0, False
-L.modes = types.SimpleNamespace(drive=True, patrol=True)
+L.modes = types.SimpleNamespace(patrol=True)
 L.skill_busy = lambda: False
 L.keep_listening = lambda: None
 L.fetch_say = lambda en, ko: spoken.append(en)
@@ -713,10 +713,7 @@ L.follow_me()
 assert started and L.current is track
 L.voice_trusted = False
 started.clear()
-L.modes.drive = False
-L.follow_me()
-assert not started and "switched off" in spoken[-1]
-L.modes.drive, L.skill_busy = True, lambda: True
+L.skill_busy = lambda: True
 L.follow_me()
 assert not started and "on a task" in spoken[-1]
 L.skill_busy, real_ready = (lambda: False), follow.ready

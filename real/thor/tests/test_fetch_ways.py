@@ -436,4 +436,34 @@ assert log and log[0] == ("line", "look"), log
 fetch.motion.tcp, fetch._line_holding, skills._do_place = real_tcp, real_holding, real_place
 arm["j"] = [0.0] * 6
 print("held over the pick spot after a stop: put straight back down at", done[0][1:])
+# ... the STOP came in the 30 mm lift of the voice pick itself (pick_here), the fingers already holding it: the same
+setup((108.0, 603.0), table=(0.355, 1.6, -1.0, 1.0))
+def stopped_in_lift(obj, wp, ja):                        # _do_pick holds it (skills._held) from the close on
+    do_pick(obj, wp, ja)
+    raise skills.SkillError("Stopped.")
+real_back_out, skills._do_pick = skills.back_out, stopped_in_lift
+skills.back_out = lambda: log.append(("back out",))
+fetch.stay_put = True
+try:
+    fetch.pick_here("cup", None)
+    raise AssertionError("not stopped")
+except skills.SkillError:
+    pass
+fetch.stay_put = False
+skills._do_pick, skills.back_out = do_pick, real_back_out
+assert log[0] == ("back out",) and skills._held.get("base") is not None, (log, skills._held)   # out first; stand noted
+fetch._set(holding=True, status="holding", held_object={"object": "cup", "colour": None})
+h = skills._held
+lifted = skills.up(skills.plan_place(h["x"], h["y"], h["top_mm"])[1][1], skills.LIFT_MM / 2 - skills.PLACE_EXTRA_MM)
+fetch.motion.tcp = lambda: list(lifted)
+arm["j"] = [5.0] * 6
+log.clear()
+fetch._line_holding = lambda name: (log.append(("line", name)), real_holding(name))[1]
+skills._do_place = lambda wp: (do_place(wp), arm.update(j=[0.0] * 6))[0]
+st = run(fetch.place, None, {"name": "dining table", "colour": None})
+assert st["status"] == "done" and [l for l in log if l[0] == "place"] == [("place", 108, 603)], (st["log"], log)
+assert ("line", "look") not in log, log
+fetch.motion.tcp, fetch._line_holding, skills._do_place = real_tcp, real_holding, real_place
+arm["j"] = [0.0] * 6
+print("stopped in the lift of a voice pick: put straight back down")
 print("fetch ways ok")

@@ -55,7 +55,7 @@ DOES = {"go_to": "start_trip", "follow": "follow_me", "come": "come_to", "move":
         "look": "look", "lift": "lift"}
 
 # ---------- Greeter only: the base refused aloud (no "Okay" first), everything in place done ----------
-L.modes = types.SimpleNamespace(greeter=True, patrol=False, drive=True, wave=True)
+L.modes = types.SimpleNamespace(greeter=True, patrol=False, wave=True)
 for text in BASE:
     moved.clear()
     said.clear()
@@ -211,10 +211,10 @@ L.vision.present = lambda t: True
 L.come_to = lambda t: came.append(t.id) or setattr(t, "distance", 1.1)
 reached.clear(), said.clear()
 assert L.reach_out(False) and came == [8] and reached == [21.0], (came, reached)
-person.distance, L.modes.drive = 3.0, False              # far and driving switched off: asked to come, no reach
+person.distance, L.modes.patrol = 3.0, False             # far, Greeter only (the base stays): asked to come, no reach
 reached.clear(), said.clear(), came.clear()
 assert L.reach_out(False) is None and not reached and not came and said == [lumi.COME_CLOSER_SAY[0]], (said, reached)
-L.modes.drive, person.distance = True, 1.0
+L.modes.patrol, person.distance = True, 1.0
 fetch.give_bearing = lambda: 0.0
 L.turn_head = lambda *a, **k: moved.append("head")
 seen_vision, L.vision = L.vision, None                   # nobody seen, the voice's direction not trusted: ask
@@ -278,7 +278,7 @@ P = lumi.Patrol(["p3"])
 P.tick(force=True)
 assert order == ["waist", ("go", "home")] and P.mode == "going_home", order
 lumi.agv.status = lambda: {"move_status": "idle", "power_percent": 90}
-L.modes.patrol, L.modes.drive = True, True
+L.modes.patrol = True
 real_turned, lumi.waist_turned = lumi.waist_turned, lambda: 30.0   # turned 30 left for someone
 order.clear()
 L.look_toward(150.0)                                     # a voice behind: the base turns to it from the base's front
@@ -294,5 +294,13 @@ assert order == ["waist"], order
 lumi.waist_home, lumi.waist_turned = real_home, real_turned
 for name in ("status", "go", "go_point", "turn_by"):
     setattr(lumi.agv, name, forbid)
+# a modes file from before "Come when called" was dropped still loads; its "drive" key is ignored
+import json, tempfile, os
+with tempfile.TemporaryDirectory() as tmp:
+    lumi.MODES_FILE = os.path.join(tmp, "lumi_modes.json")
+    json.dump({"greeter": True, "patrol": True, "wave": False, "drive": False}, open(lumi.MODES_FILE, "w"))
+    m = lumi.Modes(types.SimpleNamespace(patrol=None, no_arm=False))
+    assert (m.greeter, m.patrol, m.wave) == (True, True, False) and not hasattr(m, "drive"), vars(m)
+
 print(f"switches ok: {len(BASE)} base phrases refused with Greeter only, {len(IN_PLACE)} in place done; "
       "arm off asks; Patrol allows all; stop always")
