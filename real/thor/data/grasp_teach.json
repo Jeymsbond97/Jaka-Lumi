@@ -28,9 +28,9 @@
   -301.0
  ],
  "tcp_offset_flange": [
-  103.6,
-  -88.3,
-  219.7
+  88.1,
+  -61.6,
+  179.8
  ],
- "tcp_offset_note": "corrected 2026-10-27 by hover readings at three cup spots (data/hover_readings.json): the taught point carried the camera's cup-centre error (-10.0, +5.2 mm in the arm frame); the camera's own error is fixed in vision/objects.py ROUND_FIX_MM"
+ "tcp_offset_note": "new fingers, 2026-10-29: mean of 3 owner's free-drive side grasps (data/grasp_side_teach.json; cup in the hooks' belly, grasp turned -24..-33 deg; the cup's centre seen after the hand backed out), spread under 1 mm; then 1 mm to the left across the fingers (the first auto side grasp brushed the cup with the right finger, owner); the old point was 43.5 mm too far out along the fingers. Height kept from the tape (hook bottom 20 mm over a 142 mm cup's rim + 8 mm). Before: [83.2, -69.2, 221.8]"
 }

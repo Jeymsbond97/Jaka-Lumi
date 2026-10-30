@@ -1,0 +1,53 @@
+{
+ "note": "owner's free-drive side grasps: flange pose with the cup in the hooks' belly, the cup's (x, y, top, low) seen after the hand backed out; arm frame, mm / deg",
+ "samples": [
+  {
+   "flange": [
+    -0.9,
+    488.6,
+    -160.0,
+    86.1,
+    44.5,
+    -169.8
+   ],
+   "cup": [
+    -61.5,
+    663.5,
+    -183.5,
+    -325
+   ]
+  },
+  {
+   "flange": [
+    -30.34,
+    470.82,
+    -177.8,
+    82.7,
+    43.69,
+    -164.7
+   ],
+   "cup": [
+    -117.0,
+    640.5,
+    -182.0,
+    -324.0
+   ]
+  },
+  {
+   "flange": [
+    29.45,
+    465.68,
+    -182.27,
+    81.23,
+    50.3,
+    -164.52
+   ],
+   "cup": [
+    -51.0,
+    638.0,
+    -184.0,
+    -325.4
+   ]
+  }
+ ]
+}

@@ -154,11 +154,9 @@ def measure(color, depth, box, intr, T, round_=False):
     return out
 
 
-def body(depth, box, intr, T):
-    """Width profile of an upright bottle in `box`, cut in SLICE_MM height slices: {"shoulder_mm": where its body
-    begins (the top of the first slice from the top down at least BODY_FRACTION as wide as the body), "body_mm": the
-    body's width (median of the slices below that), "low_mm": its lowest point seen}, mm in the arm base frame; None
-    when not measured. Seen widths, as width_mm."""
+def profile(depth, box, intr, T):
+    """(slices, lowest z seen) of the upright thing in `box`: slices [(top z of the slice, width)] from the top down,
+    SLICE_MM thick, mm in the arm base frame, seen widths (as width_mm); None when not measured."""
     P = points(depth, box, intr, T)[2]
     if P is None:
         return None
@@ -166,13 +164,23 @@ def body(depth, box, intr, T):
     sight /= np.linalg.norm(sight) or 1.0
     across = P[:2].T @ np.array([-sight[1], sight[0]])
     low, top = np.percentile(P[2], EDGE_PCT)
-    slices = []                                       # (top z of the slice, width), from the top down
+    slices = []
     for z in np.arange(top, low, -SLICE_MM):
         a = across[(P[2] <= z) & (P[2] > z - SLICE_MM)]
         if len(a) >= SLICE_MIN_POINTS:
             slices.append((float(z), float(np.subtract(*np.percentile(a, EDGE_PCT[::-1])))))
-    if not slices:
+    return (slices, float(low)) if slices else None
+
+
+def body(depth, box, intr, T):
+    """Width profile of an upright bottle in `box` (profile()): {"shoulder_mm": where its body begins (the top of the
+    first slice from the top down at least BODY_FRACTION as wide as the body), "body_mm": the body's width (median of
+    the slices below that), "low_mm": its lowest point seen}, mm in the arm base frame; None when not measured. Seen
+    widths, as width_mm."""
+    p = profile(depth, box, intr, T)
+    if p is None:
         return None
+    slices, low = p
     wide = BODY_FRACTION * np.percentile([w for _, w in slices], BODY_PCT)
     i = next(i for i, (_, w) in enumerate(slices) if w >= wide)
     return {"shoulder_mm": round(slices[i][0]), "body_mm": round(float(np.median([w for _, w in slices[i:]]))),
