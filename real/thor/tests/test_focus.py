@@ -58,7 +58,7 @@ class Vision:
     def nearest_greeted(self):
         return next((t for t in self.tracks if t.greeted), None)
 
-    def seen(self):
+    def seen(self, max_m=None):
         return [(t.angle, t.distance) for t in self.tracks]
 
     def head_person(self, angle, since):

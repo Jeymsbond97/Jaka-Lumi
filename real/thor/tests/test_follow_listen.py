@@ -44,7 +44,7 @@ class Vision:                                  # someone at -60 deg besides the 
     def present(self, t):
         return True
 
-    def seen(self):
+    def seen(self, max_m=None):
         return [(self.stranger.angle, 1.0)]
 
     def head_person(self, angle, since):

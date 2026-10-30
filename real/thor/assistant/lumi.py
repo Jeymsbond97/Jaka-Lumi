@@ -386,6 +386,8 @@ FOCUS_REFIND_DEG = 15.0            # a lost track's person is found again as the
 LOOK_ME_PITCH = 0.0                # deg, head pitch of the first turn to a person ("look at me"): level, a far person
                                    # fits whole; the head camera then tilts it to their height (look_me_pitch)
 LOOK_ME_SETTLE_S = 0.6             # s after a head move before its camera is asked who is there
+LOOK_ME_MAX_M = 6.0                # m; "look at me" finds callers up to this far (others count only within STAY_MAX)
+LOOK_ME_BODY_DEG = 5.0             # deg past the head's yaw limit before the body turns to face the person
 LOOK_ME_TOP_ROW = 0.08             # share of the image height from the top where the person's head should be
 LOOK_ME_EDGE_PX = 8                # a box edge this near the frame edge is cut by it
 LOOK_ME_UP_STEP = 10.0             # deg up when the person's head is cut by the frame top (how much is cut is unknown)
@@ -689,18 +691,19 @@ class Vision(threading.Thread):
             best = min(self.tracks, default=None, key=lambda t: abs(t.angle - angle))
         return best if best is not None and abs(best.angle - angle) <= max_diff else None
 
-    def seen(self):
-        """Everyone in view as (waist-frame angle, distance): this camera's people and, while the head camera is in
-        use, the torso camera's fresh ones too (someone beside Lumi is often outside the turned head camera's view)."""
+    def seen(self, max_m=STAY_MAX):
+        """Everyone in view as (waist-frame angle, distance) up to max_m: this camera's people and, while the head
+        camera is in use, the torso camera's fresh ones too (someone beside Lumi is often outside the turned head
+        camera's view)."""
         with self.lock:
-            out = [(t.angle, t.distance) for t in self.tracks if t.distance <= STAY_MAX]
+            out = [(t.angle, t.distance) for t in self.tracks if t.distance <= max_m]
         if self.camera != "torso":
             camview.want("torso")
             try:
                 d = json.loads(camview.det_path("torso").read_text())
                 if time.time() - d["time"] <= TORSO_FRESH_S:
                     out += [(p["angle_deg"], p["distance_m"]) for p in d["people"]
-                            if p["distance_m"] is not None and p["distance_m"] <= STAY_MAX]
+                            if p["distance_m"] is not None and p["distance_m"] <= max_m]
             except (FileNotFoundError, ValueError, KeyError):
                 pass
         return out
@@ -1133,14 +1136,15 @@ class Lumi:
                 self.fetch_finish(action)
 
     def look_at_speaker(self):
-        """"Look at me": the cameras first, the voice direction only to choose. Someone seen (both cameras): the one
-        near the voice, else the person talked with, else the one nearest where the head looks; the body never turns
-        then (a sure voice read 90 deg off in the median and put a person in front behind, 2026-10-28/29, so a repeat
-        "look at me" flipped the base from side to side). Nobody seen: the head sweeps the voice's side, then the
-        other side; nobody there either and a sure voice past the head's reach: the body turns to it (turn_body_to)
-        and the head looks there. Then the head tilts until the head camera sees the person from their head down
-        (look_me_pitch). That person becomes the one talked with, and while the look is held the head follows them
-        (look_me, keep_focus)."""
+        """"Look at me": the cameras first, the voice direction only to choose. Someone seen (both cameras, up to
+        LOOK_ME_MAX_M): the one near the voice, else the person talked with, else the one nearest where the head
+        looks; the voice never turns the body then (it read a person in front as behind, 2026-10-28/29, and a repeat
+        "look at me" flipped the base from side to side), only someone seen past the head's reach does, so the head
+        faces them. Nobody seen: the head sweeps the voice's side (sure or not), then the other side; nobody there
+        either: the body turns to the voice, a voice read in front taken as its mirror behind (the array mixes the
+        two), and the head looks there (turn_body_to). Then the head tilts until the head camera sees the person
+        from their head down (look_me_pitch). That person becomes the one talked with, and while the look is held
+        the head follows them (look_me, keep_focus)."""
         if not self.vision:
             return
         self.head_busy = True                               # keep_focus waits: the head is turned here
@@ -1160,7 +1164,7 @@ class Lumi:
         recent = time.time() - getattr(self, "voice_at", 0.0) <= VOICE_KEEP_S   # this turn's sound too weak: the
         voice = self.voice_angle if self.voice_trusted or recent else None    # caller's last sure direction
         gaze = HEAD_SIGN * self.det_yaw()
-        seen = self.vision.seen()
+        seen = self.vision.seen(LOOK_ME_MAX_M)
         found, why = (near(seen, voice), "nearest the voice") if voice is not None else (None, "")
         if found is None and seen:
             cur = self.current if self.current and self.vision.present(self.current) else None
@@ -1170,29 +1174,37 @@ class Lumi:
                 found = min(seen, key=lambda s: abs(s[0] - gaze))
                 why = "nearest where the head looks" + ("" if voice is None else f", none at the voice {voice:+.0f} deg")
         if found is None:                                    # nobody in view: the head camera looks around first
-            first = gaze if voice is None else max(-head.YAW_LIMIT, min(head.YAW_LIMIT, voice))
+            guess = voice if voice is not None else getattr(self, "voice_guess", None)   # an unsure voice still
+            first = gaze if guess is None else max(-head.YAW_LIMIT, min(head.YAW_LIMIT, guess))   # picks the side
             side = 1.0 if first >= 0 else -1.0
             for a in (side * head.YAW_LIMIT, -side * head.YAW_LIMIT):
                 log(f"  look me: nobody seen, looking at {a:+.0f} deg")
                 face(a)
                 time.sleep(LOOK_ME_SETTLE_S)                # new head camera frames from there
-                seen = self.vision.seen()
+                seen = self.vision.seen(LOOK_ME_MAX_M)
                 if seen:
                     found, why = min(seen, key=lambda s: abs(s[0] - a)), "found looking around"
                     break
-        if found is None and voice is not None and abs(voice) > head.YAW_LIMIT:
+        if found is None and voice is None:                  # an unsure voice still gives the side
+            voice = getattr(self, "voice_guess", None)
+        if found is None and voice is not None and abs(voice) <= head.YAW_LIMIT:   # nobody where the head looked: the
+            voice = (180.0 - abs(voice)) * (1.0 if voice >= 0 else -1.0)            # array mixes front and back
+        if found is None and voice is not None:
             voice = self.turn_body_to(voice)               # behind: the head alone can't get there
             self.voice_angle, self.voice_trusted, self.voice_at = voice, False, 0.0   # measured before the turn:
-            log(f"  look me: turned toward the voice, looking at {voice:+.0f} deg")  # never used again
+            self.voice_guess = None                                                 # never used again
+            log(f"  look me: turned toward the voice, looking at {voice:+.0f} deg")
             face(voice)
             time.sleep(LOOK_ME_SETTLE_S)
-            seen = self.vision.seen()
+            seen = self.vision.seen(LOOK_ME_MAX_M)
             found, why = min(seen, key=lambda s: abs(s[0] - voice), default=None), "after turning to the voice"
         if found is None:
             log("  look me: nobody seen, the head goes back")
             face(gaze)
             return
         log(f"  look me: person at {found[0]:+.0f} deg, {found[1]:.2f} m ({why})")
+        if abs(found[0]) > head.YAW_LIMIT + LOOK_ME_BODY_DEG:   # past the head's reach: the body turns so the head
+            found = (self.turn_body_to(found[0]), found[1])      # faces them, not the camera's edge
         face(found[0])
         for _ in range(LOOK_ME_TRIES):
             since = time.time()
@@ -1209,8 +1221,8 @@ class Lumi:
             t.greeted, self.current, self.look_me = True, t, t
 
     def turn_body_to(self, angle):
-        """A voice past the head's reach (waist-frame deg): with Patrol the base turns to it (look_toward), else the
-        waist turns in place toward it (the base stays; fetch._waist_to checks the arm's sweep). Returns the voice's
+        """A voice or a person past the head's reach (waist-frame deg): with Patrol the base turns to it (look_toward),
+        else the waist turns in place toward it (the base stays; fetch._waist_to checks the arm's sweep). Returns its
         waist-frame angle after the turn (unchanged when nothing could turn)."""
         from tasks import fetch
         if self.modes.patrol:
@@ -1218,7 +1230,7 @@ class Lumi:
             return 0.0
         w = waist_turned()
         want = max(-LOOK_WAIST_MAX, min(LOOK_WAIST_MAX, w + angle))
-        log(f"  look me: the voice at {angle:+.0f} deg is past the head: waist to {want:+.0f} deg")
+        log(f"  look me: {angle:+.0f} deg is past the head: waist to {want:+.0f} deg")
         try:
             fetch._waist_to(want, in_place=True, look=angle)
         except Exception as e:
@@ -2279,7 +2291,7 @@ class Lumi:
         person in view is the one, 2026-10-27)."""
         ears.last_stt.clear()
         ears.last_stt.update(language="korean" if brain_mod.HANGUL.search(text) else "english", logprob=0.0, text=text)
-        self.voice_trusted = False
+        self.voice_trusted, self.voice_guess = False, None
         self.typed_now = True                          # to Lumi, name or not (mission_talk)
         try:
             self.answer(text)
@@ -2761,6 +2773,7 @@ class Lumi:
         if not self.vision or u is None:
             return
         self.voice_trusted = False                         # set again below only from this turn's own sound
+        self.voice_guess = None                            # this turn's direction, sure or not
         yaw = self.det_yaw()
         only = self.vision.only_person()
         if only is not None and only is self.current and only.distance <= 1.6 and u.seconds >= 0.8:
@@ -2774,6 +2787,7 @@ class Lumi:
             return
         ang, conf, _ = doa.estimate(u.mics, cal, doa.clip_ref(u))   # with the clip mic: its wearer's voice
         trusted = conf >= voice_min_conf(u)
+        self.voice_guess = HEAD_SIGN * yaw + ang
         log(f"  voice at {HEAD_SIGN * yaw + ang:+.0f} deg (confidence {conf:.2f}{doa.clip_note(u.mics, doa.clip_ref(u))}"
             f"{'' if trusted else ', not trusted'})")
         if not trusted:
@@ -3308,7 +3322,7 @@ class Lumi:
         ang, conf, raw = doa.estimate(u.mics, cal, doa.clip_ref(u))   # with the clip mic: its wearer's voice
         trusted = cal["fitted"] and conf >= voice_min_conf(u)
         robot_angle = HEAD_SIGN * self.det_yaw() + ang
-        self.voice_angle, self.voice_trusted = robot_angle, trusted
+        self.voice_angle, self.voice_trusted, self.voice_guess = robot_angle, trusted, robot_angle
         if trusted:
             self.voice_at = time.time()
         log(f"WAKE {text!r}: voice at {robot_angle:+.0f} deg (confidence {conf:.2f}, "
@@ -3320,11 +3334,7 @@ class Lumi:
         self.brain.reset()
         self.closing_pending = None
         command = rest if len(rest) > 2 else text if re.search(r"how are you", text, re.I) else ""   # answered
-        target = self.find_caller(robot_angle, trusted)
-        if target is not None:
-            target.greeted = True
-            self.current = target
-            self.face(target)
+        self.look_at_speaker()                                # as "look at me": the cameras, the voice's side, behind
         if not command:                                       # just "Hi Lumi": a short answer, then listen
             mouth.say(WAKE_REPLY[lang])
         self.voice_until = time.time() + VOICE_SESSION_S

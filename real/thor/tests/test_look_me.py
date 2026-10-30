@@ -14,7 +14,7 @@ class Vision:
     def __init__(self, before, after=None):
         self.views = [before, before if after is None else after]
 
-    def seen(self):
+    def seen(self, max_m=None):
         return self.views.pop(0) if len(self.views) > 1 else self.views[0]
 
     def present(self, t):
@@ -52,10 +52,15 @@ for v in (128.0, -122.0, 120.0, -120.0):
 assert look([(-30.0, 1.0), (35.0, 1.0)], voice=150.0, gaze=-25.0) == [-30], turns
 # nobody seen: the head looks to the voice's side first, finds the person there
 assert look([], voice=-55.0, after=[(-50.0, 0.9)]) == [-60, -50], turns
-# nobody seen on that side either: the other side, then back where it looked when nobody is anywhere
-assert look([], voice=-55.0) == [-60, 60, 0], turns
 # nobody seen, no voice: looks around and back
 assert look([], gaze=10.0) == [60, -60, 10], turns
+# nobody seen, the voice unsure but on the right: the right first, not the side the head happens to face (2026-10-30)
+L = lumi.Lumi.__new__(lumi.Lumi)
+L.vision, L.current, L.voice_angle, L.voice_trusted, L.voice_guess = Vision([], [(-50.0, 2.0)]), None, 0.0, False, -64.0
+L.det_yaw = lambda: 0.0
+turns.clear()
+L.look_at_speaker()
+assert turns == [-60, -50], turns
 
 # "Lumi" with the voice read on the left, nobody there: the head turns there, then to the person seen, else back
 heads = []
@@ -157,3 +162,34 @@ assert waist["calls"] == [(120, True, 170.0)], waist
 assert turns == [60, -60, 50, 0], turns            # looked around first; 170 - 120 left for the head; nobody: back
 assert not L.voice_trusted and L.voice_at == 0.0   # a direction measured before the turn is never used again
 print("look me behind: ok")
+
+# someone seen past the head's reach (+101 deg, the owner 2 m to the left, 2026-10-30): the waist turns so the head
+# faces them, not with them at the camera's edge
+waist.update(at=0.0, calls=[])
+L = lumi.Lumi.__new__(lumi.Lumi)
+L.vision, L.current = Vision([(101.0, 1.9)]), None
+L.voice_angle, L.voice_trusted = 0.0, False
+L.det_yaw = lambda: 0.0
+L.modes = type("M", (), {"patrol": False})()
+turns.clear()
+L.look_at_speaker()
+assert waist["calls"] == [(101, True, 101.0)] and turns == [0], (waist, turns)
+print("look me past the head: ok")
+
+# called from behind, nobody in view (2026-10-30): the body turns to the voice even when it is unsure (+150 here) ...
+waist.update(at=0.0, calls=[])
+L = lumi.Lumi.__new__(lumi.Lumi)
+L.vision, L.current = Vision([]), None
+L.voice_angle, L.voice_trusted, L.voice_guess = 0.0, False, 150.0
+L.det_yaw = lambda: 0.0
+L.modes = type("M", (), {"patrol": False})()
+turns.clear()
+L.look_at_speaker()
+assert waist["calls"] == [(120, True, 150.0)] and turns == [60, -60, 30, 0], (waist, turns)
+# ... and a voice read in front with nobody there is taken as its mirror behind (-55 -> -125)
+waist.update(at=0.0, calls=[])
+L.voice_angle, L.voice_trusted, L.voice_guess = -55.0, True, -55.0
+turns.clear()
+L.look_at_speaker()
+assert waist["calls"] == [(-120, True, -125.0)] and turns == [-60, 60, -5, 0], (waist, turns)
+print("look me from behind, unsure voice: ok")
