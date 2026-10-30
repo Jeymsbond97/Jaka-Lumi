@@ -10,7 +10,7 @@ head_cam.head_centre = lambda: np.array([-92.97, -19.87, 356.12])   # the head's
 
 cup = {"name": "cup", "colour": "white", "x": -126.5, "y": 613.0, "top_mm": -261.0, "width_mm": 72.0}
 R = calib.rpy_matrix(*skills.GRASP_RPY)
-g = np.array([cup["x"], cup["y"], cup["top_mm"] - 40])
+g = np.array([cup["x"], cup["y"], cup["top_mm"] - skills.BELOW_RIM_MM])
 
 (n1, above), (n2, grasp), (n3, lift) = skills.plan_pick(cup)
 assert np.allclose(grasp[:3], g - R @ skills.GRASP_OFFSET) and grasp[3:] == list(skills.GRASP_RPY)

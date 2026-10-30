@@ -59,7 +59,9 @@ PATH_SAG_MM = 20.0                               # a joint move may take the gri
 TIP_MM = 60.0                                    # the hand's lowest part this far below the grasp point (estimate, kept
                                                  # as a margin: the fingers lie level; the taught tips grasp had the
                                                  # grasp point 113 mm above the table, owner's tape: finger plane 135)
-BELOW_RIM_MM = 40.0                              # grasp this far below the object's top
+BELOW_RIM_MM = 32.0                              # grasp this far below the object's top: a cup narrower lower down slipped
+                                                 # out at 40, held at 25 with the fingers' top a little over the rim
+                                                 # (they are 13 mm thick; owner, 2026-10-29)
 ABOVE_MM = 100.0                                 # approach / retreat height over the grasp pose
 LIFT_MM = 30.0                                   # first lift after closing, then check the grip again
 MAX_TILT_DEG = 15.0                              # deg; a held cup's axis may lean this far from vertical on a joint
