@@ -56,9 +56,8 @@ EDGES = (("give_pre", "give"), ("give", "carry"), ("carry", "look"), ("look", "w
          ("wave_start", "wave"), ("look", "ready"))   # the moves with something in the hand (both ways)
 WAVE_POSES = ("wave_out", "wave_start", "wave")       # never with something in the hand (the cup would tip)
 NO_EDGES = {frozenset(("look", "wave_start")),       # never one joint move: passes 267 mm from the head (the wave
-            *(frozenset(("give", w)) for w in ("wave_out", "wave_start", "wave")),   # goes up and down through
-            *(frozenset(("give_pre", w)) for w in ("wave_start", "wave"))}           # wave_out, 309 mm); give and
-                                                      # the wave poses through give_pre and wave_out (owner)
+            *(frozenset(("give", w)) for w in ("wave_out", "wave_start", "wave"))}   # goes up and down through
+                                                      # wave_out, 309 mm); give and the wave poses through give_pre
 STOP_DEG = 10.0                      # deg of joint travel one more stop on a route costs (SETTLE_S, slowing down and
                                      # starting again; an estimate, it only weighs routes against each other)
 SPEED = "route"                      # motion.JOINT_SPEED of the moves along the graph, empty hand
