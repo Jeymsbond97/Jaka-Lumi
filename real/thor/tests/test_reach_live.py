@@ -122,8 +122,40 @@ lumi.arm_route.move = lambda seq, speed=None, holding=False: route.append(seq[-1
 fetch.state = lambda: {"status": "failed", "holding": False}
 assert not lumi.waist_home("the conversation is over") and not route and waist["turn"] == 26.0
 assert lumi.waist_home("coming to a person", fold=True) and route == ["look"] and waist["turn"] == 0.0
+# something in the hand (live 2026-10-29: "come here" drove with the cup held out in give): to look first along the
+# straight held lines (fetch.drive_ready), also with the waist at the front; a conversation's end moves nothing
 route.clear(), waist.update(turn=26.0)
-fetch.state = lambda: {"status": "failed", "holding": True}       # something in the hand: never moved for a drive
-assert not lumi.waist_home("coming to a person", fold=True) and not route
+fetch.state = lambda: {"status": "stopped", "holding": True}
+real_ready = fetch.drive_ready
+fetch.drive_ready = lambda: route.append("held look")
+assert not lumi.waist_home("the conversation is over") and not route
+assert lumi.waist_home("coming to a person", fold=True) and route == ["held look"] and waist["turn"] == 0.0
+route.clear()
+assert lumi.waist_home("driving", fold=True) and route == ["held look"]          # the waist at the front already
+fetch.drive_ready = lambda: (_ for _ in ()).throw(fetch.FetchError("I can't move my arm there safely."))
+route.clear(), waist.update(turn=26.0)
+assert not lumi.waist_home("coming to a person", fold=True) and not route and waist["turn"] == 26.0   # no drive
+fetch.drive_ready = real_ready
 (fetch._waist_turn, fetch.state, fetch._at_pose, fetch._waist_to, lumi.arm_route.plan, lumi.arm_route.move) = real
+
+# fetch.drive_ready itself: nothing held -> no arm move; held -> the held lines to look (_drive_pose(True)); a task
+# running -> refused (it moves the arm itself)
+real = (fetch.state, fetch._drive_pose, fetch._busy)
+moves = []
+fetch._drive_pose = lambda holding=False: moves.append(holding)
+fetch._busy = lambda: False
+fetch.state = lambda: {"status": "done", "holding": False}
+fetch.drive_ready()
+assert moves == []
+fetch.state = lambda: {"status": "stopped", "holding": True}
+fetch._stop.set()                                                 # an old stop (the hand-over ended) does not end it
+fetch.drive_ready()
+assert moves == [True] and not fetch._stop.is_set()
+fetch._busy = lambda: True
+try:
+    fetch.drive_ready()
+    raise AssertionError("drove the arm while a task runs")
+except fetch.FetchError:
+    pass
+(fetch.state, fetch._drive_pose, fetch._busy) = real
 print(f"reach live ok ({len(REACH) + len(NOT_REACH)} wordings, stop during a hung body move, held state, auto fold)")
