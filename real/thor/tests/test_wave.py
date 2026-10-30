@@ -261,4 +261,14 @@ L.current = track
 L.end_conversation("bye bye")
 assert waves == []
 assert calls == [], calls
+
+# ---------- "open your hand" while handing a thing over: released as "thank you" does; elsewhere refused ----------
+released = []
+real_state, real_rel = fetch.state, fetch.release_now
+fetch.release_now = lambda: released.append(1)
+fetch.state = lambda: {"step": "giving", "holding": True}
+assert L.release_giving() is True and released == [1]
+fetch.state = lambda: {"step": "holding", "holding": True}
+assert L.release_giving() is False and released == [1]
+fetch.state, fetch.release_now = real_state, real_rel
 print("wave ok")

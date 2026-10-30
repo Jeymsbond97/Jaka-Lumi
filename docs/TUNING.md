@@ -6,8 +6,8 @@ Every value here is a constant at the top of its file, with a comment on what it
 
 | File | Name | Default | What it does |
 |---|---|---|---|
-| `robot/motion.py` | `JOINT_SPEED` | slow 10, normal 25, fast 40, quick 50, route 60 °/s | Joint move speeds. "normal" / "route" are the dashboard's Arm pose card "Normal" / "Fast"; route = the Cobo π joint speed limit (60) |
-| `robot/motion.py` | `LINEAR_SPEED` | slow 20, normal 50 mm/s | Straight move speeds |
+| `robot/motion.py` | `JOINT_SPEED` | slow 20, normal 50, quick 50, route 60 °/s | Joint move speeds. "normal" / "route" are the dashboard's Arm pose card "Normal" / "Fast"; route = the Cobo π joint speed limit (60) |
+| `robot/motion.py` | `LINEAR_SPEED` | slow 40, normal 100 mm/s | Straight move speeds |
 | `robot/motion.py` | `ACCEL_FACTOR` | 3.0 | Straight moves: acceleration = speed × this per second |
 | `robot/motion.py` | `JOINT_ACCEL_FACTOR` | 1.5 | Joint moves: acceleration = speed × this per second (route 60 °/s², normal 37.5, slow 15). Lower = softer start and stop, longer moves. Estimate |
 | `manipulation/arm_route.py` | `SPEED` | "route" | Joint moves along the pose graph (to `look`, `carry`, `give`, `ready`, `wave_out`, `wave_start`, `wave`) with an empty hand; the wave's way up |

@@ -1988,7 +1988,8 @@ class Lumi:
         if kind == "receive":
             self.receive_from_hand(what, held)
         elif kind == "refuse":
-            self.fetch_say(*what)
+            if not (what == brain_mod.REFUSE_OPEN and self.release_giving()):
+                self.fetch_say(*what)
         elif not held:
             mouth.say(EMPTY_HAND_SAY[self.lang])
         else:
@@ -2134,6 +2135,17 @@ class Lumi:
         self.skill_thread.start()
         self.keep_listening()
 
+    @staticmethod
+    def release_giving():
+        """The hand held out to someone (fetch's hand-over, waiting for them to take it): "open your hand", "release",
+        "let go" open it as "thank you" does. True when it was handing over."""
+        from tasks import fetch
+        if (safe(fetch.state) or {}).get("step") != "giving":
+            return False
+        log("  open while handing over: releasing")
+        fetch.release_now()
+        return True
+
     def arm_pose(self, target):
         """'reach': the hand out to the person (reach_out); 'fold' / 'carry' / 'ready': to look / that pose along the
         pose graph (arm_route, checked first, moved in the background); 'open' / 'close': the gripper, never opened on something held. True when
@@ -2141,6 +2153,8 @@ class Lumi:
         from tasks import fetch
         held = target in ("reach", "open") and self.held_now()
         if target == "open" and held:                      # the model's "let go" while holding: it would fall
+            if self.release_giving():
+                return True
             log("  open refused: holding something")
             self.fetch_say(*brain_mod.REFUSE_OPEN)
             return None
