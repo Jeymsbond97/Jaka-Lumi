@@ -63,10 +63,22 @@ the waist in place, then the base (Patrol), else asks to move the cup closer (`f
   (`sing.REPEAT_S`, `sing.SPEECH_PER_SYLLABLE`); stop / change requests do.
 - **Stop while Lumi talks or sings**: the clip stream is checked every 0.7 s for stop words (`mic.PEEK_*`); Lumi's own
   words don't trigger it.
-- **Follow**: head, waist and base move at once, none waits: the head goes straight to the person (±180°), the waist
-  turns toward them up to `WAIST_STEP_DEG` 8° per body move at `WAIST_FOLLOW_VEL` 50 % (estimate, watch the arm's
-  swing), the base turns at once and drives when the person is within `TURN_ONLY_DEG` 35° and the waist within
-  `WAIST_DRIVE_DEG` 15°; waist / head unwind to 0. Follow starts with the waist where it is.
+- **Follow**: the head alone tracks the person, aimed where they will be when the head move ends (the base's turn
+  and drive counted, `HEAD_LEAD_S`..`HEAD_LEAD_MAX_S`); the base turns and drives; the waist never turns further out,
+  it only unwinds toward the front as the base comes round (a waist turned at the start). `TURN_MAX_RS` 0.6 (0.3 halves
+  the gaze error in the simulation: the owner's call). Not live yet.
+- **Put down after a voice pick**: base, waist and lift as they picked and the hand within `fetch.BACK_DOWN_MM` of
+  the pick spot: straight back down there, no arm to `look` first. Not live yet.
+- **Give from any pose**: by the checked route to `give_pre`, a stop, then the last move to `give` at `GIVE_SPEED`
+  (`arm_route.py`); `give_pre` / `give` to be taught by the owner (`robot/motion.py teach give_pre`, then `give`).
+  Speech plays while the arm moves (wave / handshake, open / close). "Give me your hand": the waist turns toward the
+  person in `fetch.WAIST_STEP_DEG` moves while the arm goes to give, the head on the person, the whole sweep checked
+  first (`fetch._give_turning`). Not live yet.
+- **A stopped pick**: the next pick first backs out the way it came (`skills.back_out`); stopped after closing, the
+  cup counts as held (put down works, also straight back at the pick spot).
+- **No "Come when called" switch**: with Greeter or Patrol on every voice command works (Greeter alone never drives).
+- **Follow head** at the body API's maximum (`follow.HEAD_VEL` 100); base turn `TURN_MAX_RS` 0.6 (above it only the
+  base's 1.0 clamp is documented: the owner's call with the arm out).
 - **Tests**: every test imports the `tests/no_robot.py` guard (a test reaching the robot fails).
 
 ## Left half done (do first)
@@ -103,13 +115,35 @@ the waist in place, then the base (Patrol), else asks to move the cup closer (`f
   the point's clearance now / after); "charger" / "charging station" / 충전 go to the marker `charge` when the map
   has one (else `home`).
 
+## Voice direction (next work)
+Measured: the head array's direction is mostly the room's noise (voice only ~1.9x the background at 1-3 m; 116 cases
+with one person seen: median 100 deg off, "trusted" ones 90 deg; 40 of 78 dumped utterances read within 30 deg of the
+noise just before them). "Look at me" now uses the cameras first (the voice only chooses among people seen).
+- **At home, offline** (no robot, no microphone needed: the recordings are on the Thor, `logs/doa_dump`): noise
+  subtraction (the second before speech as the noise estimate), speech-only frames (VAD) for the direction, a better
+  confidence that separates good readings from bad; check every idea against the camera's person angle in the logs
+  (`see #N` lines at the same moment) and the dumps; `who_spoke` / `speaker_track` the same way.
+- **At the robot** (owner in the room): `touch data/doa_dump_on`, then the owner speaks from known places (front,
+  +-45, +-90, behind; 1 m and 2 m; quiet and with the usual noise) while the camera sees them; this is the ground
+  truth for the offline work and for a new calibration (`data/doa_calib.json`).
+
+## Live test list (owner at the STOP; restart lumi-api, toggle Patrol)
+1. Top grasp from several spots and turns ("take the cup"), then put down / bring to p3; widen `TRUSTED_YAW_DEG` 15 -> 30
+   after clean picks at +-30.
+2. Holding: a drive to a marker / come here brings the arm to `look` first.
+3. "Give me the cup" from 2 m: comes to the speaker, then hands over; "open your hand" / "thank you" releases.
+4. "Come here and give me" / "이리 와서 줘".
+5. "Look at me" with a person in front (repeat it: no side flips), and from behind with nobody in view.
+6. Side grasp with a cup wider than 97 mm at the top.
+7. Body contact limits taught by free drive (3-4 poses beside the body).
+
 ## Next
-0. **New gripper fingers first** (fitted; gaps measured, docs/gripper/README.md: belly 9.4 / 6.8 cm, tips 8.9 / 6.3,
-   neck 5.7 / 3.0). Before any pick: `robot/gripper.py` `GAP_MM`, `skills.MIN_WIDTH` / `MAX_WIDTH` / `BELLY_MIN_MM`
-   from them; AI_1 open / closed empty / on a cup read live; the lowest point below the grasp point (`TIP_MM`); the
-   grasp pose taught again by hand on a cup (`data/grasp_teach.json`, `grasp_tips_teach.json`); then the hover check
-   (old `data/hover_readings.json` was for the old fingers). Arm speed: the owner's "Robot limit" / "Joint limit"
-   screens (joint speed now 50), then look -> give timed live.
+0. **New gripper fingers**: gaps measured (docs/gripper/README.md: belly 9.4 / 6.8 cm, tips 8.7 / 6.3, neck 5.7 /
+   3.0); grasp point from 3 free-drive side grasps by the owner (`data/grasp_side_teach.json`, agree within 1 mm;
+   the belly 43.5 mm nearer the flange than the old fingers' point), then 1 mm left after the first auto side grasp
+   brushed the cup with the right finger. The arm's pick reach is ~4 cm shorter with it. Left: the top grasp live
+   with the new point; `grasp_tips_teach.json` (old fingers); arm speed (the owner's "Robot limit" / "Joint limit"
+   screens, joint speed now 50), then look -> give timed live.
 1. **Live test** (owner at the STOP, slow). Before: Patrol on, robot off the charger, arm enabled at `look`, waist at
    the front, lift 0, base idle; one white 80–85 mm tumbler, upright. Watch logs/api.log. After each step: where the
    fingers landed and whether the base did anything twice. Stop at the first wrong motion.
@@ -120,6 +154,11 @@ the waist in place, then the base (Patrol), else asks to move the cup closer (`f
    3. Cup beside, right (+260, 720): waist or base turn brings it in front, grasp turned at most 15°.
    4. Holding, base ~0.3 m back from the table: "put it down", "put it on the white table": put down without
       repeating a move or turning away, or "This table is too low for me right now".
+   5. **Side grasp**: picked live and put back once (84 mm rim, 142 mm tall cup at 60 mm up, the side decision and
+      the height given by hand in that run). Next: "take the cup" through the assistant with the code's own choice
+      (top over `MAX_WIDTH` 81 → side, height nearest 0.42 of the cup's height that fits), at the cup spots it can
+      reach (nearer than ~640 mm in front, or to the right); a short (~7 cm) cup; a cup wide all the way down: "too
+      wide for my hand, also lower down".
 2. **Hover check** of the grasp point (Greeter / Patrol off; nothing touches the cup). Grey 85 mm cup at
    (−100, 600): `.venv/bin/python manipulation/skills.py hover cup 0`, then `-30`, `-45`: the arm stops with the open
    hooks 6 cm over the rim; the owner reads dx (+ = Lumi's right) / dy (+ = away) of the hooks' centre from the rim's
