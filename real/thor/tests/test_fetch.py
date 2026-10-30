@@ -915,7 +915,7 @@ st = run(fetch.run_steps, [P(do="pick", object="apple", colour=None), P(do="move
 names = [c[0] for c in calls]
 assert st["status"] == "done" and not st["holding"], st
 assert names.index("pick") < names.index("go_point") < names.index("joy") < names.index("place"), calls  # turn, drive
-assert ("joy", "100.000") in calls and "Done." in said, (calls, said)
+assert ("joy", "100.000") in calls and said[-1] == "I've put it down.", (calls, said)   # the last step's words
 # receive: the hand held out, closes when the sensor sees something, the cup is carried on; place after it refused
 reset()
 hand["front"] = False

@@ -2088,7 +2088,7 @@ class Lumi:
             ko = brain_mod.object_ko(what[1]) + " " if what[1] else ""
             said = (f"Okay, putting {what[0]} back.", f"네, {ko}제자리에 놓을게요.") if back else \
                 (f"Okay, putting {what[0]} down.", f"네, {ko}내려놓을게요.")
-            done = ("Done.", "다 했어요.")
+            done = ("I've put it down.", "내려놓았어요.")
             run = lambda: skills.put_down(back=back)
         else:
             words = (target or "").lower().split()           # the LLM may write "the white cup"
@@ -2112,7 +2112,7 @@ class Lumi:
                     fetch.pick_here(name, colour, say=self.fetch_say)
                     fetch.held_by_skill({"object": name, "colour": colour})
             else:
-                said, done = (f"Okay, I'll move the {target}.", "네, 옮겨 볼게요."), ("Done.", "다 옮겼어요.")
+                said, done = (f"Okay, I'll move the {target}.", "네, 옮겨 볼게요."), ("I've moved it.", "다 옮겼어요.")
                 run = lambda: skills.move_object(name, colour)
         if confirm:
             mouth.say(said[0] if en else said[1])

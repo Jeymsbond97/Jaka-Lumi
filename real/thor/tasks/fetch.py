@@ -2522,7 +2522,13 @@ def _needs_markers(task):
     return any(isinstance(task.get(k), dict) and "marker" in task[k] for k in ("source", "dest"))
 
 
-def _finish(fn, say):
+PUT_DOWN_WORDS = ("I've put it down.", "내려놓았어요.")
+HANDED_WORDS = ("Here you are.", "여기 있어요.")
+END_WORDS = {"go": ("I'm here.", "도착했어요."), "place": PUT_DOWN_WORDS, "give": HANDED_WORDS}   # by the last step;
+                                                 # arm poses, moves, turns and words end without a word (seen / said)
+
+
+def _finish(fn, say, end=None):
     _adopt()
     with _lock:
         if _busy():
@@ -2544,7 +2550,8 @@ def _finish(fn, say):
                 return
             _lift_to(LIFT_DRIVE_MM)
             _set(status="done", step="")
-            _say(say, "Done.", "다 했어요.")
+            if end:
+                _say(say, *end)
             log("done")
         except Exception as e:
             _fail(e, say)
@@ -2555,12 +2562,12 @@ def give(say=None):
     """Hand the held object to the person in front."""
     if "give" not in motion.poses():
         raise FetchError("I haven't learned how to hand things over yet.")
-    _finish(_give, say)
+    _finish(_give, say, HANDED_WORDS)
 
 
 def place(say=None, on=None):
     """Put the held object on the table in front, or on the thing `on` names (brain.place_on)."""
-    _finish(lambda s: _put_down(s, on), say)
+    _finish(lambda s: _put_down(s, on), say, PUT_DOWN_WORDS)
 
 
 THEN = (None, "place", "give")       # after carry_to: keep holding it, put it on a table there, hand it over
@@ -2575,7 +2582,7 @@ def carry_to(dest, then=None, say=None, on=None):
         raise FetchError(f"After driving I can only {', '.join(t for t in THEN if t)} or keep holding it.")
     if then == "give" and "give" not in motion.poses():
         raise FetchError("I haven't learned how to hand things over yet.")
-    _finish(lambda s: _carry_to(dest, s, then, on), say)
+    _finish(lambda s: _carry_to(dest, s, then, on), say, END_WORDS.get(then))
 
 
 def _carry_to(dest, say, then=None, on=None):
@@ -2700,7 +2707,8 @@ def _run_steps(steps, say):
         else:
             _lift_to(LIFT_DRIVE_MM)
             _set(status="done", step="")
-            _say(say, "Done.", "다 했어요.")
+            if done and done[-1]["do"] in END_WORDS:
+                _say(say, *END_WORDS[done[-1]["do"]])
         log(_state["status"])
     except Exception as e:
         _fail(e, say)
