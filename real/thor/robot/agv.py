@@ -27,6 +27,10 @@ _guard = {"gen": 0, "held": False, "reason": None}
 # base caps navigation and joy_control by them and forgets them at its restart (its own 0.3 m/s; follow asked 0.5 and
 # drove 0.30, 2026-10-28). None: the base's own.
 max_speed = {"linear": None, "angular": None}
+# the base's notifications ("type": "notification": docking failed, no path, ...) read on this connection, oldest
+# first; robot/drive_log.py logs and clears them. Only the last NOTICES_KEEP are kept.
+notices = []
+NOTICES_KEEP = 50
 
 
 def set_max_speed(linear, angular):
@@ -47,7 +51,10 @@ def _ask(command, tag, timeout):
             except json.JSONDecodeError:
                 break
             buf = _conn["buf"] = buf.lstrip()[end:]
-            if msg.get("uuid") == tag:
+            if msg.get("type") == "notification":
+                notices.append(msg)
+                del notices[:-NOTICES_KEEP]
+            elif msg.get("uuid") == tag:
                 return msg
         chunk = s.recv(65536)
         if not chunk:                                # the base closed the connection: never loop forever

@@ -112,6 +112,9 @@ def watch(log=print):
         if down:
             log("base answering again")
             down = False
+        while agv.notices:                             # why the base failed a move or a docking (code, words)
+            n = agv.notices.pop(0)
+            log(f"base: {n.get('code')} {n.get('description')} {n.get('data') or ''}".rstrip())
         for line in d.update(st, time.time()):
             log(line)
             if "seems stuck" in line and not d.drive.get("why"):
