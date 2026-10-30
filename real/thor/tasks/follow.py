@@ -208,7 +208,7 @@ def prepare():
     if why:
         raise fetch.FetchError(*why)
     fetch._stop.clear()                                  # a stop said earlier must not end this one
-    fetch._drive_pose()
+    fetch._drive_pose(bool(fetch.state().get("holding")))   # a held cup: straight lines at holding speed
     if fetch.arm_yaw() is None:
         fetch.log("follow: the arm's place on the base is not measured: only the base is checked")
         return []

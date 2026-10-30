@@ -248,6 +248,15 @@ def fetch_head_ahead():
     fetch.head_ahead()                            # drives look ahead, wherever the head was turned
 
 
+def held_to_look():
+    """Something held goes to look before the base drives (fetch.drive_ready); 409 when it can't (no drive)."""
+    from tasks import fetch
+    try:
+        fetch.drive_ready()
+    except Exception as e:
+        raise HTTPException(409, f"the arm is not ready to drive: {e}")
+
+
 @app.post("/agv/go", tags=["base"], summary="Drive to a marker (returns at once; watch /status move_status)")
 def go(body: GoBody):
     _route.stop()
@@ -257,6 +266,7 @@ def go(body: GoBody):
     if assistant_pids():
         send_to_assistant("go", marker=body.marker)
         return {"ok": True, "marker": body.marker, "by": "assistant"}
+    held_to_look()
     part(fetch_head_ahead)
     ok, msg = agv.go(body.marker)
     if not ok:
@@ -322,6 +332,7 @@ def go_route(body: RouteBody):
     if assistant_pids():
         send_to_assistant("route", markers=body.markers, pause=body.pause)
         return {"ok": True, "route": body.markers, "by": "assistant"}
+    held_to_look()
     _route.start(body.markers, body.pause)
     return {"ok": True, "route": body.markers, "by": "api"}
 
@@ -714,6 +725,7 @@ def go_point(body: PointBody):
     if assistant_pids():
         send_to_assistant("go_point", point=[body.x, body.y, body.theta])
         return {"ok": True, "by": "assistant"}
+    held_to_look()
     part(fetch_head_ahead)
     ok, msg = agv.go_point(body.x, body.y, body.theta)
     if not ok:
@@ -1039,7 +1051,7 @@ def _said(kind, words, what):
     if kind == "talk":
         return f"answer \u201c{words}\u201d"
     a, t = what
-    return {"look": f"look {t}", "lift": f"lift {t}", "wave": "wave", "come": "come to me", "come_back": "go back",
+    return {"look": f"look {t}", "lift": f"lift {t}", "wave": "wave", "come": "come to me and give it to you" if t == "give" else "come to me", "come_back": "go back",
             "follow": "follow me", "go_to": f"go to {brain.place_said(t)}", "arm": f"arm {t}",
             "quiet": "be quiet", "waist": f"turn my waist {t}"}.get(a, f"{a} {t}".strip())
 

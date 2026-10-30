@@ -403,6 +403,19 @@ def _drive_pose(holding=False):
         log("the arm is switched off: it stays where it is for the drive")
 
 
+def drive_ready():
+    """Before a drive or base turn started outside the task runner (a trip, come here, a base turn to a voice, the
+    dashboard's go): something held goes to look first, the straight checked lines at holding speed (_drive_pose); a
+    drive with the hand out in carry or give stalls and swings the cup past people. An empty arm is the caller's
+    (lumi.waist_home). Not while a task runs (it moves the arm itself): FetchError then, and when the arm can't go."""
+    if not state().get("holding"):
+        return
+    if _busy():
+        raise FetchError("I'm busy with another task.", "지금 다른 일을 하고 있어요.")
+    _stop.clear()                                # an old stop must not end this one; a new one does
+    _drive_pose(True)
+
+
 def _pose(name, holding=False, leaf=False):
     """Joint moves to pose `name` along the pose graph (manipulation/arm_route.py), all checked before the first
     one starts. `leaf`: the arm is on this task's own way out from look (arm_route.hops). Nothing when it is there."""
@@ -756,16 +769,15 @@ def _waist_front():
 
 
 def _turn(deg, holding=False, why="to look further"):
-    """Turn the base on the spot by `deg` (+ = left), arm in look (holding: it is there already), the lift where it
-    is. False when it must not: Patrol off (stay_put), charging, or the arm would hit something on the way (turn_hits)."""
+    """Turn the base on the spot by `deg` (+ = left), arm in look (holding: the straight lines, _drive_pose), the lift
+    where it is. False when it must not: Patrol off (stay_put), charging, or the arm would hit something on the way (turn_hits)."""
     if stay_put:
         log("not turning: Patrol is off")
         return False
     if _charging():
         log("on the charger: I don't turn")
         return False
-    if not holding:
-        _drive_pose()
+    _drive_pose(holding)                         # holding: in look already after a pick, not after a give / carry
     _waist_front()
     if _sweep_blocked(deg, "turning"):
         return False
@@ -2541,7 +2553,7 @@ def _finish(fn, say, end=None):
         if not _state["holding"]:
             _hold_again()                         # the state was lost; give still works, place needs skills._held
     _new_run()
-    _set(status="running")
+    _set(status="running", task=None)             # no mission's steps left over: a hand-over is no mission (mission_talk)
 
     def run():
         try:

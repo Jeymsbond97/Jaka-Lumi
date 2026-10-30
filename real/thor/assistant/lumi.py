@@ -173,8 +173,8 @@ FIX_SAY = (("Okay.", "네."),                                        # a command
            ("Sorry, which one did you mean? Please say it again.", "죄송해요, 어느 쪽 말씀이세요? 다시 한 번 말씀해 주세요."))
 BASE_OFF_SAY = ("I can't drive or turn my waist right now. Switch on Patrol for that.",   # Greeter only: a base /
                 "지금은 이동하거나 허리를 돌릴 수 없어요. 패트롤을 켜 주세요.")             # waist motion asked for
-WAIST_BACK_SAY = ("I can't turn back to the front right now, so I won't drive.",   # a drive with the waist turned
-                  "지금은 앞으로 돌아설 수 없어서 이동하지 않을게요.")                   # and it can't come back (waist_home)
+WAIST_BACK_SAY = ("I can't get my arm and waist ready to drive right now, so I won't drive.",   # waist_home: the waist
+                  "지금은 팔과 허리를 이동 자세로 할 수 없어서 이동하지 않을게요.")   # can't come back or a held cup to look
 ARM_OFF_SAY = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")   # an arm action with the arm switched off
 ARM_TASKS = {"pick", "put", "move_object", "fetch", "give", "place", "receive", "wave"}   # + arm reach / fold
 
@@ -207,12 +207,15 @@ def waist_home(why, fold=False):
     """The waist back to the front: at a conversation's end, before every drive or base turn, when someone else takes
     over the talk. In place (the base stays), so with Greeter only too; fetch._waist_to checks the arm's sweep and the
     limits. Not while a task runs (it turns the waist itself) or the arm is out of look (a hand held out): logged, the
-    waist stays, unless `fold` (an order to drive or turn): an empty arm goes back to look along the checked pose
-    graph first (an arm left half way by a failed reach refused every drive after it, 2026-10-28). True when the
-    waist is at the front."""
+    waist stays, unless `fold` (an order to drive or turn): something held goes to look first wherever the waist is
+    (fetch.drive_ready: straight checked lines, holding speed); an empty arm goes back to look along the checked pose
+    graph when the waist must turn (an arm left half way by a failed reach refused every drive after it). True when
+    the waist is at the front (and a held thing in look)."""
     from tasks import fetch
     with _waist_lock:
         try:
+            if fold and fetch.state().get("holding"):
+                fetch.drive_ready()                   # a drive with the cup held out in carry / give: never
             if abs(fetch._waist_turn()) < 1.0:
                 return True
             if fetch.state().get("status") == "running":
@@ -1395,9 +1398,12 @@ class Lumi:
 
     def fetch_finish(self, how, on=None, voice=True):
         """Give / place what the hand holds; a refusal ("I haven't learned how to hand things over yet") is spoken.
-        `voice`: asked by voice (else from the dashboard)."""
+        `voice`: asked by voice (else from the dashboard): a hand-over goes to the person who asked, driven to first when
+        far (near_speaker)."""
         from tasks import fetch
         if voice and self.arm_off():
+            return
+        if voice and how == "give" and not self.near_speaker("give")[0]:   # to whoever asked, come to them first
             return
         self.stay()
         try:
@@ -2208,20 +2214,9 @@ class Lumi:
             return None
         with _waist_lock:                                  # a waist coming back to the front (face) ends first
             pass
-        track = None
-        if self.vision:
-            track = self.speaker_track()                   # who asked: the voice, the talk, the look, a raised hand
-            if track is None and self.vision.anyone():     # several seen, nobody raised a hand: raised_hand said so
-                return None
-        if track is not None and track.distance > REACH_COME_M:   # far: go to them first, never reach from afar
-            if not self.modes.patrol:                      # Greeter only: the base stays
-                self.fetch_say(*COME_CLOSER_SAY)
-                return None
-            log(f"  reach: person #{track.id} {track.distance:.2f} m away: coming closer first")
-            self.come_to(track)
-            if not self.vision.present(track) or track.distance > REACH_COME_M:
-                self.fetch_say(*COME_CLOSER_SAY)
-                return None
+        ok, track = self.near_speaker("reach")
+        if not ok:
+            return None
         angle = track.angle if track else None              # only to someone seen: a "sure" voice was 166 deg
                                                             # off with the person in front (2026-10-28 19:13)
         hand = safe(fetch.give_bearing, default=0.0) or 0.0
@@ -2242,6 +2237,28 @@ class Lumi:
             return None
         self.reached_at = time.time()
         return True
+
+    def near_speaker(self, why):
+        """Before the hand goes out to the person who asked (a reach, a hand-over): who it is (speaker_track) and, further
+        than REACH_COME_M, the base comes to them first (come_to, as "come here"): never held out from afar. (True,
+        track) to go on (track None: nobody seen, the hand goes out in front); (False, None) when not (said)."""
+        if not self.vision:
+            return True, None
+        track = self.speaker_track()                       # who asked: the voice, the talk, the look, a raised hand
+        if track is None:                                  # several seen, nobody raised a hand: raised_hand said so
+            return not self.vision.anyone(), None
+        if track.distance <= REACH_COME_M:
+            return True, track
+        if not self.modes.patrol:                          # Greeter only: the base stays
+            self.fetch_say(*COME_CLOSER_SAY)
+            return False, None
+        log(f"  {why}: person #{track.id} {track.distance:.2f} m away: coming closer first")
+        if self.come_to(track) is False:                   # stopped on the way
+            return False, None
+        if not self.vision.present(track) or track.distance > REACH_COME_M:
+            self.fetch_say(*COME_CLOSER_SAY)
+            return False, None
+        return True, track
 
     def reach_done(self, text=None):
         """The hand is held out (reach_out) and the reach has ended: "thanks" / "okay" / "고마워" / "됐어" (`text`) or
@@ -2951,6 +2968,9 @@ class Lumi:
         if action == "come_back":
             self.come_back(speak=True)
             return True
+        if action == "come" and target == "give":
+            self.come_and_give(text)
+            return True
         if action == "come":
             self.come_to(self.current, say=True)               # drives first, says "I'm coming" as it starts
             return True
@@ -3420,7 +3440,8 @@ class Lumi:
     # ---------- come here ----------
     def come_to(self, track, say=False):
         """Drive to the person (a visible track) and stop about COME_STOP in front of them. `say`: "I'm coming"
-        once the base has the goal, spoken while it drives (the motion never waits for the words)."""
+        once the base has the goal, spoken while it drives (the motion never waits for the words). False when a stop
+        word ended it on the way."""
         if track is None or not self.vision or not self.vision.visible(track):
             track = self.speaker_track()                   # who said it: the voice, the talk, the look, a raised hand
             if track is None:
@@ -3467,7 +3488,7 @@ class Lumi:
                 break
             if self.stop_heard():                         # the main loop waits here: listen for "stop" too
                 self.stop_all()
-                return
+                return False
             if self.vision.present(track):
                 if track.distance <= COME_STOP:
                     log(f"  person #{track.id} is {track.distance:.2f} m away - stop")
@@ -3482,6 +3503,19 @@ class Lumi:
         if self.vision.present(track):
             self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, track.angle)), force=True)
         self.last_activity = time.time()
+
+    def come_and_give(self, text):
+        """"Come here and give me (it / the cup)", "이리 와서 줘" (route: come_give): a hand-over held out from afar is
+        taken back (end_run), Lumi comes to the speaker (come_to; the held thing goes to look first, waist_home), then
+        hands it over (fetch_finish). Nothing held: it comes and says the hand is empty."""
+        self.end_run(text)
+        if self.come_to(self.current, say=True) is False:  # stopped on the way
+            return
+        if self.held_now():
+            self.fetch_finish("give")
+        else:
+            mouth.say(EMPTY_HAND_SAY[self.lang])
+        self.keep_listening()
 
     def pointed_drive(self, text):
         """"Go there" / "저기로 가" / "come to where I'm pointing" with a pointing arm: drive to the floor spot pointed
@@ -3909,7 +3943,7 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     by)); "end" (a goodbye); "sing"; "quick" (brain.intent's rule, one of QUICK_RULES, or the example bank's
     reading: assistant/intent_bank.py); (None, None): the LLM reads
     it. seen: seeing.answer or a stand-in; chain_ok: False on a mission or while a chain runs."""
-    from assistant import chain, intent_bank
+    from assistant import chain, intent_bank, steps
     text = MYEOT_SLIP.sub("몇", text or "")    # whisper's 멸 for 몇: "멸 센티까지 잡아?" asks, orders nothing
     text = re.sub(r"(?<=[가-힣])(?=[a-zA-Z]{2})", " ", text)   # "원래 자리에put back": the English word apart
     text = re.sub(r"\bcome on back\b", "come back", text, flags=re.I)   # not 1 m back
@@ -3933,6 +3967,12 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
     how = stuck and detour.read(text, markers, stuck["goal"])   # only a direct order (detour.read), else the LLM
     if how:
         return "detour", how
+    give = not hold and come_give(text, markers)   # "come here and give me", "이리 와서 줘": come, then hand it over
+    if give:
+        named = chain_ok and not (holding() if callable(holding) else holding) and steps.read(give, markers, llm=False)
+        if named and named[0] and not named[1] and named[0][0]["do"] == "pick":   # empty, "와서 컵 줘": pick, give
+            return "chain", [("quick", "come here", ("come", "")), ("steps", give, named[0])]
+        return "quick", ("come", "give")
     plan = chain_ok and not brain_mod.not_an_order(text, asked=False) and brain_mod.direct_order(text) and \
         chain.plan(text, markers, NOT_A_STEP)   # not "when the show starts, go to the stage", "Jake, wave"
     picks = [i for i, (k, _, w) in enumerate(plan or []) if k == "steps" and any(st.get("do") == "pick" for st in w) or
@@ -3999,6 +4039,19 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
         if rule:
             return arm_quick(rule, holding)
     return None, None
+
+
+COME_GIVE = re.compile(r"^(?:(?:let'?s|please|can you|could you|would you|will you|now|okay|ok)[\s,]+)*(?:come|get)"
+                       r"(?:\s+(?:over\s+)?(?:here|to me|closer|this way|over))?(?:\s+please)?\s*(?:,|\.|and then|and|then)\s*"
+                       r"(?P<rest>.+)$|^(?:(?:이리|여기|이쪽|이쪽으로|여기로|나한테|저한테|내 ?앞으로|제 ?앞으로)\s*)?와서\s*(?P<ko>.+)$", re.I)
+
+
+def come_give(text, markers):
+    """"Come here and give me (it / the cup)", "이리 와서 (컵) 줘": the give part when the rest is a hand-over to the
+    speaker (brain.hand_request), else None (route: come to them, then hand it over)."""
+    m = COME_GIVE.match(WAKE.sub(" ", text or "").strip(" ,.!?"))
+    rest = m and (m.group("rest") or m.group("ko")).strip(" ,.!?")
+    return rest if rest and brain_mod.hand_request(rest, True, None, markers) == ("give", None) else None
 
 
 def arm_quick(rule, holding):
