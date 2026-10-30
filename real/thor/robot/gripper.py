@@ -23,8 +23,8 @@ TOOL = 1                     # set_digital_output type: 0 cabinet, 1 tool (TIO),
 CLOSE_DO, OPEN_DO = 0, 1     # DO_1, DO_2 (0-based)
 CLOSED_AI = 400              # AI_1 above this = closed on something (open reads 130-165; an 82 mm metal cup
                              # held in the cup fingers reads ~2200-2300, 2026-10-13)
-EMPTY_AI = 4000              # closed above this = nothing between the fingers (these fingers empty: 4084-4158; an 84 mm
-                             # rim cup held ~4 cm down read 3902, 2026-10-29)
+EMPTY_AI = 4040              # closed above this = nothing between the fingers (these fingers empty: 4084-4158; an 84 mm
+                             # rim cup held 3681-3969, 2026-10-29: the belly closes to 77 mm, that cup is ~78-81 there)
 AI_OPEN, AI_SHUT = 140.0, 4160.0   # AI_1 fully open / closed on nothing (2026-10-19)
 # inner gap (mm) between the fingers, (open, closed), measured by the owner (docs/gripper/README.md; the neck and the
 # straight part "shank" not measured again, the earlier ones kept); the gap is taken as linear in AI_1
