@@ -1017,7 +1017,8 @@ class Lumi:
     def wave(self, ok=None, quiet=False):
         """Wave because someone asked or said "bye bye" in view (never on a greeting): manipulation/wave.py checks the
         arm, the hand, the start pose and the whole path first; a refusal is said unless `quiet`. Not while following,
-        on a mission or a task. `ok`: (English, Korean) said once the wave is checked. True if waved."""
+        on a mission or a task. `ok`: (English, Korean) said once the wave is checked, while the arm already moves
+        (owner: no waiting for the words first). True if waved."""
         from tasks import follow
         if not self.modes.wave:
             log("  waving is switched off (dashboard)")
@@ -1032,7 +1033,8 @@ class Lumi:
             if self.vision:
                 self.vision.arm_watch = True
             self.publish_busy("wave")
-            wave_mod.wave(on_start=(lambda: self.fetch_say(*ok)) if ok else None)
+            wave_mod.wave(on_start=(lambda: threading.Thread(target=self.fetch_say, args=ok, daemon=True).start())
+                          if ok else None)
             return True
         except wave_mod.WaveError as e:
             log(f"  wave refused: {e.args[0]}")
@@ -2966,9 +2968,13 @@ class Lumi:
             return True
         if action == "arm":
             done = {"open": ("Okay, opening my hand.", "네, 손을 펼게요."), "close": ("Okay, closing my hand.", "네, 손을 쥘게요.")}
-            if target in done:
-                mouth.say(done[target][0] if en else done[target][1])
+            words = None
+            if target in done:                             # said while the gripper already moves
+                words = threading.Thread(target=mouth.say, args=(done[target][0] if en else done[target][1],), daemon=True)
+                words.start()
             ok = self.arm_pose(target)
+            if words:
+                words.join()
             if ok:
                 if target in ("fold", "carry", "ready"):
                     mouth.say("Okay." if en else "네.")

@@ -102,6 +102,8 @@ SEARCH_BASE_DEG = (180.0, 90.0)      # then the base turns towards that side, th
 LIFT_TRIES = LIFT_RANGE      # mm; nothing found: all of it again at the other end of these
 SAME_BASE_M = 0.02                   # m / rad; the base is still where it picked: the pick spot is still table
 SAME_BASE_RAD = 0.035
+BACK_DOWN_MM = 60.0                  # mm; held with the flange this near (sideways) over the pick spot, base, waist and
+                                     # lift as they picked: a put down goes straight down there, no look first
 WAIST_REACH_STEPS = (0.0, 15.0, -15.0, 30.0, -30.0)   # deg; a pick out of reach: waist turns tried around the one
                              # that brings the object to PICK_ZONE_CENTRE's bearing about the column (the waist carries
                              # the arm round the column: what it reaches beside it, it reaches ahead), before a base move
@@ -1656,10 +1658,7 @@ def place_spots(held, base_now, seen, table=None):
     """Where the held object may go: the pick spot when the base has not moved since the pick, then free grid spots
     the depth camera sees as table at `table` mm (default: the pick table's height), nearest the pick zone centre
     first. Free: FREE_MM from everything seen standing on the table."""
-    b0 = held.get("base")
-    same = b0 is not None and math.hypot(base_now[0] - b0[0], base_now[1] - b0[1]) < SAME_BASE_M \
-        and abs((base_now[2] - b0[2] + math.pi) % (2 * math.pi) - math.pi) < SAME_BASE_RAD \
-        and abs(held.get("waist", 0.0) - _waist_turn()) < 1.0
+    same = _same_stand(held, base_now)
     tries = [(held["x"], held["y"])] if same else []
     others = [o for o in seen if not (same and math.hypot(o["x"] - held["x"], o["y"] - held["y"]) < skills.CLUSTER_MM)]
     table = held.get("table") if table is None else table
@@ -1673,6 +1672,31 @@ def place_spots(held, base_now, seen, table=None):
                    if all(math.hypot(x - o["x"], y - o["y"]) >= skills.FREE_MM for o in others)),
                   key=lambda p: math.hypot(p[0] - PICK_ZONE_CENTRE[0], p[1] - PICK_ZONE_CENTRE[1]))
     return tries + skills.on_table(grid, table)
+
+
+def _same_stand(held, base_now):
+    """The base and the waist are still where `held` was picked: the pick spot is where it was in the arm frame."""
+    b0 = held.get("base")
+    return b0 is not None and math.hypot(base_now[0] - b0[0], base_now[1] - b0[1]) < SAME_BASE_M \
+        and abs((base_now[2] - b0[2] + math.pi) % (2 * math.pi) - math.pi) < SAME_BASE_RAD \
+        and abs(held.get("waist", 0.0) - _waist_turn()) < 1.0
+
+
+def _put_back_here(top0):
+    """Held over the spot it was picked from (a voice pick ends just above it, a stop after the grasp leaves it there)
+    with the base, the waist and the lift as they picked: straight down there, checked like any place (_place_at),
+    no look first. Live 2026-10-29: "put it on the table" took the cup to look and back to the same table. None when
+    it is held elsewhere or the way down is refused (then the search from look)."""
+    h = skills._held
+    lift0 = h.get("lift")
+    if not _same_stand(h, agv.pose()) or lift0 is None or abs(lift0 - head.status()[0]) >= LIFT_TOL_MM:
+        return None
+    above = skills.plan_place(h["x"], h["y"], top0, yaw=h.get("yaw", 0.0))[0][1]
+    now = motion.tcp()
+    if math.hypot(now[0] - above[0], now[1] - above[1]) > BACK_DOWN_MM:
+        return None
+    log("held over the spot it was picked from: putting it back down there")
+    return _place_at([(h["x"], h["y"])], top0, turned=False)
 
 
 def _place_here(top0, kept=None):
@@ -1792,9 +1816,9 @@ def _place_far(top0, far):
     return _place_at(spots, _top_on(top0, far["table"]))
 
 
-def _place_at(tries, top):
+def _place_at(tries, top, turned=True):
     """Put the held object down at the first of `tries` (x, y) whose way down passes IK: straight from here with the
-    held grasp turn, else any grasp turn and wrist (skills.place_options). True when it is down."""
+    held grasp turn, else (`turned`) any grasp turn and wrist (skills.place_options). True when it is down."""
     log(f"place spots: {', '.join(f'({x:.0f}, {y:.0f})' for x, y in tries[:6])}")
     for n, (x, y) in enumerate(tries):
         if n >= PLACE_REFUSALS:                       # the rest are further / lower: each refused spot costs ~1 s of
@@ -1818,6 +1842,8 @@ def _place_at(tries, top):
             return True
         if rows:
             log(f"spot ({x:.0f}, {y:.0f}) refused at {rows[-1][0]}: {rows[-1][3]}")
+        if not turned:
+            continue
         opt = next(skills.place_options(x, y, top, skills._joints()), None)     # another grasp turn or wrist (the
         if opt:                                                                 # cup's own turn does not matter)
             log(f"putting it down at ({x:.0f}, {y:.0f})")
@@ -2131,6 +2157,10 @@ def _put_down(say=None, on=None):
     if top is None:
         raise FetchError("I'm not holding anything I picked.")
     _step("placing")
+    if not on or not on.get("pointed") and on.get("name") == "dining table" and not on.get("colour") and \
+            on.get("prefer") in (None, "near"):
+        if _put_back_here(top):                     # held just above the table it came from
+            return
     _line_holding(LOOK_POSE)
     if on and on.get("pointed"):                    # "put it here / there" with a pointing hand
         return _put_pointed(top, say)
@@ -2233,15 +2263,20 @@ def _pick_here(task, say):
             if e.args[0] not in MISSES or attempt == PICK_TRIES - 1:
                 raise
             _say(say, "I missed it. Let me try again.", "놓쳤어요. 다시 해 볼게요.")
-    skills._held["base"] = agv.pose()                       # place_spots: put back here if the base stays ...
-    skills._held["waist"] = _waist_turn()                   # ... and the waist too
-    skills._held["lift"] = head.status()[0]                 # _top_on when its table was not measured
+    _note_stand()
     skills._held["what"] = {"object": task["object"], "colour": task.get("colour")}   # held_name() when the state lost it
     _set(holding=True, held_object=skills._held["what"])
     _say(say, "I've got it.", "잡았어요.")
     _step("carry")
     skills._guarded(skills._line, "up", waypoints[0][1])   # straight up to the approach height first
     _carry_from(waypoints[0][1], ja)
+
+
+def _note_stand():
+    """Where the body stood at the pick, kept with the held object."""
+    skills._held["base"] = agv.pose()                       # place_spots, _put_back_here: put back here if the base
+    skills._held["waist"] = _waist_turn()                   # stays ... and the waist too
+    skills._held["lift"] = head.status()[0]                 # _top_on when its table was not measured
 
 
 def _carry_from(above, ja):
@@ -2427,6 +2462,7 @@ def pick_here(name, colour=None, say=None):
         obj, waypoints, ja = _reach(task, obj, say, voice=True)
         _step("picking")
         skills._guarded(skills._do_pick, obj, waypoints, ja)
+        _note_stand()                                       # a put down goes straight back down from here
     finally:
         _set(step="")
     return obj

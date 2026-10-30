@@ -65,10 +65,10 @@ LIFT_MM = 30.0                                   # first lift after closing, the
 MAX_TILT_DEG = 15.0                              # deg; a held cup's axis may lean this far from vertical on a joint
                                                  # move with it (place_options; tasks/fetch.py uses the same)
 PLACE_EXTRA_MM = 3.0                             # put down this much higher than it was picked (same table)
-MIN_WIDTH, MAX_WIDTH = 70.0, 81.0                # mm: the cup's top goes through the open hooks' ring (87 by tape) and
-                                                 # the belly closes round it (closed 68). MAX_WIDTH: the owner's margin
-                                                 # 6 for the camera (an 84 mm rim read 83-85); wider tops are taken from
-                                                 # the side (side()). The tips grasp (61-72) missed twice live on a
+MIN_WIDTH, MAX_WIDTH = 70.0, 97.0                # mm: the cup's top goes through the open hooks' ring (tips 100 open,
+                                                 # owner's measure) and the belly closes round it. MAX_WIDTH: the
+                                                 # owner's margin 3; wider tops are taken from the side (side()). The
+                                                 # tips grasp (61-72) missed twice live on a
                                                  # 66 mm can (2026-10-22): off by the owner until it is checked; 61
                                                  # brings it back
 SEEN_UNDER_MM = 8.0                              # the camera's width is this much under the width the fingers meet
@@ -119,9 +119,9 @@ BELOW_SHOULDER_MM = 80.0                         # bottles: grasp this far below
                                                  # the owner's taught tips grasp of a spray can, at its middle (2026-10-22,
                                                  # grasp_tips_teach.json); the hand's lowest part (TIP_MM below) must
                                                  # stay TIP_CLEAR_MM above the table (else its lowest point seen)
-SIDE_MAX_WIDTH = 84.0                            # mm; side grasp (a cup whose top is wider than MAX_WIDTH): the width the
+SIDE_MAX_WIDTH = 97.0                            # mm; side grasp (a cup whose top is wider than MAX_WIDTH): the width the
                                                  # fingers meet (seen + SIDE_SEEN_MM) where the hooks go in from the
-                                                 # side, under the open tips' 87 mm (owner's tape) with a margin 3
+                                                 # side, under the open tips' 100 mm (owner's measure) with a margin 3
 SIDE_SEEN_MM = 0.0                               # ... the camera's width of a cup's lower part is not under like its rim:
                                                  # an 84 mm rim cup read 73-77 where the tape gave 71 (45 mm up) and
                                                  # AI_1 74 (60 mm up, 2026-10-29)

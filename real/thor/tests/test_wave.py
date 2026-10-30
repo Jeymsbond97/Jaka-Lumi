@@ -196,6 +196,40 @@ assert L.wave() is True and said == [] and not fetch.state()["holding"], said
 wave.wave = real_wave
 fetch.STATE_FILE.unlink()
 
+# ---------- the arm moves while the words are said, never after them (wave, open / close) ----------
+gate, order = threading.Event(), []
+
+
+def slow_say(text, **k):                                            # speech that ends only when the test says so
+    order.append(("say", text))
+    gate.wait(30)
+
+
+lumi.mouth = types.SimpleNamespace(say=slow_say)
+L.lang = "en"
+wave.wave = lambda on_start=None: (on_start(), order.append("move"))
+done = []
+th = threading.Thread(target=lambda: done.append(L.wave(("Okay!", "네!"))))
+th.start()
+th.join(10)
+assert done == [True] and "move" in order, (done, order)            # waved with the words still being said
+gate.set()
+wave.wave = real_wave
+gate.clear(), order.clear()
+L.arm_pose = lambda target: order.append("gripper") or True
+L.base_off = lambda *a, **k: False
+L.arm_off = lambda: False
+L.brain = types.SimpleNamespace(history=[])
+L.modes.drive = True
+th = threading.Thread(target=L.quick_command, args=("open your hand", ("arm", "open")))
+th.start()
+th.join(1)
+assert "gripper" in order and th.is_alive(), order                  # the gripper started while the words go on
+gate.set()
+th.join(5)
+del L.arm_pose, L.base_off, L.arm_off
+lumi.mouth = types.SimpleNamespace(say=lambda text, **k: said.append(text))
+
 # ---------- "bye bye" to the person in view: a (quiet) wave beside the goodbye; else only the goodbye ----------
 waves = []
 L.wave = lambda **k: waves.append(k)

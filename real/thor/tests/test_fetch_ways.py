@@ -232,12 +232,12 @@ placed = {"at": None}
 real_place_at = fetch._place_at
 
 
-def place_at(tries, top):
+def place_at(tries, top, **kw):
     for p in tries:
         if col(*p) <= REACH_MM:
             placed["at"] = p
             break
-    return real_place_at(tries, top)
+    return real_place_at(tries, top, **kw)
 
 
 skills.reachable_pick = reachable
@@ -405,4 +405,35 @@ room["cups"].append({"id": 1, "map": np.array([0.15, 0.85])})
 st = run(fetch.start, TASK)
 fetch._look_around = real_around
 assert st["status"] == "holding" and any("near me at +90 deg" in l for l in st["log"]), st["log"]
+# ---------- 2026-10-29 13:50: "take the cup" (voice pick) held it just above the table, "stop", then "put the cup on
+# the table": straight back down where it was picked, never to look first ----------
+setup(None, table=(0.355, 1.6, -1.0, 1.0))
+room["holding"] = {"id": 9, "map": None}
+fetch._set(holding=True, status="holding", held_object={"object": "cup", "colour": "white"})
+skills._held.update(top_mm=-186.0, x=108.0, y=603.0, yaw=-15.0, table=-330.0, what={"object": "cup"})
+fetch._note_stand()                                      # as pick_here leaves it
+lifted = skills.up(skills.plan_place(108.0, 603.0, -186.0, yaw=-15.0)[1][1], skills.LIFT_MM - skills.PLACE_EXTRA_MM)
+real_tcp, real_holding, real_place = fetch.motion.tcp, fetch._line_holding, skills._do_place
+fetch.motion.tcp = lambda: list(lifted)
+arm["j"] = [5.0] * 6                                     # over the table, not at look
+fetch._line_holding = lambda name: (log.append(("line", name)), real_holding(name))[1]
+skills._do_place = lambda wp: (do_place(wp), arm.update(j=[0.0] * 6))[0]   # the real one ends at look
+st = run(fetch.place, None, {"name": "dining table", "colour": None})
+done = [l for l in log if l[0] == "place"]
+assert st["status"] == "done" and done == [("place", 108, 603)], (st["log"], log)
+assert ("line", "look") not in log and not any("arm to look" in l for l in st["log"]), (st["log"], log)
+# ... the base moved since the pick: the usual search from look
+setup(None, table=(0.355, 1.6, -1.0, 1.0))
+room["holding"] = {"id": 9, "map": None}
+fetch._set(holding=True, status="holding", held_object={"object": "cup", "colour": "white"})
+skills._held.update(top_mm=-186.0, x=108.0, y=603.0, yaw=-15.0, table=-330.0, what={"object": "cup"})
+fetch._note_stand()
+base["pose"] = (0.1, 0.0, 0.0)
+arm["j"] = [5.0] * 6
+fetch._line_holding = lambda name: (log.append(("line", name)), arm.update(j=[0.0] * 6))
+run(fetch.place)
+assert log and log[0] == ("line", "look"), log
+fetch.motion.tcp, fetch._line_holding, skills._do_place = real_tcp, real_holding, real_place
+arm["j"] = [0.0] * 6
+print("held over the pick spot after a stop: put straight back down at", done[0][1:])
 print("fetch ways ok")

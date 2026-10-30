@@ -60,4 +60,27 @@ try:
     raise AssertionError("went to a wave pose holding")
 except arm_route.RouteError as e:
     assert e.args == arm_route.SPILL, e.args
+
+# ---------- give_pre taught: an empty-hand way to give always ends give_pre -> give, the last move slow ----------
+POSES["give_pre"] = moved(POSES["give"], 4, 20)                     # give with J5 20 deg further (a stand-in)
+for start in ("look", "wave_start", "wave", "carry", "ready", "wave_out", "give_pre"):
+    route = names("give", POSES[start])
+    assert route[-2:] == ["give_pre", "give"] or start == "give_pre" and route == ["give"], (start, route)
+    assert route.count("give") == 1, (start, route)                 # never through give on the way to give_pre
+assert names("give", POSES["give"]) == []                           # there already: nothing moves
+assert names("give", moved(POSES["give"], 4, 2)) == ["give"]        # at give within AT_POSE_DEG: as before
+assert names("give", moved(POSES["carry"], 0, -30))[-2:] == ["give_pre", "give"]   # a join from far too
+assert names("give", POSES["look"], holding=True) == ["carry", "give"]          # holding: give_pre not used
+assert "give_pre" not in arm_route.graph(holding=True)
+assert names("look", POSES["give"]) == ["look"]                     # other targets as before
+sent = []
+real_path, motion.move_path = motion.move_path, lambda moves, **k: sent.extend(moves)
+arm_route.move(arm_route.plan("give", now=list(POSES["wave_start"])))
+assert [s for _, s in sent][-1] == arm_route.GIVE_SPEED and \
+    all(s == arm_route.SPEED for _, s in sent[:-1]), sent           # the last move, give_pre -> give, slow
+del POSES["give_pre"]                                                # not taught: the route and speed as before
+sent.clear()
+arm_route.move(arm_route.plan("give", now=list(POSES["wave_start"])))
+assert [s for _, s in sent] == [arm_route.SPEED], sent
+motion.move_path = real_path
 print("arm give route ok")

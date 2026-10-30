@@ -1,9 +1,9 @@
 """The arm moves between named poses only by joint moves between taught poses, every joint move checked before
 anything moves.
 
-    give - carry - look - wave_out - wave_start - wave       (EDGES: the moves run live first)
-                    |
-                  ready
+    give_pre - give - carry - look - wave_out - wave_start - wave       (EDGES: the moves run live first)
+                               |
+                             ready
 
 `look` is where every arm action starts (picks and puts go out from it and come back to it, skills.py). With an empty
 hand the arm goes from pose to pose by the route of least joint travel (each move its largest joint turn plus
@@ -26,10 +26,16 @@ cup's lean at most skills.MAX_TILT_DEG. Refusals are RouteError with the reason 
 A route runs one move at a time (motion.move_path): each to a full stop and SETTLE_S standing, then the next; SPEED
 with an empty hand, HOLD_SPEED with something in it.
 
+With an empty hand and `give_pre` taught, every way to `give` ends give_pre -> give: the route goes to `give_pre`
+(never through `give`), stands there, and the last move into `give` runs at GIVE_SPEED. Without `give_pre` the route
+to `give` is the plain cheapest one. With something in the hand `give_pre` is not used (fetch's straight moves).
+
 Cobo π programs start only from `look` (start_program); hand_shaking.jks never (it hit the head, 2026-10-21).
 
     python manipulation/arm_route.py check [pose]    # the route from here to pose (default look), checked; moves nothing
     python manipulation/arm_route.py goto <pose>     # go there along the route (SPEED; the owner at the STOP)
+
+Teach a pose (arm moved by hand in Cobo π first): python robot/motion.py teach give_pre (then teach give)
 """
 import collections
 import heapq
@@ -43,7 +49,10 @@ from robot import arm, gripper, kinematics, motion
 from vision import calib, head_cam
 
 HOME = "look"                        # every arm action starts here
-EDGES = (("give", "carry"), ("carry", "look"), ("look", "wave_out"), ("wave_out", "wave_start"),
+GIVE = "give"                        # the hand held out to a person
+GIVE_PRE = "give_pre"                # one step before GIVE: an empty-hand way to GIVE always ends GIVE_PRE -> GIVE
+GIVE_SPEED = "slow"                  # motion.JOINT_SPEED of the last move, GIVE_PRE -> GIVE (first live runs: slow)
+EDGES = (("give_pre", "give"), ("give", "carry"), ("carry", "look"), ("look", "wave_out"), ("wave_out", "wave_start"),
          ("wave_start", "wave"), ("look", "ready"))   # the moves with something in the hand (both ways)
 NO_EDGES = {frozenset(("look", "wave_start"))}        # never one joint move: passes 267 mm from the head (the wave
                                                       # goes up and down through wave_out, 309 mm)
@@ -94,10 +103,11 @@ def _deg(now, pose):
     return max(abs(a - b) for a, b in zip(motion.nearest(pose, now), now))
 
 
-def graph(holding=False):
-    """{pose: joints} of the graph's taught poses (`holding`: without WAVE_POSES)."""
+def graph(holding=False, skip=()):
+    """{pose: joints} of the graph's taught poses but `skip` (`holding`: without WAVE_POSES and GIVE_PRE)."""
     p = motion.poses()
-    return {n: p[n] for e in EDGES for n in e if n in p and not (holding and n in WAVE_POSES)}
+    return {n: p[n] for e in EDGES for n in e
+            if n in p and n not in skip and not (holding and n in WAVE_POSES + (GIVE_PRE,))}
 
 
 def where(now=None):
@@ -179,12 +189,13 @@ def route(a, b, nodes, holding=False):
             return path
 
 
-def hops(now, target, leaf=False, holding=False):
+def hops(now, target, leaf=False, holding=False, skip=()):
     """The poses the arm goes through from the joints `now` to `target`, in order (not the one it is at). `leaf`: the
-    arm is out on the task's own checked way from look (above a table): when it is at no pose, straight to target."""
+    arm is out on the task's own checked way from look (above a table): when it is at no pose, straight to target.
+    `skip`: poses the way must not pass."""
     if holding and target in WAVE_POSES:
         raise RouteError(*SPILL)
-    nodes = graph(holding)
+    nodes = graph(holding, skip)
     if target not in nodes:
         log(f"arm route: {target} is not taught (robot/motion.py teach {target})")
         raise RouteError(*NOT_TAUGHT)
@@ -305,11 +316,11 @@ def _up(now, mm):
     return r.get("jointPosition")
 
 
-def join(now, target, holding=False):
+def join(now, target, holding=False, skip=()):
     """[(pose, joints)] of a checked way from an arm at no pose of the graph to `target`: one joint move to a graph
     pose (the nearest first), then along the graph; else first straight up by UP_MM. RouteError(UNKNOWN) when no way
     passes the checks; nothing moved."""
-    nodes = graph(holding)
+    nodes = graph(holding, skip)
     if target not in nodes:
         raise RouteError(*(SPILL if holding and target in WAVE_POSES else NOT_TAUGHT))
     order = sorted(nodes, key=lambda n: (_deg(now, nodes[n]), n != HOME))
@@ -329,14 +340,22 @@ def join(now, target, holding=False):
 
 
 def plan(target, holding=False, leaf=False, now=None):
-    """[(pose, joints)] of the checked way from here to `target` ([] when it is there). RouteError to refuse."""
+    """[(pose, joints)] of the checked way from here to `target` ([] when it is there). RouteError to refuse.
+    Empty hand to GIVE with GIVE_PRE taught: the way to GIVE_PRE (not through GIVE), then GIVE."""
     now = skills._joints() if now is None else now
+    if target == GIVE and not holding and GIVE_PRE in graph() and where(now) != GIVE:
+        seq = _plan(GIVE_PRE, False, leaf, now, skip=(GIVE,))
+        return seq + [(GIVE, check_moves(seq[-1][1] if seq else now, [motion.poses()[GIVE]])[0])]
+    return _plan(target, holding, leaf, now)
+
+
+def _plan(target, holding, leaf, now, skip=()):
     try:
-        names = hops(now, target, leaf, holding)
+        names = hops(now, target, leaf, holding, skip)
     except RouteError as e:
         if e.args != UNKNOWN:
             raise
-        seq = join(now, target, holding)
+        seq = join(now, target, holding, skip)
         log(f"arm route: joining from {_r(now)} by {' -> '.join(n for n, _ in seq)}, checked")
         return seq
     p = motion.poses()
@@ -351,7 +370,8 @@ def move(seq, speed=None, holding=False):
     t0 = time.time()
     log(f"arm to {' -> '.join(n for n, _ in seq)}")
     s = HOLD_SPEED if holding else speed or SPEED
-    motion.move_path([(j, s) for _, j in seq])
+    last = GIVE_SPEED if not holding and GIVE_PRE in graph() else s     # GIVE_PRE -> GIVE (plan)
+    motion.move_path([(j, last if n == GIVE else s) for n, j in seq])
     log(f"arm at {seq[-1][0]} after {time.time() - t0:.1f} s")
 
 

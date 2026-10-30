@@ -31,7 +31,7 @@ for yaw in (-30, 45):                                                      # a t
     p = dict(skills.plan_place(-200, 600, cup["top_mm"], yaw=yaw))["place"]
     assert np.allclose(np.array(p[:3]) + calib.rpy_matrix(*p[3:]) @ skills.GRASP_OFFSET, [-200, 600, g[2] + 3])
 
-for bad in (88, 30, 50):                      # seen widths: +SEEN_UNDER_MM over 92, under 61
+for bad in (95, 30, 50):                      # seen widths: +SEEN_UNDER_MM over 97, under 61
     try:
         skills.plan_pick({**cup, "width_mm": bad})
         raise AssertionError(f"width {bad} accepted")
@@ -365,29 +365,29 @@ print("skills on_table ok")
 
 # ---------- side grasp: a cup too wide at the top for the hooks to come down over it, narrower lower down ----------
 top = cup["top_mm"]
-wide = {**cup, "width_mm": 90.0, "height_mm": 120.0,                       # 98 the fingers would meet: over MAX_WIDTH
-        "profile": [(top - 10.0 * i, 88.0 if i < 4 else 72.0) for i in range(12)]}   # 96 at the rim, 80 from 40 mm down
+wide = {**cup, "width_mm": 92.0, "height_mm": 120.0,                       # 100 the fingers would meet: over MAX_WIDTH
+        "profile": [(top - 10.0 * i, 100.0 if i < 4 else 72.0) for i in range(12)]}  # 100 at the rim, 72 from 40 mm down
 assert skills.side(wide) and not skills.side(cup)
 d = skills.tips_dir()
 assert np.isclose(np.linalg.norm(d), 1.0) and d[1] > 0.5                     # the tips point away from the robot
 z = skills.side_height(wide)
 assert z == top - 65.0, z               # nearest SIDE_AT of its 120 mm (50 mm up, top - 70) where the band is all 72
 short = {**wide, "top_mm": top - 50.0, "height_mm": 70.0,                   # a 70 mm cup on the same table
-         "profile": [(top - 50.0 - 10.0 * i, 88.0 if i < 2 else 74.0) for i in range(7)]}
+         "profile": [(top - 50.0 - 10.0 * i, 100.0 if i < 2 else 74.0) for i in range(7)]}
 assert skills.side_height(short) == top - 50.0 - 45.0                         # 25 mm up: the hooks' bottom 17 over it
 way = skills.plan_pick(wide)
 assert [n for n, _ in way] == ["above", "side", "grasp", "lift"], way
 p = dict(way)
 assert np.isclose(p["side"][2], p["grasp"][2]) and p["side"][3:] == p["grasp"][3:]          # in level at the grasp height
 back = skills.side_back(wide)
-assert np.isclose(back, 98.0 / 2 + np.linalg.norm(skills.TIPS_OFFSET) + skills.SIDE_CLEAR_MM)
+assert np.isclose(back, 100.0 / 2 + np.linalg.norm(skills.TIPS_OFFSET) + skills.SIDE_CLEAR_MM)
 assert np.allclose(np.subtract(p["grasp"][:2], p["side"][:2]), d * back)  # it goes in along the tips' direction
 assert np.allclose(np.subtract(p["above"][:3], p["side"][:3]), [0, 0, skills.clear_above(top - z)])
 g = np.array(p["grasp"][:3]) + calib.rpy_matrix(*p["grasp"][3:]) @ skills.GRASP_OFFSET
 assert np.allclose(g, [wide["x"], wide["y"], z])                            # the hooks' point on the cup axis
 assert [n for n, _ in skills.plan_pick(cup)] == ["above", "grasp", "lift"]  # a cup whose top fits: from above, as before
-for bad in ([(top - 10.0 * i, 88.0) for i in range(12)],                    # wide all the way down
-            [(top - 10.0 * i, 88.0 if i < 10 else 72.0) for i in range(12)],   # narrow only where the hooks hit the table
+for bad in ([(top - 10.0 * i, 100.0) for i in range(12)],                    # wide all the way down
+            [(top - 10.0 * i, 100.0 if i < 10 else 72.0) for i in range(12)],   # narrow only where the hooks hit the table
             None):                                                         # its widths down its height not measured
     try:
         skills.plan_pick({**wide, "profile": bad})
