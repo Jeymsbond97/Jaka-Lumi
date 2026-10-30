@@ -6,10 +6,10 @@ put on the map (base pose + distance, angle) with a smoothed walking velocity, s
 toward where the person is now, not where they were seen (no stop-and-go when frames are missed). A sighting far from
 that place is someone else (a passer-by who took the track over); a lost track is swapped for a fresh one near that
 place whose clothes are not clearly different (re-lock). The head turns toward the person in its own thread (only
-this task moves the body meanwhile: head.owners) and the waist with it, all at once: the head straight on them (up to
-+-180 on the waist), the waist a short way toward them in the same move, the base turning toward them at the same time;
-as the base comes round the waist and the head unwind (waist_for). Nothing waits for another. Following starts with the
-waist where it is (turned toward the person after "look behind"). The base is driven with joy_control every TICK_S (one
+this task moves the body meanwhile: head.owners), straight on them (up to +-180 on the waist), sent where they will be
+seen from where the base will be when the move ends; the base turns toward them at the same time. The waist never
+turns further out: following starts with it where it is (turned toward the person after "look behind") and it unwinds
+as the base comes round (unwind). Nothing waits for another. The base is driven with joy_control every TICK_S (one
 command lasts 0.5 s: a stuck loop stops the base by itself), the arm in look; forward only with the person near ahead
 and the waist near the front. Every command is checked first: where the base and the arm would be BRAKE_S later must be clear
 (lidar + map, agv.clearance); when not, the base stands, and after BLOCKED_END_S it gives up.
@@ -60,10 +60,9 @@ TICK_S = 0.1                # s between commands, steady (joy_control wants > 2 
 LOG_S = 1.0                 # s between "follow: v ... " lines (what the next live run is read from)
 JOIN_S = 2.0                # s a new "follow me" waits for the old loop to end
 BEHIND_DEG = 180.0          # deg; the person's angle from the base is kept within +-this (right behind: one side)
-HEAD_REL_MAX = 30.0         # deg; a person this near the base heading is looked at with the head alone; further, the
-                            # waist turns toward them for the rest (the head is never held back by it)
-WAIST_FOLLOW_MAX = 90.0     # deg from the front; the waist turns toward the person at most this far, the base turns
-                            # for the rest (fetch.WAIST_SCAN_MAX 120 is the search's; less here, estimate)
+HEAD_REL_MAX = 30.0         # deg; a turned waist unwinds until the person is this far from the base heading, the
+                            # head looks for the rest (it never turns further out while following, unwind())
+WAIST_FOLLOW_MAX = 90.0     # deg from the front; a waist turned further unwinds to this first (estimate)
 WAIST_STEP_DEG = 8.0        # deg; one body move turns the waist at most this far, so every move is short (~0.4 s) and
                             # the head's next correction is not held back; the waist keeps on in the next move
 WAIST_FOLLOW_VEL = 50       # speed ratio % of a move that turns the waist (the head in it too). The waist's deg/s at
@@ -75,7 +74,9 @@ WAIST_DRIVE_DEG = 15.0      # deg; the base drives forward only with the waist t
 WAIST_RETRY_S = 1.0         # s; a waist turn found blocked is not tried again for this long (each try probes the map)
 HEAD_PITCH = 10.0           # deg; head pitch while following, a little up toward a standing person (as "look at me")
 HEAD_STEP_DEG = 3.0         # deg; a new head move only when the target is this far from where the head was sent
-HEAD_LEAD_S = 0.3           # s; the head is sent where the person will be this much later (a moveto takes time)
+HEAD_LEAD_S = 0.3           # s; the head is sent where the person will be, seen from where the base will be, this
+HEAD_LEAD_MAX_S = 1.5       # much later at least, or as long as the last head move took (live 0.5-1.3 s), at most this:
+                            # the base turning 0.6 rad/s goes 35-45 deg round in one move, which left the head off them
 HEAD_VEL = 50               # speed ratio %; the head is at its full speed from 50 (audio/sing.py, measured)
 HEAD_TIMEOUT_S = 5          # s; one head move (90 deg at ~40 deg/s takes ~2.5 s)
 
@@ -284,11 +285,20 @@ def waist_for(b):
     return max(-WAIST_FOLLOW_MAX, min(WAIST_FOLLOW_MAX, math.copysign(max(0.0, abs(b) - HEAD_REL_MAX), b)))
 
 
+def unwind(w, b):
+    """Where the waist, turned w deg, goes for a person b deg from the base heading: toward waist_for(b), but only
+    back toward the front, never further out. Turning out made every move a slow waist move and, with the base turning
+    the same way, left the head 40-70 deg off the person (live 2026-10-29, lost): the head alone follows them, the
+    base turns, and the waist unwinds as the base comes round (the head's turn back gets smaller, not bigger)."""
+    goal = waist_for(b)
+    return 0.0 if goal * w <= 0.0 else math.copysign(min(abs(goal), abs(w)), w)
+
+
 def _head_follow(target, done, lift, front, w, waist_free, stats):
-    """Turn the head, and the waist with it, to the person at target[0] (deg from the base heading, pitch). Every move
-    sends the head straight to them (up to +-BEHIND_DEG on the waist, never held back) and the waist at most
-    WAIST_STEP_DEG toward waist_for() in the same move, so the waist keeps turning move after move while the base turns
-    and the head stays on the person all along. Every waist step is checked along the arm's sweep (fetch.turn_hits);
+    """Turn the head to the person at target[0] (deg from the base heading, pitch), the waist back toward the front
+    with it. Every move sends the head straight to them (up to +-BEHIND_DEG on the waist, never held back) and the waist
+    at most WAIST_STEP_DEG toward unwind() in the same move, so a turned waist comes back move after move while the base
+    turns and the head stays on the person all along. Every waist step is checked along the arm's sweep (fetch.turn_hits);
     blocked, or waist_free False (arm not in look, its place not measured): the waist stays and the head alone turns.
     `front`: the waist's reading at the front, `w`: its turn from there now. One moveto at a time, from this thread
     only: overlapping calls hang the body API. The drive loop never waits for it."""
@@ -299,7 +309,7 @@ def _head_follow(target, done, lift, front, w, waist_free, stats):
             done.wait(TICK_S / 2)
             continue
         b, pitch = t
-        want = waist_for(b) - w if waist_free and time.time() >= retry else 0.0
+        want = unwind(w, b) - w if waist_free and time.time() >= retry else 0.0
         step = max(-WAIST_STEP_DEG, min(WAIST_STEP_DEG, want))
         if abs(step) < HEAD_STEP_DEG and (waist_for(b) != 0.0 or abs(step) < 0.5):
             step = 0.0                                    # small steps only for the last bit to the front
@@ -405,7 +415,10 @@ def _run(see, say, people):
                 ref = target[0][0] if target[0] else gaze
                 d, a = _rel(pose, person.at(now))
                 a = ref + (a - ref + 180.0) % 360.0 - 180.0
-                yaw = _rel(pose, person.at(now + HEAD_LEAD_S))[1]
+                lead = max(HEAD_LEAD_S, min((stats["head_ms"] or 0) / 1000.0, HEAD_LEAD_MAX_S))
+                then = (pose[0] + v * lead * math.cos(pose[2]), pose[1] + v * lead * math.sin(pose[2]),
+                        pose[2] + w * lead)                  # the base when the head gets there (v, w: this command)
+                yaw = _rel(then, person.at(now + lead))[1]
                 yaw = ref + (yaw - ref + 180.0) % 360.0 - 180.0
                 target[0] = (max(-BEHIND_DEG, min(BEHIND_DEG, yaw)), HEAD_PITCH)
                 walk = float(person.vel @ np.array([math.cos(pose[2]), math.sin(pose[2])]))

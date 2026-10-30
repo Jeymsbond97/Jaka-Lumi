@@ -507,10 +507,12 @@ assert math.degrees(w.th) > 120.0 and w.dist[-1] < follow.FOLLOW_GAP_M + 0.4, (m
 print(f"past the side to behind: waist + head up to {max(gaze):.0f} deg, base turned {math.degrees(w.th):.0f} deg, "
       f"gap {w.dist[-1]:.2f} m")
 
-# owner, live: the head waited for a slow stepwise waist and lost the person. Now head, waist and base all at once:
-# the person right behind (170 deg) -> the first move puts head + waist on them (the head not held to HEAD_REL_MAX),
-# the waist keeps turning move after move while the base turns, the base forward only once they are ahead
+# owner, live: the head waited for a slow stepwise waist and lost the person. Now the head and the base at once: the
+# person right behind (170 deg) -> the first move puts the head on them (never held to HEAD_REL_MAX), the waist stays
+# (it only ever unwinds), the base turns at once, forward only once they are ahead
 assert follow.waist_for(10.0) == 0.0 and follow.waist_for(-70.0) == -40.0 and follow.waist_for(170.0) == 90.0
+assert follow.unwind(0.0, 170.0) == 0.0 and follow.unwind(-55.0, -169.0) == -55.0      # never further out
+assert follow.unwind(60.0, 70.0) == 40.0 and follow.unwind(60.0, 10.0) == 0.0 and follow.unwind(30.0, -90.0) == 0.0
 
 
 def at(deg, r=2.0):
@@ -552,17 +554,16 @@ follow.stop()
 assert wait_end(0.5)
 moves = [m for m in body.moves if m[1] == "follow head"]
 first = moves[0]
-assert 0.0 < first[3] <= follow.WAIST_STEP_DEG and first[4] > 90.0 and abs(first[3] + first[4] - 170.0) < 10.0, first
+assert first[3] == 0.0 and first[4] > 90.0 and abs(first[4] - 170.0) < 10.0, first        # the head alone on them
 assert max(abs(s[4]) for s in samples[5:]) < 15.0, max(abs(s[4]) for s in samples[5:])        # gaze on them
-turning = [s for s in samples if 10.0 < s[3] < 90.0]                                         # the base turning ...
-assert turning and max(s[1] for s in turning) >= 3 * follow.WAIST_STEP_DEG, turning[:3]          # ... the waist too
+assert all(m[3] == 0.0 for m in moves), moves                                                 # the waist stays
 assert w.cmds[0][2] > 0.0 and w.cmds[0][0] - w.t0 < 0.5, w.cmds[:2]                           # turning at once
 assert max(b[0] - a[0] for a, b in zip(w.cmds, w.cmds[1:])) < 0.2                              # no tick waits
 assert ahead and max(abs(a) for a in ahead) <= follow.TURN_ONLY_DEG + 5.0, max(abs(a) for a in ahead)
 assert abs(body.pos[1]) < 1e-6 and abs(body.pos[2]) <= follow.TURN_DEAD_DEG + follow.HEAD_STEP_DEG, body.pos
 assert abs(math.degrees(w.th) - 170.0) < 10.0 and w.dist[-1] < follow.FOLLOW_GAP_M + 0.3, (math.degrees(w.th), w.dist[-1])
-print(f"behind 170 deg: first move waist {first[3]:+.0f} head {first[4]:+.0f}, waist up to "
-      f"{max(s[1] for s in samples):.0f} deg while the base turned, forward only within {max(map(abs, ahead)):.0f} deg")
+print(f"behind 170 deg: first move head {first[4]:+.0f}, the waist stays, forward only within "
+      f"{max(map(abs, ahead)):.0f} deg")
 
 # "look behind" turned the waist and the head to the owner, then "follow me": nothing turns away from them
 said.clear()
@@ -579,6 +580,7 @@ print(f"start turned to the owner: gaze off at most {max(abs(s[4]) for s in samp
 
 # stopped with the waist turned: it comes back to the front (sweep checked), the head to rest
 body.moves.clear()
+body.pos = [50.0, 60.0, 10.0, follow.HEAD_PITCH]                                             # on them at 70 deg
 w = at(70.0)
 follow.TURN_MAX_RS, turn_max = 0.05, follow.TURN_MAX_RS                                     # a slow base
 follow.start(w.see, say)
@@ -589,6 +591,47 @@ assert wait_end(1.0)
 follow.TURN_MAX_RS = turn_max
 assert body.moves[-1][3:] == (0.0, 0.0, head.HEAD_REST_PITCH), body.moves[-1]
 print("stopped turned: waist back to the front")
+
+# live 2026-10-29 14:18: the person walked round the right side to behind at ~0.75 m (no base turn that near), then
+# stepped out and the base turned 0.6 rad/s. Every move also turned the waist further out (a slow ~1 s move), the
+# head lagged 30-40 deg, then the base and the waist both turned the same way: off them, lost. With a body as slow as
+# the real one the head alone must stay on them: the gaze within 25 deg (the camera sees +-47), the waist never out.
+
+
+def real_body(path, b=None, timeout=2):
+    """The body API as slow as live: ~0.45 s a move + the travel (head ~70, waist ~15 deg/s), moving all along."""
+    if path != "moveto":
+        return body.call(path, b, timeout)
+    start, goal, t0 = list(body.pos), list(b["pos"]), time.time()
+    dur = 0.45 + max(abs(goal[2] - start[2]) / 70.0, abs(goal[1] - start[1]) / 15.0)
+    while time.time() - t0 < dur:
+        body.pos = [a + (g - a) * (time.time() - t0) / dur for a, g in zip(start, goal)]
+        time.sleep(0.02)
+    body.pos = goal
+    body.moves.append((time.time(), threading.current_thread().name, *goal))
+    return {"code": 0}
+
+
+def round_right(t):
+    a = math.radians(-20.0 - 25.0 * min(t, 6.0))
+    r = 0.75 + 0.3 * min(max(t - 6.0, 0.0), 2.0)
+    return r * math.cos(a), r * math.sin(a)
+
+
+said.clear()
+body.moves.clear()
+body.pos = [50.0, 0.0, -20.0, follow.HEAD_PITCH]
+head._call = real_body
+w = World(path=round_right, fov=True)
+samples, _ = watch(w, 12.0)
+follow.stop()
+assert wait_end(3.0) and not said, said
+head._call = body.call
+off = max(abs(s[4]) for s in samples)
+assert off < 25.0, max(samples, key=lambda s: abs(s[4]))
+assert all(abs(s[1]) < 1e-6 for s in samples), max(samples, key=lambda s: abs(s[1]))      # the waist never out
+assert math.degrees(w.th) < -120.0, math.degrees(w.th)                                      # the base came round
+print(f"round the side to behind, slow body: gaze off at most {off:.0f} deg, base turned {math.degrees(w.th):.0f} deg")
 
 # the arm's sweep blocked for the waist, or the arm not in look: the waist stays, the head alone goes on them
 turn_hits = fetch.turn_hits
