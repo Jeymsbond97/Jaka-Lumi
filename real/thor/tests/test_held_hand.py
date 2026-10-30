@@ -16,9 +16,15 @@ GIVE_EN = ["give it to me", "give me that", "hand it over", "pass it to me", "gi
            "givv it over to me", "can I have it?", "I'll take it", "hand me the cup", "give the cup to me",
            "you give me please", "give it to him", "give it to her", "give it to the lady next to me",
            "give it to my sister", "pass that to my friend", "hand it to the guy in black", "release it into my hand",
-           "give 해 줘", "hand over 해 주세요", "pass 해 줘", "give me 해 줘", "would you mind handing it to me?"]
+           "give 해 줘", "hand over 해 주세요", "pass 해 줘", "give me 해 줘", "would you mind handing it to me?",
+           "give me a cup", "Give me a cup.", "give me the cup", "give the cup", "give a cup", "give me a red cup",
+           "hand me a cup", "pass me a cup", "can I have the cup", "can I have a cup?", "could I get a cup",
+           "gimme a cup", "giv me a cup", "give me a mug", "pass me the cup"]
 GIVE_KO = ["줘", "이리 줘", "나 줘", "그거 줘", "그거 me 줘", "나한테 주세요", "저한테 주시겠어요", "이리 주십시오", "건네 줘",
-           "넘겨 줘", "그분 드려", "저 사람한테 건네줘요", "우리 손녀한테 주시오", "나한테 주이소", "그거 이리 주게", "내놔"]
+           "넘겨 줘", "그분 드려", "저 사람한테 건네줘요", "우리 손녀한테 주시오", "나한테 주이소", "그거 이리 주게", "내놔",
+           "컵 줘", "컵 주세요", "그 컵 줘", "컵 건네 줘", "컵 하나 줘", "컵 좀 주실래요?",
+           "give me the 컵", "그 cup 줘"]
+TAKE_KO = ["받을게", "받을게요", "제가 받을게요", "내가 받을게", "제가 가져갈게요"]   # "I'll take it": the whole sentence
 PUT_DOWN = ["put it on the table", "rest it on the table", "place it down gently", "put it here", "drop it here",
             "set it down", "lower it onto the table", "테이블에 놔 줘", "여기 올려 주세요", "탁자 위에 놓아 주시겠습니까",
             "테이블에 put 해", "여기 put 해 줘", "책상 위에 올려 줘"]
@@ -49,6 +55,9 @@ def main():
         text = f"{call}{words}{tail}"
         if brain.hand_request(text, True, None, MARKERS) != ("give", None):
             bad.append((text, "give", brain.hand_request(text, True, None, MARKERS)))
+    for call, words in itertools.product(CALLS, TAKE_KO):
+        if brain.hand_request(call + words, True, None, MARKERS) != ("give", None):
+            bad.append((call + words, "give", brain.hand_request(call + words, True, None, MARKERS)))
     for call, words in itertools.product(CALLS, PUT_DOWN):
         got = brain.hand_request(call + words, True, None, MARKERS)
         if not got or got[0] != "place":
@@ -71,12 +80,24 @@ def main():
                 any(brain._resolve(m, MARKERS) not in (None, "here")
                     for m in __import__("re").finditer(brain._place_re(MARKERS), brain._norm(brain.give_clause(text)))):
             bad.append((text, "give, no drive", brain.hand_request(text, True, None, MARKERS)))
+    # the same words held and not, by the route both voice and the dashboard's Command box take (lumi.route): the held
+    # thing handed over; with the hand empty a pick and give stays a pick and give
+    from assistant import lumi
+    for words in ["give me a cup", "Give me a cup.", "give me the cup", "hand me a cup", "pass me the cup",
+                  "give me a red cup", "컵 줘", "컵 주세요", "그 컵 줘", "컵 건네 줘", "컵 하나 줘"]:
+        held, empty = lumi.route(words, MARKERS, brain.Brain(), True), lumi.route(words, MARKERS, brain.Brain(), False)
+        if held != ("hand", (("give", None), True)) or empty[0] != "mission" or \
+                [st["do"] for st in empty[1][0]] != ["pick", "give"]:
+            bad.append((words, "held: give; empty: pick, give", (held, empty)))
+    for words in ["give me a hand", "give me a break", "give me a minute", "can I have a look", "can I have a word"]:
+        if brain.held_give(words, MARKERS):
+            bad.append((words, "no hand", brain.hand_request(words, True, None, MARKERS)))
     for words in ["고개 원위치", "머리 원위치", "head back to centre"]:
         if brain.intent(words, MARKERS) != ("look", "center"):
             bad.append((words, "look center", brain.intent(words, MARKERS)))
     assert not bad, "\n".join(f"{t!r}: want {w}, got {g}" for t, w, g in bad)
-    n = len(CALLS) * len(TAILS) * len(GIVE_EN + GIVE_KO) + len(CALLS) * (len(PUT_DOWN) + len(PUT_BACK)) + \
-        len(REACH) + len(FOLD) + len(NOT_FOLD) + len(NOT_GIVE) + 6
+    n = len(CALLS) * len(TAILS) * len(GIVE_EN + GIVE_KO) + len(CALLS) * (len(TAKE_KO) + len(PUT_DOWN) + len(PUT_BACK)) + \
+        len(REACH) + len(FOLD) + len(NOT_FOLD) + len(NOT_GIVE) + 22
     print(f"held hand ok ({n} cases)")
 
 

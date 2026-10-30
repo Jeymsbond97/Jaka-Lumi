@@ -2415,12 +2415,13 @@ REFUSE_OPEN = ("I won't open my hand while I'm holding something: it would fall.
 _GV = r"(?:give|gib|givv?e?|gi+ve|gve|hand|pass|deliver|bring)"
 _GIVE_TO = (r"(?:me|us|him|her|them|my \w+|this \w+|that \w+|the \w+(?: \w+)?|(?:the )?(?:left|right) (?:one|person|guy|lady))")
 GIVE_HELD_EN = re.compile(
-    rf"\b{_GV}\s+(?:{_GIVE_TO}\s+)?(?:{_IT}|that one|this one|the (?:{_OBJ})s?|(?:(?:{_COL})\s+)?(?:{_OBJ})s?|what you(?:'?re| are)? hold(?:ing)?)\b"
+    rf"\b{_GV}\s+(?:{_GIVE_TO}\s+)?(?:{_IT}|that one|this one|the (?:{_OBJ})s?|(?:(?:a|an|one)\s+)?(?:(?:{_COL})\s+)?(?:{_OBJ})s?|what you(?:'?re| are)? hold(?:ing)?)\b"
     r"(?!\s+(?:a|an|up|try|rest|go|shot|chance|break)\b)"
     rf"|^\W*(?:that|this|the \w+) one to me\b|\b{_GV}\s+(?:{_IT}\s+)?(?:over|back)\b|\b{_GV}\s+(?:{_IT}\s+)?to\s+(?!the (?:\w+ )?(?:table|chair|desk|floor)\b)\w"
     rf"|\b{_GV}\s+(?:me|us)\b(?!\s+(?:a|an|some|your|his|her|their|directions|time|space|the (?!(?:{_OBJ})s?\b|thing|one)\w+)\b)"
     rf"|\b(?:{_GV}|passed|handed)\s+(?:\w+\s+){{0,3}}?to (?:me|us)\b|\b(?:pop|drop|put|release|let go of|place)\b.*\b(?:in|into) my hands?\b|\brelease it to me\b"
     r"|(?<!your )(?<!my )(?<!the )(?<!a )(?<!his )(?<!her )(?<!our )(?<!ur )\b(?:give|hand|pass|gib|giv)(?: (?:it|me|over|it over|that|it to me))?\s*(?:해|하|좀|부탁|플리즈|가자)|\bgimme\b|\b(?:can|may|could) (?:i|my \w+)(?: please)? (?:have|get|take) (?:it|that|this|the \w+)\b|"
+    rf"\b(?:can|may|could) i(?: please)? (?:have|get|take) (?:a|an|one) (?:(?:{_COL})\s+)?(?:{_OBJ})s?\b|"
     r"\bi'?d (?:like|love) to (?:have|take) (?:it|that|this)\b|\bi want (?:it|that|this|what you|the (?:\w+ ){1,2}you'?re holding)\b|"
     r"\bi'?ll take (?:it|that|this)\b(?! from here)|\bwould you mind (?:handing|giving|passing)\b|\blet me (?:have|take|hold) (?:it|that|this)\b|"
     r"\b(?:that'?s|it'?s) mine\b|^\W*(?:the \w+,?\s+)?to me\b|^\W*over here\b|^\W*(?:okay,? )?(?:and )?now me\W*$", re.I)
@@ -2607,8 +2608,8 @@ def held_give(text, markers=()):
     """With something in the hand: the words ask to hand it over, to the speaker or someone near ("give it to me",
     "gib me please", "give it to the lady next to me", "그거 me 줘", "pass 해 줘 그거", "우리 손녀한테 주시오"). Not a
     condition, a cancel, a past, words to someone else, a trip to a marker ("bring it to James at booth A")."""
-    if re.search(r"^\W*(?:(?:okay|ok|alright|네|그럼|자)\W+)*(?:제가|내가)\s*(?:받을|가져갈)(?:게|께)요?\W*$", CALLING.sub("", text or "")):
-        return True                                     # "제가 가져갈게요": I'll take it (from the hand)
+    if re.search(r"^\W*(?:(?:okay|ok|alright|네|그럼|자)\W+)*(?:(?:제가|내가)\s*)?(?:받을|가져갈)(?:게|께)요?\W*$", CALLING.sub("", text or "")):
+        return True                                     # "제가 가져갈게요", "받을게": I'll take it (from the hand)
     if re.fullmatch(rf"\W*(?:(?:그거|이거|저거|그걸|이걸)\s+)?(?:우리\s+|저\s+|이\s+)?(?!(?:{ACT_KO})\s)[가-힣]+\s+(?:좀\s+)?(?:(?:그거|이거)\s+)?드려\W*",   # not "인사 드려", "전화 드려"
                     CALLING.sub("", wording.ko_plain(text or "")).strip()):
         return True                                     # "할머니 드려라", "선생님 드리세요": 드리다 gives to the one named

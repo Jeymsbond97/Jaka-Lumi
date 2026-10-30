@@ -1119,7 +1119,8 @@ class Lumi:
             if target in detour.SAY:
                 self.detour(target, speak=False)
         elif action == "arm":
-            self.arm_pose(target)
+            if self.arm_pose(target) is None:
+                return "refused"                                     # the reason is said: not the model's words
         elif action in ("pick", "put", "move_object"):
             self.object_task(action, target, confirm=False)          # the LLM's words already confirmed it
         elif action == "fetch":                                      # parse the person's own words, never the LLM's
@@ -2959,7 +2960,8 @@ class Lumi:
         if action == "arm":
             done = {"open": ("Okay, opening my hand.", "네, 손을 펼게요."), "close": ("Okay, closing my hand.", "네, 손을 쥘게요.")}
             words = None
-            if target in done:                             # said while the gripper already moves
+            if target in done and not (target == "open" and self.held_now()):   # said while the gripper moves; a
+                                                           # refused open (holding) says only why
                 words = threading.Thread(target=mouth.say, args=(done[target][0] if en else done[target][1],), daemon=True)
                 words.start()
             ok = self.arm_pose(target)
@@ -3190,6 +3192,10 @@ class Lumi:
             return
         if head_["action"] not in ("none", "end"):
             limited = self.act(head_["action"], head_["target"])
+            if limited == "refused":                                          # said why: not the model's "okay"
+                gen.close()
+                self.keep_listening()
+                return
             if head_["action"] in ("look", "lift") and limited in LIMIT_SAY:   # at its end: said so, not the model's
                 gen.close()                                                       # "okay"
                 said = LIMIT_SAY[limited][self.lang != "en"]
