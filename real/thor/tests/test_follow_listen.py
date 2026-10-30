@@ -118,7 +118,7 @@ for by_clip in (True, False):
 run["on"] = False
 L = fresh("What time is it?", -70.0)
 assert L.talk_turn() and heard == ["What time is it?"] and L.current is L.vision.stranger, (heard, L.current)
-# "look at me" / "이쪽 봐": the head turns to this turn's voice first; nobody there: to the person seen (-60)
+# "look at me" / "이쪽 봐": the cameras first: the person seen (-60), whatever the voice says
 lumi.head.turn = lambda yaw, pitch=None: done.append(("head turn", round(yaw)))
 lumi.LOOK_ME_SETTLE_S = 0.0
 
@@ -130,7 +130,7 @@ def looked(L, want):
     return [d for d in done if d[0] == "head turn"] == want
 
 
-for deg, want in ((40.0, [50, -60]), (-70.0, [-60])):
+for deg, want in ((40.0, [-60]), (-70.0, [-60])):
     L = fresh("이쪽 봐 줘", deg)
     L.answer = lambda text: lumi.Lumi.act(L, "look", "me")
     L.base_off, L.mission_running = (lambda *a, **k: False), (lambda: False)

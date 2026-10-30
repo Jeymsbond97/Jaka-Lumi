@@ -1130,11 +1130,14 @@ class Lumi:
                 self.fetch_finish(action)
 
     def look_at_speaker(self):
-        """"Look at me": the person seen nearest the voice (both cameras). Nobody seen there: the head turns to the
-        voice first, then to whoever the head camera finds there; nobody there either (the voice direction can be
-        off): the person talked to, else the nearest person seen. Nobody seen and no voice: the head stays. Then the
-        head tilts until the head camera sees the person from their head down (look_me_pitch). That person becomes
-        the one talked with, and while the look is held the head follows them (look_me, keep_focus)."""
+        """"Look at me": the cameras first, the voice direction only to choose. Someone seen (both cameras): the one
+        near the voice, else the person talked with, else the one nearest where the head looks; the body never turns
+        then (a sure voice read 90 deg off in the median and put a person in front behind, 2026-10-28/29, so a repeat
+        "look at me" flipped the base from side to side). Nobody seen: the head sweeps the voice's side, then the
+        other side; nobody there either and a sure voice past the head's reach: the body turns to it (turn_body_to)
+        and the head looks there. Then the head tilts until the head camera sees the person from their head down
+        (look_me_pitch). That person becomes the one talked with, and while the look is held the head follows them
+        (look_me, keep_focus)."""
         if not self.vision:
             return
         self.head_busy = True                               # keep_focus waits: the head is turned here
@@ -1153,28 +1156,38 @@ class Lumi:
 
         recent = time.time() - getattr(self, "voice_at", 0.0) <= VOICE_KEEP_S   # this turn's sound too weak: the
         voice = self.voice_angle if self.voice_trusted or recent else None    # caller's last sure direction
+        gaze = HEAD_SIGN * self.det_yaw()
         seen = self.vision.seen()
-        found = near(seen, voice) if voice is not None else None
-        if found is None and voice is not None and abs(voice) > head.YAW_LIMIT:
-            voice = self.turn_body_to(voice)               # behind or far aside: the head alone can't get there
-        if found is None and voice is not None:
-            log(f"  look me: nobody seen at the voice ({voice:+.0f} deg), turning there first")
-            face(voice)
-            time.sleep(LOOK_ME_SETTLE_S)                    # new head camera frames from there
-            seen = self.vision.seen()
-            found = near(seen, voice)
-        why = "nearest the voice"
-        if found is None:
+        found, why = (near(seen, voice), "nearest the voice") if voice is not None else (None, "")
+        if found is None and seen:
             cur = self.current if self.current and self.vision.present(self.current) else None
             if cur:
                 found, why = (cur.angle, cur.distance), f"the person talked with (#{cur.id})"
-            elif voice is not None:                          # the voice off: the person nearest its direction, not
-                found = min(seen, key=lambda s: abs(s[0] - voice), default=None)   # the nearest one far off it
-                why = f"nearest the voice's side ({voice:+.0f} deg)"
-            else:
-                found, why = min(seen, key=lambda s: s[1], default=None), "the nearest seen, no voice direction"
+            else:                                            # stays on whoever the head is on: never the other side
+                found = min(seen, key=lambda s: abs(s[0] - gaze))
+                why = "nearest where the head looks" + ("" if voice is None else f", none at the voice {voice:+.0f} deg")
+        if found is None:                                    # nobody in view: the head camera looks around first
+            first = gaze if voice is None else max(-head.YAW_LIMIT, min(head.YAW_LIMIT, voice))
+            side = 1.0 if first >= 0 else -1.0
+            for a in (side * head.YAW_LIMIT, -side * head.YAW_LIMIT):
+                log(f"  look me: nobody seen, looking at {a:+.0f} deg")
+                face(a)
+                time.sleep(LOOK_ME_SETTLE_S)                # new head camera frames from there
+                seen = self.vision.seen()
+                if seen:
+                    found, why = min(seen, key=lambda s: abs(s[0] - a)), "found looking around"
+                    break
+        if found is None and voice is not None and abs(voice) > head.YAW_LIMIT:
+            voice = self.turn_body_to(voice)               # behind: the head alone can't get there
+            self.voice_angle, self.voice_trusted, self.voice_at = voice, False, 0.0   # measured before the turn:
+            log(f"  look me: turned toward the voice, looking at {voice:+.0f} deg")  # never used again
+            face(voice)
+            time.sleep(LOOK_ME_SETTLE_S)
+            seen = self.vision.seen()
+            found, why = min(seen, key=lambda s: abs(s[0] - voice), default=None), "after turning to the voice"
         if found is None:
-            log(f"  look me: nobody seen{'' if voice is None else ' at the voice either'}, the head stays")
+            log("  look me: nobody seen, the head goes back")
+            face(gaze)
             return
         log(f"  look me: person at {found[0]:+.0f} deg, {found[1]:.2f} m ({why})")
         face(found[0])
@@ -3356,7 +3369,9 @@ class Lumi:
         if t is not None:
             return t
         view = CAMERA_HALF_FOV + (head.YAW_LIMIT if self.vision.camera == "head" else 0.0)
-        w = waist_turned() if abs(robot_angle) > view and self.modes.patrol else None
+        w = waist_turned() if abs(robot_angle) > view and self.modes.patrol and not self.vision.seen() else None
+        # someone in view: no base turn on the voice alone (it read a person in front as behind), the head path
+        # below falls back to the person seen nearest the voice's side
         if w is not None and waist_home("turning to a caller", fold=True):
             log(f"  caller outside the camera ({robot_angle:+.0f} deg): turning toward the voice")
             self.turn_head(0, force=True)                     # a call or an order: also over a held look
