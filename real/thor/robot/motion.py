@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]      # the project folder
 POSES_FILE = ROOT / "data" / "arm_poses.json"
 LIMITS = [360, 125, 130, 360, 120, 360]              # deg, ± factory range per joint (docs/01_HARDWARE.md)
 LIMIT_MARGIN = 5.0                                   # deg kept away from every limit
-JOINT_SPEED = {"slow": 10.0, "normal": 25.0, "route": 40.0}   # deg/s; route: empty-hand pose-graph moves (estimate)
+JOINT_SPEED = {"slow": 10.0, "normal": 25.0, "fast": 40.0, "quick": 50.0, "route": 60.0}   # deg/s; route: empty-hand pose-graph moves (the Cobo π joint speed limit, 60)
 LINEAR_SPEED = {"slow": 20.0, "normal": 50.0}        # mm/s
 ACCEL_FACTOR = 3.0                                   # straight moves: accel = speed x this (per s)
 JOINT_ACCEL_FACTOR = 1.5                             # joint moves: accel = speed x this (per s); estimate: x 3

@@ -75,9 +75,10 @@ def refused(reason):
 
 # ---------- from look: up through wave_out, 2 swings, the arm stays at wave_start; every move clear of the head ------
 a = use(FakeArm(LOOK))
-started = []
-wave.wave(on_start=lambda: started.append(len(a.sent)))
+started, up = [], []
+wave.wave(on_start=lambda: started.append(len(a.sent)), on_up=lambda: up.append(len(a.sent)))
 assert started == [0]                                               # said before the first move
+assert up == [2]                                                    # at wave_start, before the swings (person stop off)
 top, swing = POSES["wave_start"], POSES["wave"]
 assert wave.SWINGS == 2
 assert a.sent == [POSES["wave_out"], top] + [swing, top] * wave.SWINGS, a.sent
@@ -98,12 +99,12 @@ a.j = list(LOOK)
 wave.wave()
 sent = [e for e in names if e[0] in ("joint_move", "get_data")]
 route, swing_s = motion.JOINT_SPEED[arm_route.SPEED], motion.JOINT_SPEED[wave.SWING_SPEED]
-arrive = motion.JOINT_SPEED[wave.ARRIVE_SPEED]                      # into wave_start softer than the route speed
-assert arrive < route and wave.ARRIVE_SPEED == "normal"
+arrive = motion.JOINT_SPEED[wave.ARRIVE_SPEED]                      # into wave_start at the route speed too
+assert arrive == route and wave.ARRIVE_SPEED == "route"
 assert sent == [("joint_move", route, False), ("get_data", None, False), ("joint_move", arrive, False),
                 ("get_data", None, False)] + \
     [("joint_move", swing_s, False)] * 2 * wave.SWINGS + [("get_data", None, False)], sent      # swings back to back
-assert wave.SWING_SPEED == "normal"
+assert wave.SWING_SPEED == "quick"
 arm.cmd = a
 a.j = list(top)
 a.sent.clear()
@@ -190,9 +191,18 @@ assert L.wave() is False and said == [wave.HOLDING[1]]
 said.clear()
 assert L.wave(quiet=True) is False and said == []                    # a goodbye wave refused: no words about it
 hand["holding"] = False                                             # a stale "holding", the hand empty (2026-10-23
-real_wave, wave.wave = wave.wave, lambda on_start=None: None        # 17:43): checked again, not refused for holding
+real_wave, wave.wave = wave.wave, lambda on_start=None, on_up=None: None  # 17:43): checked again, not refused for holding
 said.clear()
 assert L.wave() is True and said == [] and not fetch.state()["holding"], said
+held, go = threading.Event(), threading.Event()                    # the same request twice (16:21, typed): one wave
+wave.wave = lambda on_start=None, on_up=None: (held.set(), go.wait(10))
+first = threading.Thread(target=L.wave)
+first.start()
+held.wait(10)
+assert L.wave() is False                                            # asked again while it waves: refused, no second
+go.set()
+first.join()
+assert L.wave() is True                                             # ... and the next one after it ended runs
 wave.wave = real_wave
 fetch.STATE_FILE.unlink()
 
@@ -207,7 +217,7 @@ def slow_say(text, **k):                                            # speech tha
 
 lumi.mouth = types.SimpleNamespace(say=slow_say)
 L.lang = "en"
-wave.wave = lambda on_start=None: (on_start(), order.append("move"))
+wave.wave = lambda on_start=None, on_up=None: (on_start(), order.append("move"))
 done = []
 th = threading.Thread(target=lambda: done.append(L.wave(("Okay!", "네!"))))
 th.start()

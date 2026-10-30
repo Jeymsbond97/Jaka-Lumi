@@ -51,12 +51,14 @@ from vision import calib, head_cam
 HOME = "look"                        # every arm action starts here
 GIVE = "give"                        # the hand held out to a person
 GIVE_PRE = "give_pre"                # one step before GIVE: an empty-hand way to GIVE always ends GIVE_PRE -> GIVE
-GIVE_SPEED = "slow"                  # motion.JOINT_SPEED of the last move, GIVE_PRE -> GIVE (first live runs: slow)
+GIVE_SPEED = "route"                 # motion.JOINT_SPEED of the last move, GIVE_PRE -> GIVE
 EDGES = (("give_pre", "give"), ("give", "carry"), ("carry", "look"), ("look", "wave_out"), ("wave_out", "wave_start"),
          ("wave_start", "wave"), ("look", "ready"))   # the moves with something in the hand (both ways)
-NO_EDGES = {frozenset(("look", "wave_start"))}        # never one joint move: passes 267 mm from the head (the wave
-                                                      # goes up and down through wave_out, 309 mm)
 WAVE_POSES = ("wave_out", "wave_start", "wave")       # never with something in the hand (the cup would tip)
+NO_EDGES = {frozenset(("look", "wave_start")),       # never one joint move: passes 267 mm from the head (the wave
+            *(frozenset(("give", w)) for w in ("wave_out", "wave_start", "wave")),   # goes up and down through
+            *(frozenset(("give_pre", w)) for w in ("wave_start", "wave"))}           # wave_out, 309 mm); give and
+                                                      # the wave poses through give_pre and wave_out (owner)
 STOP_DEG = 10.0                      # deg of joint travel one more stop on a route costs (SETTLE_S, slowing down and
                                      # starting again; an estimate, it only weighs routes against each other)
 SPEED = "route"                      # motion.JOINT_SPEED of the moves along the graph, empty hand
@@ -193,7 +195,7 @@ def hops(now, target, leaf=False, holding=False, skip=()):
     """The poses the arm goes through from the joints `now` to `target`, in order (not the one it is at). `leaf`: the
     arm is out on the task's own checked way from look (above a table): when it is at no pose, straight to target.
     `skip`: poses the way must not pass."""
-    if holding and target in WAVE_POSES:
+    if holding and target in WAVE_POSES + (GIVE_PRE,):          # GIVE_PRE is the empty hand's (the gripper reads holding)
         raise RouteError(*SPILL)
     nodes = graph(holding, skip)
     if target not in nodes:

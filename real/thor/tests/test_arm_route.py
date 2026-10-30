@@ -83,6 +83,11 @@ for a in POSES:
         fake = use(POSES[a])
         route = arm_route.goto(b)
         assert fake.sent == [POSES[n] for n in route] and arm_route.where(fake.j) == b, (a, b, route)
+        if frozenset((a, b)) in arm_route.NO_EDGES and {a, b} != {"look", "wave_start"}:   # give - wave poses:
+            hops = [a] + route                                                             # through give_pre /
+            assert route[-1] == b and not any(frozenset(h) in arm_route.NO_EDGES for h in zip(hops, hops[1:])), \
+                (a, b, route)                                                              # wave_out
+            continue
         want = [] if a == b else ["wave_out", b] if {a, b} == {"look", "wave_start"} else [b]
         assert route == want, (a, b, route)                 # look - wave_start: wave_out ties wave, EDGES first
 # ... holding: along EDGES only, never a wave pose
@@ -100,7 +105,8 @@ use(POSES["give"])
 assert arm_route.goto("look", holding=True) == ["carry", "look"]    # after giving: give -> carry -> look
 assert arm_route.goto("give", holding=True) == ["carry", "give"]    # to give: look -> carry -> give
 use(POSES["wave_start"])
-assert arm_route.goto("give") == ["give"]                           # empty after a wave: straight to give
+r = arm_route.goto("give")                                          # empty after a wave: never wave pose - give
+assert r[-1] == "give" and "wave_start" not in r and len(r) > 1, r  # in one move (owner)
 assert not any("tuck" in e for e in arm_route.EDGES)
 use(POSES["look"])
 assert arm_route.goto("wave_start") == ["wave_out", "wave_start"]   # up: never look -> wave_start directly

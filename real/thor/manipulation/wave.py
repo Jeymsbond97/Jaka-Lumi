@@ -23,8 +23,8 @@ from robot import agv, arm, gripper, motion
 START = "wave_start"                 # hand above the head; the wave starts and ends here
 SWING = "wave"                       # START with J3 −14.7°
 SWINGS = 2                           # times START -> SWING -> START
-SWING_SPEED = "normal"               # motion.JOINT_SPEED of the swings; the way up is arm_route.SPEED ...
-ARRIVE_SPEED = "normal"              # ... but its last move, into START: at route speed it stopped there hard (J1 60°)
+SWING_SPEED = "quick"                # motion.JOINT_SPEED of the swings; the way up is arm_route.SPEED ...
+ARRIVE_SPEED = "route"               # ... its last move, into START (J1 60°), too (owner: as fast as the way down)
 
 # Why Lumi does not wave, (English, Korean)
 OFF = ("Please enable my arm first.", "먼저 제 팔을 켜 주세요.")
@@ -86,8 +86,9 @@ def plan():
     return route, swings
 
 
-def wave(on_start=None):
-    """Plan, check and wave; the arm stays at START. `on_start()` is called once the plan is checked.
+def wave(on_start=None, on_up=None):
+    """Plan, check and wave; the arm stays at START. `on_start()` is called once the plan is checked, `on_up()` at
+    START before the swings (the hand above the head from there on).
     Raises WaveError (refused) or motion.MotionError (stopped / failed while moving: the arm stays where it stopped)."""
     try:
         route, swings = plan()
@@ -104,6 +105,8 @@ def wave(on_start=None):
         log(f"arm at {START} after {time.time() - t0:.1f} s")
     if route and motion._stopped.wait(motion.SETTLE_S):   # stand at START first, as between any two moves
         raise motion.MotionError("stopped")
+    if on_up:
+        on_up()
     t0 = time.time()
     motion.move_path([(t, SWING_SPEED) for t in swings], queued=True)   # back to back, no stop between swings
     log(f"wave: {SWINGS} swings after {time.time() - t0:.1f} s")

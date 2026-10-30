@@ -31,8 +31,8 @@ def moved(j, joint, deg):
 
 
 # ---------- empty hand: the least joint travel, every move checked ----------
-assert names("give", POSES["wave_start"]) == ["give"]               # after a wave: straight down to give
-assert names("give", POSES["wave"]) == ["give"]
+for s in ("wave_start", "wave"):                                    # after a wave: never in one move to give
+    assert names("give", POSES[s])[-1] == "give" and len(names("give", POSES[s])) > 1
 assert names("give", POSES["look"]) == ["give"]                     # 32 deg, not look -> carry -> give (71)
 assert names("look", POSES["give"]) == ["look"]
 assert names("look", POSES["wave_start"]) == ["wave_out", "look"]  # never look - wave_start in one move
@@ -77,10 +77,10 @@ sent = []
 real_path, motion.move_path = motion.move_path, lambda moves, **k: sent.extend(moves)
 arm_route.move(arm_route.plan("give", now=list(POSES["wave_start"])))
 assert [s for _, s in sent][-1] == arm_route.GIVE_SPEED and \
-    all(s == arm_route.SPEED for _, s in sent[:-1]), sent           # the last move, give_pre -> give, slow
+    all(s == arm_route.SPEED for _, s in sent[:-1]), sent           # the last move, give_pre -> give, GIVE_SPEED
 del POSES["give_pre"]                                                # not taught: the route and speed as before
 sent.clear()
 arm_route.move(arm_route.plan("give", now=list(POSES["wave_start"])))
-assert [s for _, s in sent] == [arm_route.SPEED], sent
+assert all(s == arm_route.SPEED for _, s in sent), sent             # no give_pre: every move at route speed
 motion.move_path = real_path
 print("arm give route ok")

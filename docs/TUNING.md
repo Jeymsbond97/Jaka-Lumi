@@ -6,20 +6,20 @@ Every value here is a constant at the top of its file, with a comment on what it
 
 | File | Name | Default | What it does |
 |---|---|---|---|
-| `robot/motion.py` | `JOINT_SPEED` | slow 10, normal 25, route 40 °/s | Joint move speeds. "normal" / "route" are the dashboard's Arm pose card "Normal" / "Fast". route: estimate |
+| `robot/motion.py` | `JOINT_SPEED` | slow 10, normal 25, fast 40, quick 50, route 60 °/s | Joint move speeds. "normal" / "route" are the dashboard's Arm pose card "Normal" / "Fast"; route = the Cobo π joint speed limit (60) |
 | `robot/motion.py` | `LINEAR_SPEED` | slow 20, normal 50 mm/s | Straight move speeds |
 | `robot/motion.py` | `ACCEL_FACTOR` | 3.0 | Straight moves: acceleration = speed × this per second |
 | `robot/motion.py` | `JOINT_ACCEL_FACTOR` | 1.5 | Joint moves: acceleration = speed × this per second (route 60 °/s², normal 37.5, slow 15). Lower = softer start and stop, longer moves. Estimate |
 | `manipulation/arm_route.py` | `SPEED` | "route" | Joint moves along the pose graph (to `look`, `carry`, `give`, `ready`, `wave_out`, `wave_start`, `wave`) with an empty hand; the wave's way up |
 | `manipulation/arm_route.py` | `HOLD_SPEED` | "slow" | The same with something in the hand |
-| `manipulation/arm_route.py` | `GIVE_SPEED` | "slow" | The last move into `give`, from `give_pre` (only when `give_pre` is taught: every empty-hand way to `give` then ends `give_pre` → `give`) |
+| `manipulation/arm_route.py` | `GIVE_SPEED` | "route" | The last move into `give`, from `give_pre` (only when `give_pre` is taught: every empty-hand way to `give` then ends `give_pre` → `give`) |
 | `manipulation/skills.py` | `EMPTY_SPEED` | "normal" | Arm with nothing in the hand: the joint move from `look` to above a cup |
 | `manipulation/skills.py` | `HOLDING_SPEED` | "slow" | With an object in the hand, and the last 10 cm down onto an object and up from it |
 | `manipulation/skills.py` | `ABOVE_MM` | 100 mm | Height above the grasp from where the arm goes straight down (slow) |
 | `manipulation/skills.py` | `MAX_TILT_DEG` | 15° | How far a held cup may lean on any move (`tasks/fetch.py` uses the same) |
 | `manipulation/wave.py` | `SWINGS` | 2 | The wave: times `wave_start` → `wave` → `wave_start` (the two taught poses, J3 −2.5° ↔ −17.2°) |
-| `manipulation/wave.py` | `SWING_SPEED` | "normal" | `motion.JOINT_SPEED` of the swings. The swings are queued back to back (no stop between them); the way up goes as `arm_route.goto`, with a stop at each pose |
-| `manipulation/wave.py` | `ARRIVE_SPEED` | "normal" | The way up's last move, `wave_out` → `wave_start` (J1 60°); "slow" for a softer arrival |
+| `manipulation/wave.py` | `SWING_SPEED` | "quick" | `motion.JOINT_SPEED` of the swings. The swings are queued back to back (no stop between them); the way up goes as `arm_route.goto`, with a stop at each pose |
+| `manipulation/wave.py` | `ARRIVE_SPEED` | "route" | The way up's last move, `wave_out` → `wave_start` (J1 60°); "slow" for a softer arrival |
 | `robot/motion.py` | `SLOW_DEG_S`, `EXTRA_S` | 5 °/s, 10 s | The longest a joint move may take: its largest joint travel at this slow rate (or 3× the planned time if longer), plus `EXTRA_S`; then the arm is stopped. Long moves run at 4.3–7 °/s whatever speed is asked |
 | `robot/motion.py` | `STILL_S` | 2 s | An arm standing this long short of its target has stopped short: stopped, nothing more sent |
 | `robot/motion.py` | `SETTLE_S` | 0.3 s | After each arrival (inpos, joints within 0.3°) the arm stands this long before the next move of a route or wave. Estimate |

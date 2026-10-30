@@ -904,6 +904,7 @@ class Modes:
 class Lumi:
     chain_thread = None                  # several commands of one sentence done in order (chain_run)
     chain_stop = threading.Event()       # set by "stop" or anything new said: the rest of the chain is not done
+    wave_lock = threading.Lock()         # held while a wave / handshake runs: a second one asked meanwhile is refused
 
     def __init__(self, args):
         self.a = args
@@ -1027,14 +1028,19 @@ class Lumi:
         why = (wave_mod.HOLDING if st == "holding" and self.held_now() else   # a stale "holding": checked again
                wave_mod.BUSY if self.skill_busy() or self.mission_running() else
                wave_mod.DRIVING if follow.running() else None)
+        if not self.wave_lock.acquire(blocking=False):      # the same request typed / said twice: one wave
+            log("  wave refused: already waving")
+            return False
         try:
             if why:
                 raise wave_mod.WaveError(*why)
             if self.vision:
                 self.vision.arm_watch = True
             self.publish_busy("wave")
+            # a person near stops the arm on the way up (it sweeps out sideways), not in the swings above the head
             wave_mod.wave(on_start=(lambda: threading.Thread(target=self.fetch_say, args=ok, daemon=True).start())
-                          if ok else None)
+                          if ok else None,
+                          on_up=lambda: setattr(self.vision, "arm_watch", False) if self.vision else None)
             return True
         except wave_mod.WaveError as e:
             log(f"  wave refused: {e.args[0]}")
@@ -1047,6 +1053,7 @@ class Lumi:
             if self.vision:
                 self.vision.arm_watch = False
             self.publish_busy(None)
+            self.wave_lock.release()
         return False
 
     def base_off(self, action, target="", say=True):

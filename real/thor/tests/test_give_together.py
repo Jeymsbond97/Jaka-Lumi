@@ -85,7 +85,7 @@ fetch._thread.join(10)
 st = fetch.state()
 assert st["status"] == "done", st
 w0, arm0, arm1, w1 = when("waist start")[0], when("arm start")[0], when("arm end")[0], when("waist end")[-1]
-assert w0 <= arm0 < arm1, events                     # the waist command went out first, before the arm route ended
+assert abs(w0 - arm0) < 0.1 and w0 < arm1, events   # both start together (threads: either first), the waist before the arm ends
 assert arm0 < w1, events                             # the arm started before the waist got there
 assert len(when("waist start")) == math.ceil(30.0 / fetch.WAIST_STEP_DEG), events
 assert abs(body["pos"][1] - 30.0) < 1e-6 and abs(body["pos"][2]) < 1e-6, body   # waist 30, head yaw 30 - 30 = 0
