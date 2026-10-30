@@ -151,6 +151,8 @@ HEAD_LOW_PITCH = -5.0        # head pitch for those checks and the search: its l
 HEAD_READS = 4               # head camera frames read per view (10 a second) ...
 HEAD_SAME_MM = 120.0         # ... an object counts when seen at least twice within this distance
 WAIST_VEL = 20               # % of the waist's speed: the arm sweeps sideways
+WAIST_STEP_DEG = 10.0        # deg; a waist turn made together with an arm move goes in moves this long: the body API
+                             # cannot stop a moveto, so a STOP ends the turn after the move it is in (_give_turning)
 HEAD_AHEAD = (0.0, head.HEAD_REST_PITCH)   # head (yaw, pitch) deg before a drive to a place and after every task: ahead, at rest
                              # (search turns and short moves keep the head where the search turned it)
 OFFSET_TURN_DEG = 15.0       # a move that turned the base at least this much tells where the arm base is (arm_offset)
@@ -572,9 +574,11 @@ def _charging():
         return True                          # unknown: better not drive off
 
 
-def arm_points_3d():
-    """(x, y, z) mm in the arm base frame of the flange, the grasp point and the finger tips, from the joints now."""
-    c = skills._ask("kine_forward", jointPosition=[float(v) for v in skills._joints()])["cartPosition"]
+def arm_points_3d(joints=None):
+    """(x, y, z) mm in the arm base frame of the flange, the grasp point and the finger tips, at `joints` (default:
+    the joints now)."""
+    joints = skills._joints() if joints is None else joints
+    c = skills._ask("kine_forward", jointPosition=[float(v) for v in joints])["cartPosition"]
     R, f = calib.rpy_matrix(*c[3:]), np.array(c[:3])
     g = f + R @ skills.GRASP_OFFSET
     return [f, g, g + R @ (skills.TIP_MM * skills.FINGER_DIR)]
@@ -597,26 +601,28 @@ def _near_hand(p, pts):
     return best
 
 
-def depth_hits(deg, camera="torso", T=None):
+def depth_hits(deg, camera="torso", T=None, pts=None):
     """Like turn_hits, with the torso depth camera: the arm's points along the turn at their real height (a table top's
     edge, a shelf: the lidar at the base's height does not see them), (x, y, z) mm in the arm frame now of the first
     one the camera sees something at or in front of; None when clear. Points out of its view are left to the lidar;
     depth on the arm's own parts (in view, within SELF_MM of them) does not count. Another camera: its name and its
-    camera -> arm base transform T."""
+    camera -> arm base transform T. `pts`: the arm-frame points (mm) of every pose the arm passes while it turns
+    (_route_points), checked from the start of the turn on; default the hand now, from the first step."""
     yaw = arm_yaw()
     T = skills.objects.base_from_camera() if T is None else T
     if yaw is None or T is None:
         return None
-    pts, t, cam = arm_points_3d(), arm_xy(), T[:3, 3]
+    hand, t, cam = arm_points_3d(), arm_xy(), T[:3, 3]
+    k0, pts = (1, hand) if pts is None else (0, pts)
     n = max(1, math.ceil(abs(deg) / SWEEP_STEP_DEG))
     cand = []
-    for k in range(1, n + 1):
+    for k in range(k0, n + 1):
         R = _rot(deg * k / n)
         for p in pts:
             xy = _rot(-yaw) @ (R @ to_base(p[:2], yaw, t) - t) * 1000.0
             cand.append(np.array([xy[0], xy[1], p[2]]))
     for c, h in zip(cand, skills.surface_points([tuple(c) for c in cand], camera=camera, T=T)):
-        if h is None or _near_hand(h, pts) < SELF_MM:
+        if h is None or _near_hand(h, hand) < SELF_MM:
             continue
         if np.linalg.norm(np.subtract(h, cam)) <= np.linalg.norm(c - cam) + ARM_CLEAR_M * 1000.0:
             return c
@@ -655,7 +661,7 @@ def _head_to(yaw, pitch):
     skills.moved("head")
 
 
-def head_hits(deg):
+def head_hits(deg, pts=None):
     """depth_hits with the head camera turned towards the side of the turn: the torso camera sees only ahead, the arm
     sweeps to the side. None when clear, or when the head camera is not calibrated (then the other checks decide).
     The head stays there: the next look or drive turns it where it needs it."""
@@ -664,18 +670,19 @@ def head_hits(deg):
     if T is None:
         return None
     _head_to(side, HEAD_LOW_PITCH)
-    return depth_hits(deg, "head", T)
+    return depth_hits(deg, "head", T, pts)
 
 
-def turn_hits(deg):
+def turn_hits(deg, pts=None):
     """The map point (x, y) where the arm would come closer than ARM_CLEAR_M to something the lidar or the map shows
     while the base turns by `deg`, checked every SWEEP_STEP_DEG along the way; None when the way is clear. The base
-    itself turns in its own footprint; navigation does not know about the arm sticking out."""
+    itself turns in its own footprint; navigation does not know about the arm sticking out. `pts`: as depth_hits."""
     if arm_yaw() is None:
         return None
-    pts, (x, y, th) = arm_points(), agv.pose()
+    k0, pts = (1, arm_points()) if pts is None else (0, [to_base(p[:2], arm_yaw(), arm_xy()) for p in pts])
+    x, y, th = agv.pose()
     n = max(1, math.ceil(abs(deg) / SWEEP_STEP_DEG))
-    for k in range(1, n + 1):
+    for k in range(k0, n + 1):
         R = _rot(math.degrees(th) + deg * k / n)
         for p in pts:
             w = np.array([x, y]) + R @ p
@@ -684,15 +691,16 @@ def turn_hits(deg):
     return None
 
 
-def _sweep_blocked(deg, what):
+def _sweep_blocked(deg, what, pts=None):
     """True (and logged) when the arm would hit something while it swings by `deg` about the base centre: a base turn
-    on the spot and a waist turn sweep the same circles (turn_hits, depth_hits, head_hits)."""
-    hit = turn_hits(deg)
+    on the spot and a waist turn sweep the same circles (turn_hits, depth_hits, head_hits). `pts`: as depth_hits."""
+    kw = {} if pts is None else {"pts": pts}
+    hit = turn_hits(deg, **kw)
     if hit is not None:
         log(f"not {what} {deg:+.0f} deg: my arm would hit something at ({hit[0]:.2f}, {hit[1]:.2f})")
         return True
     for cam, check in (("camera", depth_hits), ("head camera", head_hits)):
-        seen = check(deg)
+        seen = check(deg, **kw)
         if seen is not None:
             log(f"not {what} {deg:+.0f} deg: the {cam} sees something in my arm's way at ({seen[0]:.0f}, "
                 f"{seen[1]:.0f}, {seen[2]:.0f}) mm")
@@ -2250,6 +2258,7 @@ def _pick_here(task, say):
     no = skills.refusal(task["object"])
     if no:
         raise FetchError(*no)
+    skills._guarded(skills.back_out)                     # a pick stopped beside / around it: out the way it came
     for attempt in range(PICK_TRIES):
         _step("looking")
         obj = _see(task, say)
@@ -2257,19 +2266,28 @@ def _pick_here(task, say):
         obj, waypoints, ja = _reach(task, obj, say)
         _step("picking")
         try:
-            skills._guarded(skills._do_pick, obj, waypoints, ja)   # ends 3 cm above the table, holding
+            _pick(obj, waypoints, ja)                        # ends 3 cm above the table, holding
             break
         except skills.SkillError as e:
             if e.args[0] not in MISSES or attempt == PICK_TRIES - 1:
                 raise
             _say(say, "I missed it. Let me try again.", "놓쳤어요. 다시 해 볼게요.")
-    _note_stand()
     skills._held["what"] = {"object": task["object"], "colour": task.get("colour")}   # held_name() when the state lost it
     _set(holding=True, held_object=skills._held["what"])
     _say(say, "I've got it.", "잡았어요.")
     _step("carry")
     skills._guarded(skills._line, "up", waypoints[0][1])   # straight up to the approach height first
     _carry_from(waypoints[0][1], ja)
+
+
+def _pick(obj, waypoints, ja):
+    """skills._do_pick; whenever it leaves the object held, also after a stop in the lift, the stand is noted with it
+    (a put down goes straight back down from here: _put_back_here)."""
+    try:
+        skills._guarded(skills._do_pick, obj, waypoints, ja)
+    finally:
+        if "top_mm" in skills._held:
+            _note_stand()
 
 
 def _note_stand():
@@ -2456,13 +2474,13 @@ def pick_here(name, colour=None, say=None):
     task = {"object": name, "colour": colour}
     _clear()
     try:
+        skills._guarded(skills.back_out)                     # a pick stopped beside / around it: out the way it came
         obj = _find(task)
         log(f"found {obj['colour']} {obj['name']} at ({obj['x']:.0f}, {obj['y']:.0f}) top {obj['top_mm']:.0f} "
             f"width {obj['width_mm']:.0f}")
         obj, waypoints, ja = _reach(task, obj, say, voice=True)
         _step("picking")
-        skills._guarded(skills._do_pick, obj, waypoints, ja)
-        _note_stand()                                       # a put down goes straight back down from here
+        _pick(obj, waypoints, ja)
     finally:
         _set(step="")
     return obj
@@ -2997,11 +3015,11 @@ def give_bearing():
 
 
 def reach(angle=0.0, say=None, look=None):
-    """Hold the hand out to the person ("reach out to me", "손 내밀어"): first, when `angle` (deg, + left, waist
-    frame: the person tracker's) is not 0, the waist turns to face them (_waist_to, also with Patrol off: the base
-    stays; its arm sweep checked; past the waist's limits they are asked to stand in front; the waist stays turned
-    after; the head turns with it onto them and stays on them, also after), then the arm along the pose graph to give
-    (arm_route, every move checked), then at most RECEIVE_REACH_MM straight towards their hand or body
+    """Hold the hand out to the person ("reach out to me", "손 내밀어"): when `angle` (deg, + left, waist frame: the
+    person tracker's) is not 0, the waist turns to face them while the arm goes along the pose graph to give, both at
+    once (_give_turning, also with Patrol off: the base stays; the arm's sweep over the turn checked first; past the
+    waist's limits they are asked to stand in front; the waist stays turned after; the head stays on them, also
+    after); else only the arm to give (arm_route, every move checked); then at most RECEIVE_REACH_MM straight towards their hand or body
     (_person_point, _reach_to_hand). The arm stays out; "fold" brings it back to look. `look`: the person's angle the
     head stays on when the waist turns by another `angle` (to bring the hand, not the waist's front, onto them)."""
     if "give" not in motion.poses():
@@ -3017,16 +3035,78 @@ def reach(angle=0.0, say=None, look=None):
         try:
             if angle:                                 # the waist, not the base: the person stays where they are
                 lo, hi = head.AXIS_LIMITS[1]
-                if not lo <= head.status()[1] + angle <= hi or \
-                        not _waist_to(angle + _waist_turn(), in_place=True, look=angle if look is None else look):
+                if not lo <= head.status()[1] + angle <= hi:
                     raise FetchError(*TURN_TO_PERSON)
-            _pose("give")
+                _give_turning(angle + _waist_turn(), angle if look is None else look)
+            else:
+                _pose("give")
             _reach_to_hand(*_person_point())
             _set(status="done", step="")
             log("reached out")
         except Exception as e:
             _fail(e, say)
     _launch(run, ahead=False)                    # the head stays on the person, not ahead
+
+
+def _route_points(seq):
+    """Arm-frame points (mm; flange, grasp point, finger tips) of the arm now, halfway along each joint move of the
+    arm_route plan `seq` and at its end: where the hand can be while it goes along it."""
+    js, prev = [skills._joints()], skills._joints()
+    for _, j in seq:
+        js += [[(a + b) / 2 for a, b in zip(prev, j)], j]
+        prev = j
+    return [p for j in js for p in arm_points_3d(j)]
+
+
+def _give_turning(rel, look):
+    """The waist turns to `rel` (as _waist_to, in place) while the arm goes along the pose graph to give, both at once:
+    the hand comes out toward the person while Lumi turns to them; the head stays on `look` (waist-frame deg, as
+    before the turn). Checked before anything moves: the arm route (arm_route: joints, the head; the arm and the head
+    both sit on the waist, so those checks hold at any waist angle) and the sweep of the hand at every pose it passes
+    (_route_points) over the whole turn, from its start (_sweep_blocked). FetchError(TURN_TO_PERSON) when the sweep is
+    not clear. The waist command goes out first, in its own thread in WAIST_STEP_DEG moves; then the arm route; then
+    both are waited for. A STOP or a failed arm move ends the waist turn after the move it is in."""
+    waist = head.status()[1]
+    lo, hi = head.AXIS_LIMITS[1]
+    d = max(lo, min(hi, waist - _waist_turn() + rel)) - waist
+    if abs(d) < 1.0:
+        return _pose("give")
+    _go_on()
+    pitch = head.status()[3]                     # head_hits turns the head to the side: it comes back with the waist
+    try:
+        seq = arm_route.plan("give")
+    except arm_route.RouteError as e:
+        raise FetchError(*e.args) from e
+    if _sweep_blocked(d, "turning my waist with my arm", pts=_route_points(seq)):
+        raise FetchError(*TURN_TO_PERSON)
+    _go_on()
+    lift = head.status()[0]
+    n, halt, out = max(1, math.ceil(abs(d) / WAIST_STEP_DEG)), threading.Event(), {}
+    log(f"waist {waist:.0f} -> {waist + d:.0f} deg with the arm to give: {' -> '.join(x for x, _ in seq) or 'there'}")
+
+    def turn():
+        try:
+            for k in range(1, n + 1):
+                if halt.is_set():
+                    return
+                dk = d * k / n
+                y = max(-head.YAW_LIMIT, min(head.YAW_LIMIT, look - dk))
+                _body_move([lift, waist + dk, y, pitch], vel=WAIST_VEL, acc=20, timeout=60)
+        except Exception as e:
+            out["error"] = e
+    t = threading.Thread(target=turn, name="waist", daemon=True)
+    t.start()
+    try:
+        arm_route.move(seq)
+        while t.is_alive():
+            if _stop.wait(0.1):
+                raise Stopped()
+    finally:
+        halt.set()
+    if "error" in out:
+        raise out["error"]
+    skills.moved()
+    _go_on()
 
 
 def _arm(pose):

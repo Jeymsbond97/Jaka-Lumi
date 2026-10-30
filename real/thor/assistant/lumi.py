@@ -2,7 +2,7 @@
 
     python assistant/lumi.py                 # full: camera, greetings, conversation, commands
     python assistant/lumi.py --no-camera     # no camera: press Enter to start a conversation (desk testing)
-    python assistant/lumi.py --no-arm --no-drive     # no waving, no base driving
+    python assistant/lumi.py --no-arm        # no waving
     python assistant/lumi.py --patrol a,b    # walk between markers in a loop; stop for people in the way, talk, go on
     python assistant/lumi.py --patrol p1,p2,final,p10,home --once --pause 0.5   # drive the route once, end at the dock
 
@@ -415,7 +415,7 @@ HAND_EMPTY_SAID = re.compile(   # the person says Lumi's hand is empty: checked 
     r"\byou(?:'re| are) not holding (?:anything|something)\b|\byou have nothing in (?:your|ur) hand\b|"
     r"손에 ?(?:아무것도|아무 ?것도|뭐 ?없|없)|손 ?비었|빈 ?손이", re.I)
 STUCK_DRIVE_S = 20.0               # s "running" without moving -> the drive is cancelled and Lumi says so
-MODES_FILE = "/dev/shm/lumi_modes.json"   # written by api/server.py: {"greeter", "patrol", "wave", "drive"}
+MODES_FILE = "/dev/shm/lumi_modes.json"   # written by api/server.py: {"greeter", "patrol", "wave"}
 CMD_FILE = "/dev/shm/lumi_cmd.json"       # written by api/server.py: {"id", "cmd": go | go_point | cancel | calibrate
                                           # | fetch | fetch_give | fetch_place | fetch_stop | fetch_carry | fetch_release | fetch_steps
                                           # | fetch_pause | fetch_resume}
@@ -878,7 +878,7 @@ class Modes:
 
     def __init__(self, args):
         self.greeter, self.patrol = True, bool(args.patrol)
-        self.wave, self.drive = not args.no_arm, not args.no_drive
+        self.wave = not args.no_arm
         self._read, self._mtime = 0.0, None
         self.refresh(force=True)
 
@@ -892,7 +892,7 @@ class Modes:
             if m != self._mtime:
                 self._mtime = m
                 d = json.load(open(MODES_FILE))
-                changed = {k: d[k] for k in ("greeter", "patrol", "wave", "drive") if k in d and d[k] != getattr(self, k)}
+                changed = {k: d[k] for k in ("greeter", "patrol", "wave") if k in d and d[k] != getattr(self, k)}
                 for k, v in changed.items():
                     setattr(self, k, bool(v))
                 if changed and not force:
@@ -1103,15 +1103,11 @@ class Lumi:
             safe(skills.cancel)
             safe(motion.stop)                                        # also a wave's waiting move
         elif action == "go_to":
-            if self.modes.drive:
-                self.start_trip(target)
-            else:
-                log("  driving by voice is switched off (dashboard: Come when called)")
+            self.start_trip(target)
         elif action in ("move", "turn"):
             self.move_by(action, target)
         elif action == "come_back":
-            if self.modes.drive:
-                self.come_back()
+            self.come_back()
         elif action == "detour":                                     # the model read it from now_doing's block
             if target in detour.SAY:
                 self.detour(target, speak=False)
@@ -1193,7 +1189,7 @@ class Lumi:
         waist turns in place toward it (the base stays; fetch._waist_to checks the arm's sweep). Returns the voice's
         waist-frame angle after the turn (unchanged when nothing could turn)."""
         from tasks import fetch
-        if self.modes.drive and self.modes.patrol:
+        if self.modes.patrol:
             self.look_toward(angle)
             return 0.0
         w = waist_turned()
@@ -1272,9 +1268,6 @@ class Lumi:
         Left / right are a normal base move to a map point, so obstacles are avoided; forward and back are a straight
         drive of exactly that length (fetch._move). Returns False if not possible (an amount not read or past the
         limit is never driven: driving.read has asked / refused it)."""
-        if not self.modes.drive:
-            log("  driving by voice is switched off (dashboard: Come when called)")
-            return False
         parts = (target or "").split()
         direction = parts[0] if parts else "forward"
         try:
@@ -1339,23 +1332,17 @@ class Lumi:
             if self.base_off("move"):
                 return True
             log(f"  action move {got[1]} (again)")
-            if not self.modes.drive:
-                say = "Sorry, driving is switched off." if lang == "en" else "죄송해요, 지금은 이동할 수 없어요."
-            elif not self.move_by("move", got[1]):
+            if not self.move_by("move", got[1]):
                 return True
-            else:
-                say = driving.say_move(d, float(n), got[2], lang)
+            say = driving.say_move(d, float(n), got[2], lang)
         elif got[0] == "turn":                              # "again" / "a bit more" after a turn
             hist.append((text, f"ACTION: turn {got[1]}"))
             if self.base_off("turn"):
                 return True
             log(f"  action turn {got[1]} (again)")
-            if not self.modes.drive:
-                say = "Sorry, driving is switched off." if lang == "en" else "죄송해요, 지금은 이동할 수 없어요."
-            elif not self.move_by("turn", got[1]):
+            if not self.move_by("turn", got[1]):
                 return True
-            else:
-                say = "Okay." if lang == "en" else "네."
+            say = "Okay." if lang == "en" else "네."
         elif got[0] in ("look", "lift"):                    # "one more" / "더" after a look or a lift: further that way
             hist.append((text, f"ACTION: {got[0]} {got[1]}"))
             log(f"  action {got[0]} {got[1]} (again)")
@@ -1437,9 +1424,6 @@ class Lumi:
 
     def fetch_request(self, text):
         """A fetch said by voice: parse strictly, ask what is missing, read back, start on yes or silence."""
-        if not self.modes.drive:
-            self.fetch_say("Sorry, driving is switched off.", "죄송해요, 지금은 이동할 수 없어요.")
-            return
         status = self.fetch_status()
         if status == "holding":
             from tasks import fetch
@@ -1890,10 +1874,8 @@ class Lumi:
             elif kind == "quick":
                 self.quick_command(words, what)                 # chain.plan's reading ("나 보고", the bank's)
             else:
-                if {st["do"] for st in what} & DRIVE_STEPS and (self.base_off("go_to") or not self.modes.drive):
+                if {st["do"] for st in what} & DRIVE_STEPS and self.base_off("go_to"):
                     failed = True
-                    if self.modes.patrol:
-                        self.fetch_say("Sorry, driving is switched off.", "죄송해요, 지금은 이동할 수 없어요.")
                     continue
                 problems = steps.check(what, fetch.check_hand(), self.markers)
                 if problems:
@@ -1948,9 +1930,6 @@ class Lumi:
             return True
         log(f"  mission ({by}): {got}")
         if {st["do"] for st in got} & DRIVE_STEPS and self.base_off("go_to"):
-            return True
-        if not self.modes.drive:
-            self.fetch_say("Sorry, driving is switched off.", "죄송해요, 지금은 이동할 수 없어요.")
             return True
         self.end_run(text)
         from tasks import fetch
@@ -2200,7 +2179,7 @@ class Lumi:
             if track is None and self.vision.anyone():     # several seen, nobody raised a hand: raised_hand said so
                 return None
         if track is not None and track.distance > REACH_COME_M:   # far: go to them first, never reach from afar
-            if not self.modes.drive:
+            if not self.modes.patrol:                      # Greeter only: the base stays
                 self.fetch_say(*COME_CLOSER_SAY)
                 return None
             log(f"  reach: person #{track.id} {track.distance:.2f} m away: coming closer first")
@@ -2664,10 +2643,6 @@ class Lumi:
             return False
         if self.base_off("go_to"):
             return True
-        en = self.lang == "en"
-        if not self.modes.drive:
-            mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
-            return True
         if how == "back":
             if not stuck.get("start"):
                 self.fetch_say(*detour.NO_START)
@@ -2875,9 +2850,6 @@ class Lumi:
         self.brain.history.append((self.heard, f"ACTION: go_to {place}"))
         if self.base_off("go_to"):
             return
-        if not self.modes.drive:
-            mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
-            return
         self.start_trip(place)
         name = brain_mod.place_said(place)
         mouth.say(f"Okay, I'm going to {name}." if en else f"네, {name}로 갈게요.")
@@ -2940,9 +2912,6 @@ class Lumi:
         if action == "waist":
             limited = self.waist(target)
             mouth.say(LIMIT_SAY[limited][0 if en else 1] if limited else ("Okay." if en else "네."))
-            return True
-        if not self.modes.drive:
-            mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
             return True
         if action == "come_back":
             self.come_back(speak=True)
@@ -3360,7 +3329,7 @@ class Lumi:
         if t is not None:
             return t
         view = CAMERA_HALF_FOV + (head.YAW_LIMIT if self.vision.camera == "head" else 0.0)
-        w = waist_turned() if abs(robot_angle) > view and self.modes.drive and self.modes.patrol else None
+        w = waist_turned() if abs(robot_angle) > view and self.modes.patrol else None
         if w is not None and waist_home("turning to a caller", fold=True):
             log(f"  caller outside the camera ({robot_angle:+.0f} deg): turning toward the voice")
             self.turn_head(0, force=True)                     # a call or an order: also over a held look
@@ -3394,7 +3363,7 @@ class Lumi:
         """Turn the head toward a waist-frame angle; turn the base too if it is outside the head's range."""
         if abs(robot_angle) <= head.YAW_LIMIT:
             self.turn_head(HEAD_SIGN * robot_angle)
-        elif self.modes.drive and self.modes.patrol:
+        elif self.modes.patrol:
             w = waist_turned()
             if not waist_home("turning to a voice", fold=True):
                 return
@@ -3410,9 +3379,6 @@ class Lumi:
     def come_to(self, track, say=False):
         """Drive to the person (a visible track) and stop about COME_STOP in front of them. `say`: "I'm coming"
         once the base has the goal, spoken while it drives (the motion never waits for the words)."""
-        if not self.modes.drive:
-            mouth.say("Sorry, driving is switched off.")
-            return
         if track is None or not self.vision or not self.vision.visible(track):
             track = self.speaker_track()                   # who said it: the voice, the talk, the look, a raised hand
             if track is None:
@@ -3484,7 +3450,7 @@ class Lumi:
         if word is None or self.base_off("go_to", "pointed"):
             return word is not None
         en = self.lang == "en"
-        if not self.modes.drive or self.mission_running() or self.skill_busy():
+        if self.mission_running() or self.skill_busy():
             mouth.say("Sorry, I can't drive right now." if en else "죄송해요, 지금은 이동할 수 없어요.")
             return True
         spot = safe(pointing.target, default={"why": "no_depth"}) or {"why": "no_depth"}
@@ -3530,9 +3496,6 @@ class Lumi:
         and follow them in the background until a stop word, they are lost, or something is in the way."""
         from tasks import follow
         en = self.lang == "en"
-        if not self.modes.drive:
-            mouth.say("Sorry, driving is switched off." if en else "죄송해요, 지금은 이동할 수 없어요.")
-            return
         self.end_run(getattr(self, "heard", "") or "follow me")
         if self.skill_busy():
             self.fetch_say("Sorry, I'm on a task right now.", "죄송해요, 지금 다른 일을 하고 있어요.")
@@ -4183,7 +4146,6 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--no-camera", action="store_true")
     ap.add_argument("--no-arm", action="store_true")
-    ap.add_argument("--no-drive", action="store_true")
     # torso camera by default: the head camera shares a USB 2 hub with the speaker and drops out while Lumi talks
     ap.add_argument("--camera", default=None, choices=camview.CAMERAS,
                     help="pin one camera (default: head standing, torso driving)")

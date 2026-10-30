@@ -195,8 +195,11 @@ CONFIRM_DEG = 2.0                                # deg; its inverse kinematics w
 RETRIES = 4                                      # the controller now and then answers with nothing: ask again,
 RETRY_S = 0.2                                    # waiting this long, twice as long each time (it drops connections)
 OPEN_AI = gripper.CLOSED_AI                      # AI_1 below this after opening = released
+BACK_OUT_NEAR_MM = 30.0                          # back_out: the hand this near the stopped pick's way in is still in it
 
 _held = {}                                       # what pick() holds: {"top_mm", "x", "y"} for place() / put_down()
+_pick_way = {}                                   # the pick's waypoints {name: pose} from the move to above until the
+                                                 # hand holds or has backed out (back_out after a stop)
 _cancel = threading.Event()                      # set by cancel(): the running skill makes no further move
 LOG = collections.deque(maxlen=40)               # last log lines, shown by the API
 moved_at = {}                                    # camera -> time its last move (lift, waist, base, head) ended:
@@ -1015,6 +1018,7 @@ def _prepare():
     if gripper.state()["ai"][0] > OPEN_AI:
         log("opening the gripper")
         gripper.open_()
+    back_out()
     if max(abs(a - b) for a, b in zip(_joints(), home_joints())) > 1.0:
         from manipulation import arm_route
         arm_route.goto(home())
@@ -1038,12 +1042,38 @@ def _give_up(reason, back=0.0):
     """Open, back up 100 mm (from a side grasp first `back` mm out sideways: the rim is wider than the hooks), home,
     raise. Only used while the object is at (or just above) the table."""
     log(f"{reason}: opening, backing up")
+    _held.clear()
     gripper.open_()
     if back:
         _line("out sideways", back_off(motion.tcp(), back))
     motion.move_linear(delta=[0, 0, ABOVE_MM], speed=HOLDING_SPEED)
     _back_home()
+    _pick_way.clear()
     raise SkillError(reason)
+
+
+def back_out():
+    """A pick stopped on its way in (_pick_way: the open hand beside the object or down around it): out the way it
+    came before anything else moves, a side grasp straight out against the tips' direction to its "side" point, then
+    straight up to its "above" height. Nothing when no pick was stopped there or the hand is no longer near its way."""
+    if not _pick_way:
+        return
+    now, way = motion.tcp(), _pick_way
+    above, grasp = way["above"], way["grasp"]
+    start = way.get("side", grasp)
+    near = np.hypot(start[0] - grasp[0], start[1] - grasp[1]) + BACK_OUT_NEAR_MM
+    if now[2] >= above[2] - 1.0 or now[2] < grasp[2] - BACK_OUT_NEAR_MM or \
+            np.hypot(now[0] - grasp[0], now[1] - grasp[1]) > near:
+        _pick_way.clear()                        # already up there, or moved away since: nothing to back out of
+        return
+    log("a pick was stopped here: backing out the way it came in")
+    if "side" in way:
+        d = float(np.dot(np.subtract(now[:2], start[:2]), tips_dir(yaw_of(now))))
+        if d > 1.0:
+            now = back_off(now, d)
+            _line("out sideways", now)
+    _line("up", [now[0], now[1], above[2]] + list(now[3:]))
+    _pick_way.clear()
 
 
 def _do_pick(obj, waypoints, ja):
@@ -1055,8 +1085,11 @@ def _do_pick(obj, waypoints, ja):
     if table is None:
         table = table_z(obj) if table_z(obj) is not None else table_near(obj)   # what put down needs: the object's height
     log(f"it stands on a table at {table:.0f} mm" if table is not None else "the table under it is not in view")
+    _held.clear()                                                    # nothing held until the fingers close on it
     _prepare()
     _go_on()
+    _pick_way.clear()
+    _pick_way.update(way)
     log(f"above: joint move to ({above[0]:.0f}, {above[1]:.0f}, {above[2]:.0f})")
     motion.move_joints(ja, EMPTY_SPEED)
     if back:
@@ -1068,14 +1101,17 @@ def _do_pick(obj, waypoints, ja):
     log(f"AI_1 {s['ai'][0]:.0f} holding {s['holding']} finger sensor {s['object_in_front']}")
     if not s["holding"]:
         _give_up("I missed it.", back)
+    # held from here on: a stop in the lift leaves it ready to put down
+    _held.update(top_mm=obj["top_mm"], x=obj["x"], y=obj["y"], yaw=yaw_of(grasp), table=table,
+                 tips=grip_width(obj) < BELLY_MIN_MM, below=obj["top_mm"] - grasp_height(obj), back=back)
+    _pick_way.clear()
     _line("lift", lift)
     s = gripper.state()
     log(f"AI_1 {s['ai'][0]:.0f} holding {s['holding']}")
     if not s["holding"]:
+        _held.clear()
         _line("slipped, back down", grasp)
         _give_up("It slipped out of my hand.", back)
-    _held.update(top_mm=obj["top_mm"], x=obj["x"], y=obj["y"], yaw=yaw_of(grasp), table=table,
-                 tips=grip_width(obj) < BELLY_MIN_MM, below=obj["top_mm"] - grasp_height(obj), back=back)
 
 
 def _do_place(waypoints):

@@ -69,12 +69,13 @@ def assistant_pids():
 MODES_FILE = Path("/dev/shm/lumi_modes.json")
 CMD_FILE = Path("/dev/shm/lumi_cmd.json")
 CALIB_FILE = Path("/dev/shm/lumi_calib.json")
-DEFAULT_MODES = {"greeter": False, "patrol": False, "wave": True, "drive": True}
+DEFAULT_MODES = {"greeter": False, "patrol": False, "wave": True}
 
 
 def read_modes():
     try:
-        return {**DEFAULT_MODES, **json.loads(MODES_FILE.read_text())}
+        d = json.loads(MODES_FILE.read_text())
+        return {k: d.get(k, v) for k, v in DEFAULT_MODES.items()}   # keys no longer used (e.g. "drive") are dropped
     except (FileNotFoundError, ValueError):
         return dict(DEFAULT_MODES)
 
@@ -86,10 +87,10 @@ def send_to_assistant(cmd, **args):
     os.replace(tmp, CMD_FILE)
 
 
-def start_assistant(no_arm=False, no_drive=False):
+def start_assistant(no_arm=False):
     if assistant_pids():
         return None
-    args = [str(VENV_PY), str(ROOT / "assistant" / "lumi.py")] + ["--no-arm"] * no_arm + ["--no-drive"] * no_drive
+    args = [str(VENV_PY), str(ROOT / "assistant" / "lumi.py")] + ["--no-arm"] * no_arm
     log = open(CONSOLE_LOG, "a")
     log.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} start: {' '.join(args[1:])}\n")
     log.flush()
@@ -214,7 +215,6 @@ class StartBody(BaseModel):
     once: bool = Field(True, description="drive the route once (true) or loop it forever (false)")
     pause: float = Field(1.0, ge=0, le=60, description="seconds to wait at each marker")
     no_arm: bool = False
-    no_drive: bool = False
 
 
 # ---------- status ----------
@@ -420,7 +420,7 @@ def assistant_start(body: StartBody):
         if unknown:
             raise HTTPException(400, f"unknown markers {unknown}; markers: {names}")
         args += ["--patrol", body.patrol, "--pause", str(body.pause)] + ["--once"] * body.once
-    args += ["--no-arm"] * body.no_arm + ["--no-drive"] * body.no_drive
+    args += ["--no-arm"] * body.no_arm
     log = open(CONSOLE_LOG, "a")
     log.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} start: {' '.join(args[1:])}\n")
     log.flush()
@@ -1390,10 +1390,9 @@ class ModesBody(BaseModel):
     greeter: bool | None = Field(None, description="standing: greet people who come close, talk, wake word")
     patrol: bool | None = Field(None, description="driving anywhere: stop for people in the way, talk, drive on")
     wave: bool | None = Field(None, description="wave when asked")
-    drive: bool | None = Field(None, description='allow "come here" and voice "go to"')
 
 
-@app.get("/assistant/modes", tags=["assistant"], summary="Greeter / patrol / wave / drive switches")
+@app.get("/assistant/modes", tags=["assistant"], summary="Greeter / patrol / wave switches")
 def modes_get():
     return {**read_modes(), "running": bool(assistant_pids())}
 

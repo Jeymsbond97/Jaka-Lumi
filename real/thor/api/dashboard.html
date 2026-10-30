@@ -253,8 +253,7 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
         <small>Standing: greets people who come close, talks, answers "Hi Lumi"</small></div><div class="switch"></div></div>
       <div class="mode" id="modePatrol" data-mode="patrol"><div class="txt"><b>Patrol</b>
         <small>Driving: stops for people on the way, talks, then drives on</small></div><div class="switch"></div></div>
-      <div class="opts" style="margin:8px 0 0"><label class="toggle"><input type="checkbox" id="useArm" checked> Wave when asked</label>
-        <label class="toggle"><input type="checkbox" id="useDrive" checked> Come when called</label></div>
+      <div class="opts" style="margin:8px 0 0"><label class="toggle"><input type="checkbox" id="useArm" checked> Wave when asked</label></div>
     </div>
   </div>
 </main>
@@ -760,7 +759,7 @@ let modes = {};
 function paintModes(m) {
   modes = m;
   $("modeGreeter").classList.toggle("on", !!m.greeter); $("modePatrol").classList.toggle("on", !!m.patrol);
-  $("useArm").checked = m.wave !== false; $("useDrive").checked = m.drive !== false;
+  $("useArm").checked = m.wave !== false;
   const on = [m.greeter && "greeter", m.patrol && "patrol"].filter(Boolean);
   $("asTag").textContent = on.length ? (m.running ? "● " : "starting… ") + on.join(" + ") : "off";
   $("asTag").className = "tag " + (on.length && m.running ? "live" : "");
@@ -776,7 +775,6 @@ document.querySelectorAll(".mode").forEach(el => el.onclick = () => {
   setModes({[k]: on}, el);
 });
 $("useArm").onchange = e => setModes({wave: e.target.checked});
-$("useDrive").onchange = e => setModes({drive: e.target.checked});
 api("/assistant/modes").then(paintModes);
 setInterval(() => api("/assistant/modes").then(paintModes).catch(() => {}), 3000);
 $("stopAll").onclick = e => { holdStop(); act(e.target, () => api("/stop", {})); };
@@ -854,7 +852,7 @@ async function refreshLog() {
     const state = !st.running ? '<b style="color:var(--muted)">not running</b>' : st.stuck ? '<b style="color:var(--bad)">STUCK</b>'
       : st.log_age_s > 90 ? '<b style="color:var(--warn)">quiet (no log for ' + Math.round(st.log_age_s) + ' s)</b>' : '<b style="color:var(--ok)">running</b>';
     $("stat").innerHTML = `<span>Assistant</span><div>${state}${st.pids.length ? " · pid " + st.pids.join(", ") : ""}</div>
-      <span>Modes</span><div>greeter ${st.modes.greeter ? "on" : "off"} · patrol ${st.modes.patrol ? "on" : "off"} · wave ${st.modes.wave ? "on" : "off"} · come ${st.modes.drive ? "on" : "off"}</div>
+      <span>Modes</span><div>greeter ${st.modes.greeter ? "on" : "off"} · patrol ${st.modes.patrol ? "on" : "off"} · wave ${st.modes.wave ? "on" : "off"}</div>
       <span>Uptime</span><div>${up}</div><span>Cameras</span><div>${st.camera_service ? cams : '<b style="color:var(--bad)">camera service not running</b>'}</div>
       ${task ? `<span>Task</span><div><b style="color:var(--${task.status === "failed" ? "bad" : task.status === "running" ? "ok" : "muted"})">${esc(task.status)}</b>${task.step ? " · " + esc(task.step) : ""}${task.holding ? " · holding" : ""}</div>` : ""}
       <span>Last line</span><div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc((robot ? lg.lines.slice(-1)[0] : st.last_line) || "–")}</div>`;

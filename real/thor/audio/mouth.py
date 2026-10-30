@@ -43,8 +43,7 @@ CACHED = ["Hi, I'm Lumi, the assistant robot. How can I help you?", "안녕하�
           "Let me check.", "확인해 볼게요.", "Okay, I'll be quiet.", "네, 조용히 할게요.",
           "Sorry, I'm not connected to the internet right now, so I can't look that up.",
           "Yes? How can I help?", "네? 무엇을 도와드릴까요?",
-          "Welcome back! How can I help you?", "다시 오셨네요, 무엇을 도와드릴까요?", "Okay, I'm going to my charging dock.", "네, 충전소로 갈게요.",
-          "Sorry, driving is switched off."] + [f"Okay, I'm going to p{i}." for i in range(1, 11)]
+          "Welcome back! How can I help you?", "다시 오셨네요, 무엇을 도와드릴까요?", "Okay, I'm going to my charging dock.", "네, 충전소로 갈게요."] + [f"Okay, I'm going to p{i}." for i in range(1, 11)]
 
 _tts = None
 _style = None

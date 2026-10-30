@@ -77,7 +77,8 @@ HEAD_STEP_DEG = 3.0         # deg; a new head move only when the target is this 
 HEAD_LEAD_S = 0.3           # s; the head is sent where the person will be, seen from where the base will be, this
 HEAD_LEAD_MAX_S = 1.5       # much later at least, or as long as the last head move took (live 0.5-1.3 s), at most this:
                             # the base turning 0.6 rad/s goes 35-45 deg round in one move, which left the head off them
-HEAD_VEL = 50               # speed ratio %; the head is at its full speed from 50 (audio/sing.py, measured)
+HEAD_VEL = 100              # speed and acceleration ratio %, the body API's maximum: the head's speed tops out from 50
+                            # (~40 deg/s, audio/sing.py, measured at 100 / 100); the waist's moves keep WAIST_FOLLOW_VEL
 HEAD_TIMEOUT_S = 5          # s; one head move (90 deg at ~40 deg/s takes ~2.5 s)
 
 CHARGER = ("I'm on the charger, I can't follow you from here.", "충전 중이라 따라갈 수 없어요.")
