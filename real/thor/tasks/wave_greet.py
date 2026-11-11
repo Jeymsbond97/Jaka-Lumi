@@ -58,7 +58,9 @@ IDLE_WAVE_EVERY_S = 15.0     # s between two waves while nothing is asked of Lum
 IDLE_SWINGS = 3              # swings of such a wave
 IDLE_CLEAR_M = 1.0           # m; nobody this near in either camera when such a wave starts (one coming closer while the
                              # arm goes up still stops it: _too_close); estimate
-IDLE_RETRY_S = 1.0           # s between two asks whether Lumi is idle (it asks the base whether it charges)
+RAISE_WAIT_S = 10.0          # s a drive waits for someone right by the arm to step back before the hand goes up
+                             # (else it drives in look); estimate
+IDLE_RETRY_S = 1.0          # s between two asks whether Lumi is idle (it asks the base whether it charges)
 CLOSE_FRESH_S = 1.5          # s a camera service detection counts for the too-close check
 
 _seen = {c: {"t": 0.0, "wavers": []} for c in CAMERAS}   # wavers: [(bearing deg from the waist's front, + left;
@@ -373,6 +375,9 @@ def raise_for_drive():
         return False
     if arm_route.where() in arm_route.WAVE_POSES:
         return True
+    end = time.time() + RAISE_WAIT_S             # someone right by the arm (the one who sent Lumi): they step back
+    while _too_close() and time.time() < end:    # first, else the guard stops the way up and the greeting is off
+        time.sleep(0.2)
     if _too_close():
         log("a drive: someone right by me, the hand stays down")
         return False

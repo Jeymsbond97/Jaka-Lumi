@@ -547,6 +547,8 @@ LOW_BATTERY, RESUME_BATTERY = 5, 60    # %
 PAUSE_AT_END = 3.0                 # s to wait at each patrol point
 PASSER_WAVE_EVERY_S = 15.0         # s; a drive with the hand up stops to wave at people at most this often (else the
                                    # same person is waved at again and again; estimate)
+WAVER_AGAIN_S = 3.0                # s after a drive's swings before someone waving stops it again (they are still
+                                   # waving at the swings they got; estimate)
 DOCK_QUIET_M = 2.0                 # m; on the way to the dock nearer than this no stop for a wave (the docking starts
                                    # there and a stop undid it; estimate)
 PASSER_MARKERS = "line"            # drives to markers named so stop to wave at everyone passing; to the others only at
@@ -881,6 +883,7 @@ class Patrol:
         self.dock_leg = False            # this leg goes to the dock: a stop near it undid the docking (dock_far)
         self.waving = None               # the thread swinging for people passing (wave_greet.passer_wave)
         self.wave_after = 0.0            # no wave for passers before this (PASSER_WAVE_EVERY_S)
+        self.waver_after = 0.0           # nor for someone waving (WAVER_AGAIN_S after the last swings)
         self.mode = "patrol"             # patrol | going_home | charging | done
         self.moving = False              # a move that we started is running
         self.progress = None             # (pose, time) of the last movement, to notice a stuck drive
@@ -925,12 +928,12 @@ class Patrol:
             return
 
         if self.moving:
-            if ms == "running" and self.hand_up and now >= self.wave_after and wave_greet_on():
-                self.wave_after = now + 1.0              # asked about once a second while driving
-                target = self.route[self.i]
-                waver = wave_greet._waver() and (not self.dock_leg or self.dock_far(st))
-                if waver or not self.dock_leg and isinstance(target, str) and target.startswith(PASSER_MARKERS) and \
-                        wave_greet._someone_within(wave_greet.GREET_M):
+            if ms == "running" and self.hand_up and now >= self.waver_after and wave_greet_on():
+                target = self.route[self.i]              # someone waving: answered every time (WAVER_AGAIN_S);
+                waver = wave_greet._waver() and (not self.dock_leg or self.dock_far(st))   # anyone else on the
+                passer = now >= self.wave_after and not self.dock_leg and isinstance(target, str) and \
+                    target.startswith(PASSER_MARKERS) and wave_greet._someone_within(wave_greet.GREET_M)   # lines
+                if waver or passer:
                     self.pause()                         # the base stops; the next tick drives on to the same marker
                     self.wave_after = now + PASSER_WAVE_EVERY_S
                     self.waving = threading.Thread(target=self.passer_wave, daemon=True)
@@ -1016,6 +1019,8 @@ class Patrol:
         except Exception as e:
             log(f"patrol ended: the arm stopped ({e!r})")
             self.mode = "done"
+        finally:
+            self.waver_after = time.time() + WAVER_AGAIN_S
 
 
 class Modes:
