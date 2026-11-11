@@ -7,6 +7,30 @@ replies always polite); Lumi is presented as developed by Cutshion Company (쿳�
 
 Update this file when a part is done. A new session: read this, then docs/17_MISSIONS.md, then ROADMAP.
 
+## Night 6 (2026-11-01 23:30 → 11-02 07:00): Korean first, then English — ENDED
+Owner: grow Korean understanding (banks, quick answers, LLM) at every register — 반말 / casual-rude 명령조 / 해요 /
+하십시오 / honorific / suggestion (가자, 갑시다) — with many sentences of the same meaning per command; then English the same;
+never worse than now; 6 local commits (last ~07:00), tests until 05:00; no Gitea push (owner pushes).
+Checks: tests/ko_levels_check.py (+ PARA paraphrases, rude, suggest), tests/ko_questions_check.py, tests/ko_held_check.py
+(held-out sentences; before tree = scratchpad/before6), tests/en_paraphrase_check.py, bank_check --stress.
+- 23:50 baseline Korean (8379 forms): rude 64/288 missed, paraphrases 5–26 % missed; questions 244/286.
+- 01:25 commit 1 (9c148c1): bare "야" is a call to Lumi (얘 / names stay someone else); bank_words/ko_more.py (other
+  verbs, orders, rude endings; bank 64k -> 73k, read 28 ms); ko_questions.py + "X 대 봐" as a question; stop forms with
+  동작 / 거기 서 + polite / dialect endings; -ㅂ시다 suggestions; 노래 하십시오 / 뽑으세요; "do you shake your hand" = wave.
+  Korean forms missed 249 -> 195 (of 8314), questions 263/268, bank stress wrong 27 -> 28 (+1 head-at-limit state case).
+- 02:15 commit 2 (3597b31): Korean "-ㄴ 다음에" steps (Lumi's own step only; "회의 끝난 다음에" stays a condition),
+  "이동 부탁드립니다" noun requests, 비켜 with a distance ("뒤로 50센티 비켜" was 1 m), 따라다녀 no longer "several",
+  exact Korean quick wordings; English: bank_words/en_more.py, polite / "kind as to" / "you can" stops, "X now" orders
+  no longer a seeing question, "is it safe for my kids…" / "how do I stop you…" answered. Korean forms missed 523 ->
+  76 of 8411 (wrong 9 -> 5: stop said in the past, kept), held Korean 85 -> 96 of 106, questions 288/295, qa_eval wrong 0.
+- 02:38 commit 3 (6cb9e1d): English stops in any frame (STOP_CORE), quick answers (EN_SLANG "how old r u",
+  en_questions.py, "is it safe for my kids…"), Korean stay-still stops (꼼짝 마, 가만 있어, 움직이지 말아 주세요, 멈춥시다).
+- 02:52 Gitea push 1 (5bfabd6, commits 1–3; owner asked at 02:50 for spread pushes, last near 07:00).
+- 03:44 commit 4 (86921aa) + Gitea push 2 (4887ea9): Korean try-forms (전진해 봐, 좌회전 해 봐, 움직여 봐, 고개를 드세요, 빨리
+  돌아와, 노래 부릅시다), English -ing / "how about" frames, "how about singing", more Korean questions. Bank stress 28 wrong
+  (27 + 1 state case), right 24684 -> 25004; all tests pass.
+- 09:22 commit 5 (40b1d6d) + Gitea push 3: "팔 접는 법 알아?" / "-는 방법 아세요?" are questions, not orders. All checks and bank stress (28 wrong, unchanged) passed. Commit 6 not made: the session ran out of context after 04:35; pushes 02:52, 03:44, 09:22.
+
 ## Where it stands (2026-10-27)
 
 All of it is checked offline (no robot); none of the pick / place changes and none of the attention / voice direction
@@ -77,57 +101,63 @@ the waist in place, then the base (Patrol), else asks to move the cup closer (`f
 - **A stopped pick**: the next pick first backs out the way it came (`skills.back_out`); stopped after closing, the
   cup counts as held (put down works, also straight back at the pick spot).
 - **No "Come when called" switch**: with Greeter or Patrol on every voice command works (Greeter alone never drives).
-- **Follow head** at the body API's maximum (`follow.HEAD_VEL` 100); base turn `TURN_MAX_RS` 0.6 (above it only the
-  base's 1.0 clamp is documented: the owner's call with the arm out).
+- **Follow turns** (not live): the head at the body API's maximum (`follow.HEAD_VEL` 100, ~40 °/s); the base turns
+  up to joy_control's 1.0 rad/s (`TURN_MAX_RS`), slowed while the head falls behind the person (`FOCUS_*`). Turning
+  round the other way (one side blocked) the head swings through the front to meet them, the torso camera watches
+  meanwhile. Blocked both ways on the spot: a short straight move (≤ `SHIFT_MAX_M` 0.4 m, checked) and the turn from
+  there; no such spot: "My arm can't turn here".
 - **Tests**: every test imports the `tests/no_robot.py` guard (a test reaching the robot fails).
 
 ## Left half done (do first)
-- `api/server.py` (supervisor started only in `__main__`, see below) is edited but **not committed**: run all
-  `tests/test_*.py`, commit ("Improve service supervision"), then `tools/gitea_push.sh` (start it detached with
-  `setsid … &`: a plain background run was killed twice). Everything else of 2026-10-28 is on Gitea.
-- `data/fetch_calib.json` (arm place measured 2026-10-27) and `data/hover_readings.json` (old fingers) stay
-  uncommitted until the new gripper is measured.
+- Nothing half done: `main` = Gitea (2026-10-30 evening). `data/fetch_calib.json` (arm place, measured by the robot)
+  and `data/hover_readings.json` stay local. An old `git stash` (`stash@{0}`, wave files of the other session, already
+  committed newer) can be dropped once that session agrees.
 
-## Open problems from the live test (fix these first; logs: `logs/lumi.log`, `logs/lumi_console.log`, times 2026-10-28)
-- **"Look at me" does not work from 2 m and more** (clip mic worn). The owner: it worked until Friday 2026-10-23, also
-  from 5-6 m. Facts: wake direction confidence median 0.20 (85 calls before 2026-10-27) -> 0.07-0.13 since Tuesday
-  ~17:30; `DOA_MIN_CONF` 0.12; unsure directions were off by up to 90 deg (person at +187, read +244 / +94 / +106);
-  one "sure" 0.24 read +166 with the owner in front (19:13:36). The direction code and calibration did not change
-  (`doa.USE_CLIP_REF` False, `data/doa_calib.json` offset 30 = the 2026-10-23 one). `logs/doa_dump/*.npz` (16:38-16:39,
-  record more with `touch data/doa_dump_on`, `rm` to stop): the clip voice is barely in the head array (score
-  3.5-5.4, unrelated audio ~4-5), aligned within 0.05 s when found. Not found yet: what changed physically or in the
-  head array audio since Tuesday (ask the owner about the head mic board; compare a Friday utterance if any is kept).
-  Possible fix to discuss: when the voice is unsure, the head sweeps -60 / 0 / +60 with the head camera to find them.
-- **Dashboard "go dock2" did not move** from (-5.29, 10.33) beside the charger (accepted, never moved, STUCK after 20 s);
-  from (-4.87, 10.24) it drove at once. Not the speed: `get_params` reads angular 0.5 (the base keeps its minimum).
-  A stuck drive now logs the base's `running_status` and planned path (`logs/api.log`, robot/drive_log.py): try it
-  again from beside the charger and read that line. If the path is empty there, a short straight drive off the wall
-  before the navigation move.
-- **Arm speed**: long joint moves ~7 deg/s (look -> give 8.8 s) although 40 deg/s is asked; `traj_rapidrate` is 1.0.
-  Cobo π joint speed limit raised 40 -> 50 by the owner; waiting for photos of "Robot limit" / "Joint limit" (likely
-  a TCP speed limit). Then time look -> give live and raise `motion.JOINT_SPEED`.
-- **Not live yet** (pushed 2026-10-28): who gave the order (`Lumi.speaker_track`: sure voice, the one talked with, the
-  one the head looks at, the only one seen, else "raise your hand"); come here / reach to a far person; follow turning
-  0.6 rad/s with the base's cap raised; follow arm check counts only nearer points; `motion.BLIND_S` 3 s; the arm
-  folded to look before a drive (`waist_home(fold=True)`); "What did you say?" repeats the last answer; "Yes?" / "네?"
-  to the name mid-talk; drive speed 0.5 m/s (`fetch.NAV_SPEED_MPS`, sent before every move).
-  Also: "go back 1 m" beside something (the arm check counts only points coming nearer, `fetch.line_hits`, and logs
-  the point's clearance now / after); "charger" / "charging station" / 충전 go to the marker `charge` when the map
-  has one (else `home`).
+## Open problems (latest live test 2026-10-30; logs `logs/lumi.log`, `logs/lumi_console.log`)
+- **Exhibition (map `expo1`)**: markers `home` (dock, type 11, num 1, docks and charges), `p1`, `p2`, `p3`, `p4`,
+  `final`. The office map `cutshion_708_B_block` is unchanged (Switch Map to go back). Open:
+  - **Head USB**: the mic board (`AIUIUSBMC`) is not enumerated (Lumi hears nothing, mic noise 0), the head camera is
+    at 480M (no depth, drop-outs, people read 20-30 m away). Owner to reseat the head hub cables; then check the mic,
+    `/sys/bus/usb/devices/*/speed`, restart the camera service.
+  - **Wheels slip on the carpet over metal strips**: the pose jumps (once to a map corner). On the dock:
+    `/api/position_adjust?marker=home`. Owner to draw no-go lines / zones over the strips; more lidar features
+    (continue scan); ask the base vendor about laser-only odometry.
+  - **Café table ~74 cm** (top at arm z ~-255 mm, floor ~-995, lift 0 since `LIFT_MAX_MM` 0): inside `SURFACE_Z`, but
+    ~15 cm higher than every proven pick; `fetch.table_ahead` did not find it from the edge (camera too flat over
+    it). Next: a cup on it, `skills.py plan cup`, then `hover` (Greeter / Patrol / Wave greeting off).
+  - **Dashboard stop now ends follow** (`fetch_stop` → `follow.stop`): not live yet; toggle Greeter / Patrol to load it.
+  - `data/known_things.json` holds the office's yellow chair: back up and empty it while on `expo1` (owner: later).
+  - Owner question left open: should spoken drive orders work with Greeter only (Patrol off)?
+- **Gripper AI_1 read open while the fingers stayed shut** at a put-down (20:15: "opening", AI_1 90, the cup came back
+  up). Owner test waiting: dashboard Close / Open 3 times with nothing inside, the owner says what the fingers did, the
+  log has AI_1 each time. If AI_1 lies, check the gripper cable / Cobo π tool I/O. Code now: a cup that comes back up
+  is put down again with what the put-down knew (`skills.released`, `fetch.RELEASED_KEEP_S`); still missing: a camera
+  check after every release that the cup stayed on the table.
+- **A cup put into the hand** (open, close by voice) can be given but not put on a table (no height known).
+- **Answers via the LLM are slow** (median 2.7 s, worst 5-11 s, mostly on misheard sentences); not measured further.
+  `gemma4:26b` is loaded with a 262144 context: measure whether a smaller context is faster.
+- **Search half turn**: `fetch.SEARCH_BASE_DEG` 180: the base picks its own way round for a half turn. 170 broke
+  `tests/test_fetch.py` (second place run); find why before changing it.
+- **Arm speed** (long joint moves ~7 deg/s): waiting for the owner's Cobo π "Robot limit" / "Joint limit" photos.
 
-## Voice direction (next work)
-Measured: the head array's direction is mostly the room's noise (voice only ~1.9x the background at 1-3 m; 116 cases
-with one person seen: median 100 deg off, "trusted" ones 90 deg; 40 of 78 dumped utterances read within 30 deg of the
-noise just before them). "Look at me" now uses the cameras first (the voice only chooses among people seen).
-- **At home, offline** (no robot, no microphone needed: the recordings are on the Thor, `logs/doa_dump`): noise
-  subtraction (the second before speech as the noise estimate), speech-only frames (VAD) for the direction, a better
-  confidence that separates good readings from bad; check every idea against the camera's person angle in the logs
-  (`see #N` lines at the same moment) and the dumps; `who_spoke` / `speaker_track` the same way.
-- **At the robot** (owner in the room): `touch data/doa_dump_on`, then the owner speaks from known places (front,
-  +-45, +-90, behind; 1 m and 2 m; quiet and with the usual noise) while the camera sees them; this is the ground
-  truth for the offline work and for a new calibration (`data/doa_calib.json`).
+## Voice direction
+- The head mic board read front and back mirrored (since ~2026-10-27, cause not known; not the USB cable).
+  Recalibrated 2026-10-30 from 60 camera samples: `data/doa_calib.json` sign +1, offset 140, radius 0.035, median
+  error 27.5 deg (52 % within 30, 77 % within 60). Old: `data/doa_bad_2026-10-30/`, `data/doa_run_2026-10-30/`.
+- Room noise limits it (~25 deg whatever the calibration). Offline next: speech-only frames (Silero VAD) and noise
+  subtraction for the direction, checked against the camera angles in the logs and `logs/doa_dump`.
+- Head moves: the body controller drops a move sent while another runs and never answers it; `head.moveto` now waits
+  until the positions stand still (`head.STILL_S`), `head.turn` waits at most `TURN_TIMEOUT_S` (measured live: turns
+  of 30 deg 1.4 s, 110 -> 0 deg 4 s).
 
 ## Live test list (owner at the STOP; restart lumi-api, toggle Patrol)
+0. Today's, not live yet (2026-10-30): "Lumi" / "look at me" from every side, also behind (head sweeps +-110,
+   waist to the front first, body turns to an unsure voice, the voice read in front taken as behind); the head on
+   whoever talks; a held-out empty hand folds on the next words; "give me your hand" with the head on the person;
+   follow from beside the charger wall (other way round, a short move off the wall, `follow.TURN_MAX_RS` 1.0: start
+   0.3-0.5 near people); "close your hand" on a narrow cup, "you are holding the cup" (arm to carry and back);
+   narrow cup pick (lift 30 mm, the camera decides); put down from a remembered table; head aim during pick / put;
+   "let's go charging"; words after Lumi's own voice kept.
 1. Top grasp from several spots and turns ("take the cup"), then put down / bring to p3; widen `TRUSTED_YAW_DEG` 15 -> 30
    after clean picks at +-30.
 2. Holding: a drive to a marker / come here brings the arm to `look` first.
@@ -136,6 +166,13 @@ noise just before them). "Look at me" now uses the cameras first (the voice only
 5. "Look at me" with a person in front (repeat it: no side flips), and from behind with nobody in view.
 6. Side grasp with a cup wider than 97 mm at the top.
 7. Body contact limits taught by free drive (3-4 poses beside the body).
+8. Wave greeting (dashboard switch; with Greeter / Patrol off and on): collision limits first; wave from 1.5 / 3 / 6 / 10 m, front and
+   sides; with Patrol on: a drive asked while the hand is up brings it down first; stop, wave again; wave 20 s; walk away (down after 60 s); non-waves must not start it. Offline: every
+   recorded wave found within 0.5-1.9 s, no non-wave ever (`tests/test_wave_greet.py`, recordings local).
+9. A cup about as wide as the closed fingers (the white cup seen 76 mm): "take the cup" closes fully, lifts 30 mm and
+   the camera decides (log "fully shut on a narrow one", then "it is gone from the table: held" or "I missed it.");
+   also a miss: once the fingers have shut, the owner holds the cup's foot on the table so the lift leaves it there:
+   "I missed it" and a second try. A cup knocked over or out of view at its place is taken as held (not caught).
 
 ## Next
 0. **New gripper fingers**: gaps measured (docs/gripper/README.md: belly 9.4 / 6.8 cm, tips 8.7 / 6.3, neck 5.7 /

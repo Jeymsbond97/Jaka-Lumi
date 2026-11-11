@@ -16,7 +16,7 @@ Korean), drives where it is told and fetches objects by voice.
 | Dashboard | `http://192.168.10.240:8100/view`: live cameras with person boxes, live map, click-to-drive, routes, hold-to-move base / head / lift / waist / arm (hand controls only when idle or paused), Arm pose dropdown, Command dialog, notifications for every error, Greeter / Patrol switches, logs, volume, STOP |
 | Understanding commands | Intent bank (fast lane, no LLM) 64246 wordings EN + KO: 27 wrong of 109990. Commands right 88–93 % at every speech level (English 88–89 %, Korean 88–93 %, Konglish / mixed 87 %); typed = spoken except 30 of 19393; 127 stop forms stop; rules act only on a direct order |
 | Conversation | Quick answers 2280 / 2284, none wrong. With the LLM: commands 78–89 %, dialogue turns 62–80 %, unasked motions ≤ 3 %; things the arm can't do 82 %. Weakest: Konglish, very short orders, "again / more", memory of earlier days. Requirements and status: [14_VOICE_ASSISTANT.md](14_VOICE_ASSISTANT.md) |
-| Attention and voice direction | The person who calls, commands or says "look at me" is the focus; the head stays on them (also during come here, reach and give) and goes back to 0 with the waist at the conversation's end. "Look at me" / "I'm on your right / behind you": voice direction first (head array, `audio/doa.py`), then both cameras; behind: waist (Greeter) or base (Patrol). Stop words heard while Lumi talks or sings. **Not live** ([WORK_PLAN.md](WORK_PLAN.md)) |
+| Attention and voice direction | The person who calls, commands or talks is the focus: the head turns to them after every utterance and on "Lumi" (while it answers), stays on them during come here, reach and give, and goes back to 0 with the waist at the conversation's end. "Look at me" / a call: the cameras first; nobody seen: the head sweeps ±110° from the voice's side (a turned waist goes to the front first); nobody there either: the body turns to the voice (a voice read in front taken as behind); someone past the head's reach: the body turns to face them. Head array recalibrated (front and back were mirrored), ~25° median error. Stop words heard while Lumi talks or sings. **Not live** ([WORK_PLAN.md](WORK_PLAN.md)) |
 | Base | Map `cutshion_708_B_block`: docks `home` (marker `Home`), `dock2`, `charge`; markers `a`, `b`, `p1`–`p10`, `final` (any marker name is read). Stuck drives cancelled; a move that went nowhere is never repeated. "Follow me" (`tasks/follow.py`: head first, waist follows, base turns and unwinds them; not live), distances and speed by voice (`assistant/driving.py`) |
 | Arm | Named poses `look`, `carry`, `give`, `ready`, `wave_out`, `wave_start`, `wave`, changed along the pose graph (empty hand: shortest checked route over the taught poses; holding: the fixed chain, never wave poses), every move checked first, one at a time (`manipulation/arm_route.py`); look / carry / ready by voice (not live); wave live; STOP empties the controller queue |
 | Pick and place | Offline sweep (1500 pick + 500 place scenes): picks 93 %, every side 92–93 %, cups next to Lumi 94 %, grasps turned > 15° 4; places 79 % (standard tables 95–99 %, tables below −420 mm at lift 0 22 %). Cups 70–81 mm into the hooks' belly from above; a cup wider at the top is taken from the side at the height nearest 0.42 of its own height where it is narrow enough (`skills.side_height`). New fingers' grasp point from the owner's free-drive grasps; live: one side grasp and put back of an 84 mm rim cup; with the old fingers straight picks of a tumbler and a red cup; the top grasp with the new fingers **not live** ([15_PICK_AND_PLACE.md](15_PICK_AND_PLACE.md)) |
@@ -30,6 +30,9 @@ Korean), drives where it is told and fetches objects by voice.
 
 ## Next
 
+0. **Wave greeting live** (dashboard switch "Wave greeting", `tasks/wave_greet.py`): first tighten the Cobo π
+   collision limits with the owner; owner at the STOP; wave from 1 / 2 / 3 m, front and sides (waist turn), stop and
+   wave again, wave 20 s (jokes), walk away (down after 60 s); hand up still / scratching / phone must not start it.
 1. **Pick and place live** (owner at the STOP, slow): the four scenes and the hover check in
    [WORK_PLAN.md](WORK_PLAN.md) "Next". After the hover check: corrected grasp offset, then `TRUSTED_YAW_DEG` 15 → 30 / 45.
 2. **Attention and voice live** (WORK_PLAN "Next" 3): look at me from the right / behind (Greeter → waist, Patrol →
@@ -45,7 +48,8 @@ Korean), drives where it is told and fetches objects by voice.
 6. **Arm**: look → carry → give → carry → look live, slow first; "fold your arm"; a safer `tuck`; measure the head to
    replace `HEAD_CLEAR_MM` 250 (estimate); S-curve only with the owner.
 7. **Placing**: puts beside Lumi with a waist turn; a table seen from further away kept in the map (low tables);
-   place search nearest spots first.
+   place search nearest spots first. Live: a table in reach (also by a waist turn) is put on with no drive, and one
+   that drops out of view after a drive is put on from its remembered level top (offline, `tests/test_pick_sweep.py`).
 8. **Conference**: new map with new marker names, Wi-Fi profile (phone hotspot first).
 9. **Hardware**: longer head camera cable (lift back to 250 mm); thin / soft cups (gripper force level or other
    fingers); `MAX_WIDTH` 92 vs 88 (measure the hooks' neck); collision limits in Cobo π before work near people;
