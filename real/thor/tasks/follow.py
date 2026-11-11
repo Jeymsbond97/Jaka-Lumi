@@ -68,7 +68,7 @@ WAIST_STEP_DEG = 8.0        # deg; one body move turns the waist at most this fa
 WAIST_FOLLOW_VEL = 50       # speed ratio % of a move that turns the waist (the head in it too). The waist's deg/s at
                             # this ratio is not measured; estimate ~40 deg/s as the head's (audio/sing.py), about the
                             # base's own TURN_MAX_RS turn that sweeps the arm the same way. Lower it if the arm swings
-                            # too hard (fetch.WAIST_VEL 20 is the search's long turns)
+                            # too hard (fetch.WAIST_VEL 30 is the search's long turns)
 WAIST_DRIVE_DEG = 15.0      # deg; the base drives forward only with the waist this near the front: navigation does not
                             # know the arm, blocked() checks it turned (estimate)
 WAIST_RETRY_S = 1.0         # s; a waist turn found blocked is not tried again for this long (each try probes the map)

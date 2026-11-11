@@ -76,6 +76,7 @@ Every value here is a constant at the top of its file, with a comment on what it
 | File | Name | Default | What it does |
 |---|---|---|---|
 | `tasks/fetch.py` | `VIEW_STEPS` | 60°, 120°, 180° | Search: after ahead, both cameras look this far to the busier side step by step, then to the other side |
+| `tasks/fetch.py` | `WAIST_VEL` | 30 % | Speed of the waist's turns (search, reach, "look at me", turning to a caller); the arm sweeps sideways with it, so it stays low |
 | `tasks/fetch.py` | `WAIST_SCAN_MAX` | 120° | The waist turns up to this in the search (body limit ±140° absolute), the head turns the rest |
 | `tasks/fetch.py` | `SEARCH_BASE_DEG` | 180°, 90° | Then the base turns towards the busier side, the first of these whose sweep is clear, and all again |
 | `tasks/fetch.py` | `LIFT_TRIES` | 0, 105 mm (`LIFT_RANGE`) | Nothing found: all of it again at the other end |

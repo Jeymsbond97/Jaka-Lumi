@@ -150,7 +150,7 @@ HEAD_SIDE_DEG = 60.0         # head yaw (+ left) towards the side of a turn, to 
 HEAD_LOW_PITCH = -5.0        # head pitch for those checks and the search: its lowest, where the camera is calibrated
 HEAD_READS = 4               # head camera frames read per view (10 a second) ...
 HEAD_SAME_MM = 120.0         # ... an object counts when seen at least twice within this distance
-WAIST_VEL = 20               # % of the waist's speed: the arm sweeps sideways
+WAIST_VEL = 30               # % of the waist's speed: the arm sweeps sideways
 WAIST_STEP_DEG = 10.0        # deg; a waist turn made together with an arm move goes in moves this long: the body API
                              # cannot stop a moveto, so a STOP ends the turn after the move it is in (_give_turning)
 HEAD_AHEAD = (0.0, head.HEAD_REST_PITCH)   # head (yaw, pitch) deg before a drive to a place and after every task: ahead, at rest
