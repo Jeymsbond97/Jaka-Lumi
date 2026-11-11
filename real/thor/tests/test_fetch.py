@@ -1381,3 +1381,31 @@ fetch.skills.cancel = fetch.agv.cancel = lambda: None
 fetch.stop()
 assert fetch.state()["status"] == "stopped" and fetch.state()["log"][-1].endswith("stopped"), fetch.state()
 print("stale run stopped ok")
+
+# ---- a bag on the hooks: drives keep the arm in the bag pose; the step waits for the bag once; fold takes it off ----
+went, said = [], []
+fetch._pose = lambda name, holding=False, leaf=False: went.append(name)
+fetch._set(holding=False, bag=False)
+fetch._drive_pose()
+assert went == [fetch.arm_route.rest_pose()], went         # the empty arm drives at rest
+went.clear()
+real_wait, fetch._stop = fetch._stop, threading.Event()
+fetch.BAG_HANG_S = 0.01
+fetch._arm("bag", lambda en, ko: said.append(en))
+assert went == [fetch.BAG_POSE] and fetch.state()["bag"] and said == [fetch.BAG_HANG_SAY[0]], (went, said)
+fetch._drive_pose()
+fetch._arm("bag", lambda en, ko: said.append(en))          # hung already: no asking again
+assert went == [fetch.BAG_POSE, fetch.arm_route.rest_pose(), fetch.BAG_POSE] and len(said) == 1, (went, said)   # drives at
+                                                           # rest with the bag too; hung already: no asking again
+fetch._set(holding=True)
+try:
+    fetch._arm("bag")
+    raise AssertionError("bag pose with a cup in the hand")
+except fetch.FetchError:
+    pass
+fetch._set(holding=False)
+went.clear()
+fetch.bag_off()
+assert went == [fetch.arm_route.rest_pose()] and not fetch.state()["bag"], went
+fetch._stop = real_wait
+print("bag ok")

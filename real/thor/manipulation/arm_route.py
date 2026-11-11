@@ -52,15 +52,21 @@ from robot import arm, gripper, kinematics, motion
 from vision import calib, head_cam
 
 HOME = "look"                        # every arm action starts here
+REST = "rest"                        # the empty arm rests and drives here (owner, 2026-11-04): after "thanks", "fold",
+                                     # a wave, and before every drive or turn; a held cup still drives in look
 GIVE = "give"                        # the hand held out to a person
 GIVE_PRE = "give_pre"                # one step before GIVE: an empty-hand way to GIVE always ends GIVE_PRE -> GIVE
 GIVE_SPEED = "route"                 # motion.JOINT_SPEED of the last move, GIVE_PRE -> GIVE
 EDGES = (("give_pre", "give"), ("give", "carry"), ("carry", "look"), ("look", "wave_out"), ("wave_out", "wave_start"),
-         ("wave_start", "wave"), ("look", "ready"))   # the moves with something in the hand (both ways)
+         ("wave_start", "wave"), ("look", "ready"), ("look", "bag"), ("carry", "bag"),
+         ("rest", "look"), ("rest", "bag"), ("rest", "give_pre"))   # the moves with something in
+                                                      # the hand (both ways)
 WAVE_POSES = ("wave_out", "wave_start", "wave")       # never with something in the hand (the cup would tip)
 NO_EDGES = {frozenset(("look", "wave_start")),       # never one joint move: passes 267 mm from the head (the wave
-            *(frozenset(("give", w)) for w in ("wave_out", "wave_start", "wave"))}   # goes up and down through
-                                                      # wave_out, 309 mm); give and the wave poses through give_pre
+            *(frozenset(("give", w)) for w in ("wave_out", "wave_start", "wave")),   # goes up and down through
+            *(frozenset((p, w)) for p in ("rest", "give_pre") for w in ("wave_start", "wave"))}   # wave_out, 309 mm);
+                                                      # give and the wave poses through give_pre; rest and give_pre
+                                                      # (110 deg moves) through wave_out too
 STOP_DEG = 10.0                      # deg of joint travel one more stop on a route costs (SETTLE_S, slowing down and
                                      # starting again; an estimate, it only weighs routes against each other)
 SPEED = "route"                      # motion.JOINT_SPEED of the moves along the graph, empty hand
@@ -116,6 +122,11 @@ def graph(holding=False, skip=()):
     p = motion.poses()
     return {n: p[n] for e in EDGES for n in e
             if n in p and n not in skip and not (holding and n in WAVE_POSES + (GIVE_PRE,))}
+
+
+def rest_pose(holding=False):
+    """REST for an empty hand when it is taught, else HOME (also with something in the hand)."""
+    return REST if not holding and REST in motion.poses() else HOME
 
 
 def where(now=None):

@@ -177,12 +177,7 @@ L.act("go_to", "p3")
 assert moved == ["start_trip"]
 follow.stop, fetch.stop = real_follow_stop, real_fetch_stop
 
-# ---------- "reach out to me": toward the person; the waist turns to them with Greeter only too (the base stays) ----
-assert lumi.reach_turn(None) is None and lumi.reach_turn(8.0) == 0.0
-assert lumi.reach_turn(-35.0) == -35.0 and lumi.reach_turn(35.0) == 35.0
-# the hand held out 21 deg right of the waist's front (give): the waist turns until the hand, not its front, points
-# at the person (live 2026-10-28: turned straight at them, the hand went out beside them)
-assert lumi.reach_turn(36.0, -21.0) == 57.0 and lumi.reach_turn(-15.0, -21.0) == 0.0 and lumi.reach_turn(0.0, -21.0) == 21.0
+# ---------- "reach out to me": at once the way the waist faces, wherever the person is (owner, 2026-11-04) ----------
 reached, looked = [], []
 real_reach, real_bearing = fetch.reach, fetch.give_bearing
 fetch.reach = lambda angle=0.0, say=None, look=None: reached.append(angle) or looked.append(look)
@@ -190,43 +185,21 @@ fetch.give_bearing = lambda: 0.0
 L.fetch_finish = lambda how, **k: moved.append(how)
 L.skill_thread, L.voice_trusted = None, False
 person = types.SimpleNamespace(angle=35.0, distance=1.0, id=8)
-L.vision = types.SimpleNamespace(present=lambda t: False, near_angle=lambda a, d=25: None, only_person=lambda: person,
-                                  visible=lambda t: False, only_seen=lambda: person)
+L.vision = types.SimpleNamespace(present=lambda t: True, near_angle=lambda a, d=25: None, only_person=lambda: person,
+                                  visible=lambda t: True, only_seen=lambda: person)
 L.turn_head = lambda yaw=None, pitch=None, force=False: moved.append(("head", yaw))
-for patrol, angle, want in ((False, 35.0, [35.0]), (True, 35.0, [35.0]), (False, -40.0, [-40.0]), (False, -8.0, [0.0]),
-                           (True, -8.0, [0.0])):
-    L.modes.patrol, person.angle = patrol, angle
-    reached.clear(), said.clear(), moved.clear()
-    got = L.reach_out(False)
-    # a waist turn takes the head onto them (fetch._waist_to look); a head turn here raced it (looked away live)
-    head_cmds = [] if want[0] else [("head", lumi.HEAD_SIGN * angle)]
-    assert got and reached == want and moved == head_cmds and not said, (patrol, angle, reached, moved, said)
-fetch.give_bearing = lambda: -21.0                       # the hand right of the front: turned further, the head on them
-person.angle = 36.0
-reached.clear(), looked.clear()
-assert L.reach_out(False) and reached == [57.0] and looked == [36.0], (reached, looked)
-person.angle, person.distance = 0.0, 3.0                 # far away: come to them first, then reach
 came = []
-L.vision.present = lambda t: True
-L.come_to = lambda t: came.append(t.id) or setattr(t, "distance", 1.1)
-reached.clear(), said.clear()
-assert L.reach_out(False) and came == [8] and reached == [21.0], (came, reached)
-person.distance, L.modes.patrol = 3.0, False             # far, Greeter only (the base stays): asked to come, no reach
-reached.clear(), said.clear(), came.clear()
-assert L.reach_out(False) is None and not reached and not came and said == [lumi.COME_CLOSER_SAY[0]], (said, reached)
-L.modes.patrol, person.distance = True, 1.0
-fetch.give_bearing = lambda: 0.0
-L.turn_head = lambda *a, **k: moved.append("head")
-seen_vision, L.vision = L.vision, None                   # nobody seen, the voice's direction not trusted: ask
-reached.clear(), said.clear()
-assert L.reach_out(False) is None and not reached and said == [lumi.STAND_IN_FRONT_SAY[0]]
-L.voice_trusted, L.voice_angle, L.modes.patrol = True, -50.0, True   # heard from the right, nobody seen there:
-L.find_caller = lambda angle, trusted: None                          # no reach to a bare voice direction (it was
-reached.clear(), said.clear()                                        # 166 deg off, 2026-10-28)
-assert L.reach_out(False) is None and not reached and said == [lumi.STAND_IN_FRONT_SAY[0]]
-L.find_caller = lambda angle, trusted: person                        # someone seen there: to them
-person.angle, L.vision = -50.0, seen_vision
-assert L.reach_out(False) and reached == [-50.0]
+L.come_to = lambda t: came.append(t.id)
+for patrol, angle, dist in ((False, 35.0, 1.0), (True, -40.0, 1.0), (True, 0.0, 25.9), (False, 0.0, 3.0)):
+    L.modes.patrol, person.angle, person.distance = patrol, angle, dist   # (25.9 m: a crowd, 2026-11-04)
+    reached.clear(), said.clear(), moved.clear(), came.clear()
+    assert L.reach_out(False) and reached == [0.0] and not moved and not came and not said, (patrol, angle, reached, moved, said)
+L.vision = None                                          # nobody seen at all: the same
+reached.clear()
+assert L.reach_out(False) and reached == [0.0]
+L.modes.patrol, person.distance, person.angle = True, 1.0, 35.0
+L.vision = types.SimpleNamespace(present=lambda t: True, near_angle=lambda a, d=25: None, only_person=lambda: person,
+                                  visible=lambda t: True, only_seen=lambda: person)
 moved.clear(), reached.clear(), said.clear()
 L.fetch_status = lambda: "holding"
 real_check, fetch.check_hand = fetch.check_hand, lambda: True     # the hand checked: something is in it
@@ -242,6 +215,7 @@ fetch.reach, fetch.give_bearing = real_reach, real_bearing
 
 # ---------- the waist back to the front (waist_home): in place, Greeter only too; never with the arm out or a task ----
 real = {n: getattr(fetch, n) for n in ("_waist_turn", "state", "_at_pose", "_waist_to")}
+real_rest, lumi.arm_route.rest_pose = lumi.arm_route.rest_pose, lambda holding=False: "look" if holding else "rest"
 calls = []
 fetch._waist_to = lambda rel, in_place=False: calls.append((rel, in_place)) or True
 fetch.state = lambda: {"status": "idle"}
@@ -256,10 +230,27 @@ fetch._at_pose = lambda name: False                      # the hand held out (a 
 assert lumi.waist_home("test") is False and calls == []
 fetch._at_pose = lambda name: True
 assert lumi.waist_home("test") and calls == [(0.0, True)]   # in place: also with Patrol off (stay_put)
+calls.clear()
+fetch._at_pose = lambda name: name == "look"             # in look on the charger (not rest): it turns too
+assert lumi.waist_home("test") and calls == [(0.0, True)], calls
 fetch._waist_to = lambda rel, in_place=False: False      # the arm's sweep is not clear
 assert lumi.waist_home("test") is False
+# a drive or turn (fold): the empty arm goes to rest first wherever it is, also with the waist at the front already
+went = []
+real_plan, real_move, real_lower = lumi.arm_route.plan, lumi.arm_route.move, lumi.wave_greet.lower
+lumi.arm_route.plan, lumi.wave_greet.lower = (lambda target, holding=False: [target]), (lambda: None)
+lumi.arm_route.move = lambda seq, speed=None, holding=False: went.append(seq[-1])
+fetch._waist_turn, fetch._at_pose, fetch.state = (lambda: 0.4), (lambda name: name == "look"), (lambda: {"status": "idle"})
+assert lumi.waist_home("drive", fold=True) and went == ["rest"], went
+went.clear()
+fetch.state = lambda: {"status": "idle", "holding": True}   # a cup: look (drive_ready), never rest
+real_ready, fetch.drive_ready = fetch.drive_ready, lambda: went.append("drive_ready")
+assert lumi.waist_home("drive", fold=True) and went == ["drive_ready"], went
+fetch.drive_ready = real_ready
+lumi.arm_route.plan, lumi.arm_route.move, lumi.wave_greet.lower = real_plan, real_move, real_lower
 for n, f in real.items():
     setattr(fetch, n, f)
+lumi.arm_route.rest_pose = real_rest
 
 # ---------- every drive and base turn starts with the waist at the front ----------
 order = []
@@ -301,6 +292,74 @@ with tempfile.TemporaryDirectory() as tmp:
     json.dump({"greeter": True, "patrol": True, "wave": False, "drive": False}, open(lumi.MODES_FILE, "w"))
     m = lumi.Modes(types.SimpleNamespace(patrol=None, no_arm=False))
     assert (m.greeter, m.patrol, m.wave) == (True, True, False) and not hasattr(m, "drive"), vars(m)
+
+# ---------- on the charger with nothing to do: the arm slowly from rest to look, the waist to HOME_WAIST_DEG; off
+# it, with a drive running, a task, a cup or the hand out: nothing moves ----------
+turned, arm_at = [], {"now": "rest"}
+real_waist_to, real_at_pose, real_state = fetch._waist_to, fetch._at_pose, fetch.state
+real_plan, real_move, real_rest = lumi.arm_route.plan, lumi.arm_route.move, lumi.arm_route.rest_pose
+fetch._waist_to = lambda rel, in_place=False, look=None: turned.append(("waist", rel)) or True
+fetch._at_pose = lambda name: name == arm_at["now"]
+lumi.arm_route.rest_pose = lambda holding=False: "rest"
+lumi.arm_route.plan = lambda target, holding=False: [target]
+lumi.arm_route.move = lambda seq, speed=None, holding=False: turned.append(("arm", seq[-1], speed)) or arm_at.update(now=seq[-1])
+fetch.state = lambda: {"status": "idle"}
+for st, at, want in (({"charge_state": True, "move_status": "succeeded"}, "rest",
+                      [("arm", "look", lumi.HOME_ARM_SPEED), ("waist", lumi.HOME_WAIST_DEG)]),
+                     ({"charge_state": True, "move_status": "idle"}, "look", [("waist", lumi.HOME_WAIST_DEG)]),
+                     ({"charge_state": True, "move_status": "running"}, "rest", []),      # leaving the charger
+                     ({"charge_state": False, "move_status": "idle"}, "rest", []),       # not at home
+                     ({"charge_state": True, "move_status": "idle"}, "give", [])):       # the hand held out
+    lumi.agv.status, arm_at["now"], turned[:] = (lambda st=st: st), at, []
+    assert lumi.waist_home_rest("test") == bool(want) and turned == want, (st, at, turned)
+lumi.agv.status = lambda: {"charge_state": True, "move_status": "idle"}
+for task in ({"status": "running"}, {"status": "idle", "holding": True}):   # a task, a cup in the hand
+    fetch.state, arm_at["now"], turned[:] = (lambda t=task: t), "rest", []
+    assert not lumi.waist_home_rest("test") and turned == [], task
+fetch._waist_to, fetch._at_pose, fetch.state = real_waist_to, real_at_pose, real_state
+lumi.arm_route.plan, lumi.arm_route.move, lumi.arm_route.rest_pose = real_plan, real_move, real_rest
+
+# ---------- on the charger the body stays turned to its rest: someone speaking or calling turns the head only ------
+moves = []
+real_on, real_turned, real_home2 = lumi.on_charger, lumi.waist_turned, lumi.waist_home
+lumi.on_charger, lumi.waist_turned = (lambda: True), (lambda: 86.0)
+lumi.waist_home = lambda why, fold=False: moves.append(("waist", why)) or True
+L.turn_head = lambda yaw=None, pitch=None, force=False: moves.append(("head", yaw))
+lumi.Lumi.face(L, types.SimpleNamespace(angle=-30.0))
+lumi.Lumi.look_toward(L, 170.0)                          # a voice behind: no base turn, the head as far as it goes
+assert moves == [("head", lumi.HEAD_SIGN * -30.0), ("head", lumi.HEAD_SIGN * lumi.head.YAW_LIMIT)], moves
+lumi.on_charger, lumi.waist_turned, lumi.waist_home = real_on, real_turned, real_home2
+
+# ---------- on the charger, nobody talking: the head on the nearest passer-by, left and right, not too often ----------
+moves = []
+real_on, real_busy = lumi.on_charger, lumi.wave_greet.busy
+lumi.on_charger, lumi.wave_greet.busy = (lambda: True), (lambda: False)
+L.turn_head = lambda yaw=None, pitch=None, force=False: moves.append(yaw)
+L.look_held, L.det_yaw = (lambda: False), (lambda: 0.0)
+L.vision = types.SimpleNamespace(seen=lambda m: [(40.0, 3.5), (-25.0, 1.8)])
+L.passer_at = 0.0
+L.watch_passers()
+assert moves == [lumi.HEAD_SIGN * -25.0], moves          # the nearest one
+L.watch_passers()
+assert len(moves) == 1                                   # not again within PASSER_EVERY_S
+L.passer_at, L.det_yaw = 0.0, (lambda: lumi.HEAD_SIGN * -25.0)
+L.watch_passers()
+assert len(moves) == 1                                   # looking at them already
+L.passer_at, lumi.on_charger = 0.0, (lambda: False)
+L.watch_passers()
+assert len(moves) == 1                                   # off the charger: never
+lumi.on_charger, lumi.wave_greet.busy = real_on, real_busy
+
+# ---------- "look left" turns the head there at once: no turn to the speaker first (one body move at a time) ----------
+moves = []
+L.vision, L.markers, L.current = types.SimpleNamespace(only_person=lambda: None, present=lambda t: False), ["p1"], None
+L._who_spoke = lambda u, text: moves.append("who")
+L.turn_head = lambda yaw=None, pitch=None, force=False: moves.append(yaw)
+for text in ("Lumi, look at the right side.", "Look at the left side.", "왼쪽 봐", "look up"):
+    lumi.Lumi.who_spoke(L, object(), text)
+assert moves == [], moves
+lumi.Lumi.who_spoke(L, object(), "look at me")           # "look at me" needs the voice: as before
+assert moves == ["who"], moves
 
 print(f"switches ok: {len(BASE)} base phrases refused with Greeter only, {len(IN_PLACE)} in place done; "
       "arm off asks; Patrol allows all; stop always")

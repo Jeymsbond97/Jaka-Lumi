@@ -60,6 +60,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 
 # Started with the system python (no cv2 there)? Restart with the project's venv.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))      # the project folder
@@ -98,7 +99,9 @@ from assistant import fetch_dialog
 from assistant import seeing
 from assistant import memory
 from assistant.brain import Brain
+from tasks import wave_greet
 
+API_URL = "http://127.0.0.1:8100"  # api/server.py: the wave greeting switch is turned off there after an arm stop
 NEAR_MIN, NEAR_MAX = 0.5, 1.2      # m, greeting zone
 PATROL_NEAR_MAX = 1.0              # m, on patrol: only people this close stop the robot
 STAY_MAX = 2.5                     # m, a greeted person farther than this counts as gone
@@ -188,16 +191,6 @@ def needs_arm(action, target=""):
     return action in ARM_TASKS or action == "arm" and target not in ("open", "close")
 
 
-def reach_turn(angle, hand=0.0):
-    """Waist turn (deg, + left) before "reach out to me" to a person at the waist-frame `angle` (None: nobody seen or
-    heard) that brings the hand, held out at `hand` deg in give (fetch.give_bearing), onto them: 0 within
-    REACH_FRONT_DEG, else angle - hand. Greeter only turns the waist for it too: the base stays (fetch.reach)."""
-    if angle is None:
-        return None
-    turn = float(angle) - hand
-    return 0.0 if abs(turn) <= REACH_FRONT_DEG else turn
-
-
 _waist_lock = threading.Lock()     # one waist return at a time (a conversation's end and the drive after it)
 
 
@@ -207,30 +200,87 @@ def waist_turned():
     return safe(fetch._waist_turn, default=0.0) or 0.0
 
 
+def wave_greet_on():
+    """The dashboard's "Wave greeting" switch (MODES_FILE, written by api/server.py)."""
+    try:
+        with open(MODES_FILE) as f:
+            return bool(json.load(f).get("wave_greet"))
+    except (OSError, ValueError):
+        return False
+
+
+def wave_greet_off():
+    """Switch the wave greeting off (after a stop of the arm), through the API like the dashboard does."""
+    req = urllib.request.Request(API_URL + "/assistant/modes", data=json.dumps({"wave_greet": False}).encode(),
+                                 headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=5).close()
+    except OSError as e:
+        log(f"wave greeting not switched off: {e!r}")
+
+
+def on_charger():
+    """The base stands on its charger (home), no drive running (leaving it, it still charges for a moment)."""
+    st = safe(agv.status, default={}) or {}
+    return bool(st.get("charge_state")) and st.get("move_status") != "running"
+
+
+def waist_home_rest(why):
+    """On the charger with nothing to do (after a drive home, at a conversation's end): the empty arm slowly from its
+    rest (arm_route.REST) to look and the waist to HOME_WAIST_DEG (owner, 2026-11-04); every order that moves the arm
+    or the base takes it to REST first again (waist_home fold). Checked like every move. Not while a task runs, with
+    something in the hand or the arm out (a hand held out). True when both are there."""
+    from tasks import fetch
+    if not on_charger():
+        return False
+    with _waist_lock:
+        try:
+            st = fetch.state()
+            if st.get("status") == "running" or st.get("holding"):
+                log(f"  arm and waist stay ({why}): a task runs or something is in my hand")
+                return False
+            fetch._stop.clear()
+            if not fetch._at_pose(arm_route.HOME):
+                if not fetch._at_pose(arm_route.rest_pose()):
+                    log(f"  arm and waist stay ({why}): my arm is out")
+                    return False
+                arm_route.move(arm_route.plan(arm_route.HOME), HOME_ARM_SPEED)
+                log(f"  arm to look at home ({why})")
+            if fetch._waist_to(HOME_WAIST_DEG, in_place=True):
+                log(f"  waist to its rest at home, {HOME_WAIST_DEG:+.0f} deg ({why})")
+                return True
+        except Exception as e:
+            log(f"  arm and waist stay ({why}): {e!r}")
+    return False
+
+
 def waist_home(why, fold=False):
     """The waist back to the front: at a conversation's end, before every drive or base turn, when someone else takes
     over the talk. In place (the base stays), so with Greeter only too; fetch._waist_to checks the arm's sweep and the
-    limits. Not while a task runs (it turns the waist itself) or the arm is out of look (a hand held out): logged, the
-    waist stays, unless `fold` (an order to drive or turn): something held goes to look first wherever the waist is
-    (fetch.drive_ready: straight checked lines, holding speed); an empty arm goes back to look along the checked pose
-    graph when the waist must turn (an arm left half way by a failed reach refused every drive after it). True when
-    the waist is at the front (and a held thing in look)."""
+    limits. Not while a task runs (it turns the waist itself) or the arm is out of its rest (a hand held out): logged,
+    the waist stays, unless `fold` (an order to drive or turn): something held goes to look first wherever the waist
+    is (fetch.drive_ready: straight checked lines, holding speed), an empty arm to its rest (arm_route.REST, owner
+    2026-11-04) along the checked pose graph. True when the waist is at the front (and the arm at its rest)."""
     from tasks import fetch
     with _waist_lock:
         try:
-            if fold and fetch.state().get("holding"):
+            if fold:
+                wave_greet.lower()                    # a hand up for a wave greeting comes down before any drive
+            holding, running = fetch.state().get("holding"), fetch.state().get("status") == "running"
+            if fold and holding:
                 fetch.drive_ready()                   # a drive with the cup held out in carry / give: never
-            if abs(fetch._waist_turn()) < 1.0:
+            if fold and not holding and not running and not fetch._at_pose(rest := arm_route.rest_pose()):
+                log(f"  arm to {rest} first ({why})")   # every drive and turn starts with the empty arm at rest
+                arm_route.move(arm_route.plan(rest, holding=False), None, False)   # (a bag on the hooks too),
+            if abs(fetch._waist_turn()) < 1.0:                                     # wherever the waist is
                 return True
-            if fetch.state().get("status") == "running":
+            if running:
                 log(f"  waist stays turned ({why}): a task runs")
                 return False
-            if not fetch._at_pose(fetch._look()):
-                if not fold or fetch.state().get("holding"):
-                    log(f"  waist stays turned ({why}): my arm is not folded in look")
-                    return False
-                log(f"  arm back to look first ({why})")
-                arm_route.move(arm_route.plan(arm_route.HOME, holding=False), None, False)
+            rest = arm_route.rest_pose(holding)       # look with a cup; look on the charger too (waist_home_rest)
+            if not fetch._at_pose(rest) and not fetch._at_pose(arm_route.HOME):
+                log(f"  waist stays turned ({why}): my arm is not at {rest}")
+                return False
             fetch._stop.clear()                       # no task runs: an old stop must not end this; a new one does
             if fetch._waist_to(0.0, in_place=True):
                 log(f"  waist to the front ({why})")
@@ -373,7 +423,8 @@ HELLO_ONLY = re.compile(r"^(?=\W*\w)\s*(?:(?:hi|hey|hello|hiya|hai|hallo|helo|hi
 CALL_REST = re.compile(r"^(?:[\W_]|\b(?:hi|hey|hello|hiya|hai|ok|okay|there|how are you(?: doing)?(?: today)?)\b|"
                        r"안녕(?:하세요|하십니까)?|하이|헤이|야|아)*$", re.I)   # what is left of a call without the name
 CAMERA_HALF_FOV = 42.0             # deg; half the camera's view (+ the head's YAW_LIMIT for the head camera)
-WAKE_MAX_S = 6.0                   # s; longer utterances are not checked for the wake word
+WAKE_MAX_S = 6.0                   # s; longer utterances are not checked for the wake word (reading every 8 s cut of a
+                                   # loud hall's noise held the next words back: answers came late, 2026-11-04)
 BARGE_IN_LOGPROB = -0.6            # an interruption must be heard more clearly than a normal answer (-1.0)
 ECHO_LIKELY = 0.45                 # sound match (mouth.echo) from which a barge-in is Lumi's own voice when its words
 ECHO_LIKELY_SHARE = 0.4            # ... share this much with what Lumi said; echoes 0.51 / 0.54, the visitor 0.14-0.32
@@ -412,13 +463,17 @@ FOLLOW_SORRY_S = 20.0              # s; "Sorry, I'm following someone" at most t
 COME_STOP = 1.1                    # m; driving to a person stops when the camera sees them this close
 COME_TIMEOUT = 60.0                # s
 MAX_MOVE_M = 3.0                   # m; "move forward N metres" is limited to this
-REACH_FRONT_DEG = 10.0             # deg; "reach out to me": a person further than this from where the hand points is
-                                   # turned to first (the waist, Greeter or Patrol); the reach after give moves at most
-                                   # fetch.RECEIVE_REACH_MM sideways (estimate)
 REACH_COME_M = 1.5                 # m; a person further than this is driven to first (come_to, COME_STOP), the hand is
                                    # never held out from afar (owner, 2026-10-28)
+HOME_WAIST_DEG = 85.8              # deg (+ left) from the front the waist rests at on the charger (owner's pose,
+                                   # 2026-11-04: body waist 65.5 deg); every drive turns it back to the front first
+IDLE_AFTER_S = 15.0                # s without a word to Lumi on the charger before the wave greeting waves now and then
+                                   # (tasks/wave_greet.py IDLE_WAVE_EVERY_S; estimate)
+PASSER_MAX_M, PASSER_EVERY_S, PASSER_DEG = 3.0, 5.0, 20.0   # on the charger, nobody talking: the head turns to the nearest
+                                   # person this near, at most this often, when this far off its direction (estimates)
+HOME_ARM_SPEED = "slow"            # motion.JOINT_SPEED of the arm's way from rest to look on the charger (owner: slowly)
+HOME_DOCK_WAIT_S = 3.0             # s after arriving home before the charger is asked whether it charges (estimate)
 COME_CLOSER_SAY = ("Please come a little closer.", "조금 더 가까이 와 주세요.")
-STAND_IN_FRONT_SAY = ("Please stand in front of me.", "제 앞에 서 주세요.")
 HAND_LOOK_KEEP_S = 10.0            # s a look at the hand (fetch.look_at_hand) stands for: the arm goes to carry and
                                    # back once per order, not once per question about the hand
 REACH_HOLD_S = 30.0                # s the hand stays held out after a reach, then the arm folds back to look (estimate)
@@ -854,9 +909,14 @@ class Patrol:
             if self.mode == "going_home":
                 self.mode = "charging" if st.get("charge_state") else "patrol"
                 log("docked, charging" if self.mode == "charging" else f"could not dock ({ms})")
+                if self.mode == "charging":
+                    threading.Thread(target=waist_home_rest, args=("docked",), daemon=True).start()
                 return
             if ms == "succeeded":
                 log(f"patrol at {self.route[self.i]}")
+                if self.route[self.i] == "home":
+                    threading.Thread(target=lambda: time.sleep(HOME_DOCK_WAIT_S) or waist_home_rest("at home"),
+                                     daemon=True).start()
                 if self.once and self.i == len(self.route) - 1:
                     self.mode = "done"
                     log("route finished")
@@ -1004,7 +1064,7 @@ class Lumi:
         """The waist back to the front too when a conversation ends (waist_home, in the background), Greeter or
         Patrol; it waits like the head while a look is held."""
         if not self.look_held():
-            threading.Thread(target=waist_home, args=(why,), daemon=True).start()
+            threading.Thread(target=lambda: waist_home_rest(why) or waist_home(why), daemon=True).start()
 
     def keep_focus(self):
         """In the background: the head stays on the person Lumi talks with (self.current) as they move, a turn when
@@ -1031,8 +1091,8 @@ class Lumi:
         """Turn to the person who now speaks: a waist turned for someone else comes back to the front first
         (waist_home), then the head turns to them (their angle from where the waist was, plus the turn taken back)."""
         w = waist_turned()
-        if abs(w) < 1.0:
-            self.turn_head(HEAD_SIGN * track.angle)
+        if abs(w) < 1.0 or on_charger():                  # on the charger the waist stays at its rest: the head only
+            self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, track.angle)))
             return
         angle = track.angle
 
@@ -1209,7 +1269,7 @@ class Lumi:
                 voice = getattr(self, "voice_guess", None)
             found, why = sweep(gaze if voice is None else voice)
             w = waist_turned()
-            if found is None and abs(w) > LOOK_ME_WAIST_DEG and waist_home("looking for the caller"):
+            if found is None and abs(w) > LOOK_ME_WAIST_DEG and not on_charger() and waist_home("looking for the caller"):
                 voice = None if voice is None else voice + w    # the cameras turn with the waist: a caller on the
                 gaze = 0.0                                      # other side of it was in no view; again from the front
                 log(f"  look me: waist from {w:+.0f} deg to the front")
@@ -2228,10 +2288,12 @@ class Lumi:
             return st is not None
         if target == "reach":
             return self.reach_out(held)
+        if target == "fold" and self.bag_on():
+            return self.bag_off()
         self.reached_at = 0.0                              # folding: no auto fold after it
         try:
             holding = self.fetch_status() == "holding"
-            seq = arm_route.plan(arm_route.HOME if target == "fold" else target, holding=holding)   # "carry", "ready"
+            seq = arm_route.plan(arm_route.rest_pose(holding) if target == "fold" else target, holding=holding)   # "carry", "ready"
             threading.Thread(target=safe, args=(arm_route.move, seq, None, holding), daemon=True).start()
             return True
         except arm_route.RouteError as e:
@@ -2242,12 +2304,28 @@ class Lumi:
             log(f"  arm {target}: {e}")
             return False
 
+    @staticmethod
+    def bag_on():
+        """A bag hangs on the gripper's hooks (fetch state "bag", set by "hold the bag")."""
+        from tasks import fetch
+        return bool(fetch.state().get("bag"))
+
+    def bag_off(self):
+        """"Fold your arm" with a bag on the hooks (put there by a mission's bag step, "hold the bag"): the arm back to
+        look, drives in look again (fetch.bag_off). True when done, None when refused (said)."""
+        from tasks import fetch
+        try:
+            fetch.bag_off()
+        except (fetch.FetchError, arm_route.RouteError) as e:
+            log(f"  bag off refused: {e.args[0]}")
+            self.fetch_say(e.args[0], e.args[1] if len(e.args) > 1 else "죄송해요, 지금은 할 수 없어요.")
+            return None
+        return True
+
     def reach_out(self, held):
-        """"Reach out to me", "give me your hand", "손 내밀어": something in the hand = hand it over. Else toward the
-        person (the tracked one, else the one the voice came from, else the voice's direction): further than
-        REACH_COME_M the base comes to them first (come_to); the head turns to them; the hand further from them than
-        REACH_FRONT_DEG: the waist turns first, until the hand (not the waist's front) points at them (reach_turn, Greeter only too: the base
-        stays); then fetch.reach (give pose along the graph, a short checked move toward their hand). The arm folds back on the next words that
+        """"Reach out to me", "give me your hand", "손 내밀어": something in the hand = hand it over. Else the hand goes
+        out at once the way the waist faces (owner, 2026-11-04: no turn to the person, no drive): fetch.reach (give
+        pose along the graph, a short checked move toward a hand seen there). The arm folds back on the next words that
         are no arm order or after REACH_HOLD_S (reach_done).
         True when started, None when refused or handed over (said)."""
         from tasks import fetch
@@ -2259,26 +2337,10 @@ class Lumi:
             return None
         with _waist_lock:                                  # a waist coming back to the front (face) ends first
             pass
-        ok, track = self.near_speaker("reach")
-        if not ok:
-            return None
-        angle = track.angle if track else None              # only to someone seen: a "sure" voice was 166 deg
-                                                            # off with the person in front (2026-10-28 19:13)
-        hand = safe(fetch.give_bearing, default=0.0) or 0.0
-        turn = reach_turn(angle, hand)
-        log(f"  reach: person at {'?' if angle is None else f'{angle:+.0f}'} deg, hand at {hand:+.0f} deg, "
-            f"waist turn {turn}")
-        if turn is None:
-            self.fetch_say(*STAND_IN_FRONT_SAY)
-            return None
-        if not turn:          # a waist turn takes the head along onto them (fetch._waist_to look): no head move here,
-            yaw = HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle))                  # it raced it
-            log(f"  reach: the head on them ({yaw:+.0f} deg) while the arm goes out")
-            safe(fetch._aim_at, None)                    # an earlier task's target no longer holds the head (it looked
-            self.turn_head(yaw, force=True)              # away until the arm was out, 2026-10-30)
+        log("  reach: the hand out the way the waist faces")
         self.stay()
         try:
-            fetch.reach(turn, say=self.fetch_say, look=angle)
+            fetch.reach(0.0, say=self.fetch_say)
         except fetch.FetchError as e:
             log(f"  reach refused: {e}")
             self.fetch_say(e.args[0], e.args[1] if len(e.args) > 1 else "죄송해요, 지금은 할 수 없어요.")
@@ -2287,7 +2349,7 @@ class Lumi:
         return True
 
     def near_speaker(self, why):
-        """Before the hand goes out to the person who asked (a reach, a hand-over): who it is (speaker_track) and, further
+        """Before the hand goes out to the person who asked (a hand-over): who it is (speaker_track) and, further
         than REACH_COME_M, the base comes to them first (come_to, as "come here"): never held out from afar. (True,
         track) to go on (track None: nobody seen, the hand goes out in front); (False, None) when not (said)."""
         if not self.vision:
@@ -2328,7 +2390,7 @@ class Lumi:
             return False
         if status == "running":
             safe(fetch.stop)
-        log(f"  reach over ({'said ' + repr(text) if text else 'timeout'}): the arm back to look")
+        log(f"  reach over ({'said ' + repr(text) if text else 'timeout'}): the arm back to rest")
         return bool(self.arm_pose("fold"))
 
     def typed(self, text):
@@ -2840,6 +2902,9 @@ class Lumi:
         held look ("look left") and a task's aim keep the head (turn_head)."""
         if not self.vision or u is None:
             return
+        rule = text and brain_mod.intent(text, self.markers)
+        if rule and rule[0] == "look" and rule[1] != "me":   # "look left": the head goes there at once, not to the
+            return                                         # speaker first (the body takes one move at a time)
         if self._who_spoke(u, text):                       # someone else took over: face() turned to them
             return
         t = self.current if self.current is not None and self.vision.present(self.current) else self.vision.only_person()
@@ -2884,6 +2949,21 @@ class Lumi:
                 self.looked_at, self.look_me = 0.0, None
             self.face(t)
             return True
+
+    def watch_passers(self):
+        """On the charger with nobody talking to Lumi: the head turns to the nearest person within PASSER_MAX_M, at most
+        every PASSER_EVERY_S, when they are more than PASSER_DEG off where it looks (owner, 2026-11-04: the head
+        follows the people passing by, left and right). Not while the wave greeting moves or a look is held."""
+        now = time.time()
+        if now - getattr(self, "passer_at", 0.0) < PASSER_EVERY_S or wave_greet.busy() or self.look_held():
+            return
+        self.passer_at = now
+        seen = self.vision.seen(PASSER_MAX_M)
+        if not seen or not on_charger():
+            return
+        want = HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, min(seen, key=lambda s: s[1])[0]))
+        if abs(want - self.det_yaw()) > PASSER_DEG:
+            self.turn_head(want)
 
     def det_yaw(self):
         """Current head yaw (deg), read from the body every 0.3 s (the torso camera does not know it)."""
@@ -3180,7 +3260,12 @@ class Lumi:
             return
         from tasks import fetch                            # the way it goes: route(), as the dashboard's Command box
         full = brain_mod.hand_request(text, True, self.brain, self.markers)   # an order that needs the hand: a fully
-        needs = bool(full) and full[0] in ("give", "place")    # shut hand is looked at first (live 2026-10-30: a cup
+        bag = self.bag_on()                                # a bag on the hooks: the gripper holds nothing, no look at it
+        if bag and full and full[0] == "give":             # "give me the bag", "가방 줘": the hand with the bag out in
+            if self.reach_out(False):                      # give; "thanks" (reach_done) folds it to look, the bag mode ends
+                mouth.say("Here you go." if self.lang == "en" else "여기요.")
+            return
+        needs = bool(full) and full[0] in ("give", "place") and not bag   # shut hand is looked at first (live 2026-10-30: a cup
         kind, data = route(text, self.markers, self.brain, lambda: self.held_now(look=needs),   # put in it was "not held")
                            seen=lambda x: seeing.answer(x, self.lang, slow_line=mouth.say), last=last, chain_ok=not part and not self.mission_running() and not self.chain_busy())
         if kind == "stop":
@@ -3496,7 +3581,8 @@ class Lumi:
         if t is not None:
             return t
         view = CAMERA_HALF_FOV + (head.YAW_LIMIT if self.vision.camera == "head" else 0.0)
-        w = waist_turned() if abs(robot_angle) > view and self.modes.patrol and not self.vision.seen() else None
+        w = waist_turned() if abs(robot_angle) > view and self.modes.patrol and not self.vision.seen() and \
+            not on_charger() else None                       # on the charger the body stays, the head looks
         # someone in view: no base turn on the voice alone (it read a person in front as behind), the head path
         # below falls back to the person seen nearest the voice's side
         if w is not None and waist_home("turning to a caller", fold=True):
@@ -3530,8 +3616,8 @@ class Lumi:
 
     def look_toward(self, robot_angle):
         """Turn the head toward a waist-frame angle; turn the base too if it is outside the head's range."""
-        if abs(robot_angle) <= head.YAW_LIMIT:
-            self.turn_head(HEAD_SIGN * robot_angle)
+        if abs(robot_angle) <= head.YAW_LIMIT or on_charger():   # on the charger the body stays, the head only
+            self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, robot_angle)))
         elif self.modes.patrol:
             w = waist_turned()
             if not waist_home("turning to a voice", fold=True):
@@ -3738,7 +3824,7 @@ class Lumi:
         # on the way only people in the path, close by; standing: everyone in the greeting zone
         self.vision.near_max, self.vision.corridor = (PATROL_NEAR_MAX, PATH_HALF_WIDTH) if moving else (NEAR_MAX, None)
         if not self.vision.pinned:                         # driving: the path ahead; standing: the people
-            self.vision.prefer = "torso" if moving else "head"
+            self.vision.prefer = "torso" if moving and not self.bag_on() else "head"   # a bag hangs before the torso one
         if time.time() < self.calib_until:
             self.vision.det.focus_angle = None
             self.calibrate_step()
@@ -3750,6 +3836,8 @@ class Lumi:
         following = follow.running()                       # no greetings (the head would turn away), keep listening
         greet_now = self.modes.greeter and not moving and time.time() > self.quiet_until and not following \
             and not self.doing() and self.current is None  # never during a task or while talking with someone
+        if greet_now and wave_greet_on():                  # a wave is answered by the wave greeting (arm and words)
+            greet_now = False
         candidate = self.waver() if greet_now else None    # Lumi never speaks to someone who only stands there or
         focus = self.current or candidate                  # walks past: a wave (or the wake word) calls it
         self.vision.det.focus_angle = focus.angle if focus else None    # drawn red in the dashboard
@@ -3801,6 +3889,7 @@ class Lumi:
             if self.voice_until:
                 log("voice conversation over (silence): the wake word or a wave again")
                 self.end_conversation(None, quiet=True)    # Lumi never speaks unasked: no goodbye into a silence
+            self.watch_passers()                           # on the charger: the head on people passing by
             if self.check_wake():                          # "Hi Lumi" works in every mode
                 return
             if self.patrol:
@@ -3872,8 +3961,22 @@ class Lumi:
         memory.watch(arm_ok=lambda: not getattr(self, "busy_now", "") and self.doing() is None and
                      self.fetch_status() != "running", look_held=self.look_held)
         self.warm_llm()
+        if self.vision and self.modes.wave:            # the API's wave greeting waits while this process runs
+            wave_greet.start(wave_greet_on, self.wave_free, wave_greet_off, free_every=0.05,
+                             rest=lambda: HOME_WAIST_DEG if on_charger() else 0.0,
+                             rest_arm=lambda: arm_route.HOME if on_charger() else arm_route.rest_pose(),
+                             idle=lambda: time.time() - getattr(self, "last_activity", time.time()) > IDLE_AFTER_S and on_charger())
         log("ready")
         self.run_camera() if self.vision else self.run_desk()
+
+    def wave_free(self):
+        """The wave greeting may use the robot: no drive, task, skill, follow, calibration or asked wave runs, and
+        nobody is being talked to, unless the hand is already up for them (it stays up, swings, comes down)."""
+        from tasks import follow
+        if self.traveling() or self.doing() is not None or follow.running() or self.wave_lock.locked() or \
+                time.time() < self.calib_until or self.fetch_status() in ("running", "waiting") or self.bag_on():
+            return False
+        return wave_greet.up() or self.current is None and time.time() >= self.voice_until
 
 
 NOT_STOP = re.compile(   # a stop word that orders no stop: negated, about someone or something else, another meaning

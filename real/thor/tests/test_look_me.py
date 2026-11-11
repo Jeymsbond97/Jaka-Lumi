@@ -8,6 +8,7 @@ from assistant import lumi
 turns, pitches = [], []
 lumi.head.turn = lambda yaw, pitch=None, **k: (turns.append(round(yaw)), pitches.append(pitch))
 lumi.LOOK_ME_SETTLE_S = 0.0
+lumi.on_charger = lambda: False                    # off the charger: the body may turn (it asks the base)
 lumi.waist_turned = lambda: 0.0                    # the waist at the front unless a case says otherwise
 
 

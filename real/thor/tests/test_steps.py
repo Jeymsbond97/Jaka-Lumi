@@ -308,6 +308,23 @@ assert llm_says("go to p2, then chill there and do whatever the visitors tell yo
                 {"do": "wait", "s": None, "until": "instruction"}])[0] == S("go p2 | wait order")
 print("steps wait ok")
 
+# ---- a bag hung on the gripper's hooks (owner, 2026-11-04): the arm to its bag pose, then the drive ----
+for text, want in (("take the bag to p1", "arm bag | go p1"), ("Lumi, take this bag to p2", "arm bag | go p2"),
+                   ("carry my bag to p4", "arm bag | go p4"), ("take the bag home", "arm bag | go home"),
+                   ("take the bag and go to p1", "arm bag | go p1"), ("hold the bag", "arm bag"),
+                   ("here's the bag", "arm bag"), ("가방 들어", "arm bag"), ("가방 좀 받아 줘", "arm bag"),
+                   ("가방 p1으로 가져가", "arm bag | go p1"), ("쇼핑백 p3까지 옮겨 줘", "arm bag | go p3"),
+                   ("가방 홈으로 가져가 줘", "arm bag | go home"), ("take the cup to p1", "pick cup | go p1")):
+    got, unread = steps.rules(text, M)
+    assert not unread and got == [short(x) for x in want.split(" | ")], (text, got, unread)
+for text in ("I have a bag", "what a nice bag", "where is my bag?", "the bag is heavy", "가방 p99로 가져가"):
+    got, unread = steps.rules(text, M)
+    assert unread or not got, (text, got)                  # no order, or a place not on the map: nothing runs
+bag = [short("arm bag"), short("go p1")]
+assert steps.check(bag, False, M) == [] and steps.check(bag, True, M)   # never with a cup in the hand
+assert steps.describe(bag) == "Hold my hand ready for the bag, then go to p1." and steps.is_mission(bag)
+print("steps bag ok")
+
 # ---- three or four steps in one breath on the conference map (tests/steps_cases7.py) ----
 from assistant import brain
 from tests import steps_cases7 as c7

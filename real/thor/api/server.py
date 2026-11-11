@@ -1404,7 +1404,7 @@ def task_state():
 class ModesBody(BaseModel):
     greeter: bool | None = Field(None, description="standing: greet people who come close, talk, wake word")
     patrol: bool | None = Field(None, description="driving anywhere: stop for people in the way, talk, drive on")
-    wave_greet: bool | None = Field(None, description="wave back at people who wave, Greeter / Patrol not needed")
+    wave_greet: bool | None = Field(None, description="wave back at people who wave, with or without Greeter / Patrol")
 
 
 @app.get("/assistant/modes", tags=["assistant"], summary="Greeter / patrol / wave greeting switches")

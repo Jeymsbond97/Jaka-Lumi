@@ -206,6 +206,81 @@ switch["free"] = False
 run(500.0, 505.0)
 assert done == [] and not g.busy(), done
 
+# a drive starts (lumi.waist_home) with the hand up mid-swing: the swings end, then the arm down before the drive
+fresh()
+waver["w"] = W(0.0)
+run(550.0, 550.0)
+g._st["swing_end"] = 1e12                           # a swing still queued
+switch["free"] = False
+run(550.5, 550.5)                                   # the drive took the robot: the wave greeting lets go
+done.clear()
+g._rest = lambda: 86.0                              # on the charger the waist rests turned; a drive still wants the front
+g.lower()
+assert done == ["settle", "waist +0 look None", "down normal", "head +0 rest"] and arm["at"] == "look", done
+arm["at"] = "wave_start"                            # nobody waves any more on the charger: down to the waist's rest there
+done.clear()
+g._down()
+assert done[:2] == ["waist +86 look None", "down normal"], done
+g._rest = lambda: 0.0
+done.clear()
+g.lower()                                           # the hand is down: nothing moves
+assert done == [], done
+
+# nothing asked for a while on the charger (_idle): the hand goes up and stays up, no words; 2 swings every
+# IDLE_WAVE_EVERY_S while nobody talks; a call stops them (the hand still up); a drive brings it down (lower); someone
+# waving is greeted as always
+fresh()
+waver["w"] = None
+g._idle, g._rest_arm = (lambda: True), (lambda: "look")
+g._someone_within = lambda m: True                      # someone right by the arm: no idle wave, tried again later
+g._st["idle_at"] = 0.0
+run(690.0, 690.0)
+assert done == [], done
+g._someone_within = lambda m: False
+arm["at"] = "rest"                                      # the arm still on its way to look on the charger: not yet
+g._st["idle_at"] = 0.0
+run(691.0, 691.0)
+assert done == [], done
+arm["at"] = "look"
+g._st["idle_at"] = 700.0                                # the last idle wave
+run(700.0, 700.0 + g.IDLE_WAVE_EVERY_S - 1)
+assert done == [] and said == [], done                  # not before IDLE_WAVE_EVERY_S
+run(700.0 + g.IDLE_WAVE_EVERY_S + 0.5, 700.0 + g.IDLE_WAVE_EVERY_S + 0.5)
+assert done == ["up route", "swing", "swing"] and said == [] and g._st["up"] and g._st["held"], (done, said)
+done.clear()
+t = 700.0 + g.IDLE_WAVE_EVERY_S + 1
+run(t, t + g.IDLE_WAVE_EVERY_S - 2)
+assert done == [], done                                 # up, still, until the next swings
+run(t + g.IDLE_WAVE_EVERY_S, t + g.IDLE_WAVE_EVERY_S + 200)
+assert done.count("swing") >= 2 * 9 and "down normal" not in done and "up route" not in done, done   # never down
+talk = {"on": True}                                     # someone talks to Lumi: no swings, the hand stays up, still
+g._idle = lambda: not talk["on"]
+done.clear()
+run(1000.0, 1100.0)
+assert done == [] and g._st["up"], done
+talk["on"] = False                                      # quiet again: the swings go on
+run(1101.0, 1102.0)
+assert done == ["swing", "swing"], done
+done.clear()
+g.lower()                                               # a drive: down to the front first
+assert "down normal" in done and not g._st["up"] and not g._st["held"], done
+g._idle = lambda: True
+done.clear()
+said.clear()                                            # someone waves back during an idle wave: greeted as always,
+real_waver, g._waver = g._waver, (lambda: W(20.0))      # the hand stays up and swings on
+arm["at"], g._st["idle_at"], g._st["up"] = "look", 0.0, False
+run(760.0, 760.0)
+assert "up route" in done and "down normal" not in done and g._st["up"], done
+run(760.5, 762.0)
+assert said and said[0] in sum(g.wave_lines.INTRO + g.wave_lines.GREET, ()) and done.count("swing") >= 1, (done, said)
+g._waver = real_waver
+g._st["up"] = g._st["held"] = False
+done.clear()
+g._idle = lambda: False                                 # someone talks to Lumi, or off the charger: no idle waves
+run(800.0, 900.0)
+assert done == [], done
+g._idle, g._rest_arm = (lambda: False), g.arm_route.rest_pose
+
 # Lumi introduces itself once per person: the same person waving again (after NEW_WAVE_S) gets a hello, someone
 # else an introduction, and the first person too once they were out of view for GONE_S
 fresh()

@@ -522,3 +522,23 @@ ko = sum(1 for t, _, _ in READ if brain.HANGUL.search(t))
 print(f"{len(READ) - len(bad)}/{len(READ)} read right ({ko} Korean, {len(READ) - ko} English)")
 assert not bad
 print("command box ok")
+
+# ---------- a bag on the hooks: "give me the bag" holds it out at once (the gripper holds nothing), a new bag order
+# is still a mission ----------
+L.bag_on = lambda: True
+L.reach_out = lambda held: rec("reach", held)
+L.held_now = lambda look=False: look and (_ for _ in ()).throw(AssertionError("the arm moved to look at the hand"))
+for text in ("give me the bag", "Lumi, give me the bag please", "hand me the bag", "give it to me", "가방 줘", "가방 주세요"):
+    assert voice(text) == ("reach", False), (text, got_voice)
+assert voice("take the bag to p1")[0] == "steps" and got_voice[0][1][0] == {"do": "arm", "pose": "bag"}, got_voice
+L.bag_on, L.held_now = (lambda: False), (lambda look=False: False)
+assert voice("give me the bag") != ("reach", False)         # no bag: not this way
+print("bag give ok")
+
+# "thanks" after the bag was held out: reach_done folds (arm_pose "fold"), which with a bag on takes it off (look)
+offs = []
+real_off, fetch.bag_off = fetch.bag_off, lambda: offs.append("off")
+L.bag_on = lambda: True
+assert lumi.Lumi.arm_pose(L, "fold") and offs == ["off"], offs
+fetch.bag_off = real_off
+print("bag fold ok")

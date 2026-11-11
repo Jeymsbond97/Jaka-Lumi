@@ -32,6 +32,7 @@ lumi.ears.understood = lambda lp: True
 lumi.time.sleep = lambda s: None
 lumi.waist_turned = lambda: 0.0                    # the waist at the front (it reads the body)
 lumi.waist_home = lambda why, fold=False: True
+lumi.wave_greet_on = lumi.on_charger = lambda: False   # the dashboard's switch file and the base: not this test's
 M = ["home", "dock2"]
 
 
@@ -75,6 +76,9 @@ class Vision:                                      # people in the greeting zone
 
     def anyone_near(self):
         return bool(self.tracks)
+
+    def seen(self, max_m=lumi.STAY_MAX):
+        return [(t.angle, t.distance) for t in self.tracks if t.distance <= max_m]
 
     def nearest_greeted(self):
         return next((t for t in self.tracks if t.greeted), None)

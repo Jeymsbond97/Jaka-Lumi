@@ -50,6 +50,9 @@ LOOK_POSE = "look"           # drives, turns, looks and waits here, also with an
                              # the torso view, too near for depth (ready if not taught). carry is only passed through after a
                              # pick: in carry the hand is ~0.3 m before the base's front, where its 3D camera seems to see
                              # it as an obstacle (every drive in carry stalled; the same drives in look went, 2026-10-16)
+BAG_POSE = "bag"             # the arm held out for a bag to be hung on the gripper's hooks (owner's pose); drives go
+                             # in arm_route.REST like every empty-hand drive (in look the bag hung before the base's
+                             # 3D camera and every drive stalled)
 CHECK_POSE = "carry"         # a fully shut hand is looked at here (look_at_hand): the torso camera sees the place between
                              # the fingers ~445 mm away (from the joints and the calibration; in look it is above the view,
                              # in give a person's hand can be there). Not yet tried live: the fingers may hide it
@@ -402,12 +405,31 @@ def _at_pose(name):
     return max(abs(a - b) for a, b in zip(j, motion.nearest(motion.poses()[name], j))) <= 1.0
 
 
+BAG_HOLDING = ("My hand is holding something, I can't take a bag now.", "손에 뭔가 들고 있어서 지금은 가방을 들 수 없어요.")
+BAG_HANG_SAY = ("Please hang the bag on my hand.", "가방을 제 손에 걸어 주세요.")
+BAG_HANG_S = 8.0             # s a mission waits after the arm went to BAG_POSE, for a person to hang the bag on (estimate)
+
+
+def bag_off():
+    """The bag taken off the hooks ("fold your arm", "thanks" after "give me the bag", outside a task): the arm to its
+    rest (arm_route.rest_pose) along the pose graph and the state's "bag" cleared. FetchError when busy or the arm
+    can't go."""
+    _adopt()
+    with _lock:
+        if _busy():
+            raise FetchError("I'm busy with another task.", "지금 다른 일을 하고 있어요.")
+    _stop.clear()                                # an old stop must not end this one; a new one does
+    _pose(arm_route.rest_pose())
+    _set(bag=False)
+    log("no bag: the arm at rest")
+
+
 def _drive_pose(holding=False):
-    """The arm to look before the base drives or turns. A switched-off arm (Cobo π: not powered or not enabled) stays
+    """The arm to its rest (arm_route.rest_pose; look with something held) before the base drives or turns. A switched-off arm (Cobo π: not powered or not enabled) stays
     where it is: drives and talk need no arm, and the arm's points are still checked from its joints. Powered off, it
     reads all joints 0: where it is is not known, so no drive (ARM_UNSEEN)."""
     try:
-        _line_holding(LOOK_POSE) if holding else _pose(_look())
+        _line_holding(LOOK_POSE) if holding else _pose(arm_route.rest_pose())   # a bag on the hooks too
     except (FetchError, motion.MotionError) as e:
         if tuple(e.args[:1]) != arm_route.OFF[:1] and "not powered" not in str(e):
             raise
@@ -3066,7 +3088,7 @@ def _do_step(s, say):
         if _give(say) == "kept":
             raise FetchError("Nobody took it, I'm still holding it.", "아무도 안 받아서 계속 들고 있어요.")
     elif d == "arm":
-        _arm(s["pose"])
+        _arm(s["pose"], say)
     elif d == "carry":
         _carry_held()
     # "hold": nothing to do, the mission ends holding
@@ -3423,15 +3445,27 @@ def _give_turning(rel, look):
     _go_on()
 
 
-def _arm(pose):
+def _arm(pose, say=None):
     if pose in ("open", "close"):
         st = gripper.open_() if pose == "open" else gripper.close()
         if pose == "open":
             skills._held.clear()
             _set(holding=False)
         log(f"gripper {pose}: {st}")
-    elif pose == "fold":                         # the arm's home
-        _line_holding(LOOK_POSE) if _state["holding"] else _pose(LOOK_POSE)
+    elif pose == "fold":                         # the arm's rest
+        _line_holding(LOOK_POSE) if _state["holding"] else _pose(arm_route.rest_pose())
+        _set(bag=False)
+    elif pose == "bag":                          # the hooks ready for a bag; drives keep the arm there (BAG_POSE)
+        if _state["holding"]:
+            raise FetchError(*BAG_HOLDING)
+        hung = _state.get("bag")
+        _pose(BAG_POSE)
+        _set(bag=True)
+        if not hung:                             # a person hangs it on now, before the next step drives
+            if say:
+                say(*BAG_HANG_SAY)
+            if _stop.wait(BAG_HANG_S):
+                raise Stopped()
     elif pose == "reach":                        # the hand held out, as for a hand-over
         if "give" not in motion.poses():
             raise FetchError("I haven't learned how to reach out yet.")

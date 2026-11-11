@@ -782,8 +782,8 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
                    r"hand closed?|squeeze (your )?(hand|fingers)( shut)?)\b|^\W*grip\W*$"
                    r"|손을? ?(?:꽉 |좀 )*(쥐|오므려|닫아)|\bclose\s*해\s*손|손가락\s*(?:을\s*)?(?:좀\s*|한번\s*|다\s*)*모아|주먹 ?(을 )?쥐|잡아(?!먹|당| ?보자| ?봐도| ?볼래)|손 ?close|(그리퍼|집게)(를|을)? ?(좀 )?(닫아|오므려)"),
     ("arm", r"\b(reach out(?! to (?!me\b))|stretch (out )?your (arm|hand)|put your (arm|hand) (out|forward)|hand forward|"
-            r"hold out your (arm|hand|gripper|claw|fingers)|extend your (arm|hand|gripper)|give me your hand|offer me your hand|"
-            r"give me (?:a|ur|you) hand(?!\s+(?:with|to|for|in|on|carrying|moving|lifting)\b)|"
+            r"hold out your (arm|hand|gripper|claw|fingers)|extend your (arm|hand|gripper)|give me your hands?|offer me your hands?|"   # "give me your hands." (heard live 2026-11-04)
+            r"give me (?:a|ur|you) hands?(?!\s+(?:with|to|for|in|on|carrying|moving|lifting)\b)|"
             r"(put|hold|stick) your (arm|hand) out|put out your (arm|hand)|reach (?:your |ur |youur )?(?:arm|hand) out|reach (?:your |ur )?arm|"
             r"reach (out )?(to|toward|towards|for) me)\b|팔을? ?(?:앞으로 |쭉 |좀 |다시 |이쪽으로 )*(뻗|내밀)"
             r"|손을? ?(좀 |앞으로 |아프로 |쭉 )*(내밀|내미(?=[시세십])|뻗)(?!었)|\blet me hold your hand\b|^\W*(?:(?:루미야?|lumi|에구|아|어이|얘야|로봇아?|음|저기요?)\W*)*(?:(?:나|저)(?:한테|에게)?\s*)?(?:손|hand|핸드) ?(?:을 )?"

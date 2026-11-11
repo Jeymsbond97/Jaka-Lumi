@@ -9,7 +9,7 @@ A step is a dict, "do" says which:
     {"do": "turn", "deg": + left}
     {"do": "pick", "object", "colour"}         {"do": "receive", "object"}      {"do": "say", "text"}
     {"do": "place", "on": None | {"name": camera class, "colour", "side": "left" | "right" | None}}
-    {"do": "give"}   {"do": "hold"}   {"do": "arm", "pose": "reach" | "fold" | "open" | "close"}
+    {"do": "give"}   {"do": "hold"}   {"do": "arm", "pose": "reach" | "fold" | "open" | "close" | "bag"}
     {"do": "wait", "s": seconds | None (until told to go on; at the end: stay there), "until": "instruction" (optional)}
     {"do": "receive", "object", "wait_s": seconds}     ("wait until someone gives you the cup": the hand held out this long)
 Nothing is guessed: a clause the rules can't read stays unread and the whole command is asked again."""
@@ -358,6 +358,27 @@ def _place_step(c):
 def _hold(c):
     return {"do": "hold"} if re.fullmatch(r"(?:just )?(?:hold|keep) (?:it|on to it|holding(?: it)?)(?: there)?"
                                           r"|wait (?:there )?holding it|들고 있어(?:요|줘)?", c) else None
+
+
+_BAG_EN = r"(?:the |this |that |my |a |your |our )?(?:shopping |paper |gift )?bag"
+_BAG_KO = r"(?:이 |그 |제 |내 )?(?:쇼핑백|종이 ?가방|가방)(?:을|를|은|는|이)?"
+
+
+def _bag(c, markers):
+    """"take the bag to p1", "hold this bag", "here's the bag", "가방 들어", "가방 p1으로 가져가": the arm to its bag
+    pose (a person hangs the bag on the hooks), then the drive if a place is named."""
+    m = re.fullmatch(rf"(?:take|carry|bring|hold|grab|get|keep|hang|deliver) {_BAG_EN}(?: (?:to|over to|for me to) (.+?)| (home))?"
+                     rf"|(?:here'?s|here is|this is) {_BAG_EN}|{_BAG_EN} (?:pose|position)|"
+                     rf"{_BAG_KO}\s*(?:(.+?)\s*(?:으로|로|에|까지)\s*)?(?:좀\s*)?"
+                     rf"(?:들어|받아|맡아|걸어|가져가|가지고 가|갖고 가|들고 가|옮겨|배달해)\s*(?:줘|요|주세요|줄래|서|고)?"
+                     rf"|{_BAG_KO}\s*(?:포즈|자세)(?:로|으로)?", c)
+    if not m:
+        return None
+    where = m.group(1) or m.group(2) or m.group(3)
+    if not where:
+        return [{"do": "arm", "pose": "bag"}]
+    to = _places(where, markers)
+    return to and [{"do": "arm", "pose": "bag"}, {"do": "go", "to": to if len(to) > 1 else to[0]}]
 
 
 def _arm(c):
@@ -803,6 +824,9 @@ def _clause_steps(c, markers, after=None):
     s = after and after["do"] in ("pick", "receive") and _place_at(c, markers, after)
     if s:
         return s                                           # "컵 집어서 | exit에 갖다 줘": delivered there, not only a drive
+    s = _bag(c, markers)
+    if s is not None:
+        return s or None
     for f in (_go, _move, _turn, _give, _hold, _arm):
         s = f(c, markers) if f is _go else f(c)
         if s:
@@ -1125,7 +1149,7 @@ LLM_SCHEMA = {"type": "object", "required": ["steps"], "properties": {"steps": {
         "object": {"type": ["string", "null"]}, "colour": {"type": ["string", "null"]}, "text": {"type": "string"},
         "on": {"type": ["object", "null"], "properties": {"name": {"type": "string"}, "colour": {"type": ["string", "null"]},
                                                           "side": {"type": ["string", "null"]}}},
-        "pose": {"enum": ["reach", "fold", "open", "close"]}, "s": {"type": ["number", "null"]},
+        "pose": {"enum": ["reach", "fold", "open", "close", "bag"]}, "s": {"type": ["number", "null"]},
         "until": {"type": ["string", "null"]}}}}}}
 LLM_NUM_PREDICT = 700        # tokens; a 7-step answer is ~400
 NEGATION = re.compile(r"\b(?:not|don'?t|do not|never|instead|except|without|no)\b|말고|대신|하지 ?마|지 ?마|빼고")
@@ -1269,7 +1293,7 @@ def _checked(raw, text, markers):
         return None
     if d == "arm":
         pat = {"reach": r"reach|stretch|뻗|내밀", "fold": r"fold|bend|tuck|접|굽", "open": r"\bopen|펴|벌려|열",
-               "close": r"\bclose|쥐|오므|닫"}.get(raw.get("pose"))
+               "close": r"\bclose|쥐|오므|닫", "bag": r"\bbag\b|가방|쇼핑백"}.get(raw.get("pose"))
         return {"do": "arm", "pose": raw["pose"]} if pat and re.search(pat, t) else None
     return None
 
@@ -1320,7 +1344,7 @@ def _bad_fields(s):
         return "a place I don't know"
     if d == "give" and not isinstance(s.get("person", ""), str):
         return "a person without a name"
-    if d == "arm" and s.get("pose") not in ("reach", "fold", "open", "close"):
+    if d == "arm" and s.get("pose") not in ("reach", "fold", "open", "close", "bag"):
         return "an arm movement I don't know"
     if d == "wait" and (not (s.get("s") is None or num(s["s"])) or s.get("until") not in (None, "instruction")
                         or s.get("until") and s.get("s") is None):
@@ -1375,7 +1399,7 @@ def check(steps, holding, markers=()):
             if not holding:
                 out.append(f"Step {i}: I have nothing in my hand to {'put down' if d == 'place' else 'hand over'}.")
             holding = False
-        elif d == "arm" and s["pose"] in ("reach", "fold") and holding:
+        elif d == "arm" and s["pose"] in ("reach", "fold", "bag") and holding:
             out.append(f"Step {i}: I can't move my arm like that while holding something.")
         elif d == "arm" and s["pose"] == "open" and holding:
             out.append(f"Step {i}: I won't open my hand while holding something: it would fall. "
@@ -1454,7 +1478,8 @@ def _en(s, last=False):
             else "give it to you"
     if d == "hold":
         return "hold it"
-    return {"reach": "reach out my arm", "fold": "fold my arm", "open": "open my hand", "close": "close my hand"}[s["pose"]]
+    return {"reach": "reach out my arm", "fold": "fold my arm", "open": "open my hand", "close": "close my hand",
+            "bag": "hold my hand ready for the bag"}[s["pose"]]
 
 
 def _ko(s, last=False):
@@ -1497,7 +1522,7 @@ def _ko(s, last=False):
         return "거기 있는 분께 건네주고" if s.get("_away") else "건네주고"
     if d == "hold":
         return "들고 있고"
-    return {"reach": "팔을 뻗고", "fold": "팔을 접고", "open": "손을 펴고", "close": "손을 쥐고"}[s["pose"]]
+    return {"reach": "팔을 뻗고", "fold": "팔을 접고", "open": "손을 펴고", "close": "손을 쥐고", "bag": "가방 들 준비를 하고"}[s["pose"]]
 
 
 def _will(stem):
