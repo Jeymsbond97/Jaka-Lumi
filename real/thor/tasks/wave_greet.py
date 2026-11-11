@@ -1,7 +1,7 @@
 """Wave back at people who wave at Lumi: the dashboard switch "Wave greeting". Greeter / Patrol are not needed; while
 either runs the assistant owns the robot and this waits. Runs in the API process (api/server.py starts it).
 
-Someone waving within GREET_M of the head camera (vision/waving.py): the head turns to them and the arm goes up at
+Someone waving within GREET_M of either camera (vision/waving.py; the head camera may look elsewhere): the head turns to them and the arm goes up at
 once (manipulation/wave.py checks and plans the way, look -> wave_out -> wave_start, at the route speed), Lumi says a
 greeting (tasks/wave_lines.py), swings once even when they stopped meanwhile, then turns the waist to face them
 (fetch._waist_to, its sweep checked; the head stays on them). It swings while they wave, stops when they stop and
@@ -25,7 +25,7 @@ from robot import head, motion
 from tasks import wave_lines
 from vision import camview, pose, waving
 
-CAM = "head"
+CAMERAS = ("head", "torso")   # both watched: the head may look away while the person is in the torso camera's view
 GREET_M = 3.0                # m; people waving further away are not answered
 HOLD_S = 60.0                # s the hand stays up after the last wave seen, then down to look
 FRESH_S = 0.5                # s a waving person seen counts as waving now
@@ -45,7 +45,8 @@ HEAD_TIMEOUT_S = 5.0         # s a head move may take; the body API now and then
                              # holds the body lock all that time (the waist turn waited 30 s behind it)
 CLOSE_FRESH_S = 1.5          # s a camera service detection counts for the too-close check
 
-_seen = {"t": 0.0, "wavers": []}     # wavers: [(bearing deg from the waist's front, + left; distance m)], nearest first
+_seen = {c: {"t": 0.0, "wavers": []} for c in CAMERAS}   # wavers: [(bearing deg from the waist's front, + left;
+                                                          # distance m)] in that camera, nearest first
 _busy = threading.Event()            # the arm is up or moving for a greeting
 _speaking = threading.Lock()
 _on = _free = _off = None            # set by start()
@@ -60,10 +61,11 @@ def busy():
 
 
 # ---------- seeing ----------
-def _head_yaw():
-    """Head yaw (deg) the camera service saw its newest frame at."""
+def _head_yaw(cam="head"):
+    """Yaw (deg) of a camera from the waist's front at its newest frame: the head's yaw for the head camera, 0 for the
+    torso camera (it looks along the waist)."""
     try:
-        return float(json.loads(camview.det_path(CAM).read_text()).get("head_yaw") or 0.0)
+        return float(json.loads(camview.det_path(cam).read_text()).get("head_yaw") or 0.0)
     except (FileNotFoundError, ValueError):
         return 0.0
 
@@ -78,17 +80,17 @@ def _dist(depth, at):
     return float(np.median(v)) / 1000 if v.size >= 5 else None
 
 
-def _watch():
-    """Every head camera frame while the switch is on: who waves, where (_seen)."""
+def _watch(cam):
+    """Every frame of camera `cam` while the switch is on: who waves, where (_seen[cam])."""
     watcher, last, intr = waving.Watcher(), 0.0, None
     while True:
         if not _on():
             watcher, intr = waving.Watcher(), None
             time.sleep(0.5)
             continue
-        camview.want(CAM)
+        camview.want(cam)
         try:
-            m = camview.raw_path(CAM).stat().st_mtime
+            m = camview.raw_path(cam).stat().st_mtime
         except FileNotFoundError:
             time.sleep(0.2)
             continue
@@ -96,11 +98,11 @@ def _watch():
             time.sleep(0.01)
             continue
         last = m
-        img = cv2.imread(str(camview.raw_path(CAM)))
-        intr = intr or camview.intrinsics(CAM)
+        img = cv2.imread(str(camview.raw_path(cam)))
+        intr = intr or camview.intrinsics(cam)
         if img is None or intr is None:
             continue
-        depth, yaw = camview.depth(CAM), _head_yaw()
+        depth, yaw = camview.depth(cam), _head_yaw(cam)
         gray = cv2.cvtColor(cv2.resize(img, None, fx=waving.SCALE, fy=waving.SCALE), cv2.COLOR_BGR2GRAY)
         wavers = []
         for p, is_waving in watcher.update(m, gray, pose.detect(img)):
@@ -111,12 +113,13 @@ def _watch():
             d = _dist(depth, at)
             if d is not None and d <= GREET_M:
                 wavers.append((yaw - math.degrees(math.atan((at[0] - intr["cx"]) / intr["fx"])), d))
-        _seen.update(t=time.time(), wavers=sorted(wavers, key=lambda w: w[1]))
+        _seen[cam].update(t=time.time(), wavers=sorted(wavers, key=lambda w: w[1]))
 
 
 def _waver():
-    """(bearing, distance) of the nearest person waving now, None when nobody waves."""
-    return _seen["wavers"][0] if _seen["wavers"] and time.time() - _seen["t"] < FRESH_S else None
+    """(bearing, distance) of the nearest person waving now in either camera, None when nobody waves."""
+    now = [w for s in _seen.values() if time.time() - s["t"] < FRESH_S for w in s["wavers"]]
+    return min(now, key=lambda w: w[1], default=None)
 
 
 def _too_close():
@@ -306,6 +309,11 @@ def _stopped(e):
 
 
 def _run():
+    try:                                 # the hand left up (an API restart mid-wave): it comes down after HOLD_S
+        if arm_route.where() in (wave.START, wave.SWING):
+            _st.update(up=True, last_wave=time.time())
+    except Exception as e:
+        log(f"arm not read at start: {e!r}")
     while True:
         time.sleep(0.05)
         try:
@@ -318,5 +326,6 @@ def start(on, free, off):
     """`on()`: the switch is on; `free()`: nothing else has the robot; `off()`: turn the switch off."""
     global _on, _free, _off
     _on, _free, _off = on, free, off
-    threading.Thread(target=_watch, daemon=True).start()
+    for cam in CAMERAS:
+        threading.Thread(target=_watch, args=(cam,), daemon=True).start()
     threading.Thread(target=_run, daemon=True).start()
