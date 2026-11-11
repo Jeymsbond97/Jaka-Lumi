@@ -32,10 +32,12 @@ from vision import camview, pose, reid, waving
 
 CAMERAS = ("head", "torso")   # both watched: the head may look away while the person is in the torso camera's view
 GREET_MIN_M, GREET_M = 1.0, 5.0   # m; people waving nearer or further away are not answered (owner)
-PASSER_M = 3.0               # m; a patrol's wave for people passing (passer_wave) waves only at people this near
+PASSER_M = GREET_M          # m; a patrol's wave for people passing (passer_wave) waves only at people this near, and
+                             # only when nobody is within IDLE_CLEAR_M (owner: just over 1 m is enough)
 SHOULDER_M = 0.36            # m between the shoulder keypoints: a waver's distance from their width in the image when
                              # depth has none there (far, or a colour-only camera); estimate (recordings 0.32-0.40)
-HOLD_S = 40.0                # s the waist stays on the last one who waved, then back to its rest, the hand kept up
+HOLD_S = 15.0                # s the waist stays on the last one who waved, then back to its rest, the hand kept up and
+                             # the idle swings at once (owner: every 15 s on the charger, also among many people)
 GONE_S = 10.0                # s a greeted person may be out of both cameras' view and still be known (no new intro)
 SWING_POLL_S = 0.2           # s between looks at the controller's queue while swinging
 SWING_S = 1.5                # s one swing takes (measured 1.5-1.6 at "swing"); with the queue reading, at most one swing
@@ -45,6 +47,8 @@ NEW_WAVE_S = 5.0             # s without any waving after which a wave is greete
 JOKE_AFTER_S = 10.0          # s of waving before the first joke ...
 JOKE_EVERY_S = 12.0          # ... and between jokes
 WAIST_MIN_DEG = 10.0         # deg; a person nearer the front than this: only the head turns
+WAIST_MAX_DEG = 30.0         # deg from the front the waist turns to a waving person at most, the head covers the rest
+                             # (owner: it faces the front, a little toward them is fine); estimate
 WAIST_FOLLOW_DEG = 20.0      # deg the waving person may move off the waist's front before it turns to them again ...
 FOLLOW_EVERY_S = 3.0         # ... at most this often (between swings)
 WAIST_PARTS = (1.0, 0.75, 0.5, 0.25)   # a blocked waist turn is tried again this much of the way (beside a wall)
@@ -67,6 +71,8 @@ RAISE_WAIT_S = 10.0          # s a drive waits for someone right by the arm to s
                              # (else it drives in look); estimate
 IDLE_RETRY_S = 1.0          # s between two asks whether Lumi is idle (it asks the base whether it charges)
 CLOSE_FRESH_S = 1.5          # s a camera service detection counts for the too-close check
+LINK_RETRY_S = 3.0           # s before trying again when the arm controller or the base did not answer (the controller
+                             # now and then closes the connection, the base refuses while it loads a map): not a stop
 
 _seen = {c: {"t": 0.0, "wavers": []} for c in CAMERAS}   # wavers: [(bearing deg from the waist's front, + left;
                                                           # distance m)] in that camera, nearest first
@@ -303,14 +309,19 @@ def _settle():
 
 def _face(bearing):
     """Waist turned to the person (they face each other), the head staying on them; only the head when they are
-    nearly in front. A turn whose sweep is not clear is tried part of the way (WAIST_PARTS); the head covers the
-    rest."""
+    nearly in front. The waist stays within WAIST_MAX_DEG of the front; a turn whose sweep is not clear is tried part
+    of the way (WAIST_PARTS); the head covers the rest."""
     from tasks import fetch
     fetch._stop.clear()                  # no task runs: an old stop must not end this turn
+    tried = set()
     for part in WAIST_PARTS:
         if abs(bearing * part) < WAIST_MIN_DEG:
             break
-        if fetch._waist_to(fetch._waist_turn() + bearing * part, in_place=True, look=bearing):
+        want = round(max(-WAIST_MAX_DEG, min(WAIST_MAX_DEG, fetch._waist_turn() + bearing * part)), 1)
+        if want in tried:                # cut to WAIST_MAX_DEG like a longer part before it
+            continue
+        tried.add(want)
+        if fetch._waist_to(want, in_place=True, look=bearing):
             return
     _head_to(bearing)
 
@@ -414,6 +425,11 @@ def _nearest(m):
             near += [(p["distance_m"], p["angle_deg"]) for p in d["people"]
                      if p.get("distance_m") is not None and p["distance_m"] < m]
     return min(near)[1] if near else None
+
+
+def passer_due():
+    """Someone passing to wave at: a person within PASSER_M, nobody within IDLE_CLEAR_M (lumi.Patrol stops for it)."""
+    return _nearest(PASSER_M) is not None and not _someone_within(IDLE_CLEAR_M)
 
 
 def passer_wave():
@@ -553,7 +569,7 @@ def step(now):
                     st["up"] = st["held"] = False
     elif now - st["last_wave"] > HOLD_S:           # nobody waves: the hand stays up (owner), the waist to its rest
         _rest_waist()
-        st["held"], st["idle_at"], st["held_at"] = True, now, 0.0
+        st["held"], st["idle_at"], st["held_at"] = True, now - IDLE_WAVE_EVERY_S, 0.0   # swings due at once
 
 
 def _stopped(e):
@@ -573,10 +589,19 @@ def _run():
         log(f"arm not read at start: {e!r}")
     while True:
         time.sleep(0.05)
-        try:
-            step(time.time())
-        except Exception as e:
-            _stopped(e)
+        _tick(time.time())
+
+
+def _tick(now):
+    """One step; a stop or a failure of the arm switches the greeting off, no answer from a device does not."""
+    try:
+        step(now)
+    except OSError as e:                 # ConnectionError too: the switch stays on
+        log(f"no answer ({e!r}), trying again in {LINK_RETRY_S:.0f} s")
+        _busy.clear()
+        time.sleep(LINK_RETRY_S)
+    except Exception as e:
+        _stopped(e)
 
 
 def up():

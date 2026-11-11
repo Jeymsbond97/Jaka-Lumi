@@ -71,10 +71,7 @@ motion._wait = lambda *a, **k: done.append("settle")
 def run(t0, t1, dt=0.5):
     t = t0
     while t <= t1:
-        try:
-            g.step(t)
-        except Exception as e:                      # as _run
-            g._stopped(e)
+        g._tick(t)
         t += dt
 
 
@@ -109,7 +106,8 @@ done.clear()
 waver["w"] = W(-40.0)
 g._st["follow_at"] = 0.0                            # (the fake waver stays at +30 after each turn: turned again so far)
 run(111.5, 111.5 + g.FOLLOW_EVERY_S - 0.5)
-assert done[:2] == ["settle", "waist -40 look -40.0"] and done.count("waist -40 look -40.0") == 1, done  # swings end first
+# (swings end first; the waist turns WAIST_MAX_DEG at most, the head the rest)
+assert done[:2] == ["settle", "waist -30 look -40.0"] and done.count("waist -30 look -40.0") == 1, done
 waver["w"] = W(30.0)
 
 # never more than one swing queued ahead, even if the controller's queue always read empty
@@ -155,12 +153,13 @@ run(150.5 + g.HOLD_S, 150.5 + g.HOLD_S + g.REFUSED_S * 2.5)
 assert done == ["waist +0"] and g._st["held"] and g._st["waist_out"], done
 fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f} look {look}") or True
 
-# beside a wall the full waist turn is blocked: it turns as far as its sweep is clear, the head on the person
+# beside a wall the waist turn (cut to WAIST_MAX_DEG) is blocked: it turns as far as its sweep is clear, the head on
+# the person; the same cut turn is not tried twice
 fresh()
 waver["w"] = W(-66.0)
-fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f} look {look}") or abs(rel) < 40
+fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f} look {look}") or abs(rel) < 20
 run(160.0, 160.0)
-assert done[-3:] == ["waist -66 look -66.0", "waist -50 look -66.0", "waist -33 look -66.0"], done
+assert done[-2:] == ["waist -30 look -66.0", "waist -16 look -66.0"], done
 fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f} look {look}") or True
 
 # a wave nearly in front: only the head turns, the waist stays
@@ -319,8 +318,13 @@ g._nearest = lambda m: 20.0 if near["m"] is not None and near["m"] < m else None
 saved, arm["at"] = arm["at"], "wave_start"
 done.clear()
 assert not g.passer_wave() and not done              # nobody there
+assert not g.passer_due()
 near["m"] = 0.5
-assert not g.passer_wave() and not done              # someone right by the arm
+assert not g.passer_wave() and not done and not g.passer_due()   # someone right by the arm: no stop, no wave
+near["m"] = 1.2
+assert g.passer_due()                                # just over 1 m: a stop and a wave
+near["m"] = g.PASSER_M + 0.5
+assert not g.passer_due()                            # too far
 near["m"] = 2.0
 assert g.passer_wave() and done.count("swing") == g.IDLE_SWINGS
 time.sleep(0.2)                                      # the head turns in the background
@@ -340,6 +344,36 @@ waver["w"] = None
 run(400.5, 420.0)
 assert done.count("swing") == g.GREET_SWINGS and g._st["owed"] == 0, done
 arm["at"] = "look"
+done.clear()
+
+# on the charger, the waving over: after HOLD_S the waist back to the front and IDLE_SWINGS swings at once
+fresh()
+arm["at"] = "wave_start"
+g._st.update(up=True, held=False, last_wave=600.0)
+real_idle, g._idle = g._idle, (lambda: True)
+run(600.0 + g.HOLD_S + 0.5, 600.0 + g.HOLD_S + 2.0)
+assert done[0] == "waist +0 look None" and done[1:] == ["swing"] * g.IDLE_SWINGS and g._st["held"], done
+g._idle = real_idle
+arm["at"] = "look"
+done.clear()
+
+# the base or the arm controller does not answer for a moment: tried again, the switch stays on; a stop switches it off
+g.LINK_RETRY_S = 0.0
+real_step = g.step
+def no_answer(now):
+    raise ConnectionRefusedError(111, "Connection refused")
+g.step = no_answer
+switch["on"] = True
+g._tick(500.0)
+assert switch["on"], switch
+def stopped_step(now):
+    raise g.motion.MotionError("stopped")
+g.step = stopped_step
+g._tick(501.0)
+assert not switch["on"], switch
+g.step = real_step
+switch["on"] = True
+said.clear()
 done.clear()
 
 # a hand at the head (scratching, a phone at the ear) is not a raised hand; the same hand held out to the side is

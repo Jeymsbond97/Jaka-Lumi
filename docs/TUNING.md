@@ -199,10 +199,10 @@ Every value here is a constant at the top of its file, with a comment on what it
 | File | Name | Default | What it does |
 |---|---|---|---|
 | `tasks/wave_greet.py` | `GREET_MIN_M`, `GREET_M` | 1.0 m, 5.0 m | People waving nearer or further away are not answered (camera depth; without depth there, the shoulder width with `SHOULDER_M` 0.36 m) |
-| `tasks/wave_greet.py` | `PASSER_M` | 3.0 m | A patrol's wave for people passing waves only at people this near |
+| `tasks/wave_greet.py` | `PASSER_M` | 5.0 m (`GREET_M`) | A drive's stop and wave for people passing: someone this near and nobody within `IDLE_CLEAR_M` (1 m) |
 | `vision/waving.py` | `FLOW_PX`, `FLOW_SHOULDER_PX` | 1.0 px, 80 px | Hand flow per frame that counts as a swing, for a person this wide at the shoulders; smaller (further) people need proportionally less |
 | `tasks/wave_greet.py` | `GONE_S` | 10 s | A greeted person out of both cameras' view this long is forgotten: their next wave gets an introduction again |
-| `tasks/wave_greet.py` | `HOLD_S` | 40 s | The waist stays on the last person who waved this long, then turns back to its rest; the hand stays up |
+| `tasks/wave_greet.py` | `HOLD_S` | 15 s | The waist stays on the last person who waved this long, then turns back to its rest; the hand stays up and the idle swings start at once |
 | `tasks/wave_greet.py` | `DOWN_SPEED` | "normal" | `motion.JOINT_SPEED` of the way down; the way up is `arm_route.SPEED` / `wave.ARRIVE_SPEED` (route, the Cobo π limit) |
 | `tasks/wave_greet.py` | `SWING_SPEED` | "swing" | `motion.JOINT_SPEED` of its swings (an asked wave uses `wave.SWING_SPEED`) |
 | `robot/motion.py` | `SPEED_ACCEL_FACTOR` | swing 4.0 | A joint speed with its own acceleration factor instead of `JOINT_ACCEL_FACTOR`: "swing" (60 °/s, 240 °/s²) for the greeting's short swings. Higher = snappier swings, more shaking |
@@ -211,8 +211,9 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `tasks/wave_greet.py` | `NEW_WAVE_S` | 5 s | No waving this long: the next wave gets a new greeting line |
 | `tasks/wave_greet.py` | `JOKE_AFTER_S`, `JOKE_EVERY_S` | 10 s, 12 s | Waving on and on: the first joke after this long, then one every this long |
 | `tasks/wave_greet.py`, `assistant/lumi.py` | `IDLE_WAVE_EVERY_S`, `IDLE_SWINGS`, `IDLE_AFTER_S` | 15 s, 3, 15 s | On the charger with the wave greeting on and nothing said to Lumi for `IDLE_AFTER_S`: the hand goes up and stays up, this many swings every `IDLE_WAVE_EVERY_S`; a call stops the swings (the hand stays up), a drive or an arm order takes it down. Estimates |
-| `assistant/lumi.py` | `PASSER_WAVE_EVERY_S`, `PASSER_MARKERS`, `DOCK_QUIET_M` | 15 s, "line", 2 m | With the wave greeting on, the empty arm drives with the hand up (`wave_start`). On the way to markers whose names start with `PASSER_MARKERS` the base stops for anyone within 3 m and waves; to other markers only for someone waving; at most every `PASSER_WAVE_EVERY_S`; never nearer than `DOCK_QUIET_M` to the dock (a stop there undoes the docking). Estimates |
+| `assistant/lumi.py` | `PASSER_WAVE_EVERY_S`, `PASSER_MARKERS`, `DOCK_QUIET_M` | 15 s, "line", 2 m | With the wave greeting on, the empty arm drives with the hand up (`wave_start`). On the way to markers whose names start with `PASSER_MARKERS`, and on every leg of a there-and-back route loop, the base stops for anyone 1–5 m away and waves (`PASSER_M`); to other markers only for someone waving; at most every `PASSER_WAVE_EVERY_S`; never nearer than `DOCK_QUIET_M` to the dock (a stop there undoes the docking). Estimates |
 | `assistant/lumi.py` | `PASSER_MAX_M`, `PASSER_EVERY_S`, `PASSER_DEG` | 4 m, 2 s, 10° | On the charger with nobody talking to Lumi: the head turns to the nearest person this near, at most this often, when they are this far off where it looks (the body stays). Estimates |
+| `tasks/wave_greet.py` | `WAIST_MAX_DEG` | 30° | The waist turns toward a waving person this far from the front at most; the head covers the rest. Estimate |
 | `tasks/wave_greet.py` | `WAIST_MIN_DEG` | 10° | A person nearer the front than this: only the head turns, not the waist |
 | `tasks/wave_greet.py` | `WAIST_FOLLOW_DEG`, `FOLLOW_EVERY_S` | 20°, 3 s | The waving person moved this far off the waist's front: the waist turns to them again between swings, at most this often |
 | `tasks/wave_greet.py` | `WAIST_PARTS` | 1, 0.75, 0.5, 0.25 | A waist turn whose sweep is blocked is tried again this much of the way; the head covers the rest |
