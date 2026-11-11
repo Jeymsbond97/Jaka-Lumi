@@ -281,6 +281,8 @@ def go(body: GoBody):
 class RouteBody(BaseModel):
     markers: list[str] = Field(examples=[["p1", "p3", "home"]], min_length=1)
     pause: float = Field(1.0, ge=0, le=60, description="seconds to wait at each marker")
+    loop: bool = Field(False, description="there and back again until stopped (a, b, c, b, a, ...); needs the "
+                       "assistant (Greeter / Patrol on)")
 
 
 class RouteRunner:
@@ -333,8 +335,10 @@ def go_route(body: RouteBody):
     if unknown:
         raise HTTPException(400, f"unknown markers {unknown}; markers: {names}")
     if assistant_pids():
-        send_to_assistant("route", markers=body.markers, pause=body.pause)
+        send_to_assistant("route", markers=body.markers, pause=body.pause, loop=body.loop)
         return {"ok": True, "route": body.markers, "by": "assistant"}
+    if body.loop:
+        raise HTTPException(409, SWITCHES_OFF)
     held_to_look()
     _route.start(body.markers, body.pause)
     return {"ok": True, "route": body.markers, "by": "api"}

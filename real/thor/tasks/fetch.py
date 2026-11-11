@@ -424,12 +424,18 @@ def bag_off():
     log("no bag: the arm at rest")
 
 
+def drive_arm():
+    """The empty arm's pose for a drive or a base turn: look (owner, 2026-11-07), its rest with a bag on the hooks
+    (in look the bag hangs before the base's 3D camera, BAG_POSE)."""
+    return arm_route.rest_pose() if _state.get("bag") else arm_route.HOME
+
+
 def _drive_pose(holding=False):
-    """The arm to its rest (arm_route.rest_pose; look with something held) before the base drives or turns. A switched-off arm (Cobo π: not powered or not enabled) stays
+    """The arm to its drive pose (drive_arm; look with something held) before the base drives or turns. A switched-off arm (Cobo π: not powered or not enabled) stays
     where it is: drives and talk need no arm, and the arm's points are still checked from its joints. Powered off, it
     reads all joints 0: where it is is not known, so no drive (ARM_UNSEEN)."""
     try:
-        _line_holding(LOOK_POSE) if holding else _pose(arm_route.rest_pose())   # a bag on the hooks too
+        _line_holding(LOOK_POSE) if holding else _pose(drive_arm())
     except (FetchError, motion.MotionError) as e:
         if tuple(e.args[:1]) != arm_route.OFF[:1] and "not powered" not in str(e):
             raise
@@ -1953,15 +1959,16 @@ def _kept_spots(kept, key):
 def _place_remembered(top0, kept):
     """Put it down on the kept table where its level top was seen (_remember), also where the camera sees it no more:
     from here at its spots nearest PICK_ZONE_CENTRE, else after the waist turn (waist_for, in place) that brings one of
-    its spots nearest the column into the arm's comfortable reach. Only with the waist at the front, the table's height
-    known and the lift right for it. True when it is down."""
+    its spots nearest the column into the arm's comfortable reach; none of its level top remembered as a spot: at its
+    kept spot (_place_kept_spot). Only with the waist at the front, the table's height known and the lift right for it.
+    True when it is down."""
     z = _kept_at(kept)[2]
     lift = None if z is None else lift_for(z)
     if lift is None or abs(lift - head.status()[0]) >= LIFT_TOL_MM or abs(_waist_turn()) >= 1.0:
         return None
     spots = _kept_spots(kept, lambda x, y: math.hypot(x - PICK_ZONE_CENTRE[0], y - PICK_ZONE_CENTRE[1]))
     if not spots:
-        return None
+        return _place_kept_spot(top0, kept)
     top = _top_on(top0, z)
     log(f"the table I keep at {z:.0f} mm: trying spots of it I saw")
     if _place_at(spots[:FAR_SPOTS], top):             # each refused spot costs IK time; the nearest are likeliest
@@ -1981,6 +1988,25 @@ def _place_remembered(top0, kept):
                 return None
             return _place_at([(t["x"], t["y"])], top)
     return None
+
+
+def _place_kept_spot(top0, kept):
+    """Put it down at the kept table's own spot (_kept_at: FAR_IN_MM in from its nearest level point when last seen)
+    when no remembered level point of it makes a spot: up close the torso camera may see the table no more (out of its
+    view, too near for depth, no depth frame) and the base has brought the spot into reach. Only within FAR_REACH_MM,
+    FREE_MM from everything seen standing, and never where the camera sees a surface other than the kept height (the
+    table is not where it was kept). True when it is down."""
+    x, y, z = _kept_at(kept)
+    if math.hypot(x, y) > FAR_REACH_MM or any(math.hypot(x - o["x"], y - o["y"]) < skills.FREE_MM
+                                              for o in skills.look()):
+        return None
+    seen = skills.surface_heights([(x, y)], z)[0]
+    if seen is not None and abs(seen - z) > KEEP_TOL_MM:
+        log(f"where I keep the table ({x:.0f}, {y:.0f}) I see {seen:.0f} mm, not its top at {z:.0f} mm")
+        return None
+    log(f"the table I keep at {z:.0f} mm{' is out of view' if seen is None else ''}: putting it at its spot "
+        f"({x:.0f}, {y:.0f})")
+    return _place_at([(x, y)], _top_on(top0, z))
 
 
 def _kept_at(kept):

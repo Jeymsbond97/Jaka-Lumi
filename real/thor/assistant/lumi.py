@@ -228,8 +228,9 @@ def on_charger():
 def waist_home_rest(why):
     """On the charger with nothing to do (after a drive home, at a conversation's end): the empty arm slowly from its
     rest (arm_route.REST) to look and the waist to HOME_WAIST_DEG (owner, 2026-11-04); every order that moves the arm
-    or the base takes it to REST first again (waist_home fold). Checked like every move. Not while a task runs, with
-    something in the hand or the arm out (a hand held out). True when both are there."""
+    or the base takes it to REST first again (waist_home fold). With the wave greeting on and the hand up, the waist
+    turns with the hand kept up (owner, 2026-11-07). Checked like every move. Not while a task runs, with something in
+    the hand or the arm out (a hand held out). True when both are there."""
     from tasks import fetch
     if not on_charger():
         return False
@@ -240,7 +241,10 @@ def waist_home_rest(why):
                 log(f"  arm and waist stay ({why}): a task runs or something is in my hand")
                 return False
             fetch._stop.clear()
-            if not fetch._at_pose(arm_route.HOME):
+            if wave_greet_on() and arm_route.where() in arm_route.WAVE_POSES:
+                wave_greet._quiet(10.0)               # the hand up for the greeting: the waist turns with it up,
+                                                      # its swings ended first
+            elif not fetch._at_pose(arm_route.HOME):
                 if not fetch._at_pose(arm_route.rest_pose()):
                     log(f"  arm and waist stay ({why}): my arm is out")
                     return False
@@ -260,34 +264,58 @@ def waist_home(why, fold=False):
     limits. Not while a task runs (it turns the waist itself) or the arm is out of its rest (a hand held out): logged,
     the waist stays, unless `fold` (an order to drive or turn): something held goes to look first wherever the waist
     is (fetch.drive_ready: straight checked lines, holding speed), an empty arm to its rest (arm_route.REST, owner
-    2026-11-04) along the checked pose graph. True when the waist is at the front (and the arm at its rest)."""
+    2026-11-04; look for a drive, fetch.drive_arm, owner 2026-11-07) along the checked pose graph; with the wave
+    greeting on, the empty arm drives with the hand up (wave_greet.raise_for_drive, owner 2026-11-07). True when the
+    waist is at the front (and the arm at its rest or up for the drive)."""
     from tasks import fetch
     with _waist_lock:
         try:
-            if fold:
-                wave_greet.lower()                    # a hand up for a wave greeting comes down before any drive
             holding, running = fetch.state().get("holding"), fetch.state().get("status") == "running"
+            empty = fold and not holding and not running
             if fold and holding:
                 fetch.drive_ready()                   # a drive with the cup held out in carry / give: never
-            if fold and not holding and not running and not fetch._at_pose(rest := arm_route.rest_pose()):
-                log(f"  arm to {rest} first ({why})")   # every drive and turn starts with the empty arm at rest
-                arm_route.move(arm_route.plan(rest, holding=False), None, False)   # (a bag on the hooks too),
-            if abs(fetch._waist_turn()) < 1.0:                                     # wherever the waist is
-                return True
-            if running:
-                log(f"  waist stays turned ({why}): a task runs")
-                return False
-            rest = arm_route.rest_pose(holding)       # look with a cup; look on the charger too (waist_home_rest)
-            if not fetch._at_pose(rest) and not fetch._at_pose(arm_route.HOME):
-                log(f"  waist stays turned ({why}): my arm is not at {rest}")
-                return False
-            fetch._stop.clear()                       # no task runs: an old stop must not end this; a new one does
-            if fetch._waist_to(0.0, in_place=True):
+            if empty and abs(fetch._waist_turn()) >= 1.0 and wave_greet.front_hand_up():
+                log(f"  waist to the front with the hand up ({why})")
+            if empty and abs(fetch._waist_turn()) >= 1.0:   # turned (the rest at home): the waist comes round with
+                wave_greet.lower()                          # the arm at its rest, its smallest sweep (in look it hit
+                if not fetch._at_pose(rest := arm_route.rest_pose()):   # the wall behind the dock)
+                    log(f"  arm to {rest} first ({why})")
+                    arm_route.move(arm_route.plan(rest, holding=False), None, False)
+            if abs(fetch._waist_turn()) >= 1.0:
+                if running:
+                    log(f"  waist stays turned ({why}): a task runs")
+                    return False
+                rest = arm_route.rest_pose(holding)   # look with a cup; look on the charger too (waist_home_rest)
+                if not fetch._at_pose(rest) and not fetch._at_pose(arm_route.HOME):
+                    log(f"  waist stays turned ({why}): my arm is not at {rest}")
+                    return False
+                fetch._stop.clear()                   # no task runs: an old stop must not end this; a new one does
+                if not fetch._waist_to(0.0, in_place=True):
+                    return False
                 log(f"  waist to the front ({why})")
-                return True
+            if empty:
+                _drive_arm(why)
+            return True
         except Exception as e:
             log(f"  waist stays turned ({why}): {e!r}")
         return False
+
+
+def _drive_arm(why):
+    """The empty arm for a drive, the waist at the front: the hand up with the wave greeting on (wave_greet.
+    raise_for_drive), else look (fetch.drive_arm; its rest with a bag on the hooks)."""
+    from tasks import fetch
+    try:
+        if wave_greet.raise_for_drive():
+            return
+    except wave_mod.WaveError as e:                   # the way up refused: the drive goes in look
+        log(f"  hand not up for the drive ({why}): {e.args[0]}")
+    wave_greet.lower()                                # a hand up for a wave greeting comes down before any drive
+    if not fetch._at_pose(rest := fetch.drive_arm()):
+        log(f"  arm to {rest} first ({why})")
+        arm_route.move(arm_route.plan(rest, holding=False), None, False)
+
+
 LIFT_VEL = 20                       # speed ratio % for a lift move asked by voice (head.VEL is 40)
 LIMIT_SAY = {"yaw": (f"I can turn my head up to {head.AXIS_LIMITS[2][1]:g} degrees each way.",
                      f"고개는 좌우로 {head.AXIS_LIMITS[2][1]:g}도까지 돌릴 수 있어요."),
@@ -517,6 +545,12 @@ HEALTH_S = 30.0                    # s between "camera ok" lines in the log
 PATROL_WAIT_S = 8.0                # s; on patrol, after the greeting or the last answer, wait this long for speech
 LOW_BATTERY, RESUME_BATTERY = 5, 60    # %
 PAUSE_AT_END = 3.0                 # s to wait at each patrol point
+PASSER_WAVE_EVERY_S = 15.0         # s; a drive with the hand up stops to wave at people at most this often (else the
+                                   # same person is waved at again and again; estimate)
+DOCK_QUIET_M = 2.0                 # m; on the way to the dock nearer than this no stop for a wave (the docking starts
+                                   # there and a stop undid it; estimate)
+PASSER_MARKERS = "line"            # drives to markers named so stop to wave at everyone passing; to the others only at
+                                   # someone waving (owner, 2026-11-07)
 
 
 LOG_FILE = os.path.join(ROOT, "logs", "lumi.log")
@@ -842,6 +876,11 @@ class Patrol:
     def __init__(self, route, once=False, pause_s=PAUSE_AT_END):
         self.route, self.i = route, 0
         self.once, self.pause_s = once, pause_s
+        self.hand_up = False             # this leg drives with the hand up (waist_home): it stops to wave at people
+                                         # (PASSER_MARKERS)
+        self.dock_leg = False            # this leg goes to the dock: a stop near it undid the docking (dock_far)
+        self.waving = None               # the thread swinging for people passing (wave_greet.passer_wave)
+        self.wave_after = 0.0            # no wave for passers before this (PASSER_WAVE_EVERY_S)
         self.mode = "patrol"             # patrol | going_home | charging | done
         self.moving = False              # a move that we started is running
         self.progress = None             # (pose, time) of the last movement, to notice a stuck drive
@@ -868,7 +907,7 @@ class Patrol:
             return
         battery, ms = st.get("power_percent", 100), st.get("move_status")
 
-        if self.mode == "done":
+        if self.mode == "done" or self.waving is not None and self.waving.is_alive():
             return
         if self.mode == "charging":
             if battery >= RESUME_BATTERY:
@@ -886,6 +925,17 @@ class Patrol:
             return
 
         if self.moving:
+            if ms == "running" and self.hand_up and now >= self.wave_after and wave_greet_on():
+                self.wave_after = now + 1.0              # asked about once a second while driving
+                target = self.route[self.i]
+                waver = wave_greet._waver() and (not self.dock_leg or self.dock_far(st))
+                if waver or not self.dock_leg and isinstance(target, str) and target.startswith(PASSER_MARKERS) and \
+                        wave_greet._someone_within(wave_greet.GREET_M):
+                    self.pause()                         # the base stops; the next tick drives on to the same marker
+                    self.wave_after = now + PASSER_WAVE_EVERY_S
+                    self.waving = threading.Thread(target=self.passer_wave, daemon=True)
+                    self.waving.start()
+                    return
             if ms == "running":
                 pose = st.get("current_pose") or {}
                 xy = (pose.get("x", 0.0), pose.get("y", 0.0), pose.get("theta", 0.0))
@@ -944,10 +994,28 @@ class Patrol:
             ok, msg = safe(agv.go, target, default=(False, "error"))
         if ok:
             self.moving = True
+            self.hand_up = safe(arm_route.where, default=None) in arm_route.WAVE_POSES   # every drive (owner)
+            self.dock_leg = target in ("home", safe(agv.dock_marker, default=None))
             log(f"patrol -> {target}")
         else:
             log(f"patrol cannot go to {self.route[self.i]}: {msg}")
             self.wait_until = now + 5
+
+
+    def dock_far(self, st):
+        """On the way to the dock, still further than DOCK_QUIET_M from it: a stop for someone waving is allowed."""
+        xy = safe(agv.marker_xy, "home", default=None)
+        pose = st.get("current_pose") or {}
+        return xy is not None and math.hypot(pose.get("x", 0.0) - xy[0], pose.get("y", 0.0) - xy[1]) > DOCK_QUIET_M
+
+    def passer_wave(self):
+        """Swings for the people passing (wave_greet.passer_wave); a stop or a failure of the arm ends the patrol (the
+        arm never moves again by itself after a stop)."""
+        try:
+            wave_greet.passer_wave()
+        except Exception as e:
+            log(f"patrol ended: the arm stopped ({e!r})")
+            self.mode = "done"
 
 
 class Modes:
@@ -2442,7 +2510,7 @@ class Lumi:
         elif cmd == "go_point":
             self.start_trip(tuple(d["point"]))
         elif cmd == "route":
-            self.start_trip(d["markers"], d.get("pause", 1.0))
+            self.start_trip(d["markers"], d.get("pause", 1.0), loop=d.get("loop", False))
         elif cmd == "cancel":
             if self.mission_running():                    # running or paused: never goes on after a cancel
                 from tasks import fetch
@@ -2490,16 +2558,21 @@ class Lumi:
             self.calib_n = 0
             self.write_calib("collecting" if self.calib_until else "stopped")
 
-    def start_trip(self, target, pause_s=0.0, remember=True):
+    def start_trip(self, target, pause_s=0.0, remember=True, loop=False):
         """Drive to a marker, a map point or a list of markers in order; with patrol mode on, people in the
-        way are greeted on the way. `remember`: where Lumi stands now is where "come back" returns to."""
+        way are greeted on the way. `remember`: where Lumi stands now is where "come back" returns to. `loop`: the
+        markers there and back again until stopped (a, b, c, b, a, ...), the hand left up when it is up (Patrol)."""
         if remember:
             from tasks import fetch
             fetch._task["trip_from"] = safe(agv.pose) or fetch._task["trip_from"]
         detour.forget()                                   # a new trip: "try again" no longer means a blocked one
         if self.patrol:
             self.patrol.pause()
-        self.patrol = Patrol(list(target) if isinstance(target, list) else [target], once=True, pause_s=pause_s)
+        route = list(target) if isinstance(target, list) else [target]
+        if loop and len(route) > 1:
+            self.patrol = Patrol(route + route[-2:0:-1], once=False, pause_s=pause_s)
+        else:
+            self.patrol = Patrol(route, once=True, pause_s=pause_s)
         self.patrol.tick(force=True)
 
     def come_back(self, speak=False):

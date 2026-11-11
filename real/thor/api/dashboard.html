@@ -310,7 +310,8 @@ input[type=color]{width:30px;height:28px;border:1px solid var(--line);border-rad
       <div class="row"><button class="btn primary grow" id="calStart">Start calibration</button><button class="btn grow" id="calStop">Stop</button>
         <button class="btn danger" id="calReset">Reset</button></div></div>
     <div class="sec"><h4>Patrol</h4>
-      <div class="row"><label class="toggle">Wait at each marker <input type="number" id="pause" value="1" min="0" max="60" style="width:64px"> s</label></div></div>
+      <div class="row"><label class="toggle">Wait at each marker <input type="number" id="pause" value="1" min="0" max="60" style="width:64px"> s</label>
+        <label class="toggle"><input type="checkbox" id="loop"> Loop</label></div></div>
   </div>
 
   <div class="pane" id="pane-logs">
@@ -726,7 +727,7 @@ $("goBtn").onclick = e => {
   const stops = destDD.values, name = n => n === "home" ? "the dock" : n;
   if (!stops.length) return note("Choose a place first");
   if (stops.length === 1) return act(e.target, () => api("/agv/go", {marker: stops[0]}));
-  act(e.target, () => api("/agv/route", {markers: stops, pause: +$("pause").value || 0}));
+  act(e.target, () => api("/agv/route", {markers: stops, pause: +$("pause").value || 0, loop: $("loop").checked}));
 };
 $("dockBtn").onclick = e => act(e.target, () => api("/agv/go", {marker: "home"}));
 $("cancelBtn").onclick = e => act(e.target, () => api("/agv/cancel", {}));

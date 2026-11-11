@@ -2,6 +2,7 @@
 waving detector (vision/waving.py) on the recordings of vision/wave_record.py when they are here (tests/data/waves,
 local only: people in the pictures): python tests/test_wave_greet.py"""
 from pathlib import Path
+import time
 
 import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from manipulation import arm_route, wave
@@ -246,7 +247,7 @@ g._st["idle_at"] = 700.0                                # the last idle wave
 run(700.0, 700.0 + g.IDLE_WAVE_EVERY_S - 1)
 assert done == [] and said == [], done                  # not before IDLE_WAVE_EVERY_S
 run(700.0 + g.IDLE_WAVE_EVERY_S + 0.5, 700.0 + g.IDLE_WAVE_EVERY_S + 0.5)
-assert done == ["up route", "swing", "swing"] and said == [] and g._st["up"] and g._st["held"], (done, said)
+assert done == ["up route"] + ["swing"] * g.IDLE_SWINGS and said == [] and g._st["up"] and g._st["held"], (done, said)
 done.clear()
 t = 700.0 + g.IDLE_WAVE_EVERY_S + 1
 run(t, t + g.IDLE_WAVE_EVERY_S - 2)
@@ -260,10 +261,15 @@ run(1000.0, 1100.0)
 assert done == [] and g._st["up"], done
 talk["on"] = False                                      # quiet again: the swings go on
 run(1101.0, 1102.0)
-assert done == ["swing", "swing"], done
+assert done == ["swing"] * g.IDLE_SWINGS, done
 done.clear()
 g.lower()                                               # a drive: down to the front first
 assert "down normal" in done and not g._st["up"] and not g._st["held"], done
+done.clear()                                            # the hand left up (its way down did not run): swings from there
+arm["at"], g._st["idle_at"] = "wave_start", 0.0
+run(1200.0, 1200.0)
+assert done == ["swing"] * g.IDLE_SWINGS and g._st["held"], done
+g.lower()
 g._idle = lambda: True
 done.clear()
 said.clear()                                            # someone waves back during an idle wave: greeted as always,
@@ -303,6 +309,25 @@ run(614.5, 614.0 + g.NEW_WAVE_S + 1)
 waver["w"] = W(0.0)
 run(621.0, 621.0)
 assert said[-1] in sum(g.wave_lines.INTRO, ()), said
+
+# a loop patrol's wave for people passing: only with the hand up, someone within GREET_M, nobody by the arm
+near = {"m": None}
+waver["w"] = None
+g._someone_within = lambda m: near["m"] is not None and near["m"] < m
+g._nearest = lambda m: 20.0 if near["m"] is not None and near["m"] < m else None
+saved, arm["at"] = arm["at"], "wave_start"
+done.clear()
+assert not g.passer_wave() and not done              # nobody there
+near["m"] = 0.5
+assert not g.passer_wave() and not done              # someone right by the arm
+near["m"] = 2.0
+assert g.passer_wave() and done.count("swing") == g.IDLE_SWINGS
+time.sleep(0.2)                                      # the head turns in the background
+assert "head +20" in done and done[-1] == "head +0"  # to them, then ahead again for the drive
+arm["at"], near["m"] = "look", 2.0
+assert not g.passer_wave()                           # the hand is not up
+arm["at"] = saved
+done.clear()
 
 # a hand at the head (scratching, a phone at the ear) is not a raised hand; the same hand held out to the side is
 import numpy as np                                  # noqa: E402

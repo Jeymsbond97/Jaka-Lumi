@@ -53,9 +53,9 @@ REFUSED_S = 30.0             # s before trying again after the arm was refused (
                              # between tries to bring a blocked waist back to the front
 HEAD_TIMEOUT_S = 5.0         # s a head move may take; the body API now and then never answers a moveto, and the call
                              # holds the body lock all that time (the waist turn waited 30 s behind it)
-IDLE_WAVE_EVERY_S = 20.0     # s between two waves while nothing is asked of Lumi on the charger (owner: now and then for
+IDLE_WAVE_EVERY_S = 15.0     # s between two waves while nothing is asked of Lumi on the charger (owner: now and then for
                              # the passers-by; estimate), from the end of the last one (or anyone's last wave)
-IDLE_SWINGS = 2              # swings of such a wave
+IDLE_SWINGS = 3              # swings of such a wave
 IDLE_CLEAR_M = 1.0           # m; nobody this near in either camera when such a wave starts (one coming closer while the
                              # arm goes up still stops it: _too_close); estimate
 IDLE_RETRY_S = 1.0           # s between two asks whether Lumi is idle (it asks the base whether it charges)
@@ -330,17 +330,21 @@ def _idle_wave():
     """Nobody asks anything (on the charger, _idle): the hand goes up and stays up (owner, 2026-11-04: "held"), the
     waist where it is, no words; it swings IDLE_SWINGS times now and then (step) so passers-by see Lumi is on. A drive
     or an order for the arm takes it down (lower, a task), the switch turned off too. False when the arm is refused."""
-    if _someone_within(IDLE_CLEAR_M) or arm_route.where() != _rest_arm():
+    at = arm_route.where()
+    if _someone_within(IDLE_CLEAR_M) or at not in (_rest_arm(), wave.START, wave.SWING):
         return True                          # someone near the arm, or the arm still on its way to rest: next time
-    try:
-        route, _ = wave.plan()
-    except Exception as e:
-        log(f"no idle wave: {e.args[0] if isinstance(e, wave.WaveError) else repr(e)}")
-        return False
+    route = None                             # the hand already up (a wave's way down did not run): it swings from there
+    if at == _rest_arm():
+        try:
+            route, _ = wave.plan()
+        except Exception as e:
+            log(f"no idle wave: {e.args[0] if isinstance(e, wave.WaveError) else repr(e)}")
+            return False
     log("nothing asked for a while: the hand up for the passers-by")
     _busy.set()
     try:
-        _up(route)
+        if route:
+            _up(route)
         _st.update(up=True, held=True, held_at=0.0)
         _idle_swings()
     finally:
@@ -362,21 +366,87 @@ def _idle_swings():
         _swing()
 
 
-def _down(waist=None):
+def raise_for_drive():
+    """With the switch on, the empty arm drives with the hand up at START (owner, 2026-11-07): the way up (wave.plan)
+    unless it is up already. A stop or a failure switches the greeting off (_stopped) and raises. True when it is up."""
+    if _on is None or not _on():
+        return False
+    if arm_route.where() in arm_route.WAVE_POSES:
+        return True
+    if _too_close():
+        log("a drive: someone right by me, the hand stays down")
+        return False
+    route, _ = wave.plan()
+    log("a drive: the hand up")
+    _busy.set()
+    try:
+        _up(route)
+    except Exception as e:
+        _stopped(e)
+        raise
+    finally:
+        _busy.clear()
+    return True
+
+
+def _nearest(m):
+    """Bearing (deg from the waist's front, + left) of the nearest person within `m` metres in either camera's fresh
+    detections, None when there is none."""
+    near = []
+    for cam in ("head", "torso"):
+        try:
+            d = json.loads(camview.det_path(cam).read_text())
+        except (FileNotFoundError, ValueError):
+            continue
+        if time.time() - d["time"] < CLOSE_FRESH_S:
+            near += [(p["distance_m"], p["angle_deg"]) for p in d["people"]
+                     if p.get("distance_m") is not None and p["distance_m"] < m]
+    return min(near)[1] if near else None
+
+
+def passer_wave():
+    """A drive with the hand up (lumi.Patrol, the base stopped): the head to the one waving, else the nearest person
+    within GREET_M, and IDLE_SWINGS swings, waited for, then the head ahead again; none when nobody is within GREET_M
+    or someone is within IDLE_CLEAR_M of the arm. A stop or a failure switches the greeting off (_stopped) and
+    raises. True when it swung."""
+    w = _waver()
+    bearing = w[0] if w else _nearest(GREET_M)
+    if _on is None or not _on() or bearing is None or _someone_within(IDLE_CLEAR_M) or \
+            arm_route.where() not in (wave.START, wave.SWING):
+        return False
+    log(f"{'someone waves' if w else 'people passing'} at {bearing:+.0f} deg: a wave")
+    _busy.set()
+    _head_to(bearing)
+    try:
+        for _ in range(IDLE_SWINGS):
+            if _someone_within(IDLE_CLEAR_M):
+                break
+            _swing()
+    except Exception as e:
+        _stopped(e)
+        raise
+    finally:
+        _busy.clear()
+        _turn_head(0.0)                  # the drive goes on looking ahead
+    return True
+
+
+def _down(waist=None, arm_to=None):
     """Waist to its rest (`waist` deg from the front, else _rest()) first, the way it came with the hand up (in `look`
     the arm sticks out further and the same turn back can be blocked), then the arm slowly down (_rest_arm) and the
     head to rest."""
     from tasks import fetch
     _busy.set()
     try:
-        if _st["up"] and arm_route.where() is None:
+        if arm_route.where() is None:
             _settle()                    # mid-swing: the queued swings end first
         fetch._stop.clear()
         _st["waist_out"] = not fetch._waist_to(_rest() if waist is None else waist, in_place=True)
-        if arm_route.where() in arm_route.WAVE_POSES:
-            arm_route.move(arm_route.plan(_rest_arm()), DOWN_SPEED)
+        at = arm_route.where()
+        if at in arm_route.WAVE_POSES:
+            arm_route.move(arm_route.plan(arm_to or _rest_arm()), DOWN_SPEED)
         _turn_head(0.0, head.HEAD_REST_PITCH)
-        log("arm down")
+        log("arm down" if at in arm_route.WAVE_POSES or at in (_rest_arm(), arm_to) else f"arm left where it is ({at or 'between poses'})")
     finally:
         _busy.clear()
 
@@ -486,21 +556,40 @@ def up():
     return _st["up"]
 
 
+def _quiet(wait_s):
+    """The way up and the swings sent without waiting end first (at most `wait_s` for the way up)."""
+    end = time.time() + wait_s
+    while _busy.is_set() and time.time() < end:
+        time.sleep(0.05)
+    if _st["swing_end"] > time.time() - SWING_S:
+        _settle()
+        _st["swing_end"] = 0.0
+
+
+def front_hand_up(wait_s=10.0):
+    """Before a drive with the switch on and the hand up (lumi.waist_home): the swings end and the waist turns to the
+    front with the hand kept up, as _down turns it (owner, 2026-11-07: not down and up again). True when it did."""
+    if _on is None or not _on():
+        return False
+    _quiet(wait_s)
+    if arm_route.where() not in arm_route.WAVE_POSES:
+        return False
+    from tasks import fetch
+    fetch._stop.clear()
+    return fetch._waist_to(0.0, in_place=True)
+
+
 def lower(wait_s=10.0):
     """A drive or a turn takes the robot (lumi.waist_home): the way up and the queued swings end, then a hand left in
     a wave pose comes down to look, the waist to the front. Never driven with the hand up. Nothing when the greeting
     does not run in this process (start() not called)."""
     if _on is None:
         return
-    end = time.time() + wait_s
-    while _busy.is_set() and time.time() < end:
-        time.sleep(0.05)
-    if _st["swing_end"] > time.time() - SWING_S:
-        _settle()                        # swings sent without waiting may still run
-        _st["swing_end"] = 0.0
+    _quiet(wait_s)
     _st["up"] = arm_route.where() in arm_route.WAVE_POSES
     if _st["up"]:
-        _down(0.0)                       # a drive follows: the waist to the front
+        from tasks import fetch
+        _down(0.0, fetch.drive_arm())    # a drive follows: the waist to the front, the arm to its drive pose
     _st["up"] = _st["held"] = False
 
 

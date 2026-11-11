@@ -222,6 +222,43 @@ fetch._place_kept = real_kept
 fetch._state.update(holding=False, held_object=None)
 skills.flat_points = flat
 
+# ---------- a table seen further away, lost up close (out of the torso camera's view, no depth frame, and no level
+# point of it remembered: seen by the head camera): put on its kept spot once the base brought it into reach ----------
+ROUND.update(c=(-160.0, 1350.0), r=400.0)
+TABLE_Z = -390.0
+far = fetch.far_table()
+assert far and abs(far["table"] - TABLE_Z) < 1.0, far
+kept = fetch._keep((far["x"], far["y"]), far["table"])                 # no level points kept
+spot_world = fetch._kept_at(kept)
+fetch.agv.pose = lambda: (0.60, 0.0, 0.0)                              # the base drove 0.6 m towards it
+x, y, z = fetch._kept_at(kept)
+assert math.hypot(x, y) <= fetch.FAR_REACH_MM and abs(y - (spot_world[1] - 600.0)) < 60.0, (x, y)
+assert math.hypot(x - ROUND["c"][0], y - (ROUND["c"][1] - 600.0)) < ROUND["r"]     # on the table, moved with it
+real_place_at, real_look = fetch._place_at, skills.look
+put = []
+fetch._place_at = lambda tries, top, turned=True: put.append((tries, top)) or True
+skills.look = lambda *a, **kw: []
+skills._held.clear()
+skills._held.update(top_mm=-300.0, table=-400.0)
+VIEW_Y = 1e9                                                           # lost: the camera sees nothing of it
+assert fetch._kept_spots(kept, lambda x, y: 0.0) == []
+assert fetch._place_remembered(-300.0, kept) is True, lines
+assert put == [([(x, y)], -290.0)], put                                # its spot, the cup's top 10 mm higher
+# never where the camera sees something else, nor next to a thing standing there, nor out of reach
+put.clear()
+VIEW_Y = 0.0
+ROUND["c"] = (-160.0, 2500.0)                                          # the floor where it was kept: not there
+assert fetch._place_remembered(-300.0, kept) is None and not put
+VIEW_Y = 1e9
+skills.look = lambda *a, **kw: [{"name": "cup", "x": x + 50.0, "y": y, "top_mm": -300.0}]
+assert fetch._place_remembered(-300.0, kept) is None and not put
+skills.look = lambda *a, **kw: []
+fetch.agv.pose = lambda: (0.0, 0.0, 0.0)                               # where it was seen from: too far
+assert fetch._place_remembered(-300.0, kept) is None and not put
+VIEW_Y = 655.0
+fetch._place_at, skills.look = real_place_at, real_look
+skills._held.clear()
+
 # ---------- several cups: the said colour / size / place first; that colour nowhere: the closest, said ----------
 cups = [{"name": "cup", "colour": c, "x": x, "y": y, "top_mm": -260.0, "width_mm": w, "seen": 8, "spread": 2.0}
         for c, x, y, w in (("white", -150.0, 600.0, 80.0), ("red", 100.0, 700.0, 70.0), ("white", -300.0, 900.0, 64.0))]
