@@ -71,18 +71,14 @@ class DriveLog:
 
 
 def marker_positions():
-    """f(name) -> (x, y) of a marker on the current map; re-read when a name is not known yet."""
-    cache = {}
-
+    """f(name) -> (x, y) of a marker on the current map, read on every call (a marker moved or a new map applies at
+    once; called only per log line)."""
     def xy(name):
-        if name not in cache:
-            try:
-                for n, m in (agv.request("/api/markers/query_list").get("results") or {}).items():
-                    cache[n] = (m["pose"]["position"]["x"], m["pose"]["position"]["y"])
-            except (ConnectionError, OSError, KeyError):
-                pass
-            cache.setdefault(name, None)           # a map point's generated name: no marker
-        return cache[name]
+        try:
+            m = (agv.request("/api/markers/query_list").get("results") or {}).get(name)
+            return (m["pose"]["position"]["x"], m["pose"]["position"]["y"]) if m else None
+        except (ConnectionError, OSError, KeyError):
+            return None
     return xy
 
 
