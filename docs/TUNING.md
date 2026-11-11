@@ -188,6 +188,21 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `manipulation/skills.py` | `MIN_SEEN` | 5 of 8 frames | An object must be seen this often at the same place |
 | `manipulation/skills.py` | `HAND_PROBE_MM`, `HAND_NEAR_MM`, `HAND_FAR_MM` | 30/50/70, 60, 250 mm | In-hand check by depth (`hand_sees`) |
 
+## Wave greeting
+
+| File | Name | Default | What it does |
+|---|---|---|---|
+| `tasks/wave_greet.py` | `GREET_M` | 3.0 m | People waving further away (head camera depth) are not answered |
+| `tasks/wave_greet.py` | `HOLD_S` | 60 s | The hand stays up this long after the last wave seen, then goes down to `look` |
+| `tasks/wave_greet.py` | `DOWN_SPEED` | "slow" | `motion.JOINT_SPEED` of the way down; the way up is `arm_route.SPEED` / `wave.ARRIVE_SPEED` (route, the Cobo π limit) |
+| `tasks/wave_greet.py` | `NEW_WAVE_S` | 5 s | No waving this long: the next wave gets a new greeting line |
+| `tasks/wave_greet.py` | `JOKE_AFTER_S`, `JOKE_EVERY_S` | 10 s, 12 s | Waving on and on: the first joke after this long, then one every this long |
+| `tasks/wave_greet.py` | `WAIST_MIN_DEG` | 10° | A person nearer the front than this: only the head turns, not the waist |
+| `tasks/wave_greet.py` | `REFUSED_S` | 30 s | After a refused wave (arm off, busy, holding) the next try waits this long |
+| `vision/waving.py` | `WINDOW_S`, `MIN_FLIPS` | 2 s, 2 | A wave: the hand's sideways motion changes direction this often within this long. Shorter window = quicker start and stop, slow waves missed |
+| `vision/waving.py` | `FLOW_PX` | 1.0 px / frame | Sideways hand motion (half-size frame) that counts as a swing. Lower = smaller waves count, more false waves |
+| `tasks/wave_lines.py` | `GREET`, `LONG` | 25 each | What Lumi says: greetings, and jokes for a long wave (English, Korean) |
+
 ## Voice
 
 | File | Name | Default | What it does |

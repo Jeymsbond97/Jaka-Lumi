@@ -40,6 +40,7 @@ from robot import head
 from manipulation import arm_route
 from manipulation import skills
 from manipulation import wave
+from tasks import wave_greet
 from api.control import jogger
 
 PORT = 8100
@@ -69,7 +70,7 @@ def assistant_pids():
 MODES_FILE = Path("/dev/shm/lumi_modes.json")
 CMD_FILE = Path("/dev/shm/lumi_cmd.json")
 CALIB_FILE = Path("/dev/shm/lumi_calib.json")
-DEFAULT_MODES = {"greeter": False, "patrol": False, "wave": True}
+DEFAULT_MODES = {"greeter": False, "patrol": False, "wave_greet": False}
 
 
 def read_modes():
@@ -118,6 +119,8 @@ def running_now():
         return "route"
     if _waving.is_set():
         return "wave"
+    if wave_greet.busy():
+        return "wave_greet"
     if _posing.is_set():
         return "arm"
     if lumi:
@@ -1401,10 +1404,10 @@ def task_state():
 class ModesBody(BaseModel):
     greeter: bool | None = Field(None, description="standing: greet people who come close, talk, wake word")
     patrol: bool | None = Field(None, description="driving anywhere: stop for people in the way, talk, drive on")
-    wave: bool | None = Field(None, description="wave when asked")
+    wave_greet: bool | None = Field(None, description="wave back at people who wave, Greeter / Patrol not needed")
 
 
-@app.get("/assistant/modes", tags=["assistant"], summary="Greeter / patrol / wave switches")
+@app.get("/assistant/modes", tags=["assistant"], summary="Greeter / patrol / wave greeting switches")
 def modes_get():
     return {**read_modes(), "running": bool(assistant_pids())}
 
@@ -1539,4 +1542,7 @@ if __name__ == "__main__":
     threading.Thread(target=_drive_log, daemon=True).start()
     # the supervisor here, not on import: a test importing this module started real lumi.py processes (2026-10-28)
     threading.Thread(target=_supervise, daemon=True).start()
+    wave_greet.start(lambda: read_modes()["wave_greet"],
+                     lambda: not assistant_pids() and running_now() in (None, "wave_greet"),
+                     lambda: modes_set(ModesBody(wave_greet=False)))
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
