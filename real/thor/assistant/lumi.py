@@ -387,6 +387,7 @@ LOOK_ME_PITCH = 0.0                # deg, head pitch of the first turn to a pers
                                    # fits whole; the head camera then tilts it to their height (look_me_pitch)
 LOOK_ME_SETTLE_S = 0.6             # s after a head move before its camera is asked who is there
 LOOK_ME_MAX_M = 6.0                # m; "look at me" finds callers up to this far (others count only within STAY_MAX)
+LOOK_ME_BODY_DEG = 5.0             # deg past the head's yaw limit before the body turns to face the person
 LOOK_ME_TOP_ROW = 0.08             # share of the image height from the top where the person's head should be
 LOOK_ME_EDGE_PX = 8                # a box edge this near the frame edge is cut by it
 LOOK_ME_UP_STEP = 10.0             # deg up when the person's head is cut by the frame top (how much is cut is unknown)
@@ -1137,12 +1138,13 @@ class Lumi:
     def look_at_speaker(self):
         """"Look at me": the cameras first, the voice direction only to choose. Someone seen (both cameras, up to
         LOOK_ME_MAX_M): the one near the voice, else the person talked with, else the one nearest where the head
-        looks; the body never turns then (a sure voice read 90 deg off in the median and put a person in front
-        behind, 2026-10-28/29, so a repeat "look at me" flipped the base from side to side). Nobody seen: the head
-        sweeps the voice's side (sure or not), then the other side; nobody there either and a sure voice past the
-        head's reach: the body turns to it (turn_body_to) and the head looks there. Then the head tilts until the
-        head camera sees the person from their head down (look_me_pitch). That person becomes the one talked with,
-        and while the look is held the head follows them (look_me, keep_focus)."""
+        looks; the voice never turns the body then (it read a person in front as behind, 2026-10-28/29, and a repeat
+        "look at me" flipped the base from side to side), only someone seen past the head's reach does, so the head
+        faces them. Nobody seen: the head sweeps the voice's side (sure or not), then the other side; nobody there
+        either: the body turns to the voice, a voice read in front taken as its mirror behind (the array mixes the
+        two), and the head looks there (turn_body_to). Then the head tilts until the head camera sees the person
+        from their head down (look_me_pitch). That person becomes the one talked with, and while the look is held
+        the head follows them (look_me, keep_focus)."""
         if not self.vision:
             return
         self.head_busy = True                               # keep_focus waits: the head is turned here
@@ -1183,7 +1185,11 @@ class Lumi:
                 if seen:
                     found, why = min(seen, key=lambda s: abs(s[0] - a)), "found looking around"
                     break
-        if found is None and voice is not None and abs(voice) > head.YAW_LIMIT:
+        if found is None and voice is None:                  # an unsure voice still gives the side
+            voice = getattr(self, "voice_guess", None)
+        if found is None and voice is not None and abs(voice) <= head.YAW_LIMIT:   # nobody where the head looked: the
+            voice = (180.0 - abs(voice)) * (1.0 if voice >= 0 else -1.0)            # array mixes front and back
+        if found is None and voice is not None:
             voice = self.turn_body_to(voice)               # behind: the head alone can't get there
             self.voice_angle, self.voice_trusted, self.voice_at = voice, False, 0.0   # measured before the turn:
             self.voice_guess = None                                                 # never used again
@@ -1197,6 +1203,8 @@ class Lumi:
             face(gaze)
             return
         log(f"  look me: person at {found[0]:+.0f} deg, {found[1]:.2f} m ({why})")
+        if abs(found[0]) > head.YAW_LIMIT + LOOK_ME_BODY_DEG:   # past the head's reach: the body turns so the head
+            found = (self.turn_body_to(found[0]), found[1])      # faces them, not the camera's edge
         face(found[0])
         for _ in range(LOOK_ME_TRIES):
             since = time.time()
@@ -1213,8 +1221,8 @@ class Lumi:
             t.greeted, self.current, self.look_me = True, t, t
 
     def turn_body_to(self, angle):
-        """A voice past the head's reach (waist-frame deg): with Patrol the base turns to it (look_toward), else the
-        waist turns in place toward it (the base stays; fetch._waist_to checks the arm's sweep). Returns the voice's
+        """A voice or a person past the head's reach (waist-frame deg): with Patrol the base turns to it (look_toward),
+        else the waist turns in place toward it (the base stays; fetch._waist_to checks the arm's sweep). Returns its
         waist-frame angle after the turn (unchanged when nothing could turn)."""
         from tasks import fetch
         if self.modes.patrol:
@@ -1222,7 +1230,7 @@ class Lumi:
             return 0.0
         w = waist_turned()
         want = max(-LOOK_WAIST_MAX, min(LOOK_WAIST_MAX, w + angle))
-        log(f"  look me: the voice at {angle:+.0f} deg is past the head: waist to {want:+.0f} deg")
+        log(f"  look me: {angle:+.0f} deg is past the head: waist to {want:+.0f} deg")
         try:
             fetch._waist_to(want, in_place=True, look=angle)
         except Exception as e:
