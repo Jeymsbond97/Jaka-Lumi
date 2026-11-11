@@ -115,6 +115,7 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `vision/objects.py` | `SLICE_MM`, `BODY_PCT`, `BODY_FRACTION` | 10 mm, 75, 0.9 | A bottle's width profile (`objects.body`): slices this thick; its body as wide as this percentile of the slices; the body begins at the first slice from the top this much as wide |
 | `manipulation/skills.py` | `GRASPS` | cup upright; apple, orange, sports ball round; the rest refused | Which classes are picked and how |
 | `tasks/fetch.py` | `PICK_TRIES` | 2 | A missed / slipped pick is tried this often |
+| `manipulation/skills.py` | `SHUT_GRIP_MM`, `STILL_MM` | 88 mm, 15 mm | A pick that closes fully on a cup the fingers meet 77 mm (the belly's closed gap) to this wide is decided by the camera after the lift: a thing at its place with its top within `STILL_MM` of the picked top = missed, else held. 88 is partly an estimate |
 | `manipulation/skills.py` | `SEEN_UNDER_MM` | 8 mm | Added to the camera's width to get the width the fingers meet (`grip_width`), which the limits above are compared with |
 | `tasks/fetch.py` | `HEAD_READS`, `HEAD_SAME_MM` | 4, 120 mm | Head camera frames read per view; a thing counts when seen at least twice within this distance |
 | `tasks/fetch.py` | `HEAD_SIDE_DEG` | 60° | Head yaw towards the side of a turn on the spot, for the arm-sweep check (`head_hits`) |

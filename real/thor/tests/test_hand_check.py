@@ -27,6 +27,7 @@ fetch.motion.poses = lambda: {"look": [0] * 6, "carry": [1] * 6, "give": [2] * 6
 fetch._at_pose = lambda name: arm["pose"] == name
 fetch.arm_route.goto = lambda target, holding=False, **kw: moves.append((target, holding)) or arm.update(pose=target)
 fetch._scene = lambda fn, *a: None                      # the owner's hand was gone: no name for it
+real_put_down = fetch._put_down
 fetch._put_down = lambda say, on=None: put.append(on)
 fetch._lift_to = fetch.head_ahead = lambda *a, **k: None
 L = lumi.Lumi.__new__(lumi.Lumi)
@@ -41,6 +42,7 @@ def reset(sees, pose="give"):
     grip.clear(), grip.update(OPEN)
     eye["sees"], arm["pose"] = sees, pose
     moves.clear(), put.clear()
+    L.hand_looked = (0.0, None)                                  # no earlier look at the hand counts
 
 
 def routed(text):
@@ -56,7 +58,7 @@ arm["pose"] = "look"
 assert fetch.check_hand() and fetch.state()["holding"]
 kind, data = routed("Put the cup on the table.")                 # an order that needs the hand: looked at from carry
 assert kind == "hand" and data[0][0] == "place" and data[1] is True, (kind, data)
-assert moves == [("carry", True)], moves                         # slowly, as with a cup in the hand
+assert moves == [("carry", True), ("look", True)], moves        # slowly, as with a cup in the hand, then back to look
 fetch.place()
 fetch._thread.join(2)
 assert put == [{"name": "dining table", "colour": None}] or put == [None], put   # it went on to put it down
@@ -73,7 +75,7 @@ assert not fetch.look_at_hand() and not fetch.state()["holding"]
 reset("empty")
 assert L.arm_pose("close") and not fetch.state()["holding"]
 assert not fetch.check_hand() and not moves
-assert routed("Put the cup on the table.")[0] != "hand" and moves == [("carry", True)]   # looked at, then empty
+assert routed("Put the cup on the table.")[0] != "hand" and moves == [("carry", True), ("look", False)]   # looked at
 try:
     fetch.place()
     raise AssertionError("put down with an empty hand")
@@ -85,7 +87,7 @@ assert not L.held_now(look=True)
 reset("object", pose="look")
 grip.update(SHUT)
 assert not fetch.check_hand() and not moves                      # from look nothing is seen there: shut = empty
-assert L.held_now(look=True) and moves == [("carry", True)] and fetch.state()["holding"]
+assert L.held_now(look=True) and moves == [("carry", True), ("look", True)] and fetch.state()["holding"]
 arm["pose"] = "look"                                             # still held away from carry (the next words' check)
 assert fetch.check_hand() and fetch.state()["holding"]
 
@@ -101,3 +103,28 @@ reset("empty")
 grip.update(ai=[3500.0, 489.0], closed=True, holding=True)
 assert fetch.check_hand() and not moves
 print("hand check ok (narrow cup closed on, looked at from carry, closed on nothing, the 2026-10-23 case)")
+
+# ---------- the fingers stayed shut at a put-down while AI_1 read open: the cup came back up (2026-10-30) ----------
+class _Placing(Exception):
+    pass
+
+
+fetch.skills._held.clear()
+fetch.skills.released.clear()
+fetch.skills.released.update(top_mm=-185.0, x=50.0, y=626.0, at=time.time())
+real_step = fetch._step
+fetch._step = lambda *a, **k: (_ for _ in ()).throw(_Placing())   # the put-down's first step: far enough
+try:
+    real_put_down()
+except _Placing:
+    pass
+assert fetch.skills._held.get("top_mm") == -185.0, fetch.skills._held                 # put down the same way again
+fetch.skills._held.clear()
+fetch.skills.released["at"] = time.time() - fetch.RELEASED_KEEP_S - 1                 # long ago: not known any more
+try:
+    real_put_down()
+    raise AssertionError("put down with nothing known")
+except fetch.FetchError:
+    pass
+fetch._step = real_step
+print("hand check: a cup back in the hand after a put-down is put down again")

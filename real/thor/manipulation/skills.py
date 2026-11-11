@@ -64,6 +64,14 @@ BELOW_RIM_MM = 32.0                              # grasp this far below the obje
                                                  # (they are 13 mm thick; owner, 2026-10-29)
 ABOVE_MM = 100.0                                 # approach / retreat height over the grasp pose
 LIFT_MM = 30.0                                   # first lift after closing, then check the grip again
+SHUT_GRIP_MM = 88.0                              # a close that ends fully shut (AI_1 over gripper.EMPTY_AI) on a thing
+                                                 # the fingers meet at most this wide may still hold it: an 84 mm cup
+                                                 # (76 seen) was held at 4084, empty closes read 4084-4182 (2026-10-30);
+                                                 # the camera decides after the lift (stands_still), from the belly's
+                                                 # closed gap (gripper.GAP_MM, 77) up. 88: 84 + 4, the
+                                                 # 4 an estimate of the camera's width spread
+STILL_MM = 15.0                                  # stands_still(): a top this near the picked one still stands on the
+                                                 # table (half of LIFT_MM: a held one is LIFT_MM higher)
 MAX_TILT_DEG = 15.0                              # deg; a held cup's axis may lean this far from vertical on a joint
                                                  # move with it (place_options; tasks/fetch.py uses the same)
 PLACE_EXTRA_MM = 3.0                             # put down this much higher than it was picked (same table)
@@ -200,6 +208,9 @@ OPEN_AI = gripper.CLOSED_AI                      # AI_1 below this after opening
 BACK_OUT_NEAR_MM = 30.0                          # back_out: the hand this near the stopped pick's way in is still in it
 
 _held = {}                                       # what pick() holds: {"top_mm", "x", "y"} for place() / put_down()
+released = {}                                    # _held of the last thing let go in a place, with "at" (time): AI_1 read
+                                                 # open once while the fingers stayed shut and the cup came back up
+                                                 # (2026-10-30); fetch._put_down puts it down again with it
 _pick_way = {}                                   # the pick's waypoints {name: pose} from the move to above until the
                                                  # hand holds or has backed out (back_out after a stop)
 _cancel = threading.Event()                      # set by cancel(): the running skill makes no further move
@@ -616,6 +627,19 @@ def locate(xy, top_mm, table_mm, width_mm, radius=LOCATE_MM):
     away = (c - cam) / max(np.linalg.norm(c - cam), 1e-6)       # the camera sees the front half of the cup: its
     c = c + away * (2 / math.pi) * width_mm / 2                 # mean lies 0.64 r nearer than the axis
     return "here", {"x": float(c[0]), "y": float(c[1]), "top_mm": float(tall[:, 2].max()), "width_mm": width_mm}
+
+
+def stands_still(obj):
+    """After the lift: does the torso camera still see a thing standing where `obj` was picked (within CLUSTER_MM of
+    its centre, its top within STILL_MM of the picked top)? A camera that is not live says no."""
+    moved(objects.CAMERA)                                            # frames from after the lift only
+    try:
+        seen = look()
+    except SkillError as e:
+        log(f"after the lift: {e}")
+        return False
+    return any(o["top_mm"] is not None and abs(o["top_mm"] - obj["top_mm"]) <= STILL_MM and
+               np.hypot(o["x"] - obj["x"], o["y"] - obj["y"]) < CLUSTER_MM for o in seen)
 
 
 def hand_sees():
@@ -1101,13 +1125,25 @@ def _do_pick(obj, waypoints, ja):
     log("closing")
     s = gripper.close()
     log(f"AI_1 {s['ai'][0]:.0f} holding {s['holding']} finger sensor {s['object_in_front']}")
-    if not s["holding"]:
+    # fully shut on a narrow one: AI_1 reads as on nothing whether it is held or not (SHUT_GRIP_MM); one narrower than
+    # the belly's closed gap (a paper cup squeezed flat) is not held by it
+    shut = not s["holding"] and s["ai"][0] > gripper.EMPTY_AI and \
+        gripper.GAP_MM["belly"][1] <= (grip_width(obj) or MAX_WIDTH) <= SHUT_GRIP_MM
+    if not s["holding"] and not shut:
         _give_up("I missed it.", back)
+    if shut:
+        log("fully shut on a narrow one: the camera decides after the lift")
     # held from here on: a stop in the lift leaves it ready to put down
     _held.update(top_mm=obj["top_mm"], x=obj["x"], y=obj["y"], yaw=yaw_of(grasp), table=table,
-                 tips=grip_width(obj) < BELLY_MIN_MM, below=obj["top_mm"] - grasp_height(obj), back=back)
+                 tips=grip_width(obj) < BELLY_MIN_MM, below=obj["top_mm"] - grasp_height(obj), back=back,
+                 narrow=shut)                                       # fetch._in_hand: held while shut
     _pick_way.clear()
     _line("lift", lift)
+    if shut:
+        if stands_still(obj):                                        # it stands where it was: the hand is empty
+            _give_up("I missed it.", back)
+        log("it is gone from the table: held")
+        return
     s = gripper.state()
     log(f"AI_1 {s['ai'][0]:.0f} holding {s['holding']}")
     if not s["holding"]:
@@ -1127,6 +1163,8 @@ def _do_place(waypoints):
     log(f"AI_1 {s['ai'][0]:.0f}")
     if s["ai"][0] > OPEN_AI:
         raise SkillError("My hand did not open.")           # stay put: lifting now would drag the object
+    released.clear()
+    released.update(_held, at=time.time())
     _held.clear()
     for name, pose in waypoints[n:]:
         _line(name, pose)

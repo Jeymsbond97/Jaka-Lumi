@@ -184,6 +184,8 @@ SHORT_LOG_M = 0.03           # m; a straight drive (timed) that odometry says ca
 COAST_S = 0.3                # s; the base coasts a little after a joy_control stop: frames from then on are used
                              # (estimate; measure-axis waits 1 s for its pose)
 GIVE_WAIT_S = 30.0           # s; no release by then: keep holding it and go back to carry (never drop it)
+RELEASED_KEEP_S = 600.0      # s; what a place let go of counts as still known (its height) for this long, when the
+                             # hand turns out to hold it again (the fingers stayed shut, skills.released)
 # Opening needs a word from the person ("thank you", or Release in the dashboard): AI_1 can't feel a pull. Measured
 # 2026-10-15 with the cup in the closed gripper: its median stayed 2780-2870 during gentle pulls (only its noise
 # grew, sd 20 -> 50-75), while the fingers settling after the move changed it by 192.
@@ -581,7 +583,7 @@ def _drive_wait(watch_holding, again, goal):
         if watch_holding and time.time() - last_hold >= HOLD_CHECK_S:
             last_hold = time.time()
             try:
-                held = gripper.state()["holding"]
+                held = _grip_holds()
             except (ConnectionError, OSError, KeyError):
                 held = True                  # one missed read: look again next second
             if not held:
@@ -2374,6 +2376,11 @@ def _put_down(say=None, on=None):
     down, back to look. `on` (brain.place_on): put it on that named thing instead (a table with no colour: as above);
     {"pointed": True}: where the person points (_put_pointed)."""
     top = skills._held.get("top_mm")
+    back = skills.released
+    if top is None and back and time.time() - back.get("at", 0.0) < RELEASED_KEEP_S:
+        log("what I put down last is in my hand again: putting it down the same way")
+        skills._held.update({k: v for k, v in back.items() if k != "at"})
+        top = skills._held.get("top_mm")
     if top is None:
         raise FetchError("I'm not holding anything I picked.")
     _step("placing")
@@ -2661,17 +2668,31 @@ def _in_hand():
     return seen == "object"
 
 
+def _grip_holds():
+    """gripper.state()'s "holding", or fully shut on a narrow one held all the same (skills._do_pick, close_hand):
+    AI_1 can't tell a drop then."""
+    g = gripper.state()
+    return g["holding"] or bool(skills._held.get("narrow")) and g.get("ai", [0.0])[0] > gripper.EMPTY_AI
+
+
 def look_at_hand():
     """check_hand before an order that needs something in the hand (put down, give, bring) or when told what is in
-    it: a fully shut hand first goes slowly (holding) along the checked route to CHECK_POSE, so the camera can tell."""
-    _to_check_pose()
-    return check_hand()
+    it: a fully shut hand first goes slowly (holding) along the checked route to CHECK_POSE, so the camera can tell,
+    and back to look after it, held or not (it stayed in carry, 2026-10-30): the order goes on from look."""
+    moved = _to_check_pose()
+    held = check_hand()
+    if moved:
+        try:
+            arm_route.goto(arm_route.HOME, holding=held)
+        except (arm_route.RouteError, motion.MotionError, ConnectionError, OSError) as e:
+            log(f"hand: can't go back to look after the check: {e}")
+    return held
 
 
 def _to_check_pose():
-    """A fully shut hand to CHECK_POSE (look_at_hand), not while a task runs."""
+    """A fully shut hand to CHECK_POSE (look_at_hand), not while a task runs. True when the arm moved there."""
     if _busy() or CHECK_POSE not in motion.poses():
-        return
+        return False
     try:
         shut = gripper.state().get("ai", [0.0])[0] > gripper.EMPTY_AI
     except (ConnectionError, OSError, KeyError):
@@ -2681,8 +2702,10 @@ def _to_check_pose():
             if not _at_pose(CHECK_POSE):
                 log(f"hand: fully shut, the arm to {CHECK_POSE} to look at it")
                 arm_route.goto(CHECK_POSE, holding=True)
+                return True
         except (arm_route.RouteError, motion.MotionError, ConnectionError, OSError) as e:
             log(f"hand: can't look at it from {CHECK_POSE}: {e}")
+    return False
 
 
 def close_hand():
@@ -3174,7 +3197,7 @@ def _move(direction, m, holding):
             if cut():                            # someone stopped me: wait, then the rest of the way, checked again
                 _go_on()
                 continue
-            if holding and not gripper.state()["holding"]:
+            if holding and not _grip_holds():
                 skills._held.clear()
                 _set(holding=False)
                 raise FetchError("I dropped it.", "떨어뜨렸어요.")

@@ -429,6 +429,42 @@ assert np.allclose(np.subtract(p["grasp"][:2], lines_[2][1][:2]), d * back)
 skills._held.clear()
 print("skills side grasp ok")
 
+# ---------- a narrow cup lets the fingers shut fully: AI_1 reads as on nothing (live 2026-10-30: a 76 mm seen cup held
+# at 4084, called a miss); the camera decides after the lift: gone from the table = held, still there = missed --------
+narrow = {**cup, "width_mm": 76.0}
+real_look = skills.look
+for ai, seen, held in ((4084.0, [], True),                                                  # gone from its place
+                       (4084.0, [dict(narrow, top_mm=narrow["top_mm"] + skills.LIFT_MM)], True),   # seen in the hand
+                       (4150.0, [dict(narrow, x=narrow["x"] + 10, top_mm=narrow["top_mm"] + 4)], False)):   # stands
+    skills.gripper.close = lambda a=ai: {"ai": [a], "holding": False, "object_in_front": False}
+    skills.gripper.state = lambda a=ai: {"ai": [a], "holding": False}
+    skills.look = lambda frames=None, ignore=None, s=seen: s
+    lines_.clear(), opened.clear(), skills._held.clear()
+    try:
+        skills._do_pick(narrow, skills.plan_pick(narrow), READY)
+        assert held and skills._held["narrow"] and not opened, (ai, skills._held)
+        assert [n for n, _ in lines_] == ["grasp", "lift"], lines_                   # on to carry from the lift
+    except skills.SkillError as e:
+        assert not held and e.args[0] == "I missed it." and opened and not skills._held, (ai, e.args)
+skills.look = lambda frames=None, ignore=None: (_ for _ in ()).throw(skills.SkillError("My camera isn't working right now."))
+skills._do_pick(narrow, skills.plan_pick(narrow), READY)                          # can't tell: not called a miss
+assert skills._held["narrow"]
+skills.look = lambda frames=None, ignore=None: (_ for _ in ()).throw(AssertionError("looked"))
+skills.gripper.close = lambda: {"ai": [4150.0], "holding": False, "object_in_front": False}
+try:                                                                             # too wide to shut on: a miss at once
+    skills._do_pick({**cup, "width_mm": 84.0}, skills.plan_pick({**cup, "width_mm": 84.0}), READY)
+    raise AssertionError("a wide miss went on")
+except skills.SkillError as e:
+    assert e.args[0] == "I missed it.", e.args
+try:                                                                             # a paper cup squeezed flat: empty
+    skills._do_pick({**cup, "width_mm": 63.0}, skills.plan_pick({**cup, "width_mm": 63.0}), READY)
+    raise AssertionError("a squeezed paper cup held")
+except skills.SkillError as e:
+    assert e.args[0] == "I missed it.", e.args
+skills.look = real_look
+skills._held.clear()
+print("skills narrow shut ok")
+
 # ---------- a pick stopped on its way in (the open hand beside / around the cup): the next pick backs out the way it
 # came first, never a diagonal move from there; a stop once the fingers hold it leaves it ready to put down ----------
 def stop_at(where, at):                              # STOP while moving to waypoint `where`: the hand ends at `at`
