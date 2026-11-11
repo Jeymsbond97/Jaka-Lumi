@@ -38,9 +38,9 @@ Jetson AGX Thor inside the robot and turns it into a conversational service robo
 | **Describe what it sees** | People, clothing, gestures, what someone is holding, and objects around it. |
 | **Follow a person** | Walks with a visitor at their pace and keeps them in view. |
 | **Go to places** | Drives to any named location on the map or to a spot a person points at, patrols a route, and returns to its dock to charge. |
-| **Fetch and deliver** | Picks up a cup or bottle, brings it to a person or a place, puts it down, or hands it over. |
+| **Fetch and deliver** | Picks up a cup or bottle, brings it to a person or a place, puts it down, or hands it over. Carries a bag hung on its hand to a named place and hands it over on request. |
 | **Run missions** | Carries out several steps from one spoken request, such as fetching an item, delivering it and passing on a message. |
-| **Sing and gesture** | Sings songs from its repertoire, waves when asked, and waves back at people who wave at it from up to 3 m, turning to face them and greeting them. |
+| **Sing and gesture** | Sings songs from its repertoire, waves when asked, and waves back at people who wave at it from up to 3 m, turning to face them and greeting them. Holds out its hand on request. While waiting at its dock it keeps its hand raised, waves to passers-by now and then and follows them with its head. |
 
 ---
 
@@ -226,9 +226,9 @@ Lumi는 쿳션이 개발한 **JAKA Lumi** 모바일 매니퓰레이터용 소프
 | **보이는 것 설명** | 사람, 옷차림, 제스처, 손에 든 물건, 주변 사물을 설명합니다. |
 | **사람 따라가기** | 방문객의 걸음에 맞춰 함께 이동하며 계속 지켜봅니다. |
 | **장소 이동** | 지도에 있는 어느 장소나 사람이 가리키는 곳으로 이동하고, 순찰하며, 충전 도크로 돌아갑니다. |
-| **가져오기와 전달** | 컵이나 병을 집어 사람이나 장소로 가져가고, 내려놓거나 건네줍니다. |
+| **가져오기와 전달** | 컵이나 병을 집어 사람이나 장소로 가져가고, 내려놓거나 건네줍니다. 손에 건 가방을 지정한 장소로 옮기고, 요청하면 건네줍니다. |
 | **미션 수행** | 물건 가져오기, 전달하기, 메시지 전하기처럼 한 번의 요청으로 여러 단계를 수행합니다. |
-| **노래와 제스처** | 레퍼토리의 노래를 부르고, 요청하면 손을 흔들며, 3 m 안에서 손을 흔드는 사람에게는 몸을 돌려 마주 보고 인사하며 함께 손을 흔듭니다. |
+| **노래와 제스처** | 레퍼토리의 노래를 부르고, 요청하면 손을 흔들며, 3 m 안에서 손을 흔드는 사람에게는 몸을 돌려 마주 보고 인사하며 함께 손을 흔듭니다. 요청하면 손을 내밉니다. 충전 독에서 대기하는 동안에는 손을 든 채 지나가는 사람들에게 가끔 손을 흔들고 고개로 그들을 따라 봅니다. |
 
 ---
 
