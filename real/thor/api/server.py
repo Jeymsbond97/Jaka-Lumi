@@ -690,12 +690,12 @@ def jog_stop():
 @app.get("/map/info", tags=["map"], summary="Current map, its geometry, the markers with poses and all maps")
 def map_info():
     cur = agv.request("/api/map/get_current_map")["results"]
-    marks = agv.request("/api/markers/query_list")["results"]
+    marks = agv.request("/api/markers/query_list")["results"] or {}      # None on a map without markers
     maps = agv.request("/api/map/list")["results"]
     markers = [{"name": n, "type": m.get("key"), "x": m["pose"]["position"]["x"], "y": m["pose"]["position"]["y"],
                 "theta": 2 * math.atan2(m["pose"]["orientation"]["z"], m["pose"]["orientation"]["w"])}
                for n, m in marks.items() if m.get("floor", 1) == cur["floor"]]
-    return {"map_name": cur["map_name"], "floor": cur["floor"], **cur["info"], "markers": markers,
+    return {"map_name": cur["map_name"], "floor": cur["floor"], **cur.get("info", {}), "markers": markers,
             "main_dock": agv.dock_marker(),          # "home"; further docks (dock2) keep their names
             "maps": [{"name": n, "floors": f} for n, f in sorted(maps.items())]}
 

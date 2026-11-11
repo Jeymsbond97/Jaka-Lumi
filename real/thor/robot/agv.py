@@ -12,7 +12,7 @@ import time
 import uuid
 
 AGV = ("192.168.10.10", 31001)
-DOCK_FALLBACK = "충전위치로"      # dock marker name on the old map; on any map the type-11 marker is used
+DOCK_FALLBACK = "home"           # a map without a dock (type 11): a plain marker named "home"
 MARKERS_FRESH_S = 5.0            # known_markers() reads the list again after this long: a new map is seen within it
 _known = {"t": 0.0, "names": []}
 # One connection kept open per process: the base answers the first command on a new connection only after ~100 ms
