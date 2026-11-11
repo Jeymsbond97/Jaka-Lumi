@@ -200,6 +200,7 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `tasks/wave_greet.py` | `NEW_WAVE_S` | 5 s | No waving this long: the next wave gets a new greeting line |
 | `tasks/wave_greet.py` | `JOKE_AFTER_S`, `JOKE_EVERY_S` | 10 s, 12 s | Waving on and on: the first joke after this long, then one every this long |
 | `tasks/wave_greet.py` | `WAIST_MIN_DEG` | 10° | A person nearer the front than this: only the head turns, not the waist |
+| `tasks/wave_greet.py` | `WAIST_PARTS` | 1, 0.75, 0.5, 0.25 | A waist turn whose sweep is blocked is tried again this much of the way; the head covers the rest |
 | `tasks/wave_greet.py` | `REFUSED_S` | 30 s | After a refused wave (arm off, busy, holding) the next try waits this long |
 | `vision/waving.py` | `WINDOW_S`, `MIN_FLIPS` | 2 s, 2 | A wave: the hand's sideways motion changes direction this often within this long. Shorter window = quicker start and stop, slow waves missed |
 | `vision/waving.py` | `FLOW_PX` | 1.0 px / frame | Sideways hand motion (half-size frame) that counts as a swing. Lower = smaller waves count, more false waves |

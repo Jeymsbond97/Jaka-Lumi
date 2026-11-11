@@ -124,6 +124,14 @@ run(150.5 + g.HOLD_S, 150.5 + g.HOLD_S + g.REFUSED_S * 2.5)
 assert done[:3] == ["waist +0", "down normal", "head +0 rest"] and done[3:] == ["waist +0"], done
 fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f} look {look}") or True
 
+# beside a wall the full waist turn is blocked: it turns as far as its sweep is clear, the head on the person
+fresh()
+waver["w"] = (-66.0, 2.0)
+fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f} look {look}") or abs(rel) < 40
+run(160.0, 160.0)
+assert done[-3:] == ["waist -66 look -66.0", "waist -50 look -66.0", "waist -33 look -66.0"], done
+fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f} look {look}") or True
+
 # a wave nearly in front: only the head turns, the waist stays
 fresh()
 waver["w"] = (5.0, 1.5)

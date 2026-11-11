@@ -33,6 +33,7 @@ NEW_WAVE_S = 5.0             # s without any waving after which a wave is greete
 JOKE_AFTER_S = 10.0          # s of waving before the first joke ...
 JOKE_EVERY_S = 12.0          # ... and between jokes
 WAIST_MIN_DEG = 10.0         # deg; a person nearer the front than this: only the head turns
+WAIST_PARTS = (1.0, 0.75, 0.5, 0.25)   # a blocked waist turn is tried again this much of the way (beside a wall)
 HEAD_MIN_DEG = 8.0           # deg the person may move off the head's direction before the head follows
 DOWN_SPEED = "normal"        # motion.JOINT_SPEED of the way down (owner: 2x the first "slow")
 SWING_SPEED = "swing"        # motion.JOINT_SPEED of the swings, 60 deg/s at 4x the usual acceleration (owner: faster;
@@ -199,14 +200,16 @@ def _swing():
 
 def _face(bearing):
     """Waist turned to the person (they face each other), the head staying on them; only the head when they are
-    nearly in front."""
+    nearly in front. A turn whose sweep is not clear is tried part of the way (WAIST_PARTS); the head covers the
+    rest."""
     from tasks import fetch
-    if abs(bearing) < WAIST_MIN_DEG:
-        _head_to(bearing)
-        return
     fetch._stop.clear()                  # no task runs: an old stop must not end this turn
-    if not fetch._waist_to(fetch._waist_turn() + bearing, in_place=True, look=bearing):
-        _head_to(bearing)                # the sweep is not clear: the head alone
+    for part in WAIST_PARTS:
+        if abs(bearing * part) < WAIST_MIN_DEG:
+            break
+        if fetch._waist_to(fetch._waist_turn() + bearing * part, in_place=True, look=bearing):
+            return
+    _head_to(bearing)
 
 
 def _greet(bearing, lang):
