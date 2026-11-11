@@ -88,11 +88,11 @@ def fresh():
     plan_error["e"] = None
 
 
-# someone waves 30 deg on the left at 2 m: head to them, a greeting, arm up at the route speed, one swing, waist to them
+# someone waves 30 deg on the left at 2 m: head to them, a greeting, arm up at the route speed, GREET_SWINGS swings, waist to them
 fresh()
 waver["w"] = W(30.0)
 run(100.0, 100.0)
-assert done == ["head +30", "up route", "swing", "waist +30 look 30.0"], done
+assert done == ["head +30", "up route"] + ["swing"] * g.GREET_SWINGS + ["waist +30 look 30.0"], done
 assert len(said) == 1 and said[0] in sum(g.wave_lines.INTRO, ()), said        # someone new: Lumi introduces itself
 assert g.busy()
 
@@ -133,16 +133,16 @@ said.clear()
 run(115.5, 116.0)
 assert done.count("swing") == 1 and said == [], (done, said)
 
-# nobody waves for HOLD_S: arm down slowly, waist to the front, head to rest; not before
+# nobody waves for HOLD_S: the waist to the front, the hand stays up (held); not before
 waver["w"] = None
 done.clear()
 run(116.5, 116.0 + g.HOLD_S - 1)
 assert done == [], done
 run(116.0 + g.HOLD_S + 0.5, 116.0 + g.HOLD_S + 0.5)
-assert done == ["waist +0 look None", "down normal", "head +0 rest"], done
-assert not g.busy() and arm["at"] == "look"
+assert done == ["waist +0 look None"], done
+assert not g.busy() and arm["at"] == "wave_start" and g._st["up"] and g._st["held"]
 
-# the waist's way back is blocked: the arm still goes down; the waist is tried again every REFUSED_S while nobody waves
+# the waist's way back is blocked: the hand stays up there, held
 fresh()
 waver["w"] = W(30.0)
 run(150.0, 150.0)
@@ -152,7 +152,7 @@ fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {re
     blocked.update(n=blocked["n"] - 1) or False if blocked["n"] > 0 else True)
 done.clear()
 run(150.5 + g.HOLD_S, 150.5 + g.HOLD_S + g.REFUSED_S * 2.5)
-assert done[:3] == ["waist +0", "down normal", "head +0 rest"] and done[3:] == ["waist +0"], done
+assert done == ["waist +0"] and g._st["held"] and g._st["waist_out"], done
 fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f} look {look}") or True
 
 # beside a wall the full waist turn is blocked: it turns as far as its sweep is clear, the head on the person
@@ -167,7 +167,7 @@ fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {re
 fresh()
 waver["w"] = W(5.0)
 run(200.0, 200.0)
-assert done == ["up route", "swing"], done                     # the head looks there already (within HEAD_MIN_DEG)
+assert done == ["up route"] + ["swing"] * g.GREET_SWINGS, done                     # the head looks there already (within HEAD_MIN_DEG)
 
 # the switch is turned off with the hand up: down at once
 switch["on"] = False
@@ -328,6 +328,18 @@ assert "head +20" in done and done[-1] == "head +0"  # to them, then ahead again
 arm["at"], near["m"] = "look", 2.0
 assert not g.passer_wave()                           # the hand is not up
 arm["at"] = saved
+done.clear()
+
+# the hand held up, someone waves for a moment and stops: GREET_SWINGS swings all the same, then no more
+fresh()
+arm["at"] = "wave_start"
+g._st.update(up=True, held=True, idle_at=1e9)
+waver["w"] = W(10.0)
+run(400.0, 400.0)
+waver["w"] = None
+run(400.5, 420.0)
+assert done.count("swing") == g.GREET_SWINGS and g._st["owed"] == 0, done
+arm["at"] = "look"
 done.clear()
 
 # a hand at the head (scratching, a phone at the ear) is not a raised hand; the same hand held out to the side is

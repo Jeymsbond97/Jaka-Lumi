@@ -493,8 +493,8 @@ COME_TIMEOUT = 60.0                # s
 MAX_MOVE_M = 3.0                   # m; "move forward N metres" is limited to this
 REACH_COME_M = 1.5                 # m; a person further than this is driven to first (come_to, COME_STOP), the hand is
                                    # never held out from afar (owner, 2026-10-28)
-HOME_WAIST_DEG = 85.8              # deg (+ left) from the front the waist rests at on the charger (owner's pose,
-                                   # 2026-11-04: body waist 65.5 deg); every drive turns it back to the front first
+HOME_WAIST_DEG = 0.0               # deg (+ left) from the front the waist rests at on the charger (owner: the front,
+                                   # the robot stands facing the people); every drive turns it back to the front first
 IDLE_AFTER_S = 15.0                # s without a word to Lumi on the charger before the wave greeting waves now and then
                                    # (tasks/wave_greet.py IDLE_WAVE_EVERY_S; estimate)
 PASSER_MAX_M, PASSER_EVERY_S, PASSER_DEG = 3.0, 5.0, 20.0   # on the charger, nobody talking: the head turns to the nearest
@@ -4046,7 +4046,8 @@ class Lumi:
             wave_greet.start(wave_greet_on, self.wave_free, wave_greet_off, free_every=0.05,
                              rest=lambda: HOME_WAIST_DEG if on_charger() else 0.0,
                              rest_arm=lambda: arm_route.HOME if on_charger() else arm_route.rest_pose(),
-                             idle=lambda: time.time() - getattr(self, "last_activity", time.time()) > IDLE_AFTER_S and on_charger())
+                             idle=lambda: time.time() - getattr(self, "last_activity", 0.0) > IDLE_AFTER_S and on_charger())   # 0: idle
+                             # from the start when nobody has talked yet
         log("ready")
         self.run_camera() if self.vision else self.run_desk()
 

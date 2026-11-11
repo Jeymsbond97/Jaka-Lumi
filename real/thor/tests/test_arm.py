@@ -31,6 +31,7 @@ from robot import gripper
 answers = [{}, {"joint_actual_position": [0] * 6}, {"tio_ain": [2300.0, 0.0], "tio_din": [0, 0], "tio_dout": [1, 0]}]
 arm.cmd = lambda name, **a: answers.pop(0)
 gripper.time.sleep = lambda s: None
+gripper.FITTED = True                               # AI_1 read as with the gripper on
 assert gripper.state()["holding"] and not answers
 arm.cmd = lambda name, **a: {}
 try:

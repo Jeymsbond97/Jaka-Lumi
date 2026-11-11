@@ -7,4 +7,11 @@ assert g.gap_mm(50) == 102.0 and g.gap_mm(5000) == 77.0                     # re
 assert abs(g.gap_mm((g.AI_OPEN + g.AI_SHUT) / 2) - 89.5) < 0.01   # linear between
 assert g.gap_mm(g.AI_SHUT, "tips") == 73.0 and g.gap_mm(g.AI_OPEN, "shank") == 66.0
 assert all(hasattr(g, n) for n in ("MOVE_S", "SENSOR_DI", "READ_TRIES", "READ_GAP_S", "CLOSED_AI", "EMPTY_AI"))
+
+reply = {"tio_ain": [486.0, 486.0], "tio_din": [0, 0], "tio_dout": [0, 1]}   # AI_1 floating with no gripper on
+g.arm.cmd = lambda *a, **k: reply
+for fitted, holding in ((True, True), (False, False)):
+    g.FITTED = fitted
+    s = g.state()
+    assert s["holding"] is holding and s["closed"] is holding and s["ai"] == reply["tio_ain"], (fitted, s)
 print("gripper ok")

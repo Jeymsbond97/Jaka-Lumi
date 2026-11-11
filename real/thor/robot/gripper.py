@@ -19,6 +19,8 @@ import time
 
 from robot import arm
 
+FITTED = False               # the gripper is on the flange; False while it is off: AI_1 then floats (~486) and must
+                             # not read as "closed on something" (that refuses every wave). True again when it is back on
 TOOL = 1                     # set_digital_output type: 0 cabinet, 1 tool (TIO), 2 extended
 CLOSE_DO, OPEN_DO = 0, 1     # DO_1, DO_2 (0-based)
 CLOSED_AI = 400              # AI_1 above this = closed on something (open reads 130-165; an 82 mm metal cup
@@ -42,7 +44,7 @@ def state():
         time.sleep(READ_GAP_S)
     else:
         raise ConnectionError("the arm controller sends no tool I/O")
-    ai = d["tio_ain"][0]
+    ai = d["tio_ain"][0] if FITTED else AI_OPEN
     return {"closed": ai > CLOSED_AI, "holding": CLOSED_AI < ai < EMPTY_AI, "object_in_front": bool(d["tio_din"][SENSOR_DI]),
             "ai": d["tio_ain"], "do": d["tio_dout"], "di": d["tio_din"], "gap_mm": round(gap_mm(ai))}
 

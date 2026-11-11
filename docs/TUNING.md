@@ -145,7 +145,7 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `tasks/fetch.py` | `RECEIVE_REACH_MM`, `RECEIVE_SHORT_MM`, `RECEIVE_MIN_MM` | 150, 100, 20 mm | "Take this from my hand" and "reach out to me": the hand moves at most this far from `give` towards the thing in the hand (or their hand), stops this far before it, leaves out a shorter move. Estimates |
 | `tasks/fetch.py` | `REACH_BODY_MM` | 300 mm | "Reach out to me" with no hand of theirs seen: the hand stops this far before the person's body. Estimate |
 | `assistant/lumi.py` | `REACH_COME_M` | 1.5 m | A hand-over by voice to a person further than this drives to them first (`COME_STOP`); "reach out to me" never turns or drives: the hand goes out the way the waist faces. Estimate |
-| `assistant/lumi.py` | `HOME_WAIST_DEG`, `HOME_ARM_SPEED`, `HOME_DOCK_WAIT_S` | 85.8°, slow, 3 s | On the charger with nothing to do (arrived home, a conversation over) the empty arm goes from `rest` to `look` at this speed and the waist turns this far left of the front; any arm order or drive takes the arm to `rest` and the waist to the front first. The charger is asked this long after arriving home (estimate) |
+| `assistant/lumi.py` | `HOME_WAIST_DEG`, `HOME_ARM_SPEED`, `HOME_DOCK_WAIT_S` | 0°, slow, 3 s | On the charger with nothing to do (arrived home, a conversation over) the empty arm goes from `rest` to `look` at this speed and the waist turns this far left of the front (0: it faces the front); any arm order or drive takes the arm to `rest` and the waist to the front first. The charger is asked this long after arriving home (estimate) |
 | `tasks/fetch.py` | `BAG_HANG_S` | 8 s | A mission's bag step ("take the bag to p1"): after the arm reaches the `bag` pose and Lumi asks for the bag, it waits this long before the next step drives (estimate) |
 | `assistant/lumi.py` | `REACH_HOLD_S` | 30 s | The hand stays held out this long after a reach without "thanks" / "okay", then the arm folds back to `look`. Estimate |
 | `tasks/fetch.py` | `POINT_STEPS_MM` | 0, ±50, ±100 mm | "Put it here" with pointing: spot grid around the pointed point |
@@ -198,14 +198,16 @@ Every value here is a constant at the top of its file, with a comment on what it
 
 | File | Name | Default | What it does |
 |---|---|---|---|
-| `tasks/wave_greet.py` | `GREET_M` | 10.0 m | People waving further away are not answered (camera depth; without depth there, the shoulder width with `SHOULDER_M` 0.36 m) |
+| `tasks/wave_greet.py` | `GREET_MIN_M`, `GREET_M` | 1.0 m, 5.0 m | People waving nearer or further away are not answered (camera depth; without depth there, the shoulder width with `SHOULDER_M` 0.36 m) |
 | `tasks/wave_greet.py` | `PASSER_M` | 3.0 m | A patrol's wave for people passing waves only at people this near |
 | `vision/waving.py` | `FLOW_PX`, `FLOW_SHOULDER_PX` | 1.0 px, 80 px | Hand flow per frame that counts as a swing, for a person this wide at the shoulders; smaller (further) people need proportionally less |
 | `tasks/wave_greet.py` | `GONE_S` | 10 s | A greeted person out of both cameras' view this long is forgotten: their next wave gets an introduction again |
-| `tasks/wave_greet.py` | `HOLD_S` | 40 s | The hand stays up this long after the last wave seen, then goes down to `look` |
+| `tasks/wave_greet.py` | `HOLD_S` | 40 s | The waist stays on the last person who waved this long, then turns back to its rest; the hand stays up |
 | `tasks/wave_greet.py` | `DOWN_SPEED` | "normal" | `motion.JOINT_SPEED` of the way down; the way up is `arm_route.SPEED` / `wave.ARRIVE_SPEED` (route, the Cobo π limit) |
 | `tasks/wave_greet.py` | `SWING_SPEED` | "swing" | `motion.JOINT_SPEED` of its swings (an asked wave uses `wave.SWING_SPEED`) |
 | `robot/motion.py` | `SPEED_ACCEL_FACTOR` | swing 4.0 | A joint speed with its own acceleration factor instead of `JOINT_ACCEL_FACTOR`: "swing" (60 °/s, 240 °/s²) for the greeting's short swings. Higher = snappier swings, more shaking |
+| `tasks/wave_greet.py` | `GREET_SWINGS` | 3 | Swings at least for someone who starts waving, more while they go on |
+| `robot/gripper.py` | `FITTED` | False | The gripper is on the flange; while it is off AI_1 floats and is never read as closed or holding. True when it is back on |
 | `tasks/wave_greet.py` | `NEW_WAVE_S` | 5 s | No waving this long: the next wave gets a new greeting line |
 | `tasks/wave_greet.py` | `JOKE_AFTER_S`, `JOKE_EVERY_S` | 10 s, 12 s | Waving on and on: the first joke after this long, then one every this long |
 | `tasks/wave_greet.py`, `assistant/lumi.py` | `IDLE_WAVE_EVERY_S`, `IDLE_SWINGS`, `IDLE_AFTER_S` | 15 s, 3, 15 s | On the charger with the wave greeting on and nothing said to Lumi for `IDLE_AFTER_S`: the hand goes up and stays up, this many swings every `IDLE_WAVE_EVERY_S`; a call stops the swings (the hand stays up), a drive or an arm order takes it down. Estimates |
