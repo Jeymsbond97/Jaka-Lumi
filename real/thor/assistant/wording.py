@@ -531,6 +531,8 @@ def _stem_aform(word):
     return aform(KO_L_DROP.get(word, word))
 
 
+NOUN_ASK = re.compile(r"(이동|회전|전진|후진|정지|좌회전|우회전|충전|복귀|출발|악수|후퇴)\s*(?:좀\s*)?"
+                      r"부탁(?:드립니다|드려요|드릴게요|드릴께요|해요|해|합니다|드려|할게요|합니다)")
 SUGGEST_FORMAL = re.compile(r"([가-힣])(?:으)?시다(?=[\s.,!?~]|$)")
 
 
@@ -558,6 +560,7 @@ def ko_plain(t):
     if not t or not re.search(r"[가-힣]", t):
         return t
     t = SUGGEST_FORMAL.sub(_suggest_plain, t)          # "p3로 갑시다", "같이 봅시다" -> "가자", "보자"
+    t = NOUN_ASK.sub(r"\1해 줘", t)                    # "p5로 이동 부탁드립니다" -> "p5로 이동해 줘"
     for rx, to in KO_PLAIN:
         if to in ("CAN_L", "CAN_N"):
             t = rx.sub(lambda m: _can_you(m, to), t)

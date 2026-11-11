@@ -3898,7 +3898,7 @@ STOP_UNSAID = re.compile(   # a stop that is taken back, for later, said about t
     rf"[가-힣](?:면|나면|으면)\s+(?:\S+\s+){{0,3}}{_STOPW}|"                     # "사람 나오면 그때 멈춰", "음악 멈추면 멈춰요"
     rf"\b{_STOPW}(?: \w+)? (?:when|once|after|until|as soon as|if) |\bwhen i give the signal\b|"   # "stop when you get there"
     rf"\b(?:don'?t|do not|doesn'?t|didn'?t|won'?t) (?:\w+ ){{0,2}}{_STOPW}\b|{_STOPW}\s*하지 ?마|"   # "you don't have to stop"
-    rf"(?<!you )(?<!have )(?<!need )(?<!got )(?<!want )\bto {_STOPW}\b|\b(?:it|he|she) (?:doesn'?t|tried to|keeps?) |"                # "waiting for it to freeze"
+    rf"(?<!you )(?<!have )(?<!need )(?<!got )(?<!want )(?<! as )(?<!like you )\bto {_STOPW}\b|\b(?:it|he|she) (?:doesn'?t|tried to|keeps?) |"                # "waiting for it to freeze"
     r"\b(?:heard|bet|like|guess) (?:that )?(?:you|it) (?:can|could)\b|\bi saw you\b|"
     r"리가 있나|내가 사람이다|퍽이나|[가-힣]겠다\W*$|했던데|그랬잖아|했잖아|(?:멈췄|정지했|그만했)(?:던데|잖아|으면)|"
     r"(?-i:\b(?!(?:Lumi|Loomi|Rumi|Robot|Hey|Hi|Okay|Ok|No|Please|Now|Wait|Hello|So|Oh|Yo|Stop)\b)[A-Z][a-z]+), (?:okay )?stop|"
@@ -3930,9 +3930,12 @@ STOP_ONLY = re.compile(   # a whole sentence that only says stop / enough / stay
 STOP_POLITE = re.compile(   # a stop asked politely, after wording.ko_plain: "멈춰 주시겠어요?" -> "멈춰 줘?", "can you stop for me?"
     r"\W*(?:(?:좀|지금|당장|잠깐|잠시|거기서?|이제|동작|모든 동작|하던 거|움직임|얼른|빨리)\s*)*(?:멈춰|멈춰 서|정지해|그만해|스톱해|스탑해|서)"
     r"(?: ?(?:줘|도|봐))?(?:\W*(?:부탁(?:드립니다|드려요|해요|해)|제발))?\W*|"
-    r"\W*(?:(?:please|lumi|hey|okay|ok)\W+)*(?:can|could|would|will) (?:you|u) (?:please |just |kindly )?(?:go ahead and )?"
-    r"(?:stop|halt|freeze|hold it(?: right)? (?:there|here))"
+    r"\W*(?:(?:please|lumi|hey|okay|ok)\W+)*(?:(?:can|could|would|will) (?:you|u)|you can) (?:please |just |kindly |"
+    r"be so kind as to )?(?:go ahead and )?"
+    r"(?:stop(?: it| that| moving| everything)?|halt|freeze|cut it out|knock it off|hold it(?: right)? (?:there|here))"
     r"(?: (?:right )?(?:now|here|there|please))?(?: for (?:me|us|a (?:second|sec|moment|bit|minute)))?(?:,? please)?\W*|"
+    r"\W*(?:please |just |c'?mon,? |go ahead and )?(?:cut it out|knock it off)(?:,? (?:please|buddy|now))?\W*|"
+    r"\W*(?:stop|halt|freeze)(?:,? ok(?:ay)?)\W*|"
     r"\W*(?:would|do) you mind stopping(?: (?:now|here|there))?(?: for (?:me|us|a (?:second|moment)))?(?:,? please)?\W*", re.I)
 
 

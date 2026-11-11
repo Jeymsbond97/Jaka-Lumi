@@ -1054,11 +1054,17 @@ def not_an_order(text, asked=True):
         return False                                        # "I'm on your right": said so the head turns there
     rest = instead_of(t)                                  # "don't put your arm out, my baby will grab it"
     now = NOW_CLAUSE.sub(" ", WAIT_UNTIL.sub(" ", t))       # "when you're ready", "while you do", "말씀하실 때": now
+    now = STEP_AFTER.sub(" 그리고 ", now)                  # "p3로 이동한 다음에 손 흔들어": Lumi's own step first
     return bool(to_someone_else(t) or CANT_GO.search(t) or DRINK.search(t) or IDIOMS.search(t) or
                 CONDITION.search(now) or REMARK.search(now) or
                 TAKEN_BACK.search(t) or
                 rest != t and REMARK.search(rest) or asked and ASKED.search(t) or NEGATED.search(t) or ko_told(t) or
                 ABOUT_IT.search(t) or LATER_SAID.search(t) or ASIDE_NOW.search(t))
+
+
+STEP_AFTER = re.compile(r"(?:이동한|간|돈|돌아선|회전한|본|쳐다본|집은|잡은|든|흔든|내려놓은|놓은|온|돌아온|따라간|움직인|올린|내린|"
+                        r"숙인|편|접은|내민|뻗은|연|닫은|가져온|챙긴) (?:다음에|후에)")
+    # Lumi's own step, then the next one ("오른쪽 본 다음에 손 흔들어"), not a condition like "회의 끝난 다음에"
 
 
 NOW_CLAUSE = re.compile(   # time words that mean now, with the order (T1, 2026-10-27): no later condition
@@ -1582,8 +1588,9 @@ def _intent(text, markers=()):
             if driving.amount(t)[0] is None:
                 return None                                 # "I'll come back later", "come back tomorrow": talk
             continue                                        # "come back 20 cm": a short drive
-        if action == "make_way" and driving.direction(driving.clean(t)) not in (None, "back"):
-            n, exact = driving.amount(t)                    # "왼쪽으로 20센티미터만 비켜 주게": that way, that far
+        if action == "make_way" and driving.direction(driving.clean(t)) not in (None, "back") or \
+                action == "make_way" and driving.direction(driving.clean(t)) == "back" and driving.amount(t)[0] is not None:
+            n, exact = driving.amount(t)                    # "왼쪽으로 20센티미터만 비켜 주게", "뒤로 50센티 비켜": that far
             n = driving.DEFAULT_M if n is None else n
             if n == "?" or not driving.MOVE_MIN_M <= n <= MOVE_MAX_M:
                 return None

@@ -545,8 +545,9 @@ def _kind(text, history):
     best, top, margin, agree, _ = intent_bank._top(vecs @ q, _named, k=AGREE_K)
     sure = top >= SIM_MIN and margin >= MARGIN or agree and top >= SIM_AGREE and margin >= MARGIN_AGREE
     core = _core(text)
-    if not sure:                                       # "누가너를만들었습니까": a wording run together (whisper)
-        best = _exact().get(_squeezed(core)) if re.fullmatch(r"\S*[가-힣]{4}\S*", core) else None
+    if not sure:                                       # "누가너를만들었습니까": a wording run together (whisper),
+        best = _exact().get(_squeezed(core)) if re.search(r"[가-힣]", core) else None
+        #                                                or a Korean bank wording said as it is ("루미가 무슨 뜻이야")
     if best in (None, "no") or best in NEEDS and not re.search(NEEDS[best], text, re.I):
         return None
     if best == "hello" and history:

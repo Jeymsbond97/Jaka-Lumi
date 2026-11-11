@@ -83,11 +83,23 @@ def _rule(words, markers):
     return rule
 
 
+def _then_go(m):
+    """"이동한 다음에" -> "이동하고", "집은 후에" -> "집고"; a noun before 다음에 ("회의 다음에") stays."""
+    c = m.group(1)
+    n = ord(c) - 0xAC00
+    if c == "은":
+        return "고"
+    if n % 28 == 4:                                        # the -ㄴ form: 한 -> 하, 간 -> 가
+        return chr(0xAC00 + n - 4) + "고"
+    return m.group(0)
+
+
 def parts(text):
     """The sentence cut at and / then / 그리고 / -고 / -서, messages to say kept whole, fillers and the name dropped."""
     text = re.sub(r"(?<![\w가-힣])([\w가-힣]+)[—–-]+\s*(?=\1)", "", text)   # a stutter: "go ah— ahead", "센— 센티"
     cut, says = steps._cut_says(text)
     cut = re.sub(r"(?<=[가-힣])고\s*나서(?=[\s,]|$)", "고", cut)            # "-고 나서" = "-고"
+    cut = re.sub(r"([가-힣])\s+(?:다음에|후에)(?=[\s,])", _then_go, cut)   # "-ㄴ 다음에" / "-은 후에" = "-고"
     cut = re.sub(r"(?<=[가-힣]{2}고)(?=(?:오른쪽|왼쪽|앞으로|뒤로|위로|아래로|손|고개|몸|팔|허리|나를?|저를?|이리|여기|저기|"
                  r"p\d|[a-z]{3}))", " ", cut)   # whisper's run-together "몸내리고오른쪽으로돌아주라": the next order apart
     out = []

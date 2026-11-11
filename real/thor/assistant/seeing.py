@@ -1521,11 +1521,17 @@ def _piece_of_someone(t):
     return None
 
 
+ORDER_FIRST = re.compile(r"^\W*(?:(?:please|okay|ok|lumi|hey|now|just)\W+)*(?:head|lift|raise|lower|tilt|bow|stand|go|come|turn|"
+                         r"move|spin|face|wave|follow|stop|sing|bring|get|take|pick|put|fold|open|close|reach|drive|back)\b", re.I)
+
+
 def _changed(t, last):
     """"I took my glasses off, now?", "모자를 벗었습니다. 지금은 쓰고 있습니까?", "앉았어요, 지금은?": the question about
     what they say changed, asked anew: (kind, words) or None."""
     if not (CHANGED.search(t) and (AGAIN.search(t) or "?" in t or re.search(r"어때|어떻|보여|보이|\bnow\W*$|\bwhich one\b", t, re.I))):
         return None
+    if "?" not in t and ORDER_FIRST.match(t):
+        return None                                        # "lift your head now", "head to p3 now": an order, no look
     for rx, kind, en, ko in CHANGE_KINDS:
         if re.search(rx, t, re.I):
             return kind, ko if re.search(r"[가-힣]", t) else en
