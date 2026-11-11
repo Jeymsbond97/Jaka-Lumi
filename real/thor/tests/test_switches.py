@@ -235,13 +235,14 @@ fetch._at_pose = lambda name: name == "look"             # in look on the charge
 assert lumi.waist_home("test") and calls == [(0.0, True)], calls
 fetch._waist_to = lambda rel, in_place=False: False      # the arm's sweep is not clear
 assert lumi.waist_home("test") is False
-# a drive or turn (fold): the empty arm goes to rest first wherever it is, also with the waist at the front already
+# a drive or turn (fold), the wave greeting off: the empty arm goes to look first wherever it is (fetch.drive_arm),
+# also with the waist at the front already
 went = []
 real_plan, real_move, real_lower = lumi.arm_route.plan, lumi.arm_route.move, lumi.wave_greet.lower
 lumi.arm_route.plan, lumi.wave_greet.lower = (lambda target, holding=False: [target]), (lambda: None)
 lumi.arm_route.move = lambda seq, speed=None, holding=False: went.append(seq[-1])
-fetch._waist_turn, fetch._at_pose, fetch.state = (lambda: 0.4), (lambda name: name == "look"), (lambda: {"status": "idle"})
-assert lumi.waist_home("drive", fold=True) and went == ["rest"], went
+fetch._waist_turn, fetch._at_pose, fetch.state = (lambda: 0.4), (lambda name: name == "rest"), (lambda: {"status": "idle"})
+assert lumi.waist_home("drive", fold=True) and went == ["look"], went
 went.clear()
 fetch.state = lambda: {"status": "idle", "holding": True}   # a cup: look (drive_ready), never rest
 real_ready, fetch.drive_ready = fetch.drive_ready, lambda: went.append("drive_ready")
