@@ -137,6 +137,11 @@ _mouth._recent[:] = [(time.time() - 20, "Yes?"), (time.time() - 4, "Go to p10, w
 from assistant.lumi import ANSWER_ECHO_S, Lumi as _Lumi
 assert not _Lumi.own_echo("Yes. Yes.", ANSWER_ECHO_S) and _Lumi.own_echo("Yes. Yes.")
 assert _Lumi.own_echo("Is that right?", ANSWER_ECHO_S)
+# the clip mic heard the end of Lumi's answer and the order in one utterance: the order is kept (2026-10-30)
+_mouth._recent[:] = [(time.time() - 2, "Yes, I can see you about 1.8 metres away.")]
+assert _Lumi.after_own_voice("Yes, I can see you about 1.8 metres away. Let's come here.") == "Let's come here."
+assert _Lumi.after_own_voice("I can see you about 1.8 metres away.") is None          # all Lumi's: dropped
+assert _Lumi.after_own_voice("Let's come here.") is None                              # no echo to cut
 _mouth._recent.clear()
 # ---------- questions about what Lumi is doing: answered from the state, not by the LLM ----------
 from assistant.lumi import STATUS_Q

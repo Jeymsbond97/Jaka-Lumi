@@ -718,7 +718,7 @@ INTENTS = [   # (action, pattern) checked in order on what the visitor said
     ("come", r"\bcome (?:back )?(here|hear|to me|closer|over here|over|this way)\b|\bcome\b(?! back for (?:me|us)\b).*\bme\b|이리 ?(?:좀 ?)?(?:돌아 ?)?(?:와|오세요|오십시오|올래)|"
              r"(?:여기로|이쪽으로) ?(?:좀 ?)?(?:돌아 ?)?(?:와|오세요|오십시오)|가까이 ?(?:좀 ?)?(?:와|오세요)|"
              r"나한테 ?(?:돌아 ?)?와"),
-    ("go_home", r"\bgo (back )?(home|to (the |your )?(dock(?!2)|charger|charging))|\bhead (back )?to (the |your )(dock(?!2)|charger)\b|\bgo (re)?charge|충전하러|차지하러|집(?:에|으로) ?가|충전기로"),
+    ("go_home", r"\bgo (back )?(home|to (the |your )?(dock(?!2)|charger|charging))|\bhead (back )?to (the |your )(dock(?!2)|charger)\b|\bgo (re)?charg(e|ing)\b|충전하러|차지하러|집(?:에|으로) ?가|충전기로"),
     ("go_point", r"\b(?:go|drive|move|head|come|return|walk|roll|run|proceed|navigate|travel|hurry|make your way|get|take yourself)"
                  r"(?: back)?(?: over| on| ahead)?(?: to| too| 2|to) (?:the )?(?:point |marker )?([a-z][a-z0-9_]*|[가-힣][가-힣0-9_]*?)\b|(\d+)\s*번\s*(?:으로|포인트)"
                  r"|^\W*(?:(?:루미야?|lumi|hey lumi)\W*)?(?:[a-z][a-z0-9_]*\s*말고\s+)?(?:좀\s*)?(?:point\s+)?([a-z][a-z0-9_]*|[가-힣][가-힣0-9_]*?)\s*(?:포인트\s*)?(?:앞|쪽|방향|지점|위치)?\s*"
@@ -1858,7 +1858,7 @@ def _recase(t, text):
 # ---------- fetch tasks (docs/16 §4): strict parsing, nothing is guessed ----------
 _HERE = r"here|me|여기|이쪽|나한테|저한테|나에게|저에게"
 _HOME = r"home|charger|charging station|dock|충전기|충전소"
-_CHARGER_WORD = r"\bcharg(?:er|ing)\b|\bgo (?:re)?charge\b|충전|차지하러"   # the charger, not home, when the map has one
+_CHARGER_WORD = r"\b(?:re)?charg(?:er|ing)\b|\bgo (?:re)?charge\b|충전|차지하러"   # the charger, not home, when the map has one
 
 
 def charger(markers):

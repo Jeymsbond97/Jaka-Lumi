@@ -242,4 +242,11 @@ assert b._after(brain.Brain._action("ACTION: look left", "yes", []), "yes")["act
 assert b._after(brain.Brain._action("ACTION: look left", "네", []), "네")["action"] == "look"
 b.history = [("what is over there?", "ACTION: none -\nThe stage.")]
 assert b._after(brain.Brain._action("ACTION: look left", "yes", []), "yes").get("held")   # no offer: talk only
+# "let's go charging" (2026-10-30: the LLM took it as a remark, "I'll be ready to go when you are!")
+CM = ["home", "charge", "p1"]
+for t in ["Let's go charging.", "Go charging.", "Lumi, go charging", "Let's go recharging", "go charge", "충전하러 가"]:
+    assert brain.intent(t, CM) == ("go_to", "charge"), (t, brain.intent(t, CM))
+assert brain.intent("Let's go charging.", ["home", "p1"]) == ("go_to", "home")      # no charger on the map: home
+for t in ["I want to go charging later", "Do you go charging at night?", "don't go charging"]:
+    assert brain.intent(t, CM) is None, t
 print("intents ok")

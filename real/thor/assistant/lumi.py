@@ -390,6 +390,8 @@ LOOK_ME_PITCH = 0.0                # deg, head pitch of the first turn to a pers
 LOOK_ME_SETTLE_S = 0.6             # s after a head move before its camera is asked who is there
 LOOK_ME_MAX_M = 6.0                # m; "look at me" finds callers up to this far (others count only within STAY_MAX)
 LOOK_ME_BODY_DEG = 5.0             # deg past the head's yaw limit before the body turns to face the person
+LOOK_ME_SWEEP_DEG = 110.0          # deg the head turns to each side looking for a caller nobody sees (its range is
+                                   # +-180; following people stays within head.YAW_LIMIT): the cameras then cover ~+-155
 LOOK_ME_WAIST_DEG = 15.0           # deg; nobody seen with the waist turned more than this: it goes to the front first
 LOOK_ME_TOP_ROW = 0.08             # share of the image height from the top where the person's head should be
 LOOK_ME_EDGE_PX = 8                # a box edge this near the frame edge is cut by it
@@ -908,6 +910,13 @@ class Modes:
             pass
 
 
+def _said_words(seconds):
+    """A test for one word (lower case): did Lumi say it (or a word it starts, or that starts it) in the last
+    `seconds`? (Lumi.own_echo, Lumi.after_own_voice)"""
+    said = set(re.findall(r"\w+", mouth.recent_speech(seconds).lower()))
+    return lambda w: w in said or len(w) >= 4 and any(len(s) >= 4 and (s.startswith(w) or w.startswith(s)) for s in said)
+
+
 class Lumi:
     chain_thread = None                  # several commands of one sentence done in order (chain_run)
     chain_stop = threading.Event()       # set by "stop" or anything new said: the rest of the chain is not done
@@ -1160,8 +1169,8 @@ class Lumi:
             return min((s for s in seen if abs(s[0] - angle) <= SPEAKER_MATCH_DEG),
                        key=lambda s: abs(s[0] - angle), default=None)
 
-        def face(angle, pitch=LOOK_ME_PITCH):
-            safe(head.turn, HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), pitch)
+        def face(angle, pitch=LOOK_ME_PITCH, limit=head.YAW_LIMIT):
+            safe(lambda: head.turn(HEAD_SIGN * max(-limit, min(limit, angle)), pitch, limit=limit))
 
         recent = time.time() - getattr(self, "voice_at", 0.0) <= VOICE_KEEP_S   # this turn's sound too weak: the
         voice = self.voice_angle if self.voice_trusted or recent else None    # caller's last sure direction
@@ -1178,9 +1187,9 @@ class Lumi:
 
         def sweep(first):                                    # the head camera looks to `first`'s side, then the other
             side = 1.0 if first >= 0 else -1.0
-            for a in (side * head.YAW_LIMIT, -side * head.YAW_LIMIT):
+            for a in (side * LOOK_ME_SWEEP_DEG, -side * LOOK_ME_SWEEP_DEG):
                 log(f"  look me: nobody seen, looking at {a:+.0f} deg")
-                face(a)
+                face(a, limit=LOOK_ME_SWEEP_DEG)
                 time.sleep(LOOK_ME_SETTLE_S)                # new head camera frames from there
                 seen = self.vision.seen(LOOK_ME_MAX_M)
                 if seen:
@@ -2585,12 +2594,21 @@ class Lumi:
         """The clip mic also hears Lumi: ignore what overlaps with what it said in the last `seconds`. A word counts
         when said, or when it starts a said word or a said word starts it ("temperature" / "temperatures", "over" /
         "overcast": whisper cuts and bends the echo)."""
-        said = set(re.findall(r"\w+", mouth.recent_speech(seconds).lower()))
+        heard = _said_words(seconds)
         words = re.findall(r"\w+", text.lower())
-
-        def heard(w):
-            return w in said or len(w) >= 4 and any(len(s) >= 4 and (s.startswith(w) or w.startswith(s)) for s in said)
         return bool(words) and sum(map(heard, words)) / len(words) >= share
+
+    @staticmethod
+    def after_own_voice(text, seconds=30.0, share=0.6):
+        """What the person said right after Lumi's own words in one utterance (the clip mic heard Lumi's answer end
+        and "Let's come here" at once and it was all dropped as Lumi's voice, 2026-10-30): the end of `text` when
+        what comes before it is mostly Lumi's words and the end itself hardly any (at least 2 words), else None."""
+        heard = _said_words(seconds)
+        found = list(re.finditer(r"\w+", text))
+        flags = [heard(m.group().lower()) for m in found]
+        cuts = [(sum(flags[k:]), k) for k in range(1, len(found) - 1)       # where Lumi's words end: the fewest of
+                if sum(flags[:k]) / k >= share and sum(flags[k:]) / (len(found) - k) <= 1 / 3]   # them after it
+        return text[found[min(cuts)[1]].start():].strip() if cuts else None
 
     # ---------- interrupts ----------
     def interrupted(self):
@@ -2662,8 +2680,9 @@ class Lumi:
             # (muted while Lumi talks); a longer head-array sentence is the visitor ("okay go to P9" after a list with
             # p9, 2026-10-21). A clip-mic utterance begun after Lumi stopped is the visitor: "Lumi.", "Can you see
             # me?" seconds after a greeting were dropped 20 times on 2026-10-21
-            log(f"  ignored own voice: {text!r}")
-            text = None
+            rest = self.after_own_voice(text)
+            log(f"  ignored own voice: {text!r}" + (f", kept what came after it: {rest!r}" if rest else ""))
+            text = rest
         if text and NOISE_WORDS.fullmatch(text.strip()):     # a cough, a beep, "um": not worth "say it again"
             log(f"  ignored a sound: {text!r}")
             text = None

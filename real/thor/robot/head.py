@@ -53,10 +53,10 @@ def status():
     return [j["pos"] for j in _call("status")]
 
 
-def turn(yaw, pitch=None, vel=VEL, acc=ACC):
-    """Move the head; blocks until the motion ends. Returns the controller's reply."""
+def turn(yaw, pitch=None, vel=VEL, acc=ACC, limit=YAW_LIMIT):
+    """Move the head, yaw within +-`limit`; blocks until the motion ends. Returns the controller's reply."""
     lift, waist, _, cur_pitch = status()
-    yaw = max(-YAW_LIMIT, min(YAW_LIMIT, yaw))
+    yaw = max(-limit, min(limit, yaw))
     pitch = cur_pitch if pitch is None else max(PITCH_RANGE[0], min(PITCH_RANGE[1], pitch))
     return moveto([lift, waist, yaw, pitch], vel, acc)
 

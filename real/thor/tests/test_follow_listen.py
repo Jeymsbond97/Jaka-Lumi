@@ -119,7 +119,7 @@ run["on"] = False
 L = fresh("What time is it?", -70.0)
 assert L.talk_turn() and heard == ["What time is it?"] and L.current is L.vision.stranger, (heard, L.current)
 # "look at me" / "이쪽 봐": the cameras first: the person seen (-60), whatever the voice says
-lumi.head.turn = lambda yaw, pitch=None: done.append(("head turn", round(yaw)))
+lumi.head.turn = lambda yaw, pitch=None, **k: done.append(("head turn", round(yaw)))
 lumi.LOOK_ME_SETTLE_S = 0.0
 
 

@@ -58,7 +58,7 @@ def near(a, b, tol=1.0):
 fetch._clear()
 assert not fetch.aiming()
 heads = []
-lumi.head.turn = lambda yaw, pitch=None: heads.append(round(yaw))
+lumi.head.turn = lambda yaw, pitch=None, **k: heads.append(round(yaw))
 L = lumi.Lumi.__new__(lumi.Lumi)
 L.turn_head(20)
 time.sleep(0.2)

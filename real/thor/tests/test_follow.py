@@ -126,7 +126,7 @@ class World:
         d, a = self.sight(self.person_at())
         self.dist.append(d)
         a -= body.pos[1]                            # lumi.Vision gives waist-frame angles
-        if self.fov and abs(a - body.pos[2]) > HALF_FOV:
+        if self.fov and abs((a - body.pos[2] + 180.0) % 360.0 - 180.0) > HALF_FOV:
             return None
         return d, a, 0.0, self.look
 
@@ -674,6 +674,36 @@ assert wait_end(0.5)
 yaws = [m[4] for m in body.moves if m[1] == "follow head"]
 assert yaws and all(y > 0 for y in yaws[1:]), yaws
 print("right behind: one side")
+
+# right behind beside a wall (live 2026-10-30): the arm blocked turning left, the base turns right round to them
+# (head ahead, out of view a while), never back the blocked way; blocked both ways: it stops and says so
+blocked_dir = [1.0]
+fetch.turn_hits = lambda d: (-5.08, 11.54) if d * blocked_dir[0] > 0 or not blocked_dir[0] else None
+said.clear()
+body.pos = [50.0, 0.0, 180.0, follow.HEAD_PITCH]   # "look at the back side": the head right behind
+head._call = real_body
+w = World(person=(1.3 * math.cos(math.radians(186.0)), 1.3 * math.sin(math.radians(186.0))), fov=True)
+follow.start(w.see, say)
+t = time.time()
+while time.time() - t < 15.0 and not (abs(w.sight(w.person_at())[1]) < follow.TURN_DEAD_DEG + 1.0 and w.cmds
+                                      and w.cmds[-1][2] == 0.0):
+    time.sleep(0.05)
+follow.stop()
+assert wait_end(3.0) and not said, said
+head._call = body.call
+turn = math.degrees(w.th)
+assert -200.0 < turn < -150.0, turn                                              # round to the right
+assert max(c[2] for c in w.cmds) < 0.1, max(c[2] for c in w.cmds)               # never back toward the wall
+assert abs(w.sight(w.person_at())[1]) < follow.TURN_DEAD_DEG + 1.0, w.sight(w.person_at())
+print(f"right behind, left blocked: turned {turn:.0f} deg the other way, facing them")
+blocked_dir[0] = 0.0                                                             # both ways blocked
+body.pos = [50.0, 0.0, 180.0, follow.HEAD_PITCH]
+w = World(person=(1.3 * math.cos(math.radians(186.0)), 1.3 * math.sin(math.radians(186.0))), fov=True)
+follow.start(w.see, say)
+assert wait_end(3.0) and any("can't turn" in x for x in said), said
+assert all(c[2] == 0.0 for c in w.cmds), w.cmds
+fetch.turn_hits = turn_hits
+print("right behind, both ways blocked: stops, says so")
 
 # lumi: act("stop") ends following; follow_me locks onto the person talking, refuses when it must
 lumi.agv.cancel = lumi.skills.cancel = lumi.motion.stop = lambda: None
