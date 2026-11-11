@@ -72,7 +72,7 @@ def fresh():
     done.clear()
     said.clear()
     arm["at"] = "look"
-    g._st.update(up=False, last_wave=0.0, next_joke=0.0, free_at=0.0, refused_until=0.0, waist_out=False)
+    g._st.update(up=False, last_wave=0.0, next_joke=0.0, free_at=0.0, refused_until=0.0, waist_out=False, follow_at=0.0)
     switch.update(on=True, free=True)
     plan_error["e"] = None
 
@@ -91,6 +91,15 @@ said.clear()
 run(100.5, 100.0 + g.JOKE_AFTER_S + 1)
 assert done.count("swing") >= 10 and "up route" not in done, done
 assert len(said) == 1 and said[0] in sum(g.wave_lines.LONG, ()), said
+
+# they move to the other side while waving: the waist turns to them again between swings, not more often than
+# FOLLOW_EVERY_S
+done.clear()
+waver["w"] = (-40.0, 2.0)
+g._st["follow_at"] = 0.0                            # (the fake waver stays at +30 after each turn: turned again so far)
+run(111.5, 111.5 + g.FOLLOW_EVERY_S - 0.5)
+assert done[0] == "waist -40 look -40.0" and done.count("waist -40 look -40.0") == 1, done
+waver["w"] = (30.0, 2.0)
 
 # they stop: the hand stays up, no swings; waving again: swings again, no new greeting within NEW_WAVE_S
 waver["w"] = None

@@ -33,6 +33,8 @@ NEW_WAVE_S = 5.0             # s without any waving after which a wave is greete
 JOKE_AFTER_S = 10.0          # s of waving before the first joke ...
 JOKE_EVERY_S = 12.0          # ... and between jokes
 WAIST_MIN_DEG = 10.0         # deg; a person nearer the front than this: only the head turns
+WAIST_FOLLOW_DEG = 20.0      # deg the waving person may move off the waist's front before it turns to them again ...
+FOLLOW_EVERY_S = 3.0         # ... at most this often (between swings)
 WAIST_PARTS = (1.0, 0.75, 0.5, 0.25)   # a blocked waist turn is tried again this much of the way (beside a wall)
 HEAD_MIN_DEG = 8.0           # deg the person may move off the head's direction before the head follows
 DOWN_SPEED = "normal"        # motion.JOINT_SPEED of the way down (owner: 2x the first "slow")
@@ -250,7 +252,7 @@ def _down():
 
 
 _st = {"up": False, "last_wave": 0.0, "lang": 0, "next_joke": 0.0, "free": False, "free_at": 0.0, "refused_until": 0.0,
-       "waist_out": False}                    # waist_out: the way back to the front was blocked, tried again later
+       "waist_out": False, "follow_at": 0.0}                    # waist_out: the way back to the front was blocked, tried again later
 
 
 def step(now):
@@ -292,7 +294,11 @@ def step(now):
         elif now > st["next_joke"]:
             _say(wave_lines.LONG, st["lang"])
             st["next_joke"] = now + JOKE_EVERY_S
-        _head_to(w[0])
+        if abs(w[0]) > WAIST_FOLLOW_DEG and now > st["follow_at"]:
+            st["follow_at"] = now + FOLLOW_EVERY_S
+            _face(w[0])                  # they moved: the waist turns to them again, between two swings
+        else:
+            _head_to(w[0])
         _swing()
     elif now - st["last_wave"] > HOLD_S:
         _down()
