@@ -30,7 +30,7 @@ READS = [
     ("앞으로 1미터 전진해 봐", "action:move forward 1"), ("좌회전 해 봐", "action:turn left 90"), ("p3로 움직여 봐", "action:go_to p3"),
     ("고개를 드세요", "action:look up"), ("빨리 돌아와", "action:come_back"), ("노래 부릅시다", "sing"), ("왼쪽 봐", "action:look left"),
     ("왼쪽으로 돌아봐", "action:look left"), ("번거로우시겠지만 왼쪽을 돌아보시겠어요?", "action:look left"),
-    ("left로육십degreesturn해봐", None), ("mind folding your arm?", "action:arm fold"), ("how about singing a song?", "sing"),
+    ("left로육십degreesturn해봐", None), ("팔 접는 법 알아?", None), ("손 흔드는 방법 아세요?", None), ("mind folding your arm?", "action:arm fold"), ("how about singing a song?", "sing"),
 ]
 STOPS = ["동작 멈춰 줄 수 있어?", "거기 서 도", "거기 서 봐라", "루미 씨, 동작 멈춰 주시겠어요?", "거기 서 주세요, 부탁드립니다",
          "could you stop it?", "would you be so kind as to stop?", "please cut it out", "freeze ok?", "you can stop?",

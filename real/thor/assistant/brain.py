@@ -1062,7 +1062,7 @@ def not_an_order(text, asked=True):
                 ABOUT_IT.search(t) or LATER_SAID.search(t) or ASIDE_NOW.search(t) or DOUBT.search(t))
 
 
-DOUBT = re.compile(r"\b(?:can|could) (?:you|u) (?:even|really)\b|"
+DOUBT = re.compile(r"\b(?:can|could) (?:you|u) (?:even|really)\b|[가-힣](?:는|은) ?(?:법|방법)(?:을|은)? ?(?:알아|아세요|알아요|아니|알지|아냐|아십니까|알고 ?있)|"
                    r"\b(?:he|she|they|my (?:son|daughter|kid|kids|friend|wife|husband|mom|dad|boss|brother|sister)) "
                    r"(?:wants?|wanted|would like|likes?|loves?|tried) to (?!have you\b)", re.I)
     # "can you even turn left?": a doubt; "my son wants to fold your arm": what someone else wants to do, no order
