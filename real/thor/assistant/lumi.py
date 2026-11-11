@@ -876,9 +876,10 @@ class Vision(threading.Thread):
 class Patrol:
     """Drive between markers in a loop (or once); pause for people; go home to charge when the battery is low."""
 
-    def __init__(self, route, once=False, pause_s=PAUSE_AT_END):
+    def __init__(self, route, once=False, pause_s=PAUSE_AT_END, passers=False):
         self.route, self.i = route, 0
         self.once, self.pause_s = once, pause_s
+        self.passers = passers           # every leg stops to wave at people passing, like PASSER_MARKERS (a loop)
         self.hand_up = False             # this leg drives with the hand up (waist_home): it stops to wave at people
                                          # (PASSER_MARKERS)
         self.dock_leg = False            # this leg goes to the dock: a stop near it undid the docking (dock_far)
@@ -933,7 +934,7 @@ class Patrol:
                 target = self.route[self.i]              # someone waving: answered every time (WAVER_AGAIN_S);
                 waver = wave_greet._waver() and (not self.dock_leg or self.dock_far(st))   # anyone else on the
                 passer = now >= self.wave_after and not self.dock_leg and isinstance(target, str) and \
-                    target.startswith(PASSER_MARKERS) and wave_greet._someone_within(wave_greet.GREET_M)   # lines
+                    (self.passers or target.startswith(PASSER_MARKERS)) and wave_greet.passer_due()   # lines
                 if waver or passer:
                     self.pause()                         # the base stops; the next tick drives on to the same marker
                     self.wave_after = now + PASSER_WAVE_EVERY_S
@@ -2576,9 +2577,10 @@ class Lumi:
         route = list(target) if isinstance(target, list) else [target]
         if loop and len(route) > 1 and rounds:
             back, forth = route[-2::-1], route[1:]
-            self.patrol = Patrol(route + (back + forth) * (rounds - 1) + back, once=True, pause_s=pause_s)
+            self.patrol = Patrol(route + (back + forth) * (rounds - 1) + back, once=True, pause_s=pause_s,
+                                 passers=True)
         elif loop and len(route) > 1:
-            self.patrol = Patrol(route + route[-2:0:-1], once=False, pause_s=pause_s)
+            self.patrol = Patrol(route + route[-2:0:-1], once=False, pause_s=pause_s, passers=True)
         else:
             self.patrol = Patrol(route, once=True, pause_s=pause_s)
         self.patrol.tick(force=True)

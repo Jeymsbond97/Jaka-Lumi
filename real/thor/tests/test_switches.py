@@ -269,6 +269,19 @@ order.clear()
 P = lumi.Patrol(["p3"])
 P.tick(force=True)
 assert order == ["waist", ("go", "home")] and P.mode == "going_home", order
+# a there-and-back loop (p1, p2) stops for anyone passing, a plain trip to p3 only for someone waving
+lumi.agv.status = lambda: {"move_status": "running", "power_percent": 90}
+real_on, real_due, real_waver = lumi.wave_greet_on, lumi.wave_greet.passer_due, lumi.wave_greet._waver
+lumi.wave_greet_on, lumi.wave_greet.passer_due, lumi.wave_greet._waver = (lambda: True), (lambda: True), \
+    (lambda: False)
+for passers, stops in ((True, True), (False, False)):
+    P = lumi.Patrol(["p1", "p2"], passers=passers)
+    P.moving, P.hand_up, P.passer_wave = True, True, (lambda: None)
+    P.pause = lambda: order.append("pause")
+    order.clear()
+    P.tick(force=True)
+    assert (order == ["pause"]) == stops, (passers, order)
+lumi.wave_greet_on, lumi.wave_greet.passer_due, lumi.wave_greet._waver = real_on, real_due, real_waver
 lumi.agv.status = lambda: {"move_status": "idle", "power_percent": 90}
 L.modes.patrol = True
 real_turned, lumi.waist_turned = lumi.waist_turned, lambda: 30.0   # turned 30 left for someone
