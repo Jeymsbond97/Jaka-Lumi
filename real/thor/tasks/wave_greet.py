@@ -238,7 +238,7 @@ def _down():
         if arm_route.where() in arm_route.WAVE_POSES:
             arm_route.move(arm_route.plan(arm_route.HOME), DOWN_SPEED)
         _turn_head(0.0, head.HEAD_REST_PITCH)
-        log("nobody waves: arm down")
+        log("arm down")
     finally:
         _busy.clear()
 
