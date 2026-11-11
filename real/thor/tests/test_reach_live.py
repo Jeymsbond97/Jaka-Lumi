@@ -102,6 +102,13 @@ L.reached_at, folds[:] = time.time(), []
 assert not L.reach_done() and not folds                           # nothing said yet: the hand stays out
 L.reached_at = time.time() - lumi.REACH_HOLD_S - 1                # nobody said anything: the timeout folds
 assert L.reach_done() and folds == ["fold"]
+status["now"] = "running"                                         # still on its way after REACH_HOLD_S: no timeout
+L.reached_at, folds[:] = time.time() - lumi.REACH_HOLD_S - 1, []
+assert not L.reach_done() and not folds
+status["now"] = "done"                                            # the hand got there only now: the hold counts
+fetch.state = lambda: {"step": "", "since": time.time()}          # from then, not from the order
+assert not L.reach_done() and not folds
+fetch.state = lambda: {"step": "reaching out"}
 status["now"] = "running"                                         # still going toward their hand: stopped, folded
 L.reached_at, folds[:] = time.time(), []
 assert L.reach_done("okay thanks") and folds == ["fold"] and stops, (folds, stops)

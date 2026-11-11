@@ -12,10 +12,14 @@ turns further out: following starts with it where it is (turned toward the perso
 as the base comes round (unwind). Nothing waits for another. The base is driven with joy_control every TICK_S (one
 command lasts 0.5 s: a stuck loop stops the base by itself), the arm in look; forward only with the person near ahead
 and the waist near the front. Every command is checked first: where the base and the arm would be BRAKE_S later must be clear
-(lidar + map, agv.clearance); when not, the base stands, and after BLOCKED_END_S it gives up.
+(lidar + map, agv.clearance); when not, the base stands, and after BLOCKED_END_S it gives up. A turn on the spot whose
+arm sweep is blocked goes the other way round, or from a spot a short straight move away (_room_to_turn); it never
+turns faster than the head keeps the person in view (focus), and a head that can't follow them past its +-180 swings
+through the front to meet them (meet) while the torso camera watches (torso_people).
 
     stop()   from any thread: the event is set and the base is sent 0 at once
 """
+import json
 import math
 import re
 import threading
@@ -26,7 +30,7 @@ import numpy as np
 
 from robot import agv, head, motion
 from tasks import fetch
-from vision import reid
+from vision import camview, reid
 
 FOLLOW_GAP_M = 1.0          # m; keep this far from the person (camera distance); nearer: no forward
 NEAR_STOP_M = 0.8           # m; nearer than this no turn either: the arm would swing close to them (estimate)
@@ -39,7 +43,8 @@ REACT_S = 0.3               # s; from a person stopping to the base braking (fra
 ACCEL_MS2 = 0.5             # m/s^2; speeding up at most this fast (estimate, tune live)
 DECEL_MS2 = 0.8             # m/s^2; slowing down this fast, and never faster than lets it stop at the gap (estimate)
 TURN_GAIN = 1.5             # rad/s per rad the person is off to the side
-TURN_MAX_RS = 0.6           # rad/s; turn speed cap (joy_control takes up to 1.0; the arm tips sweep 0.6 m out)
+TURN_MAX_RS = 1.0           # rad/s; turn speed cap = joy_control's own clamp (docs/05; the arm tips sweep 0.6 m out,
+                            # 0.6 m/s); slower while the head can't keep the person in view (FOCUS_*)
 TURN_ACCEL_RS2 = 2.0        # rad/s^2; turn speed changes at most this fast (estimate)
 TURN_DEAD_DEG = 5.0         # deg; the person this near the middle: no turn
 TURN_ONLY_DEG = 35.0        # deg; the person further aside: turn on the spot first, no forward
@@ -62,6 +67,15 @@ JOIN_S = 2.0                # s a new "follow me" waits for the old loop to end
 BEHIND_DEG = 180.0          # deg; the person's angle from the base is kept within +-this (right behind: one side)
 ROUND_MAX_DEG = 225.0       # deg; the arm blocked turning toward them, the base turns the other way round when that is
                             # at most this far (the person within 45 deg of right behind, beside a wall)
+SHIFT_STEP_M = 0.1          # m; blocked both ways on the spot: straight moves this long, then twice ... tried (each
+SHIFT_MAX_M = 0.4           # ... way clear and the turn from its end clear), up to this (estimate; between fetch's
+                            # NEAR_BACK_M 0.3 back-off and STRAIGHT_MAX_M 0.6 straight drive)
+SHIFT_MS = fetch.MOVE_SPEED  # m/s; that move's speed (a mission's straight move, 0.10)
+FOCUS_FULL_DEG = 5.0        # deg; the base turns at full speed while the head's gaze is at most this far behind the
+FOCUS_EDGE_DEG = 25.0       # person, slower and slower up to this (the head camera sees +-47, vision/person.py; the
+                            # rest is the person's own width and the braking at TURN_ACCEL_RS2). Estimates
+HEAD_DEG_S = 40.0           # deg/s; the head's top speed (audio/sing.py, measured): where a swing through the front
+                            # meets a person coming round
 HEAD_REL_MAX = 30.0         # deg; a turned waist unwinds until the person is this far from the base heading, the
                             # head looks for the rest (it never turns further out while following, unwind())
 WAIST_FOLLOW_MAX = 90.0     # deg from the front; a waist turned further unwinds to this first (estimate)
@@ -81,7 +95,7 @@ HEAD_LEAD_MAX_S = 1.5       # much later at least, or as long as the last head m
                             # the base turning 0.6 rad/s goes 35-45 deg round in one move, which left the head off them
 HEAD_VEL = 100              # speed and acceleration ratio %, the body API's maximum: the head's speed tops out from 50
                             # (~40 deg/s, audio/sing.py, measured at 100 / 100); the waist's moves keep WAIST_FOLLOW_VEL
-HEAD_TIMEOUT_S = 5          # s; one head move (90 deg at ~40 deg/s takes ~2.5 s)
+HEAD_TIMEOUT_S = 10         # s; one head move (a swing through the front, up to 360 deg at HEAD_DEG_S, takes ~9 s)
 
 CHARGER = ("I'm on the charger, I can't follow you from here.", "충전 중이라 따라갈 수 없어요.")
 ARM_BUSY = ("A program is running on my arm, so I can't follow you.", "팔에서 프로그램이 실행 중이라 따라갈 수 없어요.")
@@ -133,15 +147,16 @@ def stop():
     return was
 
 
-def speeds(distance, angle_deg, v_last, w_last=0.0, walk=0.0, go=True, dt=TICK_S):
+def speeds(distance, angle_deg, v_last, w_last=0.0, walk=0.0, go=True, dt=TICK_S, w_max=TURN_MAX_RS):
     """(v m/s, w rad/s) toward a person `distance` m away at `angle_deg` (+ left), walking `walk` m/s away (- toward
     the base): their speed plus SPEED_GAIN per m beyond the gap, never faster than lets the base stop at the gap,
     changed smoothly (ACCEL_MS2 / DECEL_MS2).
-    Never forward inside the gap; nothing at all inside NEAR_STOP_M. go=False: only slow down (and turn)."""
+    Never forward inside the gap; nothing at all inside NEAR_STOP_M. go=False: only slow down (and turn). w_max: the
+    turn's cap now (focus())."""
     if distance < NEAR_STOP_M:
         return 0.0, 0.0
     a = math.radians(angle_deg)
-    w_want = 0.0 if abs(angle_deg) < TURN_DEAD_DEG else max(-TURN_MAX_RS, min(TURN_MAX_RS, TURN_GAIN * a))
+    w_want = 0.0 if abs(angle_deg) < TURN_DEAD_DEG else max(-w_max, min(w_max, TURN_GAIN * a))
     w = w_last + max(-TURN_ACCEL_RS2 * dt, min(TURN_ACCEL_RS2 * dt, w_want - w_last))
     room = distance - FOLLOW_GAP_M
     if room <= 0:
@@ -163,7 +178,7 @@ def blocked(v, w, arm_pts, pose=None):
     x, y, th = pose or agv.pose()
     th2 = th + w * BRAKE_S
     x2, y2 = x + v * BRAKE_S * math.cos(th), y + v * BRAKE_S * math.sin(th)
-    if v > 0:
+    if v:                                                # forward, or back (room to turn, _room_to_turn)
         ahead = agv.clearance(x2, y2)
         if ahead < BASE_CLEAR_M and ahead < agv.clearance(x, y):
             return f"an obstacle {ahead:.2f} m from the base's way"
@@ -297,6 +312,64 @@ def unwind(w, b):
     return 0.0 if goal * w <= 0.0 else math.copysign(min(abs(goal), abs(w)), w)
 
 
+def focus(a, gaze):
+    """The base's turn cap (rad/s) toward a person a deg from its heading while the head (waist + head) looks at gaze
+    deg: full while the gaze is within FOCUS_FULL_DEG of them, down to 0 at FOCUS_EDGE_DEG, but only when the turn takes
+    them further from the gaze (the head is further round than they are); turning them toward the gaze is never held.
+    The base turns ~57 deg/s at TURN_MAX_RS, the head ~40 (HEAD_DEG_S): unchecked it outran the head."""
+    off = (a - gaze + 180.0) % 360.0 - 180.0
+    if off * a >= 0.0 or abs(off) <= FOCUS_FULL_DEG:
+        return TURN_MAX_RS
+    return TURN_MAX_RS * max(0.0, (FOCUS_EDGE_DEG - abs(off)) / (FOCUS_EDGE_DEG - FOCUS_FULL_DEG))
+
+
+def meet(gaze, a, side):
+    """Where (deg from the base heading) the head, looking at gaze, meets the person a deg round (on `side`'s half, so
+    past +-180) while the base turns round that way at TURN_MAX_RS: the head can't follow them across its +-180, so it
+    swings through the front at HEAD_DEG_S toward them as they come round; never past the front, where they end."""
+    rate = -side * math.degrees(TURN_MAX_RS)                 # deg/s their angle changes (toward the front)
+    closing = math.copysign(HEAD_DEG_S, a - gaze) - rate
+    if (a - gaze) * closing <= 0.0:
+        return 0.0
+    m = a + rate * (a - gaze) / closing
+    return side * max(0.0, side * m)
+
+
+def _room_to_turn(pose, p, turned, pts):
+    """Signed length (m, + forward) of the shortest straight move, up to SHIFT_MAX_M, after which the base can turn on
+    the spot toward the person at the map point p one way round or the other (the arm's sweep clear, fetch.turn_hits),
+    with the way there clear for the base and the arm (blocked(), every fetch.PROBE_STEP_M) and the person still
+    FOLLOW_GAP_M away; at each length away from them first. None when there is none."""
+    x, y, th = pose
+    there = lambda s: (x + s * math.cos(th), y + s * math.sin(th), th)
+    for k in range(1, round(SHIFT_MAX_M / SHIFT_STEP_M) + 1):
+        for s in sorted((k * SHIFT_STEP_M, -k * SHIFT_STEP_M), key=lambda s: -_rel(there(s), p)[0]):
+            d, a = _rel(there(s), p)
+            if d < FOLLOW_GAP_M:
+                continue
+            n = math.ceil(abs(s) / fetch.PROBE_STEP_M - 1e-9)
+            # blocked() looks BRAKE_S ahead at speed v: v = s / BRAKE_S checks the point s m along
+            if any(blocked(s * i / n / BRAKE_S, 0.0, pts, pose) for i in range(1, n + 1)):
+                continue
+            for deg in (a, a - math.copysign(360.0, a)):
+                if abs(deg) <= ROUND_MAX_DEG and fetch.turn_hits(deg - turned, pose=there(s)) is None:
+                    return s
+    return None
+
+
+def torso_people():
+    """The torso camera's fresh people [(distance m, waist-frame angle deg, age s, None)]: it turns with the waist and
+    sees ahead while the head swings off the person (the assistant's tracks come from the head camera only)."""
+    camview.want("torso")
+    try:
+        d = json.loads(camview.det_path("torso").read_text())
+        age = time.time() - d["time"]
+        return [(p["distance_m"], p["angle_deg"], age, None) for p in d["people"]
+                if p["distance_m"] is not None and age < STALE_S]
+    except (FileNotFoundError, ValueError, KeyError, TypeError):
+        return []
+
+
 def _head_follow(target, done, lift, front, w, waist_free, stats):
     """Turn the head to the person at target[0] (deg from the base heading, pitch), the waist back toward the front
     with it. Every move sends the head straight to them (up to +-BEHIND_DEG on the waist, never held back) and the waist
@@ -385,16 +458,20 @@ def _run(see, say, people):
         turning, blocked_t, hold_v, log_t, odd_t, log_pose = False, None, 0.0, 0.0, 0.0, agv.pose()
         side = 0.0                                       # +-1: turning round the other way (one way blocked), until
                                                          # the person is ahead again; 0: the near way
-        while not _stop.is_set():
+        shift, shifted = None, False                     # (pose, m): a straight move to where it can turn; made once
+        while not _stop.is_set():                        # for a turn
             now = time.time()
             pose = agv.pose()
             try:
-                turned = head.status()[1] - front
+                _, waist, yaw = head.status()[:3]
+                turned, gaze = waist - front, waist - front + yaw
             except (ConnectionError, OSError, KeyError):
                 pass                                     # the last reading: the body API may be busy
             seen_from = _seen_from(pose, turned)
             mine, was = see(), see
-            see, got = _pick(see, mine, people, person, seen_from, sig, now)
+            # the head off them (swinging round): the torso camera watches (no clothes: it only keeps where they are)
+            torso = [] if _fresh(mine) else [(see, *g) for g in torso_people()]
+            see, got = _pick(see, mine, lambda: (people() if people else []) + torso, person, seen_from, sig, now)
             if see is not was:
                 fetch.log(f"follow: re-locked onto the person at {got[0]:.2f} m {got[1]:+.0f} deg")
             elif got is None and _fresh(mine) and now - odd_t > LOG_S:
@@ -408,7 +485,7 @@ def _run(see, say, people):
                     if people else [0.0]
                 if got[3] is not None and all(e > JUMP_M or e < 0.05 for e in near):   # alone (or themselves):
                     sig = reid.blend(sig, got[3])                                          # these clothes are theirs
-            if side:
+            if side or shift:
                 start_t = now                            # out of view while it turns round: lost counts after
             if now - max(person.t or 0.0, start_t) >= LOST_S:
                 fetch.log("follow: lost the person")
@@ -429,13 +506,24 @@ def _run(see, say, people):
                         pose[2] + w * lead)                  # the base when the head gets there (v, w: this command)
                 yaw = _rel(then, person.at(now + lead))[1]
                 yaw = ref + (yaw - ref + 180.0) % 360.0 - 180.0
-                if side and abs(yaw) > 90.0:             # the head ahead (not round past its +-180): the person
-                    yaw = 0.0                            # comes into view as the base turns
+                if side:                                 # the head can't follow them round past its +-180: it
+                    yaw = meet(gaze, a, side)            # swings through the front to meet them coming round
                 target[0] = (max(-BEHIND_DEG, min(BEHIND_DEG, yaw)), HEAD_PITCH)
                 walk = float(person.vel @ np.array([math.cos(pose[2]), math.sin(pose[2])]))
                 go = now - person.t <= COAST_S and abs(turned) < WAIST_DRIVE_DEG   # forward with the waist ahead
-                cmd = speeds(d, a, v, w, walk, go=go, dt=TICK_S)
-            spot = cmd[0] == 0.0 and cmd[1] != 0.0      # a turn on the spot (the person aside or behind)
+                cap = TURN_MAX_RS if side else focus(a, gaze)   # never turning them out of the head's view
+                cmd = speeds(d, a, v, w, walk, go=go, dt=TICK_S, w_max=cap)
+            pts = [fetch._rot(turned) @ p for p in arm_pts]   # the arm turned with the waist
+            if shift:                                    # straight to where it can turn, then the turn checked again
+                (x0, y0, th0), m = shift
+                gone = (pose[0] - x0) * math.cos(th0) + (pose[1] - y0) * math.sin(th0)
+                if gone * math.copysign(1.0, m) >= abs(m) - 0.01:
+                    shift, turning = None, False
+                else:
+                    cmd = (math.copysign(min(SHIFT_MS, abs(v) + ACCEL_MS2 * TICK_S), m), 0.0)
+            spot = not shift and cmd[0] == 0.0 and cmd[1] != 0.0   # a turn on the spot (the person aside or behind)
+            if not spot and not shift and not turning:
+                shifted = False
             if spot and not turning:
                 hit = fetch.turn_hits(a - turned)        # the arm's whole sweep toward them (it is turned already)
                 other = a - math.copysign(360.0, a)      # the other way round (right behind: about as far)
@@ -448,15 +536,19 @@ def _run(see, say, people):
                 elif hit is not None:
                     fetch.log(f"follow: turning {a:+.0f} deg my arm would hit something at "
                               f"({hit[0]:.2f}, {hit[1]:.2f})")
-                    fetch._say(say, "My arm can't turn here, something is in its way.",
-                               "팔이 부딪힐 수 있어서 돌 수 없어요.")
-                    return
+                    m = None if shifted else _room_to_turn(pose, person.at(now), turned, pts)
+                    if m is None:
+                        fetch._say(say, "My arm can't turn here, something is in its way.",
+                                   "팔이 부딪힐 수 있어서 돌 수 없어요.")
+                        return
+                    fetch.log(f"follow: no turn either way here; driving {m:+.2f} m to turn from there")
+                    shift, shifted, spot = (pose, m), True, False
+                    cmd = (0.0, 0.0)
             turning = spot
             if side and abs(a) < TURN_ONLY_DEG:
                 side = 0.0                               # ahead again: angles go on from the head's target
             # stopped by something: on again only when the speed it was stopped at is clear (no creeping up to it)
-            pts = [fetch._rot(turned) @ p for p in arm_pts]   # the arm turned with the waist
-            why = cmd != (0.0, 0.0) and blocked(max(cmd[0], hold_v) if cmd[0] else 0.0, cmd[1], pts, pose)
+            why = cmd != (0.0, 0.0) and blocked(max(cmd[0], hold_v) if cmd[0] > 0 else cmd[0], cmd[1], pts, pose)
             if why:
                 if blocked_t is None:
                     fetch.log(f"follow: standing, {why}")

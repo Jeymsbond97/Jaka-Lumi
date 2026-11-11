@@ -28,6 +28,7 @@ def forbid(*a, **k):
 
 
 fetch.motion.go = fetch.skills._ask = motion._ready = forbid
+follow.torso_people = lambda: []                    # never the real camera service's file (World.torso_view below)
 fetch._charging = lambda: False
 fetch._at_pose = lambda name: True                  # the arm is in look already
 fetch._pose = lambda name, speed=None: None
@@ -50,7 +51,7 @@ class Body:
 
     def call(self, path, body=None, timeout=2):
         if path == "status":
-            return [{"enable": True, "pos": p} for p in self.pos]
+            return [{"enable": True, "pos": p, "vel": 0.0} for p in self.pos]   # still (robot/head.py waits on vel)
         if path != "moveto":
             forbid()
         with self.lock:
@@ -131,6 +132,12 @@ class World:
         return d, a, 0.0, self.look
 
     look = None
+
+    def torso_view(self):
+        """follow.torso_people: the torso camera turns with the waist, sees +-HALF_FOV of its front."""
+        d, a = self.sight(self.person_at())
+        a -= body.pos[1]
+        return [(d, a, 0.0, None)] if abs(a) <= HALF_FOV else []
 
     def sight(self, p):
         """(distance, angle deg + left) of the map point p from the base now."""
@@ -526,7 +533,8 @@ def person_deg(w):
 
 
 def watch(w, secs):
-    """[(t, waist, head yaw, base deg, gaze off the person deg)] every 20 ms; the angle of every forward command."""
+    """[(t, waist, head yaw, base deg, gaze off the person deg, s since follow last had a sighting of them)] every
+    20 ms; the angle of every forward command."""
     samples, ahead, request = [], [], w.request
 
     def req(cmd):
@@ -540,7 +548,9 @@ def watch(w, secs):
     while time.time() < t0 + secs:
         _, waist, yaw, _ = body.pos
         b = person_deg(w)
-        samples.append((time.time() - t0, waist, yaw, math.degrees(w.th), (b - waist - yaw + 180.0) % 360.0 - 180.0))
+        seen = follow._followed[0]
+        samples.append((time.time() - t0, waist, yaw, math.degrees(w.th), (b - waist - yaw + 180.0) % 360.0 - 180.0,
+                        time.time() - seen[1] if seen else 0.0))
         time.sleep(0.02)
     return samples, ahead
 
@@ -555,7 +565,8 @@ assert wait_end(0.5)
 moves = [m for m in body.moves if m[1] == "follow head"]
 first = moves[0]
 assert first[3] == 0.0 and first[4] > 90.0 and abs(first[4] - 170.0) < 10.0, first        # the head alone on them
-assert max(abs(s[4]) for s in samples[5:]) < 15.0, max(abs(s[4]) for s in samples[5:])        # gaze on them
+late = [s for s in samples if s[0] > 0.1 + head.STILL_S]                     # the first move (head.moveto waits
+assert max(abs(s[4]) for s in late) < 15.0, max(late, key=lambda s: abs(s[4]))         # STILL_S first): gaze on them
 assert all(m[3] == 0.0 for m in moves), moves                                                 # the waist stays
 assert w.cmds[0][2] > 0.0 and w.cmds[0][0] - w.t0 < 0.5, w.cmds[:2]                           # turning at once
 assert max(b[0] - a[0] for a, b in zip(w.cmds, w.cmds[1:])) < 0.2                              # no tick waits
@@ -598,12 +609,15 @@ print("stopped turned: waist back to the front")
 # the real one the head alone must stay on them: the gaze within 25 deg (the camera sees +-47), the waist never out.
 
 
+HEAD_DEG_S = [70.0]                                # the fake head's speed (the real one ~40, audio/sing.py)
+
+
 def real_body(path, b=None, timeout=2):
     """The body API as slow as live: ~0.45 s a move + the travel (head ~70, waist ~15 deg/s), moving all along."""
     if path != "moveto":
         return body.call(path, b, timeout)
     start, goal, t0 = list(body.pos), list(b["pos"]), time.time()
-    dur = 0.45 + max(abs(goal[2] - start[2]) / 70.0, abs(goal[1] - start[1]) / 15.0)
+    dur = 0.45 + max(abs(goal[2] - start[2]) / HEAD_DEG_S[0], abs(goal[1] - start[1]) / 15.0)
     while time.time() - t0 < dur:
         body.pos = [a + (g - a) * (time.time() - t0) / dur for a, g in zip(start, goal)]
         time.sleep(0.02)
@@ -638,7 +652,7 @@ turn_hits = fetch.turn_hits
 for why in ("sweep", "not look"):
     body.moves.clear()
     if why == "sweep":
-        fetch.turn_hits = lambda d: (1.0, 1.0) if threading.current_thread().name == "follow head" else None
+        fetch.turn_hits = lambda d, pose=None: (1.0, 1.0) if threading.current_thread().name == "follow head" else None
     else:
         calls = iter([True])                                               # ready() sees it in look, then
         fetch._at_pose = lambda name: next(calls, False)                   # it is moved out (by hand)
@@ -672,13 +686,13 @@ time.sleep(0.6)
 follow.stop()
 assert wait_end(0.5)
 yaws = [m[4] for m in body.moves if m[1] == "follow head"]
-assert yaws and all(y > 0 for y in yaws[1:]), yaws
+assert len(yaws) > 1 and all(y * yaws[1] > 0 for y in yaws[1:]), yaws   # which side depends on the first sighting
 print("right behind: one side")
 
 # right behind beside a wall (live 2026-10-30): the arm blocked turning left, the base turns right round to them
 # (head ahead, out of view a while), never back the blocked way; blocked both ways: it stops and says so
 blocked_dir = [1.0]
-fetch.turn_hits = lambda d: (-5.08, 11.54) if d * blocked_dir[0] > 0 or not blocked_dir[0] else None
+fetch.turn_hits = lambda d, pose=None: (-5.08, 11.54) if d * blocked_dir[0] > 0 or not blocked_dir[0] else None
 said.clear()
 body.pos = [50.0, 0.0, 180.0, follow.HEAD_PITCH]   # "look at the back side": the head right behind
 head._call = real_body
@@ -702,8 +716,74 @@ w = World(person=(1.3 * math.cos(math.radians(186.0)), 1.3 * math.sin(math.radia
 follow.start(w.see, say)
 assert wait_end(3.0) and any("can't turn" in x for x in said), said
 assert all(c[2] == 0.0 for c in w.cmds), w.cmds
-fetch.turn_hits = turn_hits
 print("right behind, both ways blocked: stops, says so")
+
+# the same turn round with a head as slow as the real one (~40 deg/s): it swings through the front to meet them at
+# once, the torso camera watches meanwhile; the time without the head on them stays short, never lost
+blocked_dir[0] = 1.0
+said.clear()
+body.pos = [50.0, 0.0, 180.0, follow.HEAD_PITCH]
+head._call, HEAD_DEG_S[0] = real_body, 40.0
+w = World(person=(1.3 * math.cos(math.radians(186.0)), 1.3 * math.sin(math.radians(186.0))), fov=True)
+follow.torso_people = w.torso_view
+samples, _ = watch(w, 8.0)
+follow.stop()
+assert wait_end(3.0) and not said, said
+head._call, HEAD_DEG_S[0], follow.torso_people = body.call, 70.0, (lambda: [])
+head_blind = sum(b[0] - a[0] for a, b in zip(samples, samples[1:]) if abs(a[4]) > HALF_FOV)
+unseen = max(s[5] for s in samples)                                             # longest without a sighting
+assert head_blind < 4.0 and unseen < 2.5, (head_blind, unseen)
+assert abs(samples[-1][4]) < 15.0, samples[-1]                                     # on them at the end
+print(f"turn round, real head speed: head off them {head_blind:.1f} s, without a sighting at most {unseen:.1f} s")
+fetch.turn_hits = turn_hits
+
+# an ordinary turn (the person standing 120 deg to the left, the head on them, a head as slow as the real one): the
+# base turns at up to joy_control's 1.0 rad/s but never faster than the head keeps them in its camera's view
+said.clear()
+body.pos = [50.0, 0.0, 120.0, follow.HEAD_PITCH]
+head._call, HEAD_DEG_S[0] = real_body, 40.0
+w = at(120.0)
+w.fov = True
+samples, _ = watch(w, 7.0)
+follow.stop()
+assert wait_end(3.0) and not said, said
+head._call, HEAD_DEG_S[0] = body.call, 70.0
+off = max(abs(s[4]) for s in samples)
+top = max(abs(c[2]) for c in w.cmds)
+assert follow.TURN_MAX_RS == 1.0 and top > 0.6, top                                # faster than before (0.6)
+assert off < HALF_FOV - 7.0, max(samples, key=lambda s: abs(s[4]))                 # in view all along (their width)
+assert abs(math.degrees(w.th) - 120.0) < 10.0, math.degrees(w.th)
+print(f"ordinary turn, real head speed: top {top:.2f} rad/s, gaze off at most {off:.0f} deg")
+
+# beside the charger wall (live 2026-10-30), both ways blocked on the spot: the finger tips would sweep into two
+# corners 0.64 m out. Room behind: it backs up a little (the way checked), turns from there and follows; no room
+# (a wall 0.35 m behind too): it says it can't turn and never drives
+CORNERS = [(0.5, 0.4), (0.5, -0.4)]
+said.clear()
+body.pos = [50.0, 0.0, 180.0, follow.HEAD_PITCH]
+P186 = (2.0 * math.cos(math.radians(186.0)), 2.0 * math.sin(math.radians(186.0)))
+w = World(person=P186, obstacles=CORNERS, fov=True)
+assert fetch.turn_hits(186.0) is not None and fetch.turn_hits(-174.0) is not None   # blocked both ways here
+follow.start(w.see, say)
+t = time.time()
+while time.time() - t < 15.0 and not (abs(w.sight(w.person_at())[1]) < follow.TURN_DEAD_DEG + 1.0 and w.cmds
+                                      and w.cmds[-1][2] == 0.0):
+    time.sleep(0.05)
+follow.stop()
+assert wait_end(3.0) and not said, said
+backed = -sum(c[1] * min(n[0] - c[0], 0.5) for c, n in zip(w.cmds, w.cmds[1:]) if c[1] < 0.0)
+assert 0.05 < backed < follow.SHIFT_MAX_M + 0.05, backed                          # backed up a little, straight
+assert abs(w.sight(w.person_at())[1]) < follow.TURN_DEAD_DEG + 1.0, w.sight(w.person_at())
+assert not any(c[1] < 0.0 and c[2] != 0.0 for c in w.cmds), "backed and turned at once"
+print(f"both ways blocked, room behind: backed {backed:.2f} m, turned {math.degrees(w.th):.0f} deg to them")
+said.clear()
+body.pos = [50.0, 0.0, 180.0, follow.HEAD_PITCH]
+WALL = [(-0.35, 0.05 * k) for k in range(-10, 11)]
+w = World(person=P186, obstacles=CORNERS + WALL, fov=True)
+follow.start(w.see, say)
+assert wait_end(3.0) and any("can't turn" in x for x in said), said
+assert all(c[1:] == (0.0, 0.0) for c in w.cmds), w.cmds
+print("both ways blocked, no room: says so, never drives")
 
 # lumi: act("stop") ends following; follow_me locks onto the person talking, refuses when it must
 lumi.agv.cancel = lumi.skills.cancel = lumi.motion.stop = lambda: None

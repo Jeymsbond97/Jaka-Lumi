@@ -110,6 +110,7 @@ for name in ("_drive_pose", "_waist_front", "head_ahead", "_lift_to", "_line_hol
 fetch.skills.moved = lambda: None
 fetch.gripper.state = lambda: {"holding": True}
 fetch._in_hand = lambda: False
+fetch._to_check_pose = lambda: None                    # the hand check pose (a shut hand) is not this test's
 fetch._launch = lambda fn, *a: fn(*a)                  # in this thread: the test reads the end at once
 say = lambda en, ko=None: said.append(en)
 

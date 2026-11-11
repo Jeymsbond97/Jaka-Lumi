@@ -23,7 +23,7 @@ server.MODES_FILE = tmp / "lumi_modes.json"          # never the real /dev/shm f
 fetch.STATE_FILE = tmp / "lumi_task.json"
 server.agv.request = server.agv.cancel = server.skills.cancel = server.arm.cmd = forbid
 server.agv.markers = lambda: M
-fetch.check_hand = lambda: False
+fetch.check_hand = fetch.look_at_hand = lambda: False
 fetch.log = lambda *a: None
 done = []
 server.send_to_assistant = lambda cmd, **a: done.append(cmd)

@@ -50,7 +50,7 @@ fake = types.SimpleNamespace(
     quick_command=lambda w, rule=None: done.append(("quick", w)), answer=lambda w, part=False: done.append(("talk", w)),
     fetch_say=lambda en, ko: said.append(en), chain_wait=lambda: None, base_off=lambda *a, **k: False,
     stay=lambda: None)
-fetch.check_hand = lambda: False
+fetch.check_hand = fetch.look_at_hand = lambda: False
 runs = []
 fetch.run_steps = lambda s, say=None, sender=None: runs.append(s)
 fetch.state = lambda: {"status": "failed" if runs and runs[-1][0].get("to") == "p5" else "done"}

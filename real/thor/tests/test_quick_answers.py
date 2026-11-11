@@ -91,7 +91,7 @@ def through_answer():
     mouth.say = lambda text, lang=None, abort=None: said.append(text)
     lumi.ears.understood = lambda *a: True
     lumi.ears.last_stt = {"language": "english", "logprob": -0.1}
-    fetch.check_hand = lambda: False
+    fetch.check_hand = fetch.look_at_hand = lambda: False
     L = lumi.Lumi.__new__(lumi.Lumi)
     L.lang, L.current, L.closing_pending, L.markers = "en", None, None, ["home", "stage"]
 

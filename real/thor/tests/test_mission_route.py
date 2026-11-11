@@ -64,7 +64,7 @@ L.keep_listening = lambda: None
 L.fetch_say = lambda en, ko=None: said.append(en)
 L.fetch_status = lambda: None
 L.modes = types.SimpleNamespace(greeter=True, patrol=False, drive=True, wave=True)
-fetch.check_hand = lambda: False
+fetch.check_hand = fetch.look_at_hand = lambda: False
 lumi.fetch_dialog = types.SimpleNamespace(run_steps=lambda s, hear, say, describe, start: started.append(s) or "started")
 for text in ("take the cup, go to booth two, give it to James and come back", "스테이지 갔다 와",
              "go to the stage, wait 10 seconds, then come back"):

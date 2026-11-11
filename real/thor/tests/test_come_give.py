@@ -74,7 +74,7 @@ def come_to(track, say=False):
 L.come_to = come_to
 L.end_run = lambda text: events.append("end run")
 hand = {"held": True}
-L.held_now = lambda: hand["held"]
+L.held_now = lambda look=False: hand["held"]
 
 # the hand-over by voice goes to the person who asked: far -> comes to them first, near -> at once
 for text in ["Give me a cup.", "give it to me", "hand it over", "컵 줘", "이리 줘", "나한테 주세요"]:

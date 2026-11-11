@@ -168,7 +168,8 @@ skills.home_joints = lambda: [0.0] * 6
 up_rpy = list(skills.GRASP_RPY)
 tilt = {"rpy": up_rpy}
 skills._ask = lambda name, **a: {"errorCode": "0", "cartPosition": [0, 0, 0] + tilt["rpy"]}
-fetch.gripper.state = lambda: {**hand, "ai": [3500 if hand["holding"] else 160], "di": [int(hand["holding"])]}
+fetch.gripper.state = lambda: {**hand, "ai": [3500 if hand["holding"] else 4150 if hand["closed"] else 160],
+                               "di": [int(hand["holding"])]}
 fetch.gripper.open_ = lambda: (calls.append(("open",)), hand.update(holding=False, closed=False), fetch.gripper.state())[-1]
 def in_room(obj):
     """A fake camera's object that stays put in the room: seen where it is from the base pose now (the CALIB_FILE yaw
@@ -479,15 +480,16 @@ except fetch.FetchError:
     pass
 fetch._set(holding=False, status="idle")
 hand.update(holding=False, closed=False)
-# the camera sees an empty hand while AI_1 still says holding (the fingers shut on nothing): believed, fetch starts
+# the state says holding, the fingers shut on nothing (no close on a thing seen, tasks/fetch.close_hand): fetch starts
 reset()
 fetch._set(holding=True, status="holding")
-hand.update(holding=True, closed=True)
+hand.update(holding=False, closed=True)
 eye["hand"] = "empty"
 st = run(fetch.start, {**ok, "source": "here", "dest": "here"})
 assert st["status"] == "holding" and ("open",) in calls, st["log"]           # started, and opened the hand first
 # ... and place / give with an empty hand are refused, the state forgets it
 fetch._set(holding=True, status="holding")
+hand.update(holding=False, closed=True)
 for fn in (fetch.place, fetch.give):
     try:
         fn()

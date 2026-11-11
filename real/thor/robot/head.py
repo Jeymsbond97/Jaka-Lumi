@@ -8,10 +8,14 @@
 import json
 import sys
 import threading
+import time
 import urllib.request
 
 BODY = "http://192.168.10.90:5000/api/extaxis"
 YAW_LIMIT = 60.0                 # deg; we keep the head well inside its +-180 range
+STILL_S = 0.1                    # s between two position reads that must agree before a move is sent
+TURN_TIMEOUT_S = 8.0             # s a head turn may take (estimate, to measure); a move the controller never reported
+                                 # done held every other body move 30 s and Lumi stopped listening (2026-10-30)
 PITCH_RANGE = (-5.0, 35.0)       # deg, hardware range
 HEAD_REST_PITCH = PITCH_RANGE[0]  # deg; the head's rest: its lowest, looking down (+pitch = up), so sitting people
                                  # and near things are in view. Every "head back / ahead" uses it; yaw rests at 0
@@ -43,9 +47,16 @@ def moveto(pos, vel=VEL, acc=ACC, timeout=30):
         return None                                        # ponytail: skipped silently, the owner turns it back
     pos = [max(lo, min(hi, float(p))) for p, (lo, hi) in zip(pos, AXIS_LIMITS)]
     with _one:
-        if not all(j["enable"] for j in _call("status")):  # off after a controller power cycle; moveto needs them on
+        end = time.time() + timeout
+        joints = _call("status")
+        while time.time() < end:                           # another process's move still runs: a moveto sent meanwhile
+            time.sleep(STILL_S)                            # is dropped and its call never answers (checked 2026-10-30:
+            before, joints = joints, _call("status")       # 20 s timeout, no motion). "vel" reads 0 while moving, so
+            if all(abs(a["pos"] - b["pos"]) < 0.05 for a, b in zip(before, joints)):   # the positions tell
+                break
+        if not all(j["enable"] for j in joints):           # off after a controller power cycle; moveto needs them on
             _call("enable", {"enable": 1})
-        return _call("moveto", {"pos": pos, "vel": vel, "acc": acc}, timeout=timeout)
+        return _call("moveto", {"pos": pos, "vel": vel, "acc": acc}, timeout=max(1.0, end - time.time()))
 
 
 def status():
@@ -58,7 +69,7 @@ def turn(yaw, pitch=None, vel=VEL, acc=ACC, limit=YAW_LIMIT):
     lift, waist, _, cur_pitch = status()
     yaw = max(-limit, min(limit, yaw))
     pitch = cur_pitch if pitch is None else max(PITCH_RANGE[0], min(PITCH_RANGE[1], pitch))
-    return moveto([lift, waist, yaw, pitch], vel, acc)
+    return moveto([lift, waist, yaw, pitch], vel, acc, timeout=TURN_TIMEOUT_S)
 
 
 if __name__ == "__main__":

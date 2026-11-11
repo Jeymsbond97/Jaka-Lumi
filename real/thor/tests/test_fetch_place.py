@@ -36,7 +36,7 @@ assert brain.held_command("bring it to p5 and put it on the white chair") == "pl
 from api import server
 server.agv.markers = lambda: ["p1", "p8", "home"]
 for holding in (True, False):
-    fetch.check_hand = lambda: holding
+    fetch.check_hand = fetch.look_at_hand = lambda: holding
     fetch._state.update(holding=holding, held_object={"object": "cup", "colour": "white"} if holding else None)
     for text, said in (("put it on the grey table", "Put the white cup on the grey table."),
                        ("put on the gray table", "Put the white cup on the grey table."),
@@ -242,7 +242,7 @@ assert got["colour"] == "white" and said[-1] == "I couldn't see a blue cup, so I
 fetch._look_around, fetch._look_at, fetch._fitted, fetch._go_to = real_around, real_look_at, real_fitted, real_go_to
 
 # ---------- the dialog's sentence says what was understood ----------
-fetch.check_hand = lambda: True
+fetch.check_hand = fetch.look_at_hand = lambda: True
 fetch._state.update(holding=True, held_object={"object": "cup", "colour": "grey"})
 for text, said in (("put the cup on the white dinning table or chair", "Put the grey cup on the white dining table or chair."),
                    ("put it on the white tabel", "Put the grey cup on the white table."),
@@ -253,7 +253,7 @@ for text, said in (("put the cup on the white dinning table or chair", "Put the 
 fetch._state.update(holding=False, held_object=None)
 
 # ---------- "take the smaller cup": typed, the sentence says it, the task carries it; fetch takes the smaller one ----
-fetch.check_hand = lambda: False
+fetch.check_hand = fetch.look_at_hand = lambda: False
 for text, said, prefer in (("take the smaller cup to p1", "Take the smaller cup from here, bring it to p1 and hold it.",
                             "small"),
                            ("bring me the cup on the left", "Take the cup on the left from here, bring it here and "

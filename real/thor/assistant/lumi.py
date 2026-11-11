@@ -422,6 +422,10 @@ HAND_EMPTY_SAID = re.compile(   # the person says Lumi's hand is empty: checked 
     r"\b(?:nothing|not anything) (?:is )?in (?:your|ur) hand\b|\b(?:your|ur) hand(?:'s| is) empty\b|"
     r"\byou(?:'re| are) not holding (?:anything|something)\b|\byou have nothing in (?:your|ur) hand\b|"
     r"손에 ?(?:아무것도|아무 ?것도|뭐 ?없|없)|손 ?비었|빈 ?손이", re.I)
+HAND_FULL_SAID = re.compile(    # the person says Lumi holds something: checked (fetch.look_at_hand), not just denied
+    r"\byou(?:'re| are) (?:still )?holding\b(?! (?:up|on|back|me|us|out)\b)|\b(?:look at|check) (?:your|ur) hand\b|"
+    r"\byou (?:still )?have (?:a|the|my|something) ?\w* in (?:your|ur) hand\b|\bthere(?:'s| is) (?:a|the|something) ?\w* in (?:your|ur) hand\b|"
+    r"손에 ?\S+ ?(?:있잖아|들고 ?있잖아|있어요|있어)|들고 ?있잖아", re.I)
 STUCK_DRIVE_S = 20.0               # s "running" without moving -> the drive is cancelled and Lumi says so
 MODES_FILE = "/dev/shm/lumi_modes.json"   # written by api/server.py: {"greeter", "patrol", "wave"}
 CMD_FILE = "/dev/shm/lumi_cmd.json"       # written by api/server.py: {"id", "cmd": go | go_point | cancel | calibrate
@@ -2214,7 +2218,8 @@ class Lumi:
             self.fetch_say(*brain_mod.REFUSE_OPEN)
             return None
         if target in ("open", "close"):
-            st = safe(gripper.open_ if target == "open" else gripper.close)
+            st = safe(gripper.open_ if target == "open" else fetch.close_hand)   # close: a thing seen between the
+                                                           # fingers stays held when they shut on it (narrow)
             log(f"  gripper {target}: {st}")
             return st is not None
         if target == "reach":
@@ -2304,9 +2309,13 @@ class Lumi:
         from tasks import fetch
         if not getattr(self, "reached_at", 0.0):
             return False
-        if text is None and time.time() - self.reached_at < REACH_HOLD_S:
-            return False
         status = self.fetch_status()
+        if text is None:                                   # REACH_HOLD_S from when the hand got there: the reach
+            if status == "running":                        # itself once took 32 s to start (2026-10-30 18:26) and
+                return False                               # was folded back as it arrived
+            since = max(self.reached_at, safe(fetch.state, default={}).get("since") or 0.0)
+            if time.time() - since < REACH_HOLD_S:
+                return False
         if status == "stopped" or status == "running" and safe(fetch.state, default={}).get("step") != "reaching out":
             self.reached_at = 0.0                          # stopped by a word, or another task has the arm now
             return False
@@ -2328,11 +2337,13 @@ class Lumi:
         finally:
             self.typed_now = False
 
-    def held_now(self):
+    def held_now(self, look=False):
         """Something in the hand now: the hand is checked (fetch.check_hand, which also forgets a stale "holding");
-        the state when it can't be. The stale state alone refused open / wave on an empty hand (2026-10-23 17:41)."""
+        the state when it can't be. The stale state alone refused open / wave on an empty hand (2026-10-23 17:41).
+        `look`: for an order that needs the hand or words about what is in it, a fully shut hand is looked at first
+        (fetch.look_at_hand: the arm to carry, slowly)."""
         from tasks import fetch
-        h = safe(fetch.check_hand)
+        h = safe(fetch.look_at_hand if look else fetch.check_hand)
         return self.fetch_status() == "holding" if h is None else bool(h)
 
     # ---------- dashboard commands, trips ----------
@@ -3153,7 +3164,9 @@ class Lumi:
             self.keep_listening()
             return
         from tasks import fetch                            # the way it goes: route(), as the dashboard's Command box
-        kind, data = route(text, self.markers, self.brain, self.held_now,
+        full = brain_mod.hand_request(text, True, self.brain, self.markers)   # an order that needs the hand: a fully
+        needs = bool(full) and full[0] in ("give", "place")    # shut hand is looked at first (live 2026-10-30: a cup
+        kind, data = route(text, self.markers, self.brain, lambda: self.held_now(look=needs),   # put in it was "not held")
                            seen=lambda x: seeing.answer(x, self.lang, slow_line=mouth.say), last=last, chain_ok=not part and not self.mission_running() and not self.chain_busy())
         if kind == "stop":
             self.stop_all(text)                            # "stop", "stop, where are you going?": stop first, always
@@ -3171,12 +3184,17 @@ class Lumi:
             mouth.say(data)
             self.keep_listening()
             return
-        if HAND_EMPTY_SAID.search(text) and self.fetch_status() != "running":   # "there is nothing in your hand"
-            held = self.held_now()                         # checked again (AI_1, the torso camera), never just agreed
-            log(f"  told my hand is empty: checked, holding {held}")
+        told = "empty" if HAND_EMPTY_SAID.search(text) else "full" if HAND_FULL_SAID.search(text) else None
+        if told and self.fetch_status() != "running":     # "there is nothing in your hand", "you are holding the cup"
+            held = self.held_now(look=True)                # checked again (AI_1, the torso camera), never just agreed
+            log(f"  told my hand is {told}: checked, holding {held}")
             self.brain.history.append((text, "ACTION: none -"))
-            self.fetch_say(*(("I still feel something in my hand.", "아직 손에 뭔가 있는 것 같아요.") if held else
-                             ("You're right, my hand is empty.", "맞아요, 손이 비어 있어요.")))
+            if told == "empty":
+                self.fetch_say(*(("I still feel something in my hand.", "아직 손에 뭔가 있는 것 같아요.") if held else
+                                 ("You're right, my hand is empty.", "맞아요, 손이 비어 있어요.")))
+            else:
+                self.fetch_say(*((f"Yes, I'm holding {fetch.held_name()}.", "네, 들고 있어요.") if held else
+                                 ("I checked, my hand is empty.", "확인해 보니 손이 비어 있어요.")))
             self.keep_listening()
             return
         if kind == "status":                               # what am I doing / where am I going
@@ -3282,7 +3300,7 @@ class Lumi:
         if head_["action"] in ("receive", "give", "place"):  # the model read a hand request the rules missed
             gen.close()
             from tasks import fetch
-            held = self.held_now()
+            held = self.held_now(look=head_["action"] != "receive")
             self.brain.history.append((text, f"ACTION: {head_['action']} -"))
             if head_["action"] == "receive":
                 self.receive_from_hand(brain_mod._mentions(text, self.markers).get("object"), held)
@@ -3585,7 +3603,7 @@ class Lumi:
         self.end_run(text)
         if self.come_to(self.current, say=True) is False:  # stopped on the way
             return
-        if self.held_now():
+        if self.held_now(look=True):
             self.fetch_finish("give")
         else:
             mouth.say(EMPTY_HAND_SAY[self.lang])

@@ -50,6 +50,9 @@ LOOK_POSE = "look"           # drives, turns, looks and waits here, also with an
                              # the torso view, too near for depth (ready if not taught). carry is only passed through after a
                              # pick: in carry the hand is ~0.3 m before the base's front, where its 3D camera seems to see
                              # it as an obstacle (every drive in carry stalled; the same drives in look went, 2026-10-16)
+CHECK_POSE = "carry"         # a fully shut hand is looked at here (look_at_hand): the torso camera sees the place between
+                             # the fingers ~445 mm away (from the joints and the calibration; in look it is above the view,
+                             # in give a person's hand can be there). Not yet tried live: the fingers may hide it
 MAX_TILT_DEG = skills.MAX_TILT_DEG   # deg; the held cup's axis may lean this far from vertical on a straight move
 LINE_POINTS = 20             # points IK- and tilt-checked on a straight move with an object in the hand ...
 LINE_STEP_DEG = 25.0         # ... no joint may turn more than this between two of them (one IK branch all the way;
@@ -785,14 +788,15 @@ def head_hits(deg, pts=None):
     return depth_hits(deg, "head", T, pts)
 
 
-def turn_hits(deg, pts=None):
+def turn_hits(deg, pts=None, pose=None):
     """The map point (x, y) where the arm would come closer than ARM_CLEAR_M to something the lidar or the map shows
     while the base turns by `deg`, checked every SWEEP_STEP_DEG along the way; None when the way is clear. The base
-    itself turns in its own footprint; navigation does not know about the arm sticking out. `pts`: as depth_hits."""
+    itself turns in its own footprint; navigation does not know about the arm sticking out. `pts`: as depth_hits.
+    `pose`: the base's (x, y, th) to turn from, else where it is."""
     if arm_yaw() is None:
         return None
     k0, pts = (1, arm_points()) if pts is None else (0, [to_base(p[:2], arm_yaw(), arm_xy()) for p in pts])
-    x, y, th = agv.pose()
+    x, y, th = pose or agv.pose()
     n = max(1, math.ceil(abs(deg) / SWEEP_STEP_DEG))
     for k in range(k0, n + 1):
         R = _rot(math.degrees(th) + deg * k / n)
@@ -2625,27 +2629,87 @@ def _busy():
 
 # ---------- public ----------
 def _in_hand():
-    """Is something in the hand, whatever the state file says? The torso depth camera first (skills.hand_sees: it
-    sees the place between the fingers); when it can't tell, the gripper's AI_1. AI_1 alone was wrong once: a cup
-    pulled out of the closed fingers left it reading "open" (2026-10-16). Fingers fully shut (AI_1 above
-    gripper.EMPTY_AI) hold nothing, whatever the camera sees: with the arm held out it saw the person's hand there and
-    "closed on nothing" became "holding" (2026-10-23 17:40)."""
+    """Is something in the hand, whatever the state file says? AI_1 stopped between gripper.CLOSED_AI and EMPTY_AI:
+    held. Fully shut (above EMPTY_AI): a thing narrower than the belly's closed gap sits in the hooks with AI_1 reading
+    as on nothing (live 2026-10-30: a cup put in the hand read 4143), so the torso camera decides, but only from
+    CHECK_POSE (look_at_hand); anywhere else it is held only when close_hand closed on a thing the camera saw between
+    the open fingers ("narrow"): with the arm held out the camera saw the person's hand there after a close and
+    "closed on nothing" became "holding" (2026-10-23 17:40). Open: the torso camera first (skills.hand_sees), "unknown"
+    = empty; AI_1 alone was wrong once: a cup pulled out of the closed fingers left it reading "open" (2026-10-16)."""
     try:
         g = gripper.state()
-        ai = bool(g["holding"])
-        if g.get("ai", [0.0])[0] > gripper.EMPTY_AI:
-            return False
+        if g["holding"]:
+            return True
+        shut = g.get("ai", [0.0])[0] > gripper.EMPTY_AI
     except (ConnectionError, OSError, KeyError):
-        ai = None
+        shut = None
+    narrow = bool(_state["holding"] and skills._held.get("narrow"))
     try:
+        if shut and not (CHECK_POSE in motion.poses() and _at_pose(CHECK_POSE)):
+            return narrow
         seen = skills.hand_sees()
-    except (skills.SkillError, ConnectionError, OSError, KeyError):
+    except (skills.SkillError, motion.MotionError, ConnectionError, OSError, KeyError):
         seen = "unknown"
     if seen == "unknown":
-        return bool(ai)
-    if ai is not None and ai != (seen == "object"):
-        log(f"hand: the camera sees it {seen}, AI_1 says {'holding' if ai else 'empty'}: the camera is believed")
+        return narrow if shut else False
+    if seen == "object" and shut is False:
+        log("hand: the camera sees it object, AI_1 says empty: the camera is believed")
+    if shut:
+        log(f"hand: fully shut, the camera sees it {seen} from {CHECK_POSE}")
+        if seen == "object":
+            skills._held["narrow"] = True        # held while shut: away from CHECK_POSE too
     return seen == "object"
+
+
+def look_at_hand():
+    """check_hand before an order that needs something in the hand (put down, give, bring) or when told what is in
+    it: a fully shut hand first goes slowly (holding) along the checked route to CHECK_POSE, so the camera can tell."""
+    _to_check_pose()
+    return check_hand()
+
+
+def _to_check_pose():
+    """A fully shut hand to CHECK_POSE (look_at_hand), not while a task runs."""
+    if _busy() or CHECK_POSE not in motion.poses():
+        return
+    try:
+        shut = gripper.state().get("ai", [0.0])[0] > gripper.EMPTY_AI
+    except (ConnectionError, OSError, KeyError):
+        shut = False
+    if shut:
+        try:
+            if not _at_pose(CHECK_POSE):
+                log(f"hand: fully shut, the arm to {CHECK_POSE} to look at it")
+                arm_route.goto(CHECK_POSE, holding=True)
+        except (arm_route.RouteError, motion.MotionError, ConnectionError, OSError) as e:
+            log(f"hand: can't look at it from {CHECK_POSE}: {e}")
+
+
+def close_hand():
+    """The voice "close your hand": the camera looks between the open fingers first; closed fully on a thing it saw
+    there (narrower than the belly's closed gap), it is held all the same ("narrow", named by vision.scene when the
+    person's hand held it, else "something"); closed fully on nothing seen: nothing is held. Returns gripper.close()'s
+    state. A hand already closed is closed again and nothing else changes."""
+    _adopt()
+    try:
+        before = None if gripper.state()["closed"] else skills.hand_sees()
+    except (skills.SkillError, ConnectionError, OSError, KeyError):
+        before = "unknown"
+    st = gripper.close()
+    if before is None:
+        return st
+    shut = st.get("ai", [0.0])[0] > gripper.EMPTY_AI
+    with _lock:
+        if shut and before == "object" or st.get("holding") and not _state["holding"]:
+            thing = _scene("object_in_hand") or {}
+            log(f"hand: closed on {thing.get('name') or 'something'} (camera before: {before}, AI_1 "
+                f"{st.get('ai', [0.0])[0]:.0f})")
+            skills._held.clear()
+            skills._held.update(received=True, narrow=shut)
+            held_by_skill({"object": thing.get("name"), "colour": thing.get("colour")})
+        elif shut and _state["holding"]:
+            _forget_held()
+    return st
 
 
 def check_hand():
@@ -2709,7 +2773,7 @@ def _hold_again():
     put down needs. Live 2026-10-26 18:53:00 one hand read said empty with the cup in it; after that every reply said
     "something" and put down had no height. ponytail: the last forgotten thing is assumed; a thing put in the hand
     without receive would get its name."""
-    if not skills._held and _last_held.get("held"):
+    if not set(skills._held) - {"narrow"} and _last_held.get("held"):
         skills._held.update(_last_held["held"])
     _set(holding=True, held_object=_state.get("held_object") or _last_held.get("held_object"))
 
@@ -2748,6 +2812,7 @@ END_WORDS = {"go": ("I'm here.", "도착했어요."), "place": PUT_DOWN_WORDS, "
 
 def _finish(fn, say, end=None):
     _adopt()
+    _to_check_pose()                              # a fully shut hand: looked at (_in_hand) before it is refused
     with _lock:
         if _busy():
             raise FetchError("I'm busy with another task.")

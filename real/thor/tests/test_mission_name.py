@@ -38,7 +38,7 @@ fetch.end = lambda timeout=5.0: (done.append("end"), run.update(status="stopped"
 fetch.replace = lambda steps, say=None: done.append(("replace", steps))
 fetch.proceed = lambda: done.append("proceed")
 fetch.run_steps = lambda steps, say=None, sender=None: done.append(("run", steps))
-fetch.check_hand = lambda: run["holding"]
+fetch.check_hand = fetch.look_at_hand = lambda: run["holding"]
 fetch.held_name = lambda lang="en": "the cup" if lang == "en" else "컵"
 lumi.agv.cancel = lambda: done.append("agv cancel")
 lumi.mouth.say = lambda text, **k: done.append(("say", text))

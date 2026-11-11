@@ -41,7 +41,7 @@ ARM = re.compile(r"^(?:wave|reach|hand|arm|give|take|put|waist)")   # intents of
 
 # ---------- fakes: nothing moves, nothing is written ----------
 HAND = {"held": False}
-fetch.check_hand = lambda: HAND["held"]
+fetch.check_hand = fetch.look_at_hand = lambda: HAND["held"]
 fetch.held_name = lambda lang="en": "the cup" if lang == "en" else "컵"
 fetch.state = lambda: {"holding": HAND["held"]}
 fetch.log = lumi.log = lambda *a, **k: None

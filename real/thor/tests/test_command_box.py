@@ -80,7 +80,7 @@ def hand(text):
     return rec("talk")
 
 
-fetch.check_hand = lambda: False
+fetch.check_hand = fetch.look_at_hand = lambda: False
 lumi.log = fetch.log = lambda *a: None
 lumi.mouth = types.SimpleNamespace(say=lambda *a, **k: None, lang_of=lambda t: "ko" if brain.HANGUL.search(t) else "en",
                                 recent_speech=lambda s=30.0: "")
@@ -150,7 +150,7 @@ assert not bad
 
 # ---------- what the box plans: one short line per reading ----------
 HELD = [False]
-fetch.check_hand = lambda: HELD[0]
+fetch.check_hand = fetch.look_at_hand = lambda: HELD[0]
 fetch.state = lambda: {"holding": HELD[0]}
 fetch.held_name = lambda lang="en": "the white cup"
 
