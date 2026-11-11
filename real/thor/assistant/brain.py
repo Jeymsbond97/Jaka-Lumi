@@ -1585,7 +1585,7 @@ def _intent(text, markers=()):
             if exact or n == "?":                           # "come closer by five centimeters": a short drive
                 return ("move", f"forward {n:g}") if exact and driving.MOVE_MIN_M <= n <= MOVE_MAX_M else None
         if action == "come_back":
-            if COME_BACK.fullmatch(CALLING.sub("", t).strip(" .!?,~")):
+            if COME_BACK.fullmatch(re.sub(r"(?:^|\s)(?:빨리|당장|얼른|어서|냉큼)(?=\s|$)", " ", CALLING.sub("", t)).strip(" .!?,~")):
                 return ("come_back", "")                    # "come back", "돌아와", "go back where you were"
             if re.search(r"\barm\b|look pose|팔", t):
                 return ("arm", "fold")                      # "arm back home", "go back to your look pose"

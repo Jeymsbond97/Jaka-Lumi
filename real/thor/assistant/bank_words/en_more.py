@@ -38,3 +38,21 @@ INTENT = {
     "wave": _with(["do you shake your hand", "do you wave", "shake my hand", "give me a handshake", "high five me",
                    "wave goodbye", "give a little wave", "wave your hand at me"]),
 }
+
+# "mind folding your arm?", "how about turning around?", "care to follow me?": the -ing and "care to" frames
+GERUND = ["mind {g}?", "would you mind {g}?", "how about {g}?", "what about {g}?", "care to {v}?", "how about you {v}?",
+          "any chance of {g}?", "fancy {g}?"]
+_PAIRS = {
+    "arm_fold": [("fold your arm", "folding your arm"), ("put your arm away", "putting your arm away")],
+    "arm_reach": [("hold out your hand", "holding out your hand"), ("reach out your arm", "reaching out your arm")],
+    "turn": [("turn around", "turning around"), ("turn left", "turning left"), ("turn right", "turning right")],
+    "follow": [("follow me", "following me"), ("come with me", "coming with me")],
+    "come": [("come here", "coming here"), ("come over", "coming over")],
+    "look": [("look at me", "looking at me"), ("look up", "looking up"), ("look down", "looking down")],
+    "wave": [("wave", "waving"), ("shake my hand", "shaking my hand")],
+    "pick": [("pick up the <obj>", "picking up the <obj>"), ("grab the <obj>", "grabbing the <obj>")],
+    "arm_open": [("open your hand", "opening your hand")],
+    "arm_close": [("close your hand", "closing your hand")],
+}
+for _k, _ps in _PAIRS.items():
+    INTENT[_k] = INTENT.get(_k, []) + [f.format(v=v, g=g) for v, g in _ps for f in GERUND]

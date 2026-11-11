@@ -25,12 +25,20 @@ READS = [
     ("do you shake your hand", "action:wave"), ("can you shake your hand", "action:wave"),
     ("can you even turn left?", None), ("my son wants to fold your arm", None), ("can you turn left?", "action:turn left 90"),
     ("lift your head now", "action:look up"), ("go get the cup for me", "action:fetch go get the cup for me"),
+    ("you go front one meter", "action:move forward 1"), ("bow your head", "action:look down"),
+    ("rotate one eighty", "action:turn around 180"), ("turn left 180 degrees", "action:turn left 180"),
+    ("앞으로 1미터 전진해 봐", "action:move forward 1"), ("좌회전 해 봐", "action:turn left 90"), ("p3로 움직여 봐", "action:go_to p3"),
+    ("고개를 드세요", "action:look up"), ("빨리 돌아와", "action:come_back"), ("노래 부릅시다", "sing"), ("왼쪽 봐", "action:look left"),
+    ("왼쪽으로 돌아봐", "action:look left"), ("번거로우시겠지만 왼쪽을 돌아보시겠어요?", "action:look left"),
+    ("left로육십degreesturn해봐", None), ("mind folding your arm?", "action:arm fold"), ("how about singing a song?", "sing"),
 ]
 STOPS = ["동작 멈춰 줄 수 있어?", "거기 서 도", "거기 서 봐라", "루미 씨, 동작 멈춰 주시겠어요?", "거기 서 주세요, 부탁드립니다",
          "could you stop it?", "would you be so kind as to stop?", "please cut it out", "freeze ok?", "you can stop?",
-         "움직이지 말아 주세요", "움직이지 말아 줄래?", "꼼짝 마", "가만 있어 봐", "멈춥시다", "거기 서라 빨리"]
+         "움직이지 말아 주세요", "움직이지 말아 줄래?", "꼼짝 마", "가만 있어 봐", "멈춥시다", "거기 서라 빨리",
+         "I'd like you to cut it out", "could you stay still?", "you can stop the robot?", "hey, cut it out would ya"]
 NOT_STOPS = ["거기 서 있는 사람 누구야?", "동작 멈추는 법 알아?", "can you stop the music?", "the bus stop is there",
-             "waiting for it to freeze", "I want to stop by the cafe", "가만히 있으면 돼요?", "그거 그만하자고 했잖아"]
+             "waiting for it to freeze", "I want to stop by the cafe", "가만히 있으면 돼요?", "그거 그만하자고 했잖아",
+             "you can stop worrying", "please don't stop talking"]
 QUICK = [("이름 대 봐", "name"), ("나이 대 봐", "age"), ("이름을 말씀해 주십시오", "name"), ("야 너 몇 살이냐", "age"),
          ("카메라 어디 달려 있어?", "cameras"), ("how old r u", "age"), ("can u sing tho?", "can_sing"),
          ("Is it safe for my kids to be near you?", "safety"), ("How do I stop you in an emergency?", "estop"),

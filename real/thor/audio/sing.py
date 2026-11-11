@@ -64,13 +64,13 @@ SPEECH_PER_SYLLABLE = 0.12      # s of speech (Silero VAD, ears.speech_seconds) 
                                 # than ears.SPEECH_PER_SYLLABLE (0.05) for normal listening; stop words skip it
 SONG_WORD = re.compile(r"\bsing|\bsong|\bmusic|\btunes?\b|\bplaylist|k-?pop|노래|노레|노랠|음악|곡|불러|부르|틀어|들려|케이팝", re.I)
 
-SING = re.compile(r"\bsing\b|\bsay (?:a |some )?songs?\b|"                    # whisper writes "let's say song"
+SING = re.compile(r"\bsing\b|\b(?:how about|what about|mind|fancy) singing\b|\b(?:how|what) about (?:a |some )?(?:song|music)\b|\bsay (?:a |some )?songs?\b|"                    # whisper writes "let's say song"
                   r"\b(?:play|put on|turn on|start)(?: me| us)? (?:a |some |any |another |the |your )?(?:songs?|music|tunes?)\b|"
                   r"\b(?:another|different|next|new|other) (?:song|tune)\b|\b(?:change|switch)(?: the| this| that)? (?:songs?|music|tunes?)\b|"
                   r"(?:노래|음악|곡)\s*(?:좀\s*)?바꿔|\b(?:(?:want|like|love) to|(?:can|could|may) (?:we|i)) hear (?:a |some |one of your )?(?:songs?|music)\b|\bgive (?:us|me) (?:a |some )?(?:song|tune|music)\b|"
                   r"^\W*(?:lumi\W*)?(?:a |some )?(?:song|music)(?:\W+(?:please|lumi))*\W*$|"
                   r"(?:노래|음악|(?<![가-힣])곡|(?<![가-힣])송)\s*(?:를|을|좀|쫌|쪼까|쪼끔|하나|한\s*곡조?|한\s*번|한번|함|한\s*자락|자락|도|이나|나|이든|든|라도|\s)*"
-                  r"(?:불러|부르|들려|해|하(?:십시오|세요|시죠|시오|시게|자|라)|합시다|틀어|틀|뽑아|뽑으|땡겨|부탁|재생|플레이|싱\s*(?:해|하)|(?:할|부를)\s*수\s*있)|(?<![가-힣])싱\s*(?:좀\s*)?해\s*(?:줘|주|봐)|"
+                  r"(?:불러|부르|들려|해|하(?:십시오|세요|시죠|시오|시게|자|라)|합시다|부릅시다|부르자|틀어|틀|뽑아|뽑으|땡겨|부탁|재생|플레이|싱\s*(?:해|하)|(?:할|부를)\s*수\s*있)|(?<![가-힣])싱\s*(?:좀\s*)?해\s*(?:줘|주|봐)|"
                   r"노래\s*(?:좀|하나)?\s*(?:듣고\s*싶|들을래|듣자)|\b(?:songs?|music)\s*(?:좀\s*|하나\s*|한\s*곡\s*)?(?:불러|해|틀어|들려)|"
                   r"(?<![가-힣])(?:거|것)\s*(?:로\s*)?한\s*곡|(?:다른|딴|다음)\s*(?:노래|곡)|(?:다른|딴)\s*(?:거|걸|걸로)\s*(?:불러|들려|틀어)|^\W*(?:노래|음악)\s*(?:좀|하나)?\W*$", re.I)
 SING_TITLE = re.compile(r"(불러|들려|틀어) ?(줘|주세요|줄래|봐|볼래)|\b(?:sing|play)\b")    # "러브 어택 불러 줘": a title said with it

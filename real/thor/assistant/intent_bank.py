@@ -884,11 +884,11 @@ LIFT_BODY = (r"\b(?:yourself|your (?:body|torso|upper body)|body|make you|taller
 
 
 MOVE_VERB = (r"\b(?:move|go|step|back up|backup|scoot|slide|shift|drive|roll|reverse|inch|come|forward|backward|ahead|"
-             r"moov|moove|bak)|가|이동|움직|물러|비켜|후진|와|빠져|걸음|발짝|move|back|go")   # a bare "왼쪽으로" may be a look
+             r"moov|moove|bak)|가|이동|움직|물러|비켜|후진|전진|나가|와|빠져|걸음|발짝|move|back|go")   # a bare "왼쪽으로" may be a look
 
 
 LOOK_DIR = {"left": r"\bleft|왼|레프트|(?:^|\s)좌로|좌측", "right": r"\bright|\brite\b|오른|라이트|(?:^|\s)우로|우측",
-            "up": r"\bup|\bupward|\bceiling|\bsky\b|\bhigher\b|천장|하늘|(?<!원)위", "down": r"\bdown|\bfloor|\bground|\bfeet\b|바닥|땅|아래|밑"}
+            "up": r"\bup|\bupward|\bceiling|\bsky\b|\bhigher\b|천장|하늘|(?<!원)위|고개\S* ?드(?:세요|십시오|시오|시게)", "down": r"\bdown|\bfloor|\bground|\bfeet\b|\bbow\b|바닥|땅|아래|밑"}
 LOOK_ME = (r"\b(?:at|on|to|toward|towards) (?:me|us|나)\b|\bthis way\b|\bover here\b|\bmy way\b|\bhere\b|\bwatch me\b|"
            r"\bme in the eye|\bmy face\b|\bme (?=봐|보)|\blook (?:여기|here|me)\b|(?:제|내) 얼굴|나한테|저한테|쳐다봐|(?:^|\s)(?:여기|이쪽|저|나|날|절)(?:를|을)?\s*(?:(?:좀|한 ?번|잠깐|잠시|다시)\s*)*(?:바라|쳐다)?(?:봐|보세요|look)")
 
@@ -1014,6 +1014,7 @@ def _to_person(text):
 
 
 def _dirs(t):
+    t = t.replace("좌회전", "왼쪽 회전").replace("우회전", "오른쪽 회전")   # "좌회전 해 봐": a left turn
     return [d for d, rx in DIR.items() if re.search(rx, t)]
 
 
@@ -1025,7 +1026,7 @@ def _slot(kind, text, markers, holding):
         return None                                    # "홈 포지션으로 팔": the arm's pose, not the marker home
     if kind == "go_to":
         if brain._mentions(text, markers).get("object") or re.search(r"\bfrom\b|에서|에 있는|\bface\b|\blook|\bpoint|"
-                                                                     r"(?<![가와해] )(?<![가와해])봐|"   # "가 봐": try going
+                                                                     r"(?<![가와해여] )(?<![가와해여])봐|"   # "가 봐", "움직여 봐": try going
                                                                      r"\bwith (?:me|us)\b|같이|함께|따라|"
                                                                      + CARRY + r"|\btake (?:it|this|that|them)\b", t):
             return None                                # "get the bottle from booth two": a fetch, the rules' / LLM's
@@ -1074,7 +1075,7 @@ def _slot(kind, text, markers, holding):
             return None
         return ("move", f"{d[0]} {n:g}")
     if kind == "turn":
-        if re.search(r"\blook|봐|\bhead\b|고개|\beyes\b|\btorso\b|\bwaist\b|\btwist|\bupper body\b|\bhips?\b|허리|상체|몸통|윗몸|"
+        if re.search(r"\blook|(?<![해려] )(?<![해려])(?<!돌아 )봐|\bhead\b|고개|\beyes\b|\btorso\b|\bwaist\b|\btwist|\bupper body\b|\bhips?\b|허리|상체|몸통|윗몸|"
                      r"\btrunk\b|\bwithout driving\b", t):
             return None                                # "look the other way", "twist your torso": not the base
         if re.search(r"반 ?바퀴", t) and not re.search(r"\d|한 ?바퀴", t):
@@ -1087,7 +1088,7 @@ def _slot(kind, text, markers, holding):
             return ("turn", ("right" if re.search(r"\bright\b|오른쪽", t) else "left") + " 360")
         if re.search(r"\bgo the other way\b", t):
             return None                                # "go the other way around": a way round (detour), not a turn
-        if re.search(r"\baround\b|\bu-?turn\b|유턴|뒤로 ?(?:(?:좀|한 ?번|얼른|빨리|확)\s*)?(?:돌|회전)|뒤돌|\bother way\b|\babout face\b|한 바퀴", t):
+        if re.search(r"\baround\b|\bu-?turn\b|\b(?:rotate|turn|spin) 180\b(?!\s*(?:degrees?|도))|유턴|뒤로 ?(?:(?:좀|한 ?번|얼른|빨리|확)\s*)?(?:돌|회전)|뒤돌|\bother way\b|\babout face\b|한 바퀴", t):
             return None if re.search(r"\bleft|\bright\b|왼|오른", t) else ("turn", "around 180")
         d = [x for x in _dirs(t) if x in ("left", "right")]
         if not d and said_amount(text)[1] == 180:
@@ -1098,7 +1099,7 @@ def _slot(kind, text, markers, holding):
         words_deg = said_amount(text)[1]
         if not deg and words_deg:
             return ("turn", f"{d[0]} {words_deg:g}")
-        if not deg and re.search(r"\bdegrees?\b|[가-힣]\s*도(?:만)?(?:\s|[.,!?~])", t + " ") and not re.search(r"(?:^|\s)(?:한|좀)\s", t):
+        if not deg and re.search(r"degree|[가-힣]\s*도(?:만)?(?:\s|[.,!?~])", t + " ") and not re.search(r"(?:^|\s)(?:한|좀)\s", t):
             return None                                # "삼십 도": a number the words don't give as digits
         if not deg and re.search(r"\d", t):
             return None                                # "turn left 30.": a number with no unit, asked

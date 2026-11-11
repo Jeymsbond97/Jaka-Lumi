@@ -15,7 +15,7 @@ from tests import ko_levels_check as kl
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # name: (plain request, [other sentences of the same meaning, verb first]); "spin left" / "spin around" / "turn all the
-# way around" are a full spin, "hold it" a hand-over: not listed
+# way around" are a full spin, "hold it" a hand-over, "face left" the head or the body: not listed
 CAPS = {
     "wave":     ("wave", ["shake your hand", "shake hand", "wave your hand", "wave hand", "give us a wave", "wave hello",
                           "do a little wave", "shake hands with me", "let's shake hands", "wave at me", "wave to the kids",
@@ -41,7 +41,7 @@ CAPS = {
                                             "roll forward one meter", "go one meter forward"]),
     "back":     ("move back half a meter", ["back up half a meter", "go back fifty centimeters", "reverse half a meter",
                                             "back off half a meter", "move backward fifty centimeters"]),
-    "turn":     ("turn left", ["turn to the left", "rotate left", "turn your body left", "face left",
+    "turn":     ("turn left", ["turn to the left", "rotate left", "turn your body left",
                                "make a left turn", "turn left ninety degrees"]),
     "around":   ("turn around", ["do a u-turn", "turn the other way",
                                  "face the other way", "rotate one eighty"]),
