@@ -47,6 +47,22 @@ NOT_GIVE = ["don't give it to me yet", "give it to me after the talk", "when my 
             "잠깐만 시간 좀 줘", "엄마, 그 가방 줘 봐", "지영아 물 좀 줘", "Jake, give me your phone for a sec", "주는 척만 해",
             "give it to James at booth A", "bring it to p3", "거기 놓지 마세요", "put down 하지 마", "put the music on",
             "I put it on the table yesterday", "put it on my tab", "lay down"]
+# the person says they hold it themselves: the hand opens (release); whisper's "cuff" for cup (live 2026-10-30)
+THEY_HOLD = ["I am holding the cuff. So let's open.", "I am holding the cup. So let's open.", "I've got it", "I'm holding it",
+             "I have it, let go", "I have it", "I've got the cup", "I'm holding the cup, you can let go",
+             "I got the cup, open your hand", "I took it", "I grabbed it, release", "It's in my hand now",
+             "okay I've got hold of it", "Lumi, I'm holding it now", "I'm holding on to it, let it go", "got it, let go",
+             "I got it, open", "잡았어", "잡았어요", "내가 잡고 있어", "제가 들고 있어요, 놓아", "제가 잡았어요", "내가 컵 잡고 있어",
+             "제가 컵을 들고 있어요", "내 손에 있어", "제가 잡고 있으니까 놔도 돼요", "루미야 내가 잡았어", "컵 잡았어. 손 펴",
+             "제가 받았어요", "I 잡았어", "내가 hold 하고 있어", "cup 잡았어요, open 해", "I'm holding it, 놔"]
+NOT_THEY_HOLD = ["Open your hand.", "open your hand", "손 펴", "don't open, I'm not holding it", "I'm not holding it yet",
+                 "I haven't got it", "I don't have it", "not yet, I'm not holding it", "when I hold it, let go",
+                 "if I'm holding it, open", "I'll hold it", "let me hold it", "can I hold it?", "아직 안 잡았어", "안 잡았어",
+                 "못 잡았어", "잡았어?", "잡았어요?", "잡고 있어", "들고 있어", "그거 들고 있어", "꽉 잡고 있어", "내가 잡으면 놔",
+                 "내가 잡을게", "놓지 마, 내가 잡고 있어", "아직 잡지 않았어요", "제가 잡기 전에 놓지 마세요", "got it", "I got it",
+                 "okay, got it", "I'm holding my phone", "I have a question", "I'm holding the door", "I'm holding it, don't let go",
+                 "what am I holding?", "am I holding it?", "she's holding it", "I'm going to take it", "I took it yesterday",
+                 "I'm not holding it, 놓지 마", "아직 안 잡았어, don't open"]
 
 
 def main():
@@ -95,9 +111,22 @@ def main():
     for words in ["고개 원위치", "머리 원위치", "head back to centre"]:
         if brain.intent(words, MARKERS) != ("look", "center"):
             bad.append((words, "look center", brain.intent(words, MARKERS)))
+    for words in THEY_HOLD:                          # by the reader and by the route voice and the Command box take
+        if lumi.route(words, MARKERS, brain.Brain(), True) != ("hand", (("release", None), True)) or \
+                brain.hand_request(words, False, None, MARKERS) == ("release", None):
+            bad.append((words, "release", lumi.route(words, MARKERS, brain.Brain(), True)))
+    for words in NOT_THEY_HOLD:
+        got = lumi.route(words, MARKERS, brain.Brain(), True)
+        if got[0] == "hand" and got[1][0][0] == "release":
+            bad.append((words, "no release", got))
+    after = brain.Brain()                            # "got it" right after the refused open: they hold it now
+    after.history.append(("Open your hand.", "ACTION: refuse -"))
+    for words in ["got it", "I got it", "okay, got it"]:
+        if brain.hand_request(words, True, after, MARKERS) != ("release", None):
+            bad.append((words, "release after the refusal", brain.hand_request(words, True, after, MARKERS)))
     assert not bad, "\n".join(f"{t!r}: want {w}, got {g}" for t, w, g in bad)
     n = len(CALLS) * len(TAILS) * len(GIVE_EN + GIVE_KO) + len(CALLS) * (len(TAKE_KO) + len(PUT_DOWN) + len(PUT_BACK)) + \
-        len(REACH) + len(FOLD) + len(NOT_FOLD) + len(NOT_GIVE) + 22
+        len(REACH) + len(FOLD) + len(NOT_FOLD) + len(NOT_GIVE) + len(THEY_HOLD) + len(NOT_THEY_HOLD) + 25
     print(f"held hand ok ({n} cases)")
 
 

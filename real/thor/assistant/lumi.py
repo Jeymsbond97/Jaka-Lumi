@@ -390,6 +390,7 @@ LOOK_ME_PITCH = 0.0                # deg, head pitch of the first turn to a pers
 LOOK_ME_SETTLE_S = 0.6             # s after a head move before its camera is asked who is there
 LOOK_ME_MAX_M = 6.0                # m; "look at me" finds callers up to this far (others count only within STAY_MAX)
 LOOK_ME_BODY_DEG = 5.0             # deg past the head's yaw limit before the body turns to face the person
+LOOK_ME_WAIST_DEG = 15.0           # deg; nobody seen with the waist turned more than this: it goes to the front first
 LOOK_ME_TOP_ROW = 0.08             # share of the image height from the top where the person's head should be
 LOOK_ME_EDGE_PX = 8                # a box edge this near the frame edge is cut by it
 LOOK_ME_UP_STEP = 10.0             # deg up when the person's head is cut by the frame top (how much is cut is unknown)
@@ -415,8 +416,6 @@ REACH_COME_M = 1.5                 # m; a person further than this is driven to 
 COME_CLOSER_SAY = ("Please come a little closer.", "조금 더 가까이 와 주세요.")
 STAND_IN_FRONT_SAY = ("Please stand in front of me.", "제 앞에 서 주세요.")
 REACH_HOLD_S = 30.0                # s the hand stays held out after a reach, then the arm folds back to look (estimate)
-REACH_DONE = re.compile(r"\b(?:thanks?|thank you|thx|ok(?:ay)?|got it|done|that'?s (?:it|all|enough)|enough|good|great|"
-                        r"nice|cool|alright|all right)\b|고마워|고맙|감사|됐어|됐습니다|됐다|좋아|오케이|그만", re.I)
 HAND_EMPTY_SAID = re.compile(   # the person says Lumi's hand is empty: checked again (fetch.check_hand), not just agreed
     r"\b(?:nothing|not anything) (?:is )?in (?:your|ur) hand\b|\b(?:your|ur) hand(?:'s| is) empty\b|"
     r"\byou(?:'re| are) not holding (?:anything|something)\b|\byou have nothing in (?:your|ur) hand\b|"
@@ -965,8 +964,9 @@ class Lumi:
 
     def turn_head(self, yaw=None, pitch=None, force=False):
         """Automatic head moves (toward a speaker, a greeting, back to rest) wait while a look is held; force: an
-        order or a task."""
-        if not force and self.look_held():
+        order or a task. None while a task keeps the head on what it picks or puts on (fetch.aiming)."""
+        from tasks import fetch
+        if fetch.aiming() or not force and self.look_held():
             return
 
         def run():
@@ -1175,9 +1175,8 @@ class Lumi:
             else:                                            # stays on whoever the head is on: never the other side
                 found = min(seen, key=lambda s: abs(s[0] - gaze))
                 why = "nearest where the head looks" + ("" if voice is None else f", none at the voice {voice:+.0f} deg")
-        if found is None:                                    # nobody in view: the head camera looks around first
-            guess = voice if voice is not None else getattr(self, "voice_guess", None)   # an unsure voice still
-            first = gaze if guess is None else max(-head.YAW_LIMIT, min(head.YAW_LIMIT, guess))   # picks the side
+
+        def sweep(first):                                    # the head camera looks to `first`'s side, then the other
             side = 1.0 if first >= 0 else -1.0
             for a in (side * head.YAW_LIMIT, -side * head.YAW_LIMIT):
                 log(f"  look me: nobody seen, looking at {a:+.0f} deg")
@@ -1185,10 +1184,19 @@ class Lumi:
                 time.sleep(LOOK_ME_SETTLE_S)                # new head camera frames from there
                 seen = self.vision.seen(LOOK_ME_MAX_M)
                 if seen:
-                    found, why = min(seen, key=lambda s: abs(s[0] - a)), "found looking around"
-                    break
-        if found is None and voice is None:                  # an unsure voice still gives the side
-            voice = getattr(self, "voice_guess", None)
+                    return min(seen, key=lambda s: abs(s[0] - a)), "found looking around"
+            return None, ""
+
+        if found is None:                                    # nobody in view: the head camera looks around first
+            if voice is None:                                # an unsure voice still picks the side
+                voice = getattr(self, "voice_guess", None)
+            found, why = sweep(gaze if voice is None else voice)
+            w = waist_turned()
+            if found is None and abs(w) > LOOK_ME_WAIST_DEG and waist_home("looking for the caller"):
+                voice = None if voice is None else voice + w    # the cameras turn with the waist: a caller on the
+                gaze = 0.0                                      # other side of it was in no view; again from the front
+                log(f"  look me: waist from {w:+.0f} deg to the front")
+                found, why = sweep(0.0 if voice is None else voice)
         if found is None and voice is not None and abs(voice) <= head.YAW_LIMIT:   # nobody where the head looked: the
             voice = (180.0 - abs(voice)) * (1.0 if voice >= 0 else -1.0)            # array mixes front and back
         if found is None and voice is not None:
@@ -2024,6 +2032,10 @@ class Lumi:
         elif kind == "refuse":
             if not (what == brain_mod.REFUSE_OPEN and self.release_giving()):
                 self.fetch_say(*what)
+        elif kind == "release":                        # "I've got it", "내가 잡고 있어": they hold it, open
+            if not self.release_giving():
+                self.fetch_say("Okay, I'm letting go.", "네, 놓을게요.")
+                safe(fetch.let_go)
         elif not held:
             mouth.say(EMPTY_HAND_SAY[self.lang])
         else:
@@ -2086,7 +2098,7 @@ class Lumi:
             safe(fetch.stop)
             self.act("stop", "")
             self.fetch_say("Okay, I stopped.", "네, 멈췄어요.")
-        elif (FETCH_THANKS.search(text) and fetch.state().get("step") == "giving") or \
+        elif ((FETCH_THANKS.search(text) or brain_mod.person_holds(text)) and fetch.state().get("step") == "giving") or \
                 (RECEIVE_OK.search(text) and fetch.state().get("step") == "receiving: waiting for okay"):
             safe(fetch.release_now)                    # the person has taken it
         elif status == "holding" and not (brain_mod.direct_order(text) and not brain_mod.not_an_order(text)):
@@ -2217,7 +2229,8 @@ class Lumi:
         person (the tracked one, else the one the voice came from, else the voice's direction): further than
         REACH_COME_M the base comes to them first (come_to); the head turns to them; the hand further from them than
         REACH_FRONT_DEG: the waist turns first, until the hand (not the waist's front) points at them (reach_turn, Greeter only too: the base
-        stays); then fetch.reach (give pose along the graph, a short checked move toward their hand). The arm folds back on "thanks" / "okay" or after REACH_HOLD_S (reach_done).
+        stays); then fetch.reach (give pose along the graph, a short checked move toward their hand). The arm folds back on the next words that
+        are no arm order or after REACH_HOLD_S (reach_done).
         True when started, None when refused or handed over (said)."""
         from tasks import fetch
         if held:
@@ -2275,15 +2288,21 @@ class Lumi:
         return True, track
 
     def reach_done(self, text=None):
-        """The hand is held out (reach_out) and the reach has ended: "thanks" / "okay" / "고마워" / "됐어" (`text`) or
-        REACH_HOLD_S without one folds the arm back to look. True when it folded."""
-        if not getattr(self, "reached_at", 0.0) or self.fetch_status() == "running":
+        """The empty hand is held out (reach_out): whatever is said next that is no arm order (thanks, a question,
+        another order; the caller leaves arm orders out) or REACH_HOLD_S without a word folds the arm back to look
+        first, also while the reach still goes toward their hand (it is stopped) or after it failed (the hand stayed
+        out in give, 2026-10-30). After a stop word the arm stays where it is. True when it folded."""
+        from tasks import fetch
+        if not getattr(self, "reached_at", 0.0):
             return False
-        if text is None and time.time() - self.reached_at < REACH_HOLD_S or text is not None and not REACH_DONE.search(text):
+        if text is None and time.time() - self.reached_at < REACH_HOLD_S:
             return False
-        if self.fetch_status() != "done":                  # the reach failed or was stopped: the arm stays as it is
-            self.reached_at = 0.0
+        status = self.fetch_status()
+        if status == "stopped" or status == "running" and safe(fetch.state, default={}).get("step") != "reaching out":
+            self.reached_at = 0.0                          # stopped by a word, or another task has the arm now
             return False
+        if status == "running":
+            safe(fetch.stop)
         log(f"  reach over ({'said ' + repr(text) if text else 'timeout'}): the arm back to look")
         return bool(self.arm_pose("fold"))
 
@@ -2771,9 +2790,18 @@ class Lumi:
     def who_spoke(self, u, text=None):
         """Use the sound direction: pick the visible person who spoke; meanwhile collect calibration samples. Someone
         else near the voice takes the talk over (and the head) only with a call, a stop word or an order in `text`;
-        other words keep the focus on the person talked with."""
+        other words keep the focus on the person talked with. Then the head turns to the one it talks with (else the
+        only one in view), sure voice or not: it answered people a little to the side looking ahead (2026-10-30). A
+        held look ("look left") and a task's aim keep the head (turn_head)."""
         if not self.vision or u is None:
             return
+        if self._who_spoke(u, text):                       # someone else took over: face() turned to them
+            return
+        t = self.current if self.current is not None and self.vision.present(self.current) else self.vision.only_person()
+        if t is not None and abs(t.angle - HEAD_SIGN * self.det_yaw()) > FOCUS_DEG:
+            self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, t.angle)))
+
+    def _who_spoke(self, u, text):
         self.voice_trusted = False                         # set again below only from this turn's own sound
         self.voice_guess = None                            # this turn's direction, sure or not
         yaw = self.det_yaw()
@@ -2810,6 +2838,7 @@ class Lumi:
             if getattr(self, "look_me", None) is not None:   # a "look at me" hold was for the one before
                 self.looked_at, self.look_me = 0.0, None
             self.face(t)
+            return True
 
     def det_yaw(self):
         """Current head yaw (deg), read from the body every 0.3 s (the torso camera does not know it)."""
@@ -3098,7 +3127,9 @@ class Lumi:
         if NAME_ONLY.match(text):                           # just "Lumi?": they want attention, the head turns to them
             look = threading.Thread(target=self.look_at_speaker, daemon=True)   # while it answers
             look.start()
-            mouth.say(random.choice(NAME_REPLY["en" if self.lang == "en" else "ko"]))
+            reply = random.choice(NAME_REPLY["en" if self.lang == "en" else "ko"])
+            log(f"  name call: {reply!r}")                 # every call is answered: the log shows it was
+            mouth.say(reply)
             look.join()
             self.keep_listening()
             return
@@ -3142,7 +3173,7 @@ class Lumi:
         if self.fetch_voice(text):                         # before the closing words: "thank you" while giving
             return
         if not (kind == "quick" and data and data[0] == "arm"):
-            self.reach_done(text)                          # "okay, thanks" with the hand held out: the arm back to look
+            self.reach_done(text)                          # "okay, thanks", any other words: a held-out hand to look
         place = consent_place(text, self.brain, self.markers)
         if place:                                          # "p3로 갈 수 있어요?" ... "그럼 가 보세요."
             self.go_offered(place)
@@ -3303,7 +3334,10 @@ class Lumi:
         if follow.running():                                  # following: talk_turn listens to the followed person only
             return False
         u = self.mic.next(0.0)
-        if u is None or not (0.3 <= u.seconds <= WAKE_MAX_S):
+        if u is None or u.seconds < 0.3:
+            return False
+        if u.seconds > WAKE_MAX_S:                      # logged: a call lost in a long sound shows up in the log
+            log(f"  {u.seconds:.1f} s of sound: too long to be a call, not checked")
             return False
         during = getattr(u, "during_speech", False)     # said while Lumi talks: only a stop word counts
         text = ears.transcribe(u.mono)
@@ -3312,6 +3346,8 @@ class Lumi:
             self.stop_all()
             return True
         if during:
+            if text and WAKE.search(text):
+                log(f"  heard {text!r} while I talked: not taken as a call (it could be my own voice)")
             return False
         m = WAKE.search(text or "")
         if not m and HELLO_ONLY.match(text or ""):          # a plain "Hi!" / "Hey" said on its own
@@ -3342,7 +3378,9 @@ class Lumi:
         look = threading.Thread(target=self.look_at_speaker, daemon=True)   # as "look at me": the cameras, the
         look.start()                                          # voice's side, behind; turns while it answers
         if not command:                                       # just "Hi Lumi": a short answer, then listen
-            mouth.say(random.choice(WAKE_REPLY[lang]))
+            reply = random.choice(WAKE_REPLY[lang])
+            log(f"  wake reply: {reply!r}")
+            mouth.say(reply)
         look.join()
         self.voice_until = time.time() + VOICE_SESSION_S
         self.last_activity, self.prompts = time.time(), 0
@@ -4015,7 +4053,8 @@ def route(text, markers, b, holding=False, seen=None, last="", chain_ok=True):
         arm_rule = brain_mod.intent(text, markers)   # "would it be possible to wave at me?"); intent() itself refuses
         if arm_rule and arm_rule[0] in ("wave", "arm"):   # negations, later times, remarks, ability questions (A1)
             return arm_quick(arm_rule, holding)
-    if hold and not ((brain_mod.held_give(text, markers) or brain_mod.held_place(text, markers)) and
+    if hold and not ((brain_mod.held_give(text, markers) or brain_mod.held_place(text, markers) or
+                      brain_mod.person_holds(text, b)) and
                      (holding() if callable(holding) else holding)):   # "테이블에 놔 줄래? 영상 찍고 있어": the hand's
         rule = brain_mod.intent(text, markers)   # weather / search are no motion: "Weather outside?"
         return (("end", None) if talk_fate(text) == "end" else ("sing", None) if sing.asked(text, last) else

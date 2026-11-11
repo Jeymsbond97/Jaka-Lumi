@@ -90,7 +90,7 @@ def settle():
 
 
 # ---- talking with #1 (right), #2 walks in on the left and waves: no greeting, the head stays on #1 as they move ----
-L = fresh(a := Track(1, 30.0))
+L = fresh(a := Track(1, 30.0, 2.0))                 # past 1.6 m: no calibration sample from it
 a.greeted, L.current = True, a
 L.vision.tracks.append(b := Track(2, -40.0))
 up.append(-40.0)
@@ -125,7 +125,15 @@ for text, takes in (("The weather is nice today.", False), ("Stop.", True), ("Lu
     a.greeted, L.current = True, a
     L.who_spoke(U, text)
     settle()
-    assert (L.current is b) == takes and (moves == [S * -40] if takes else moves == []), (text, L.current.id, moves)
+    assert (L.current is b) == takes and moves == [S * (-40 if takes else 30)], (text, L.current.id, moves)   # the head
+                                                    # on whoever it talks with after every utterance (2026-10-30)
+lumi.doa.estimate = lambda mics, cal, ref=None: (-40.0, 0.0, 0.0)   # no sure direction: still to the one talked with
+L = fresh(a := Track(1, 30.0, 2.0))                 # past 1.6 m: no calibration sample from it
+a.greeted, L.current = True, a
+L.who_spoke(U, "What's the weather?")
+settle()
+assert moves == [S * 30], moves
+lumi.doa.estimate = lambda mics, cal, ref=None: (-40.0, 0.9, 0.0)
 
 # ---- "look at me" (19:24:16): focus on the person found; a newcomer does not take the head; the head follows the
 # looked-at person over the held look, also when their track gets a new id (#5 -> #7) ----

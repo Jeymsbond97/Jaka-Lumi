@@ -8,6 +8,7 @@ from assistant import lumi
 turns, pitches = [], []
 lumi.head.turn = lambda yaw, pitch=None: (turns.append(round(yaw)), pitches.append(pitch))
 lumi.LOOK_ME_SETTLE_S = 0.0
+lumi.waist_turned = lambda: 0.0                    # the waist at the front unless a case says otherwise
 
 
 class Vision:
@@ -193,3 +194,18 @@ turns.clear()
 L.look_at_speaker()
 assert waist["calls"] == [(-120, True, -125.0)] and turns == [-60, 60, -5, 0], (waist, turns)
 print("look me from behind, unsure voice: ok")
+
+# the waist left turned at -73 deg, the caller on the other side (2026-10-30): nobody in either head look, so the waist
+# goes to the front and the head looks again from there, the voice's side first (+20 from the turned waist = -53 now)
+waist.update(at=-73.0, calls=[])
+lumi.waist_home = lambda why, fold=False: waist.update(at=0.0) or True
+L = lumi.Lumi.__new__(lumi.Lumi)
+L.vision, L.current = Vision([], [(-50.0, 2.0)]), None
+L.vision.views = [[], [], [], [(-50.0, 2.0)]]
+L.voice_angle, L.voice_trusted, L.voice_guess = 0.0, False, 20.0
+L.det_yaw = lambda: 0.0
+L.modes = type("M", (), {"patrol": False})()
+turns.clear()
+L.look_at_speaker()
+assert turns == [60, -60, -60, -50] and waist["calls"] == [], (turns, waist)
+print("look me with the waist turned: ok")

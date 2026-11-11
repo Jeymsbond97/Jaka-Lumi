@@ -89,25 +89,32 @@ for t in ["There is nothing in your hand.", "your hand is empty", "you're not ho
 for t in ["is there anything in your hand?", "what's in your hand", "give me your hand"]:
     assert not lumi.HAND_EMPTY_SAID.search(t), t
 L = lumi.Lumi.__new__(lumi.Lumi)
-folds, status = [], {"now": "done"}
+folds, status, stops = [], {"now": "done"}, []
 L.fetch_status = lambda: status["now"]
 L.arm_pose = lambda target: folds.append(target) or True
-for text, want in [("Okay, thank you.", True), ("okay thanks", True), ("고마워", True), ("됐어", True),
-                   ("what's the weather?", False), (None, False)]:
+real_state, real_stop = fetch.state, fetch.stop
+fetch.state, fetch.stop = lambda: {"step": "reaching out"}, lambda: stops.append(1)
+for text in ["Okay, thank you.", "okay thanks", "고마워", "됐어", "what's the weather?", "go home"]:  # any next words
     folds.clear()
     L.reached_at = time.time()
-    assert L.reach_done(text) == want and folds == (["fold"] if want else []), (text, folds)
+    assert L.reach_done(text) and folds == ["fold"], (text, folds)
+L.reached_at, folds[:] = time.time(), []
+assert not L.reach_done() and not folds                           # nothing said yet: the hand stays out
 L.reached_at = time.time() - lumi.REACH_HOLD_S - 1                # nobody said anything: the timeout folds
-folds.clear()
 assert L.reach_done() and folds == ["fold"]
-status["now"] = "running"                                         # still reaching: not yet
-L.reached_at, folds[:] = time.time() - lumi.REACH_HOLD_S - 1, []
-assert not L.reach_done("thanks") and not folds
-status["now"] = "failed"                                          # the reach failed: the arm stays, no later fold
+status["now"] = "running"                                         # still going toward their hand: stopped, folded
+L.reached_at, folds[:] = time.time(), []
+assert L.reach_done("okay thanks") and folds == ["fold"] and stops, (folds, stops)
+status["now"] = "failed"                                          # the reach failed (a timeout, 2026-10-30): folded
+L.reached_at, folds[:] = time.time(), []
+assert L.reach_done("thanks") and folds == ["fold"]
+status["now"] = "stopped"                                         # a stop word: the arm stays where it is
+L.reached_at, folds[:] = time.time(), []
 assert not L.reach_done("thanks") and not folds and not L.reached_at
 L.reached_at = 0.0
 status["now"] = "done"
 assert not L.reach_done("thanks") and not folds                  # no reach out: "thanks" moves nothing
+fetch.state, fetch.stop = real_state, real_stop
 
 # an arm left half way (a reach stopped by a lost state reply) and the waist turned: an order to drive folds the empty
 # arm along the checked route, then the waist comes to the front; a conversation's end or a held thing never folds it

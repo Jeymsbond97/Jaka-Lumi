@@ -2410,6 +2410,41 @@ REFUSE_PICK = ("I'm holding something already. Tell me where to put it first.",
 REFUSE_OPEN = ("I won't open my hand while I'm holding something: it would fall. Say put it down or hand it over.",
                "물건을 들고 있어서 손을 펴면 떨어져요. 내려놓으라고 하시거나 달라고 해 주세요.")
 
+# ---------- while holding: the person says they hold it themselves, so the hand may open ("I've got it", "I am holding
+# the cuff, so let's open", "내가 잡고 있어", "제가 들고 있어요, 놓아"); whisper's cuff / cop for cup ----------
+_HELD_IT = (rf"(?:it|that|this|one|them|(?:the|your|this|that) (?:\w+ )?(?:{_OBJ}|cuff|cop|thing)s?)"
+            r"(?=\s*(?:[,.!;]|$)|\s+(?:now|already|too|so|and|you|let|open|release|please|thanks?|lumi|firmly|tight|safely|"
+            r"right|here|in my|with my)\b)")
+HOLDS_IT_EN = re.compile(
+    rf"\bi(?:'m| am)\s+(?:now\s+|already\s+|still\s+)?(?:holding|gripping|grabbing|carrying|grasping)(?:\s+on\s*to)?\s+{_HELD_IT}|"
+    rf"\bi(?:'ve| have)\s+(?:now\s+|already\s+|just\s+)?(?:got\s+)?(?:(?:a (?:good |firm )?)?(?:hold|grip) (?:of|on)\s+)?{_HELD_IT}|"
+    rf"\bi(?:'ve| have)?\s+(?:already\s+|just\s+)?(?:took|taken|grabbed|caught|got hold of|got a (?:good |firm )?grip on)\s+{_HELD_IT}|"
+    rf"\bi got (?:the|your) (?:\w+ )?(?:{_OBJ}|cuff|cop)s?\b|\bit(?:'s| is) (?:already |now )?in my hands?\b|"
+    rf"\bmy hands? (?:is|are) on (?:it|the (?:{_OBJ}|cuff))\b", re.I)
+HOLDS_IT_KO = re.compile(   # "잡고 있어" / "들고 있어" alone is an order to Lumi (keep holding): a claim needs 내가 / 제가
+    r"(?:내가|제가|나|저|i)\s+(?:\S+\s+){0,2}?(?:잡고|들고|쥐고|붙잡고|받치고|hold\w*\s*하고|holding\s*하고)\s*있|"
+    r"(?:내가|제가|나|저|i)\s+(?:\S+\s+){0,2}?(?:잡았|들었|받았|쥐었|가졌)|(?<![가-힣])(?:잡았|쥐었)(?:어|어요|습니다|다)?(?![가-힣])|"
+    r"(?:내|제) 손에 (?:있|들려|잡혀)", re.I)
+HOLDS_IT_WEAK = re.compile(r"^\W*(?:(?:ok(?:ay)?|yes|yeah|alright)\W+)*(?:i\s+)?got (?:it|that)\b", re.I)
+# "got it" is "understood" too: a claim only right after Lumi refused to open, or with an open word in the same words
+HOLDS_IT_OPEN = re.compile(r"\bopen\b|\brelease\b|\blet (?:it |that |the \w+ )?go\b|\bletting go\b|놔|놓아|놓으|펴|열어|벌려", re.I)
+HOLDS_IT_NOT = re.compile(r"\b(?:not|never|nobody|yet|dont|cant|wont|havent|aint|didnt)\b|n't\b|\b(?:if|when|once|after|until|before|will|gonna|going to|"
+                          r"want to|wanna|can i|could i|may i|let me|i'll)\b|\?\s*$|"
+                          r"(?:안|못)\s?(?:잡|들|쥐|받|가지|놔|놓|펴|열)|않|[가-힣]지 ?(?:마|말)|말고|으면|았으면|었으면|때\b|"
+                          r"(?:잡을|들|쥘|받을)(?:게|께)|(?:잡았|들었|받았|쥐었)(?:어|어요|니|나요|습니까)\s*\?", re.I)
+
+
+def person_holds(t, b=None):
+    """The person says they hold what Lumi's hand holds, so it may open (not "I'm not holding it yet", "when I hold
+    it, let go", "잡았어?"). A bare "got it" counts with an open word or right after Lumi refused to open."""
+    t = t or ""
+    if HOLDS_IT_NOT.search(t):
+        return False
+    if HOLDS_IT_EN.search(t) or HOLDS_IT_KO.search(t):
+        return True
+    last = b.history[-1][1] if b is not None and getattr(b, "history", None) else ""
+    return bool(HOLDS_IT_WEAK.search(t)) and bool(HOLDS_IT_OPEN.search(t) or "refuse" in last or REFUSE_OPEN[0] in last)
+
 # ---------- while holding: any request to hand the held thing over (the arm goes forward to `give`; whoever is in
 # front takes it, the speaker or the person they point at: no person is aimed at or driven to) ----------
 _GV = r"(?:give|gib|givv?e?|gi+ve|gve|hand|pass|deliver|bring)"
@@ -2657,6 +2692,8 @@ def hand_request(text, holding, b=None, markers=(), whole=True):
     t = CALLING.sub("", wording.ko_plain(_norm(text, markers)).strip())    # "루미야, 이리 줘", "혹시 저 줘요", "um, put it down"
     if holding and re.search(r"\bi mean\b|\S\W*\bsorry\b", t):
         return None                                     # "place it— give it, I mean": a correction, the LLM reads it
+    if holding and person_holds(t, b):
+        return ("release", None)                        # "I've got it", "내가 잡고 있어": they hold it, the hand opens
     if holding and OPEN_HAND.search(t) and not IN_MY_HAND.search(t) and not re.search(r"\b(?:don'?t|do not|never)\b|지 ?마", t):
         return ("refuse", REFUSE_OPEN)                  # "손을 펴 주십시오", "그리퍼 열어 줘" with a cup: it would fall
     if holding and FLOOR.search(t) and re.search(r"\b(?:put|place|set|drop|lay|leave|rest)\b|내려 ?놔|내려 ?놓|놔|놓|둬|두세|두십|두어", t) and \
