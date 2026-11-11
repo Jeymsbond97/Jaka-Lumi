@@ -9,7 +9,7 @@ from tests import ko_levels_check
 
 CAPS = {"wave", "turn45", "head_up", "follow", "fetch", "go_to"}
 
-rows = ko_levels_check.check(CAPS)
+rows = ko_levels_check.check(CAPS, para=False)   # the other sentences (PARA): ko_levels_check.py's report
 bad = [r for r in rows if r[-1] != "right"]
 for name, level, text, got, want, v in bad:
     print(f"FAIL {name} [{level}] {text!r} -> {got} (want {want}, {v})")

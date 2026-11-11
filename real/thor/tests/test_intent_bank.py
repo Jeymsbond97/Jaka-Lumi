@@ -129,7 +129,7 @@ NEVER = [   # (words, markers, holding): no motion from the bank
     ("nice wave!", EXPO, False),
     ("잘 따라오네", KOREAN, False),
     ("고개 돌리는 거 신기하다", KOREAN, False),
-    ("야 커피코너에서 컵 좀 가져와", KOREAN, False),      # 야 to a friend (야 루미 / 야 로봇 is to Lumi)
+    ("얘 커피코너에서 컵 좀 가져와", KOREAN, False),      # 얘 to a child nearby (a bare 야 is the casual call to Lumi)
     ("김 부장님 무대에 계셔, 컵 좀 갖다 드려", KOREAN, False),   # to someone honoured: a mission
     ("다 같이 손 흔들어 주세요!", KOREAN, False),          # to the crowd
     ("p10 가는 길 알려 줘", ["home", "p10"], False),       # the way, not a trip

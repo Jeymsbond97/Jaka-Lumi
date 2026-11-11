@@ -531,6 +531,25 @@ def _stem_aform(word):
     return aform(KO_L_DROP.get(word, word))
 
 
+SUGGEST_FORMAL = re.compile(r"([가-힣])(?:으)?시다(?=[\s.,!?~]|$)")
+
+
+def _suggest_plain(m):
+    """하십시오체 suggestion -ㅂ시다 / -읍시다 as the plain -자: "갑시다" -> "가자", "집읍시다" -> "집자"."""
+    c = m.group(1)
+    n = ord(c) - 0xAC00
+    if c == "읍" or "으시다" in m.group(0):
+        return ("" if c == "읍" else c) + "자"
+    if c in SUGGEST_L:
+        return SUGGEST_L[c] + "자"                     # a ㄹ stem: "돕시다" (돌다) -> "돌자"
+    if 0 <= n < 11172 and n % 28 == 17:                # the syllable ends in ㅂ: 갑 -> 가
+        return chr(0xAC00 + n - 17) + "자"
+    return m.group(0)
+
+
+SUGGEST_L = {"돕": "돌", "듭": "들", "엽": "열", "놉": "놀"}   # 흔듭시다 -> 흔들자 too
+
+
 def ko_plain(t):
     """Korean request endings of every speech level and dialect as one plain form, so the readers see one wording:
     "가세요" / "가십시오" / "가요" / "가라" / "가이소" -> "가"; "따라오세요" / "따라온나" / "따라오라고" -> "따라와";
@@ -538,6 +557,7 @@ def ko_plain(t):
     "흔드세요" -> "흔들어"; "해부러" / "혀" -> "해". Greetings ("안녕하세요", "들어가세요") stay; questions keep their "?"."""
     if not t or not re.search(r"[가-힣]", t):
         return t
+    t = SUGGEST_FORMAL.sub(_suggest_plain, t)          # "p3로 갑시다", "같이 봅시다" -> "가자", "보자"
     for rx, to in KO_PLAIN:
         if to in ("CAN_L", "CAN_N"):
             t = rx.sub(lambda m: _can_you(m, to), t)

@@ -69,7 +69,7 @@ NOT_TO_LUMI = re.compile(
     r"(?:좋|멋지|예쁘|이쁘|귀엽|크|작|길|세|대단하|신기하|웃기)(?:네|네요|구나|군요)(?=[\s,.!~])", re.I)
     # plans, hypotheticals, announcements, praise and remarks: nobody asked Lumi to do anything now
 QUESTION = re.compile(r"^\W*(?:(?:hey|so|um+|uh+|lumi|okay|ok)\W+)*(?:what|where|why|how|when|who|whose|which|is|are|was|"
-                      r"were|do(?=\s+(?:you|i|we|they|robots?)\b)|does|did|have|has|had|should|shall i|may i|can i|could i)\b(?! about\b)|"
+                      r"were|do(?=\s+(?:i|we|they|robots?)\b|\s+you\b(?!\s+(?:shake|wave)\b))|does|did|have|has|had|should|shall i|may i|can i|could i)\b(?! about\b)|"
                       r"어디|뭐|무엇|왜|언제|누구|어떻게|몇|어느|무슨|어떤|얼마|[가-힣]까\s*[?？]+\s*$|봤(?:어|니|나|냐|어요|습니까)|본 ?적|"
                       r"\bhave you (?:been|gone|ever)\b|(?:어|아|해|여)도 ?(?:돼|되|될까|괜찮)|[가-힣]도 ?(?:돼|되나|될까|괜찮아)\s*[?？]|"
                       r"알려 ?(?:줘|주|줄)|설명해|가르쳐|말해 ?(?:줘|봐|주)|\btell me\b|\bexplain\b|\bdescribe\b|"
@@ -87,7 +87,7 @@ REPEAT = re.compile(r"^\W*(?:(?:\w+\W+){0,2})?(?:again|one more time|once more|d
 SEVERAL = re.compile(r"\b(?<!hundred )and\b(?! a half\b)|\bwait\w*|\bcorrection\b|\binstead\b|"
                      r"\b(?:look|turn|go|move|wave|come|follow|pick|take|put|lift|raise|lower|reach|grab|bring)\b[^,]*,\s*(?:(?:\w+\W+){0,2})?(?:look|turn|go|move|wave|come|follow|pick|take|put|lift|raise|lower|reach|grab|bring|tell|say|sing|show|ask|answer|check)\b|\b(?:then|after that|also|plus|while|no|not|wait|stay|sleep|sorry|i mean|actually|rather|oops|first)\b|;|"
                      r"(?!갖고|고고|에서)(?<!가)[가-힣](?:서|고)(?:[\s,.…]|$)|(?:으로|로|에) ?가서|"
-                     r"(?:흔들|흔드시|보시|돌|내리|올리|집어|내밀|숙이|들|봐 ?주시)고(?=[가-힣])|(?:쪽|나|날|위|아래|앞)보고(?=[가-힣])|(?:집어|와|가져와)서(?=[가-힣])|하고|셔서|면서|다가(?![와오])|갔다|다녀|아니|기다|대기|(?:가|와) ?있어|계세요|"
+                     r"(?:흔들|흔드시|보시|돌|내리|올리|집어|내밀|숙이|들|봐 ?주시)고(?=[가-힣])|(?:쪽|나|날|위|아래|앞)보고(?=[가-힣])|(?:집어|와|가져와)서(?=[가-힣])|하고|셔서|면서|다가(?![와오])|갔다|(?<!따라)다녀|아니|기다|대기|(?:가|와) ?있어|계세요|"
                      r"계십시오", re.I)
                      # several requests or a stay ("go to p3 and wait", "가서 기다려", "p3에 가 있어"): steps.read's
 HAND_WORDS = re.compile(r"\byou(?:'re| are) holding\b|\b(?:in|from) my hand\b|\bhere'?s\b|\bhanding\b|\bi'?ll give\b|"
@@ -775,8 +775,6 @@ def guarded(text):
         return "past"
     if told_ko(t):
         return "told"
-    if re.match(r"^\W*야\s", t):
-        return "someone else"                          # "야 커피코너에서 컵 좀 가져와": a friend called (야 루미 is cut before)
     name = NAME_CALL.match(t)
     if brain.to_someone_else(t) or brain.to_someone_else(brain.CALLING.sub("", t)) or name and name.group(1).lower() not in NOT_A_NAME:
         return "someone else"

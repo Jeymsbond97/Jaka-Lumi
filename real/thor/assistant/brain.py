@@ -920,9 +920,10 @@ NOT_NAME = {"루미", "누미", "류미", "무미", "루비", "루니", "아니"
 
 def to_someone_else(text):
     """"Hey Jake, come see this", "Mom, look!", "민수야 이리 와 봐": said to another person nearby, not an order to Lumi."""
-    if ASIDE_EN.search(text) or re.match(r"^\W*(?:야|얘)[\s,!]+(?!.*(?:루미|로봇|lumi))", text, re.I) or \
+    if ASIDE_EN.search(text) or re.match(r"^\W*얘[\s,!]+(?!.*(?:루미|로봇|lumi))", text, re.I) or \
             re.match(r"^\W*my (?:friend|dear|buddy|son|daughter|boy|girl|kid|baby|love|darling)\s*,", text, re.I):
-        return True                                         # "야 그 사과 좀 집어 줘", "my friend, you follow me"
+        return True                                         # "얘 그 사과 좀 집어 줘", "my friend, you follow me"
+        #                                                     (a bare 야 is the casual call to Lumi: "야, 이리 와")
     for m in re.finditer(r"[,\s]([가-힣]{2})(아|야)(?=[\s,!~.]|$)", text):     # "그거 내려놔, 지훈아 깨져"
         c = m.group(1)[-1]
         vowel_end = (ord(c) - 0xAC00) % 28 == 0

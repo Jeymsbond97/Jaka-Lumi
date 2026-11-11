@@ -55,6 +55,44 @@ CAPS = {
     "put":      ("put the cup down", "컵 내려", "놓", "놔", []),
     "charge":   ("go charge", "충전하러", "가", "가", ["차지하러 가 줘"]),
 }
+# other sentences of the same meaning: (words before the verb, verb stem, its 아/어 form), each said at every level
+PARA = {
+    "go_to":    [("p3로", "이동하", "이동해"), ("p3까지", "가", "가"), ("p3 쪽으로", "가", "가"), ("p3로", "움직이", "움직여")],
+    "home":     [("홈으로", "돌아가", "돌아가"), ("홈 위치로", "가", "가")],
+    "forward":  [("앞으로 1미터", "이동하", "이동해"), ("1미터 앞으로", "가", "가"), ("앞으로 1미터", "전진하", "전진해"),
+                 ("1미터만 앞으로", "가", "가")],
+    "back":     [("뒤로 50센티", "물러나", "물러나"), ("50센티 뒤로", "가", "가"), ("뒤로 50센티", "후진하", "후진해"),
+                 ("50센티만 뒤로", "빠지", "빠져")],
+    "turn":     [("왼쪽으로", "회전하", "회전해"), ("몸을 왼쪽으로", "돌리", "돌려"), ("왼편으로", "돌", "돌아"),
+                 ("좌회전", "하", "해")],
+    "turn45":   [("오른쪽으로 45도", "회전하", "회전해"), ("45도 오른쪽으로", "돌", "돌아")],
+    "look":     [("왼쪽을", "보", "봐"), ("왼쪽", "쳐다보", "쳐다봐"), ("고개를 왼쪽으로", "돌리", "돌려")],
+    "look_up":  [("위쪽을", "보", "봐"), ("위를", "쳐다보", "쳐다봐"), ("천장을", "보", "봐")],
+    "head_up":  [("고개를", "들", "들어"), ("머리", "들", "들어"), ("고개를 위로", "올리", "올려")],
+    "head_dn":  [("고개를", "숙이", "숙여"), ("머리를", "숙이", "숙여"), ("고개를 아래로", "내리", "내려")],
+    "wave":     [("손을", "흔들", "흔들어"), ("손 한번", "흔들", "흔들어"), ("팔을", "흔들", "흔들어"),
+                 ("손 흔들어서 인사", "하", "해")],
+    "shake":    [("저랑 악수", "하", "해"), ("악수 한번", "하", "해"), ("나랑 악수", "하", "해")],
+    "reach":    [("손을", "내밀", "내밀어"), ("팔을", "뻗", "뻗어"), ("손을 앞으로", "내밀", "내밀어")],
+    "follow":   [("나를", "따라오", "따라와"), ("저", "따라다니", "따라다녀"), ("제 뒤를", "따라오", "따라와"),
+                 ("날", "쫓아오", "쫓아와")],
+    "come":     [("여기로", "오", "와"), ("이쪽으로", "오", "와"), ("나한테", "오", "와"), ("가까이", "오", "와"),
+                 ("이리", "다가오", "다가와")],
+    "stop":     [("거기", "서", "서"), ("동작", "멈추", "멈춰"), ("", "정지하", "정지해")],
+    "fetch":    [("컵 좀", "가져오", "가져와"), ("컵", "갖고 오", "갖고 와"), ("저한테 컵", "가져오", "가져와"),
+                 ("컵", "챙겨 오", "챙겨 와")],
+    "pick":     [("컵을", "잡", "잡아"), ("컵을", "집어 들", "집어 들어"), ("컵", "픽업하", "픽업해")],
+    "fold":     [("팔을", "접", "접어"), ("팔을", "거두", "거둬"), ("팔을 몸 쪽으로", "접", "접어")],
+    "sing":     [("노래 한 곡", "부르", "불러"), ("노래", "하", "해"), ("노래 한 곡", "뽑", "뽑아")],
+    "look_me":  [("나를", "보", "봐"), ("저 좀", "보", "봐"), ("여기를", "보", "봐"), ("저를", "쳐다보", "쳐다봐")],
+    "around":   [("반 바퀴", "돌", "돌아"), ("180도", "돌", "돌아")],
+    "come_back": [("원래 자리로", "돌아오", "돌아와"), ("다시", "돌아오", "돌아와")],
+    "waist":    [("허리를 왼쪽으로", "틀", "틀어"), ("허리 왼쪽으로", "돌리", "돌려")],
+    "body_up":  [("몸을", "높이", "높여"), ("키를", "높이", "높여"), ("몸을 위로", "올리", "올려")],
+    "open":     [("손을", "펴", "펴"), ("손을", "벌리", "벌려"), ("집게를", "열", "열어"), ("그리퍼", "열", "열어")],
+    "put":      [("컵", "내려놓", "내려놔"), ("컵을 테이블에", "놓", "놔"), ("컵", "내려 두", "내려 둬")],
+    "charge":   [("충전기로", "가", "가"), ("충전하러", "이동하", "이동해")],
+}
 EN_FORMS = ["{}", "please {}", "{}, please", "could you {}?", "can you {} for me?", "would you {}, please?",
             "I'd like you to {}", "I'd love it if you could {}", "{}, if you don't mind", "lumi, {}",
             "it would be great if you could {}"]
@@ -92,6 +130,14 @@ def past(a):
     return a[:-1] + _with_final(a[-1], 20)
 
 
+def sida(stem):
+    """The 하십시오체 suggestion: 가 -> 갑시다, 돌 -> 돕시다, 집 -> 집읍시다."""
+    j = _j(stem[-1])
+    if j[2] == 8:                                         # ㄹ drops: 돕시다, 흔듭시다
+        return stem[:-1] + _with_final(stem[-1], 17) + "시다"
+    return stem + "읍시다" if j[2] else stem[:-1] + _with_final(stem[-1], 17) + "시다"
+
+
 def levels(pre, stem, a):
     """{level: [Korean forms]} for one verb phrase."""
     p = (pre + " ") if pre else ""
@@ -110,6 +156,9 @@ def levels(pre, stem, a):
                      f"{p}{a} 줄 수 있을까요?"],
         "dialect": [f"{p}{a} 도", f"{p}{a} 주이소", f"{p}{a} 주랑께", f"{p}{a} 줘유", f"{p}{a} 줍서", f"{p}{a}라 마"],
         "slip": [f"{p}{a}줘", f"{p}{a} 주세여", f"{p}{a}조", f"{(pre + a).replace(' ', '')} 줘"],
+        "suggest": [f"{p}{stem}자", f"{p}{sida(stem)}", f"자, {p}{stem}자"],
+        "rude": [f"야, {p}{a}", f"야 {p}{a}라", f"빨리 {p}{a}", f"{p}{a}라 빨리", f"당장 {p}{a}", f"{p}{a}라고",
+                 f"{p}{a} 봐라", f"얼른 {p}{a} 줘", f"야 루미, {p}{a}"],
     }
 
 
@@ -133,7 +182,11 @@ def same(want, got):
     return got == want or got is not None and want is not None and command_check.ok(want, got) == "right"
 
 
-def check(names=None):
+SUGGEST_FOR = {"go_to", "home", "forward", "back", "turn", "turn45", "wave", "shake", "sing", "around", "charge", "look", "look_up",
+               "look_dn"}    # "p3로 가자", "악수합시다": a suggestion is an order only where Lumi does it with the visitor
+
+
+def check(names=None, para=True):
     """rows: (capability, level, text, reading, want, verdict) with verdict right / missed / wrong / motion."""
     rows = []
     for name, (en, pre, stem, a, mixed) in CAPS.items():
@@ -141,12 +194,17 @@ def check(names=None):
             continue
         want = read(en)
         forms = {"en": [f.format(en) for f in EN_FORMS], **levels(pre, stem, a), "konglish": mixed}
+        for pp, ps, pa in PARA.get(name, []) if para else []:
+            for level, texts in levels(pp, ps, pa).items():
+                forms["para_" + level] = forms.get("para_" + level, []) + texts
+        if name not in SUGGEST_FOR:
+            forms = {k: v for k, v in forms.items() if not k.endswith("suggest")}
         for level, texts in forms.items():
             for t in texts:
                 got = read(t)
                 rows.append((name, level, t, got, want, "right" if same(want, got) else
                              "missed" if got is None or got.split()[0] in command_check.NO_MOTION else "wrong"))
-        for t in not_now(pre, stem, a):
+        for t in not_now(pre, stem, a) + [t for pp, ps, pa in (PARA.get(name, []) if para else []) for t in not_now(pp, ps, pa)]:
             got = read(t)
             moves = got is not None and got.split()[0] not in command_check.NO_MOTION and \
                 not (got == "action:look away" and "지 마" in t)   # "저를 보지 마세요": looking away is asked

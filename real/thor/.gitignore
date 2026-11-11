@@ -61,9 +61,11 @@ docs/night4/
 tests/blind/r9/
 tests/blind/r10/
 docs/night5/
+docs/night6/
 tests/blind/r11/
 tests/blind/r12/
 tests/blind/r13/
+tests/blind/r14/
 data/bank_build.lock
 data/bank_check_queries.npz
 tests/data/waves/

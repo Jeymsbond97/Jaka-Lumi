@@ -307,6 +307,44 @@ _BANK = {
     },
 }
 
+_BANK["registers"] = {     # one order said casually, rudely, politely, formally: the same action; Lumi stays polite
+    "en": [
+        ("Yo, turn left.", "turn left 90", "Okay, turning left."),
+        ("Would you be so kind as to turn left?", "turn left 90", "Of course, turning left."),
+        ("Get over here, now.", "come", "Coming."),
+        ("Could you possibly come over here?", "come", "Sure, I'm coming."),
+        ("Hey, shake your hand.", "wave", "Sure, waving!"),
+        ("Shake hand, buddy.", "wave", "Sure, here's a wave!"),
+        ("Mind following me for a bit?", "follow", "Sure, I'll follow you."),
+        ("Look at me, will ya?", "look me", "Okay, I'm looking at you."),
+    ],
+    "ko": [
+        ("야, 왼쪽으로 돌아라.", "turn left 90", "네, 왼쪽으로 돌게요."),
+        ("좌회전 해.", "turn left 90", "네, 왼쪽으로 돌게요."),
+        ("왼쪽으로 회전해 주시겠습니까?", "turn left 90", "네, 왼쪽으로 돌겠습니다."),
+        ("야 빨리 이리 와.", "come", "네, 갈게요."),
+        ("이쪽으로 와 주시겠어요?", "come", "네, 갈게요."),
+        ("이리 오십시오.", "come", "네, 가겠습니다."),
+        ("손 흔들어 봐라.", "wave", "네, 손 흔들게요!"),
+        ("손 좀 흔들어 주시겠어요?", "wave", "네, 손 흔들게요!"),
+        ("악수 한번 하자.", "wave", "좋아요, 악수해요!"),
+        ("저 따라다녀 주세요.", "follow", "네, 따라갈게요."),
+        ("야 나 따라와라.", "follow", "네, 따라갈게요."),
+        ("앞으로 1미터 전진해.", "move forward 1", "네, 앞으로 1미터 갈게요."),
+        ("50센티만 뒤로 물러나 주십시오.", "move back 0.5", "네, 뒤로 50센티 물러나겠습니다."),
+        ("고개 들어라.", "look up", "네, 위를 볼게요."),
+        ("고개를 드세요.", "look up", "네, 위를 볼게요."),
+        ("야 나 좀 봐.", "look me", "네, 보고 있어요."),
+        ("저를 봐 주시겠습니까?", "look me", "네, 보고 있겠습니다."),
+        ("손 내밀어 봐.", "arm reach", "네, 손을 내밀게요."),
+        ("팔 접어라.", "arm fold", "네, 팔을 접을게요."),
+        ("야 너 손 흔들 줄 아냐?", "none", "네, 흔들 수 있어요. 흔들어 드릴까요?"),
+        ("아까 너 손 흔들었잖아.", "none", "네, 아까 흔들었어요."),
+        ("손 흔들지 마라.", "none", "네, 안 흔들게요."),
+        ("얘, 이리 와 봐.", "none", "아이가 귀엽네요."),
+    ],
+}
+
 EXAMPLES = [(cat, lang, said, reply, action)
             for cat, langs in _BANK.items() for lang, rows in langs.items() for said, action, reply in rows]
 

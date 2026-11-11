@@ -3928,7 +3928,8 @@ STOP_ONLY = re.compile(   # a whole sentence that only says stop / enough / stay
 
 
 STOP_POLITE = re.compile(   # a stop asked politely, after wording.ko_plain: "멈춰 주시겠어요?" -> "멈춰 줘?", "can you stop for me?"
-    r"\W*(?:(?:좀|지금|당장|잠깐|잠시|거기서?|이제)\s*)*(?:멈춰|멈춰 서|정지해|그만해|스톱해|스탑해|서)(?: ?줘)?\W*|"
+    r"\W*(?:(?:좀|지금|당장|잠깐|잠시|거기서?|이제|동작|모든 동작|하던 거|움직임|얼른|빨리)\s*)*(?:멈춰|멈춰 서|정지해|그만해|스톱해|스탑해|서)"
+    r"(?: ?(?:줘|도|봐))?(?:\W*(?:부탁(?:드립니다|드려요|해요|해)|제발))?\W*|"
     r"\W*(?:(?:please|lumi|hey|okay|ok)\W+)*(?:can|could|would|will) (?:you|u) (?:please |just |kindly )?(?:go ahead and )?"
     r"(?:stop|halt|freeze|hold it(?: right)? (?:there|here))"
     r"(?: (?:right )?(?:now|here|there|please))?(?: for (?:me|us|a (?:second|sec|moment|bit|minute)))?(?:,? please)?\W*|"

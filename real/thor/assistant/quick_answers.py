@@ -271,7 +271,7 @@ CAMERA = re.compile(r"\b(?:see|seeing|saw|look(?:s|ing)?|watch|camera|wearing|ho
 SPEC = re.compile(r"\b(?:what|which|how many|what kind of|what type of|what sort of) (?:depth )?cameras?\b|\bcameras? (?:do you (?:have|use)|"
                   r"model|brand|type|range|resolution)\b|\b(?:recogni[sz]e|remember) (?:faces|people|anyone|who people are)\b|"
                   r"\bface recognition\b|카메라(?:가|는|를)? ?(?:몇 ?개|몇 ?대|뭐 ?써|뭘 ?써|뭐 ?쓰|어떤 ?거|기종|모델|종류|제품|사양|스펙)|"
-                  r"얼굴 ?(?:인식|알아보|알아봐|기억)", re.I)
+                  r"얼굴 ?(?:인식|알아보|알아봐|기억)|카메라(?:가|는)? ?(?:어디|위치)", re.I)
     # the cameras and face recognition as facts ("what cameras do you have?", "얼굴 인식 돼요?"), not what they see now
 ABOUT_ME = re.compile(r"\b(?:(?<!can )(?<!could )(?<!may )i(?! (?:call|address) you\b)(?! (?:talk|speak|chat) (?:to|with) you\b)|i'm|am i|my|"
                       r"(?<!tell )(?<!give )(?<!let )(?<!show )me|mine)\b|(?:^|\s)(?:나|내|제|저|난|전)(?:는|가|를|의)?\s", re.I)
@@ -366,9 +366,16 @@ REMARK = re.compile(r"(?:(?:어+|아+|음+|um+|uh+)\s+)?(?:quick question|just (
 SENTENCES = re.compile(r"(?<=[?？!])\s*|(?<=\.)\s+")
 
 
+TELL = re.compile(r"(이름|성함|나이|키|무게|몸무게|속도|최고 ?속도|시간|날짜|요일|만든 ?(?:데|곳|회사)|제조사|회사)(?:을|를|이|가)?"
+                  r"\s*(?:좀\s*)?(?:대|말해|말씀해|읊어)\s*(?:봐라|봐요|봐|보세요|라|줘|주세요|주십시오|주시겠어요)\W*$")
+    # "이름 대 봐", "나이 말해 봐라", "이름을 말씀해 주십시오": a question said as "tell me X" (봐 is not a look)
+
+
 def _tidy(text):
-    """Stutters and words said twice taken out ("키가 얼— 얼마예요?", "너 너 몇 살이야"), laughs at the end."""
-    t = re.sub(r"(?<![\w])(\w{1,4})[—–-]+\s*(?=\1)", "", text or "")
+    """Stutters and words said twice taken out ("키가 얼— 얼마예요?", "너 너 몇 살이야"), laughs at the end, "X 대 봐" as
+    "X 뭐야"."""
+    t = TELL.sub(lambda m: m.group(1) + " 뭐야?", text or "")
+    t = re.sub(r"(?<![\w])(\w{1,4})[—–-]+\s*(?=\1)", "", t)
     t = re.sub(r"\b(\w+)(?:[\s,]+\1\b)+", r"\1", t)
     return re.sub(r"(?<=\S)[\s~^ㅎㅋ]+(?=[?？!.]*$)|(?<=[?？!.])[\s~^ㅎㅋ]+$", "", t).strip()
 
