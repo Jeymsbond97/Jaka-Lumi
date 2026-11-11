@@ -3334,11 +3334,7 @@ class Lumi:
         self.brain.reset()
         self.closing_pending = None
         command = rest if len(rest) > 2 else text if re.search(r"how are you", text, re.I) else ""   # answered
-        target = self.find_caller(robot_angle, trusted)
-        if target is not None:
-            target.greeted = True
-            self.current = target
-            self.face(target)
+        self.look_at_speaker()                                # as "look at me": the cameras, the voice's side, behind
         if not command:                                       # just "Hi Lumi": a short answer, then listen
             mouth.say(WAKE_REPLY[lang])
         self.voice_until = time.time() + VOICE_SESSION_S

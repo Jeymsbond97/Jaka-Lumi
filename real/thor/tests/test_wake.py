@@ -110,6 +110,7 @@ def fresh(*tracks, utts=()):
     L.mission_hold = None
     L.warm_llm = lambda: None
     L.who_spoke = lambda u, text=None: done.append("who spoke")
+    L.look_at_speaker = lambda: done.append("look")    # tests/test_look_me.py checks where it turns
     lumi.ears.listen = lambda **k: (None, None)
     done.clear()
     up.clear()
@@ -125,7 +126,7 @@ for call in ("Lumi.", "Hi Lumi.", "Hi.", "Hello Lumi!", "Hello.", "Hey Lumi", "H
              "헤이 루미", "루미야 일어나", "루미 일어나세요.", "일어나세요.", "깨어나 루미야"):
     L = fresh()
     L.mic = Mic(U(call))
-    assert L.check_wake(), call
+    assert L.check_wake() and "look" in done, call       # turns to the caller (as "look at me") before answering
     assert lumi.call_only(call), call
 for heard in ("Let's make music.", "What is that?", "We make it.", "Let's.", "It looks fun.", "Okay.", ""):
     L = fresh()
