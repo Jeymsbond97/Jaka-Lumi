@@ -75,6 +75,9 @@ PLACE_LOW_Z = -480.0                 # mm, arm frame at lift 0: a level top lowe
 KEEP_R_MM = 400.0                    # mm; a table kept on the map is looked for again within this of its kept spot ...
 KEEP_STEP_MM = 40.0                  # ... on a grid this fine ...
 KEEP_TOL_MM = 40.0                   # ... at its kept height +- this (measured from 1.5 m it can be ~30 mm off)
+KEEP_CELL_M = 0.01                   # m; the kept table's level points are remembered one per cell this size
+KEEP_EDGE_MM = 30.0                  # mm; a spot of the kept table put on from memory lies at least this far in from
+                                     # the last level point seen in every direction (_kept_spots)
 PLACE_NAV_MAX = 2                    # navigation drives round to a kept table at most this often, then straight ways only
 TOP_NEAR_MM = 1500.0                 # mm from the arm base; a named thing's top measured further away is not trusted
                                      # (2026-10-20 a white thing 3.8 m away read -258, then -620 mm): go closer first
@@ -148,6 +151,9 @@ SELF_MM = 120.0              # depth this near the hand (flange -> grasp point -
                              # a finger 122 mm from the grasp point stopped a waist turn (2026-10-20)
 HEAD_SIDE_DEG = 60.0         # head yaw (+ left) towards the side of a turn, to check the arm's sweep (head_hits)
 HEAD_LOW_PITCH = -5.0        # head pitch for those checks and the search: its lowest, where the camera is calibrated
+HEAD_AIM_DEG = 8.0           # deg the target (the object to pick, the table / spot to put on) may drift off the head's
+                             # direction before the head turns back onto it (_aim_head; as lumi.py FOCUS_DEG for a person)
+HEAD_AIM_EVERY_S = 0.5       # s between those checks while the base drives (as lumi.py FOCUS_EVERY_S)
 HEAD_READS = 4               # head camera frames read per view (10 a second) ...
 HEAD_SAME_MM = 120.0         # ... an object counts when seen at least twice within this distance
 WAIST_VEL = 30               # % of the waist's speed: the arm sweeps sideways
@@ -222,7 +228,9 @@ _leg = {"rest": None, "tries": 0}             # the steps from the drive running
 _pause = threading.Event()                   # set by pause() (someone talks to Lumi on the way): drives halt, the run
                                              # waits at the next step; resume() goes on where it was
 _thread = None
-stay_put = False                             # set by assistant/lumi.py for a task asked by voice with only Greeter on:
+_aim = {"world": None, "z": 0.0, "thread": None}   # the head's target once found: map point (m), height (mm, arm
+                                             # frame), the head move running while the base drives (_aim_head)
+stay_put = False                            # set by assistant/lumi.py for a task asked by voice with only Greeter on:
                                              # head and lift only, no base move, no waist turn (NEED_PATROL)
 NEED_PATROL = ("For that I'd have to drive or turn. Switch on Patrol, please.",
                "그러려면 이동하거나 돌아야 해요. 패트롤을 켜 주세요.")
@@ -461,34 +469,50 @@ def _line_rows(target, label, start=None):
     return rows
 
 
-def _line_holding(name):
+def _line_holding(name, join=True):
     """With the object in the hand: along the pose graph to pose `name` (arm_route.hops), a straight line to each
-    pose, all lines IK-, tilt- and head-checked before the first one starts; after each line the pose's exact joints.
-    Nothing when it is there already."""
+    pose, all lines IK-, tilt- and head-checked before the first one starts, and where a line ends on the other wrist
+    branch, the joint move onto the pose's own joints too; after each line the pose's exact joints. When that is
+    refused, `join`: arm_route's checked joint moves from where the arm is (plan: a join, the wrist turned back, up
+    first), the cup upright. Nothing when it is there already."""
     _go_on()
     if _at_pose(name):
         return
+    now = skills._joints()
     try:
-        names = arm_route.hops(skills._joints(), name, leaf=True, holding=True)
-    except arm_route.RouteError as e:
-        raise FetchError(*e.args) from e
-    lines, start = [], None
-    for n in names:
-        j = motion.poses()[n]
-        target = skills._ask("kine_forward", jointPosition=[float(v) for v in j])["cartPosition"]
-        _line_rows(target, f"to {n}", start)
-        lines.append((n, target))
-        start = (target, j)
+        names = arm_route.hops(now, name, leaf=True, holding=True)
+        lines, start = [], None
+        for n in names:
+            j = motion.poses()[n]
+            target = skills._ask("kine_forward", jointPosition=[float(v) for v in j])["cartPosition"]
+            end = _line_rows(target, f"to {n}", start)[-1][2]
+            if max(abs(a - b) for a, b in zip(motion.nearest(j, end), end)) > 1.0:   # live 2026-10-30: the line to
+                arm_route.check_moves(end, [j], holding=True)    # give ended with the wrist turned over, stuck there
+            lines.append((n, target))
+            start = (target, j)
+    except (FetchError, arm_route.RouteError) as e:
+        if not join:
+            raise FetchError(*e.args) from e
+        try:
+            seq = arm_route.plan(name, holding=True, now=now)
+        except arm_route.RouteError:
+            raise FetchError(*e.args) from e
+        arm_route.move(seq, holding=True)
+        _go_on()
+        return
     for n, target in lines:
         log(f"arm to {n} (straight)")
         motion.move_linear(target=target, speed=skills.HOLDING_SPEED, path_checked=True)
         _go_on()
-        if not _at_pose(n):                      # the pose's own joints (the line may end on another IK branch)
+        if not _at_pose(n):                      # the pose's own joints (the controller's line ended elsewhere)
             try:
                 arm_route.check_moves(skills._joints(), [motion.poses()[n]], holding=True)
-            except arm_route.RouteError as e:
-                raise FetchError(*e.args) from e
-            motion.go(n, skills.HOLDING_SPEED)
+                motion.go(n, skills.HOLDING_SPEED)
+            except arm_route.RouteError:          # e.g. the wrist turned over: arm_route's checked way from here
+                try:
+                    arm_route.move(arm_route.plan(n, holding=True), holding=True)
+                except arm_route.RouteError as e:
+                    raise FetchError(*e.args) from e
 
 
 def _look():
@@ -508,11 +532,15 @@ def _wait_drive(watch_holding=False, again=None, goal=None):
     try:
         _drive_wait(watch_holding, again, goal)
     finally:
+        t = _aim["thread"]                   # the head's last turn onto the target ends before the next step
+        while t is not None and t.is_alive() and not _stop.wait(0.1):
+            pass
         skills.moved()                       # the cameras moved with the base: frames from now on
 
 
 def _drive_wait(watch_holding, again, goal):
     t0 = last_hold = time.time()
+    last_aim = 0.0
     seen_running = False
     anchor = None                            # (x, y, time) of the last real progress
     while True:
@@ -537,6 +565,9 @@ def _drive_wait(watch_holding, again, goal):
         st = full.get("move_status")
         seen_running = seen_running or st == "running"
         pose = full.get("current_pose")
+        if st == "running" and time.time() - last_aim >= HEAD_AIM_EVERY_S:
+            last_aim = time.time()
+            _aim_head(wait=False)                # the head stays on the target while the base turns and drives
         if st == "running" and pose:
             if anchor is None or math.hypot(pose["x"] - anchor[0], pose["y"] - anchor[1]) > STUCK_M:
                 anchor = (pose["x"], pose["y"], time.time())
@@ -674,6 +705,74 @@ def _head_to(yaw, pitch):
     skills.moved("head")
 
 
+def _aim_at(thing):
+    """From now on the head keeps to `thing` ({"x", "y"} mm in the arm frame now, "top_mm" its height when known):
+    its map place is kept, so it is found again after every base and waist move. None (a search, a drive to a place,
+    the object in the hand): no target, the head is free again."""
+    w = None if thing is None else map_xy(thing)
+    _aim.update(world=w, z=float((thing or {}).get("top_mm") or 0.0))
+
+
+def aiming():
+    """A task keeps the head on its target now (assistant/lumi.py leaves the head alone meanwhile); never after a
+    STOP."""
+    return _aim["world"] is not None and not _stop.is_set()
+
+
+def _head_yaw_for(p):
+    """Head yaw (deg, cut to head.YAW_LIMIT, 1 deg steps) that puts the arm-frame point `p` (x, y, z mm) in the
+    middle (left / right) of the head camera's view at HEAD_LOW_PITCH; None before the head camera is calibrated.
+    ponytail: the pitch stays HEAD_LOW_PITCH, everything picked or put on is below the head (its lowest pitch)."""
+    best = None
+    for yaw in np.arange(-head.YAW_LIMIT, head.YAW_LIMIT + 0.5, 1.0):
+        T = head_cam.base_from_head(float(yaw), HEAD_LOW_PITCH)
+        if T is None:
+            return None
+        q = np.linalg.inv(T) @ [p[0], p[1], p[2], 1.0]
+        off = abs(math.atan2(q[0], q[2]))
+        if best is None or off < best[0]:
+            best = (off, float(yaw))
+    return best[1]
+
+
+def _aim_head(thing=None, wait=True):
+    """The head onto the target (`thing`: a new one, _aim_at) when it is more than HEAD_AIM_DEG off. wait=False (the
+    base drives, _drive_wait): the move runs in its own thread, one at a time, and the drive goes on. A head error is
+    logged, never the end of the task."""
+    if thing is not None:
+        _aim_at(thing)
+    t = _aim["thread"]
+    if t is not None and t.is_alive():
+        if not wait:
+            return
+        while t.is_alive() and not _stop.wait(0.1):
+            pass
+    if _aim["world"] is None or arm_yaw() is None:
+        return
+    try:
+        x, y = arm_frame(_aim["world"])
+        yaw = _head_yaw_for((x, y, _aim["z"]))
+        if yaw is None:
+            return
+        lift, waist, y0, p0 = head.status()
+        if abs(yaw - y0) <= HEAD_AIM_DEG and abs(p0 - HEAD_LOW_PITCH) < 1.0:
+            return
+        if wait:
+            _head_to(yaw, HEAD_LOW_PITCH)
+            return
+
+        def run():
+            try:
+                head.moveto([lift, waist, yaw, HEAD_LOW_PITCH])
+                skills.moved("head")
+            except OSError as e:
+                log(f"head to the target: {e}")
+        _aim["thread"] = threading.Thread(target=run, daemon=True)
+        _aim["thread"].start()
+    except OSError as e:
+        log(f"head to the target: {e}")
+
+
 def head_hits(deg, pts=None):
     """depth_hits with the head camera turned towards the side of the turn: the torso camera sees only ahead, the arm
     sweeps to the side. None when clear, or when the head camera is not calibrated (then the other checks decide).
@@ -752,7 +851,8 @@ def _waist_to(rel, in_place=False, look=None):
 
 
 def head_ahead():
-    """Turn the head to HEAD_AHEAD (lift and waist stay) unless it is there already."""
+    """Turn the head to HEAD_AHEAD (lift and waist stay) unless it is there already; it has no target then."""
+    _aim_at(None)
     lift, waist, yaw, pitch = head.status()
     if abs(yaw - HEAD_AHEAD[0]) > 1.0 or abs(pitch - HEAD_AHEAD[1]) > 1.0:
         head.moveto([lift, waist, *HEAD_AHEAD])
@@ -802,10 +902,13 @@ def _head_ok():
 
 def _look_at(view, attempt):
     """Both cameras towards `view` deg from the front (+ left): the waist as far as WAIST_SCAN_MAX (when its sweep is
-    clear and the arm's yaw is measured), the head the rest; then attempt()."""
+    clear and the arm's yaw is measured), the head the rest, or onto the target once one was found (_aim_head);
+    then attempt()."""
     if arm_yaw() is not None:
         _waist_to(max(-WAIST_SCAN_MAX, min(WAIST_SCAN_MAX, view)))
-    if _head_ok():
+    if aiming():
+        _aim_head()
+    elif _head_ok():
         _head_to(view - _waist_turn(), HEAD_LOW_PITCH)
     return attempt()
 
@@ -827,6 +930,7 @@ def _look_around(attempt, holding=False, say=None):
     head turns the rest), then to the other side. (c) The base turns towards that side (_search_turn) and all of it
     again. (d) The lift goes to the other end of LIFT_TRIES and (a)-(c) again. Returns what attempt() found (the waist
     and the head stay where it was seen), else None with the waist at the front."""
+    _aim_at(None)                                # the head looks around with the waist: no target while searching
     got = _look_at(0.0, attempt)
     if got is not None:
         return got
@@ -1150,10 +1254,10 @@ def _is_task(o, task):
 
 
 def arm_frame(world):
-    """A map point (m) in the arm base frame now (mm)."""
+    """A map point (m), or an (N, 2) array of them, in the arm base frame now (mm)."""
     x, y, th = agv.pose()
-    b = _rot(-math.degrees(th)) @ (np.asarray(world, float) - [x, y])
-    return _rot(-arm_yaw()) @ (b - arm_xy()) * 1000.0
+    b = (np.asarray(world, float) - [x, y]) @ _rot(-math.degrees(th)).T
+    return (b - arm_xy()) @ _rot(-arm_yaw()).T * 1000.0
 
 
 def _go_to(thing, goal, tried, holding=False):
@@ -1173,6 +1277,7 @@ def _near_look(attempt, holding=False):
     from the base). None when nothing is near or nothing is seen."""
     if stay_put or _charging():
         return None
+    _aim_at(None)                                     # a search: the head looks with the waist
     x, y, th = agv.pose()
     near = [math.radians(d) for d in np.arange(-157.5, 180.1, 22.5)
             if agv.clearance(x + NEAR_RING_M * math.cos(th + math.radians(d)),
@@ -1311,6 +1416,7 @@ def _approach(obj, yaw, tried, goal=PICK_ZONE_CENTRE, holding=False):
     Patrol is off (stay_put)."""
     if stay_put:
         raise FetchError(*NEED_PATROL)
+    _aim_head(obj)                                    # the head on it while the base brings it nearer
     t = arm_xy()
     x0, y0, th0 = agv.pose()
     world = np.array([x0, y0]) + _rot(math.degrees(th0)) @ to_base((obj["x"], obj["y"]), yaw, t)
@@ -1573,6 +1679,7 @@ def _reach(task, obj, say, voice=False):
     and with Patrol off no base move is tried: the waist only, then the person is asked."""
     yaw, tried, why = arm_yaw(), set(), None       # grasp turns past skills.TRUSTED_YAW_DEG only when the base can't help
     _width_far["moves"] = 0
+    _aim_head(obj)                                 # found: the head on it from now on (the search is over)
     for i in range(APPROACH_TRIES + 1):
         can_move = yaw is not None and i < APPROACH_TRIES and not (voice and stay_put) and not _charging() and \
             "stuck" not in tried
@@ -1753,10 +1860,99 @@ def _place_view(top0):
     return True if far and _place_far(top0, far) else far
 
 
-def _keep(xy, table):
+def _keep(xy, table, pts=()):
     """A table to put on, kept by its map place: seen at xy (mm, arm frame now) with its top at `table` mm (None: not
-    measured yet). From then on it is looked for there (_kept_at), never another one."""
-    return {"world": map_xy({"x": xy[0], "y": xy[1]}), "table": table, "lift": head.status()[0]}
+    measured yet), `pts` (x, y mm, arm frame now) of its level top (_remember). From then on it is looked for there
+    (_kept_at), never another one."""
+    kept = {"world": map_xy({"x": xy[0], "y": xy[1]}), "table": table, "lift": head.status()[0], "pts": {}}
+    _remember(kept, pts)
+    return kept
+
+
+def _remember(kept, pts):
+    """Keep the kept table's level points `pts` (x, y mm, arm frame now) on the map (one per KEEP_CELL_M cell): where
+    it was seen level stays known after a turn or a drive, also where the camera no longer sees it (its view starts
+    at y ~640 at table height, where the arm hardly reaches). Only with the waist at the front: fetch's map frame turns
+    the arm about the base centre, the waist turns it about the column (tests/pick_sweep.py)."""
+    yaw = arm_yaw()
+    if yaw is None or abs(_waist_turn()) >= 1.0 or not len(pts):
+        return
+    x, y, th = agv.pose()
+    b = np.asarray(pts, float)[:, :2] / 1000.0 @ _rot(yaw).T + arm_xy()
+    for w in b @ _rot(math.degrees(th)).T + [x, y]:
+        kept.setdefault("pts", {})[tuple(np.round(w / KEEP_CELL_M).astype(int))] = w
+
+
+def _see_kept(kept):
+    """far_table near the kept table's spot and height; seen, its spot, height and level points are kept (_remember).
+    The spot is where the torso camera's view of it starts, so after a drive closer it lies further again: the spots
+    it showed before are put on from memory (_place_remembered) before the base goes on (live 2026-10-30 it drove on
+    to the table's edge for 10 minutes). None when it is not in view."""
+    x, y, _ = _kept_at(kept)
+    far = far_table((x, y), _kept_band(kept))
+    if far is None:
+        return None
+    kept.update(world=map_xy(far), table=far["table"], lift=head.status()[0])
+    _remember(kept, far["points"])
+    return far
+
+
+def _kept_spots(kept, key):
+    """Spots (x, y mm, arm frame now) of the kept table's remembered level top, ordered by key(x, y): the remembered
+    points within FAR_REACH_MM with a remembered level point within TABLE_RING_MM - KEEP_EDGE_MM of every point of the
+    place ring (skills.TABLE_RING_MM all round: at least KEEP_EDGE_MM in from the last level point seen that way) and
+    FREE_MM from everything the camera sees standing now; at most PLACE_REFUSALS of them."""
+    if not kept.get("pts"):
+        return []
+    pts = arm_frame(np.array(list(kept["pts"].values())))
+    seen = skills.look()
+    ring = np.array([(0.0, 0.0)] + [(skills.TABLE_RING_MM * math.cos(a), skills.TABLE_RING_MM * math.sin(a))
+                                    for a in np.linspace(0, 2 * math.pi, 8, endpoint=False)])
+    out = []
+    for p in sorted(pts, key=lambda p: key(*p)):
+        if math.hypot(*p) > FAR_REACH_MM or any(math.hypot(p[0] - o["x"], p[1] - o["y"]) < skills.FREE_MM
+                                                for o in seen):
+            continue
+        near = pts[np.abs(pts - p).max(axis=1) <= skills.TABLE_RING_MM * 2]
+        d = np.linalg.norm(near[None, :, :] - (p + ring)[:, None, :], axis=2).min(axis=1)
+        if (d <= skills.TABLE_RING_MM - KEEP_EDGE_MM).all():
+            out.append((float(p[0]), float(p[1])))
+            if len(out) >= PLACE_REFUSALS:
+                break
+    return out
+
+
+def _place_remembered(top0, kept):
+    """Put it down on the kept table where its level top was seen (_remember), also where the camera sees it no more:
+    from here at its spots nearest PICK_ZONE_CENTRE, else after the waist turn (waist_for, in place) that brings one of
+    its spots nearest the column into the arm's comfortable reach. Only with the waist at the front, the table's height
+    known and the lift right for it. True when it is down."""
+    z = _kept_at(kept)[2]
+    lift = None if z is None else lift_for(z)
+    if lift is None or abs(lift - head.status()[0]) >= LIFT_TOL_MM or abs(_waist_turn()) >= 1.0:
+        return None
+    spots = _kept_spots(kept, lambda x, y: math.hypot(x - PICK_ZONE_CENTRE[0], y - PICK_ZONE_CENTRE[1]))
+    if not spots:
+        return None
+    top = _top_on(top0, z)
+    log(f"the table I keep at {z:.0f} mm: trying spots of it I saw")
+    if _place_at(spots[:FAR_SPOTS], top):             # each refused spot costs IK time; the nearest are likeliest
+        return True
+    c = head_cam.head_centre()
+    if c is None:
+        return None
+    for x, y in _kept_spots(kept, lambda x, y: math.hypot(x - c[0], y - c[1]))[:FAR_SPOTS]:
+        if at_edge({"x": x, "y": y}):
+            break                                     # the rest are further from the column: no turn brings them in
+        for deg in waist_for({"x": x, "y": y})[:1]:
+            t = turned({"x": x, "y": y}, deg)
+            if next(skills.place_options(t["x"], t["y"], top, skills._joints()), None) is None:
+                continue
+            log(f"spot ({x:.0f}, {y:.0f}) of the table I keep: turning my waist {deg:+.0f} deg")
+            if not _waist_to(_waist_turn() + deg, in_place=True):
+                return None
+            return _place_at([(t["x"], t["y"])], top)
+    return None
 
 
 def _kept_at(kept):
@@ -1775,16 +1971,14 @@ def _kept_band(kept):
 
 def _place_kept_view(top0, kept):
     """One look for the kept table: put it down on it in reach (True), else on it further away where the arm reaches a
-    spot of it from here (True); else where it is now (far_table near its kept spot and height, kept from now on);
-    None when it is not in view."""
+    spot of it from here (True), else on a spot of it seen before (_place_remembered, True); else where it is now
+    (_see_kept), None when it is not in view."""
     if _place_here(top0, kept):
         return True
-    x, y, _ = _kept_at(kept)
-    far = far_table((x, y), _kept_band(kept))
-    if far is None:
-        return None
-    kept.update(_keep((far["x"], far["y"]), far["table"]))
-    return True if _place_far(top0, far) else far
+    far = _see_kept(kept)
+    if far is not None and _place_far(top0, far):
+        return True
+    return True if _place_remembered(top0, kept) else far
 
 
 def _place_kept(top0, kept, tried):
@@ -1853,6 +2047,7 @@ def _place_at(tries, top, turned=True):
             rows = None                                                       # _line_rows said why
         if rows and not rows[-1][3]:
             _go_on()
+            _aim_head({"x": x, "y": y, "top_mm": top})                     # the head on the spot, the arm still
             log(f"putting it down at ({x:.0f}, {y:.0f})")
             skills._guarded(lambda: motion.move_linear(target=way[0][1], speed=skills.HOLDING_SPEED,
                                                        path_checked=True))  # checked
@@ -1866,6 +2061,7 @@ def _place_at(tries, top, turned=True):
             continue
         opt = next(skills.place_options(x, y, top, skills._joints()), None)     # another grasp turn or wrist (the
         if opt:                                                                 # cup's own turn does not matter)
+            _aim_head({"x": x, "y": y, "top_mm": top})
             log(f"putting it down at ({x:.0f}, {y:.0f})")
             skills._guarded(skills.place_turned, *opt)                          # ends at home (look), hand open
             _set(holding=False)
@@ -2086,7 +2282,7 @@ def _put_on_table(top0, thing, label, tried):
     measured yet: by the box until it is) and approached by its map place (_place_kept); in reach it is put down at
     once."""
     far = far_table((thing["x"], thing["y"]))
-    kept = _keep((far["x"], far["y"]), far["table"]) if far else _keep((thing["x"], thing["y"]), None)
+    kept = _keep((far["x"], far["y"]), far["table"], far["points"]) if far else _keep((thing["x"], thing["y"]), None)
     log(f"{label} at ({thing['x']:.0f}, {thing['y']:.0f}), " +
         (f"its top at {far['table']:.0f} mm: I keep it" if far else "its top not measured yet: I keep it"))
     try:
@@ -2195,9 +2391,10 @@ def _put_down(say=None, on=None):
     if got is not None and arm_yaw() is not None and not _charging():
         log(f"a table at {got['table']:.0f} mm further away ({got['camera']} camera), at ({got['x']:.0f}, "
             f"{got['y']:.0f}): I keep it")
-        kept = _keep((got["x"], got["y"]), got["table"])
+        kept = _keep((got["x"], got["y"]), got["table"], got["points"])
         try:
-            if _place_kept(top, kept, tried):
+            _see_kept(kept)                             # its level top on a fine grid, before any drive
+            if _place_remembered(top, kept) or _place_kept(top, kept, tried):
                 return
         except FetchError as e:
             _too_low({"table": _kept_at(kept)[2]}, e)        # its height as last measured, nearest
@@ -2294,12 +2491,15 @@ def _pick_here(task, say):
 
 def _pick(obj, waypoints, ja):
     """skills._do_pick; whenever it leaves the object held, also after a stop in the lift, the stand is noted with it
-    (a put down goes straight back down from here: _put_back_here)."""
+    (a put down goes straight back down from here: _put_back_here). The head is on it while the arm takes it; once
+    it is in the hand the head is free again."""
+    _aim_head(obj)
     try:
         skills._guarded(skills._do_pick, obj, waypoints, ja)
     finally:
         if "top_mm" in skills._held:
             _note_stand()
+    _aim_at(None)
 
 
 def _note_stand():
@@ -2312,13 +2512,12 @@ def _note_stand():
 def _carry_from(above, ja):
     """Holding, the arm at `above` (flange pose over the pick spot, joints `ja` there): to look the way a pick ends."""
     try:
-        _line_holding("carry")                               # straight: the cup stays upright (a turned grasp
+        _line_holding("carry", join=False)                   # straight: the cup stays upright (a turned grasp
     except FetchError:                                       # can't go straight to look) ...
         plan = skills.carry_up(above, ja)                    # ... or, when that line jumps (carry has the elbow
-        if plan is None:                                     # almost straight), further up and one joint move
-            raise
-        skills._guarded(skills.carry_by_joints, plan)
-    _line_holding(LOOK_POSE)                                 # then look to drive
+        if plan is not None:                                 # almost straight), further up and one joint move
+            skills._guarded(skills.carry_by_joints, plan)
+    _line_holding(LOOK_POSE)                                 # then look to drive (else arm_route's checked way there)
 
 
 def _carry_held():
@@ -2390,6 +2589,7 @@ def _clear():
     _pause.clear()
     _set(paused=False)
     skills._cancel.clear()
+    _aim_at(None)
 
 
 def _new_run():
@@ -2481,8 +2681,9 @@ def held_by_skill(what):
 def pick_here(name, colour=None, say=None):
     """The voice pick ("take the cup", assistant/lumi.py's skill thread): the `name` (`colour`) seen from where Lumi
     stands is reached as a fetch reaches it, with trusted grasp turns only (_reach voice=True: from here, else the
-    waist in place, else with Patrol on the base, else the person is asked) and picked; it ends held just above the
-    table. Returns the object."""
+    waist in place, else with Patrol on the base, else the person is asked) and picked, then carried to look as a
+    fetch's pick is (live 2026-10-30 it ended at the lift pose, the wrist turned over: no way back from there was
+    found). Returns the object."""
     task = {"object": name, "colour": colour}
     _clear()
     try:
@@ -2493,8 +2694,13 @@ def pick_here(name, colour=None, say=None):
         obj, waypoints, ja = _reach(task, obj, say, voice=True)
         _step("picking")
         _pick(obj, waypoints, ja)
+        held_by_skill(task)                                  # held, also when the carry is refused
+        _step("carry")
+        skills._guarded(skills._line, "up", waypoints[0][1])   # straight up to the approach height first
+        _carry_from(waypoints[0][1], ja)
     finally:
         _set(step="")
+        _aim_at(None)                                        # no runner's end (head_ahead) after a voice pick
     return obj
 
 
@@ -3137,11 +3343,11 @@ def _arm(pose):
             _set(holding=False)
         log(f"gripper {pose}: {st}")
     elif pose == "fold":                         # the arm's home
-        _pose(LOOK_POSE)
+        _line_holding(LOOK_POSE) if _state["holding"] else _pose(LOOK_POSE)
     elif pose == "reach":                        # the hand held out, as for a hand-over
         if "give" not in motion.poses():
             raise FetchError("I haven't learned how to reach out yet.")
-        _pose("give")
+        _line_holding("give") if _state["holding"] else _pose("give")
 
 
 def held_name(lang="en"):
@@ -3168,6 +3374,19 @@ def carry_sentence(dest, then=None):
 def release_now():
     """The person said "thank you" while Lumi is giving: open now."""
     _release.set()
+
+
+def let_go():
+    """The person says they hold what the hand holds ("I've got it", "내가 잡고 있어") while no task runs: open where the
+    arm is and forget the held thing. False while a task runs (its hand-over opens on release_now)."""
+    with _lock:
+        if _busy():
+            return False
+        log("the person holds it: opening")
+        gripper.open_()
+        skills._held.clear()
+        _set(holding=False, **({"status": "idle", "step": ""} if _state["status"] == "holding" else {}))
+        return True
 
 
 def replace(steps, say=None):

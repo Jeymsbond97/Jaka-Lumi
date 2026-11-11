@@ -13,8 +13,11 @@ the hand only the EDGES (fetch runs them as straight lines, the cup upright) and
 arm at no pose (after free
 drive, after a stop half way) joins the graph by one checked joint move to a pose of it, the nearest first; when no
 such move passes, first straight up by UP_MM (a joint move to the IK pose above, checked the same way), then the
-join. Joins further than JOIN_DEG run at HOLD_SPEED. Only when nothing passes, nothing moves and Lumi asks for the
-arm to be brought near `look` by hand. A task's own
+join. When neither passes and the wrist is turned over against the taught poses (J5's sign flipped, J4 / J6 half a
+turn off: a straight move that ended on the other IK branch, free drive), it first turns back where it is (flip):
+FLIP_STEPS joint moves, J4 and J6 against each other, J5 through 0, J1-J3 holding the grasp point, each checked as
+every move is (the cup upright). Joins further than JOIN_DEG run at HOLD_SPEED. Only when nothing passes, nothing
+moves and Lumi asks for the arm to be brought near `look` by hand. A task's own
 way back from the table (`leaf`: it went out from `look` along a checked plan) goes straight to its target.
 
 Each joint move is checked at PATH_POINTS points (kine_forward): joint limits, no joint turning further than
@@ -66,6 +69,10 @@ AT_POSE_DEG = 3.0                    # deg; the arm is at a pose when every join
 EXACT_DEG = 1.0                      # deg; further than this from the nearest pose a route first goes to it
 JOIN_DEG = 20.0                      # deg; an arm at no pose this close to one (every joint) joins it at the route speed
 UP_MM = (100.0, 200.0)               # mm straight up tried before a join when no direct join passes
+FLIP_STEPS = 4                       # joint moves turning a turned-over wrist back (flip): 45 deg of J4 / J6 each.
+                                     # Offline, from the live stuck pose: 3 let the gripper dip 28 mm, 4 kept it within 16
+HOLD_MM = 0.5                        # mm; flip: the grasp point is held where it was this closely at each step
+HOLD_STEPS = 20                      # ... Newton steps on J1-J3 at most (offline, the live stuck pose: 7)
 PATH_POINTS = 21                     # points checked (kine_forward) on every joint move
 HEAD_CLEAR_MM = 250.0                # mm the gripper keeps from the head's turning centre. Estimate: the head camera
                                      # is 102 mm from it, the head's size is not measured. `look` keeps 327 mm
@@ -317,19 +324,61 @@ def _up(now, mm):
     return r.get("jointPosition")
 
 
+def _grasp_point(j):
+    return _gripper(skills._ask("kine_forward", jointPosition=[float(v) for v in j])["cartPosition"])[1]
+
+
+def _hold(j, want):
+    """`j` with J1-J3 turned (Newton steps on kine_forward) so the grasp point is at `want` (mm); None when it does not
+    come within HOLD_MM in HOLD_STEPS."""
+    j = np.array(j, float)
+    for _ in range(HOLD_STEPS):
+        g = _grasp_point(j)
+        if np.linalg.norm(want - g) < HOLD_MM:
+            return [float(v) for v in j]
+        J = np.stack([(_grasp_point(j + 0.01 * np.eye(6)[i]) - g) / 0.01 for i in range(3)], 1)
+        j[:3] += np.clip(np.linalg.lstsq(J, want - g, rcond=None)[0], -5.0, 5.0)
+    return None
+
+
+def flip(now):
+    """Joints of the FLIP_STEPS joint moves that turn the wrist at `now` over where it is: J4 and J6 half a turn against
+    each other (the same way round they would tumble a held cup), J5 through 0 to minus itself, J1-J3 holding the grasp
+    point (_hold) on the way; the last one is `now`'s other wrist solution of the same flange pose. Either way round
+    J4 turns, inside the joint limits; None when the grasp point can't be held."""
+    g0 = _grasp_point(now)
+    for s in (1.0, -1.0):
+        end = [*now[:3], now[3] + 180.0 * s, -now[4], now[5] - 180.0 * s]
+        if any(abs(v) > lim - motion.LIMIT_MARGIN for v, lim in zip(end, motion.LIMITS)):
+            continue
+        way = [_hold([a + (b - a) * k / FLIP_STEPS for a, b in zip(now, end)], g0) for k in range(1, FLIP_STEPS)]
+        if None not in way:
+            return way + [end]
+    return None
+
+
 def join(now, target, holding=False, skip=()):
     """[(pose, joints)] of a checked way from an arm at no pose of the graph to `target`: one joint move to a graph
-    pose (the nearest first), then along the graph; else first straight up by UP_MM. RouteError(UNKNOWN) when no way
-    passes the checks; nothing moved."""
+    pose (the nearest first), then along the graph; else first straight up by UP_MM; else, with the wrist turned over
+    (its other solution nearer the graph), first the wrist turned back where it is (flip). RouteError(UNKNOWN) when no
+    way passes the checks; nothing moved."""
     nodes = graph(holding, skip)
     if target not in nodes:
         raise RouteError(*(SPILL if holding and target in WAVE_POSES else NOT_TAUGHT))
-    order = sorted(nodes, key=lambda n: (_deg(now, nodes[n]), n != HOME))
-    for mm in (None, *UP_MM):
-        first = [] if mm is None else [("up", _up(now, mm))]
-        if first and first[0][1] is None:
+    near = lambda j: min(_deg(j, p) for p in nodes.values())
+
+    def firsts():                                    # asked only when the one before found no way
+        yield []
+        for mm in UP_MM:
+            yield [("up", _up(now, mm))]
+        over = flip(now)
+        if over and near(over[-1]) < near(now):
+            yield [("wrist", j) for j in over]
+    for first in firsts():
+        if first and first[-1][1] is None:
             continue
-        for n in order:                              # the nearest pose first, then the way on from it
+        here = first[-1][1] if first else now
+        for n in sorted(nodes, key=lambda n: (_deg(here, nodes[n]), n != HOME)):   # the nearest pose first, then on
             try:
                 way = first + [(x, nodes[x]) for x in route(n, target, nodes, holding)]
                 return list(zip([x for x, _ in way], check_moves(now, [j for _, j in way], holding)))

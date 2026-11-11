@@ -30,6 +30,7 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `manipulation/arm_route.py` | `LINK_HEAD_CLEAR_MM` | 220 mm | Every arm link (elbow, wrist) keeps this from the head's turning centre on every pose-graph move. Estimate below the least of the taught graph (267 mm at `wave`) |
 | `manipulation/arm_route.py` | `JOIN_DEG` | 20° | An arm at no pose (free drive, stopped half way) joins the graph by one checked joint move to a pose, the nearest first; joins further than this run at the slow speed |
 | `manipulation/arm_route.py` | `UP_MM` | 100, 200 mm | When no direct join passes the checks, the arm first goes this far straight up, then joins |
+| `manipulation/arm_route.py` | `FLIP_STEPS` | 4 | When neither passes and the wrist is turned over against the taught poses (J5's sign flipped), it first turns back where it is in this many checked joint moves (J4 and J6 half a turn against each other, J5 through 0, J1–J3 holding the grasp point); fewer steps let the gripper dip more between them |
 | `robot/arm.py` | `RETRIES`, `RETRY_S` | 5, 0.2 s | A dropped controller connection is retried this often, the wait doubling each time (3 s in all); the controller closes connections for ~0.5 s every few seconds |
 | `manipulation/arm_route.py` | `AT_POSE_DEG`, `EXACT_DEG` | 3°, 1° | At a pose for programs and `check` / further than 1° from the nearest pose a route first goes to it |
 | `api/dashboard.html` | `MAP_POLL_MS` | 20000 ms | The dashboard reads the map's markers again this often (markers added on the base, a map switched) |
@@ -115,6 +116,7 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `tasks/fetch.py` | `HEAD_READS`, `HEAD_SAME_MM` | 4, 120 mm | Head camera frames read per view; a thing counts when seen at least twice within this distance |
 | `tasks/fetch.py` | `HEAD_SIDE_DEG` | 60° | Head yaw towards the side of a turn on the spot, for the arm-sweep check (`head_hits`) |
 | `tasks/fetch.py` | `HEAD_LOW_PITCH` | −5° | Head pitch for the search and `head_hits` (its lowest, where the head camera is calibrated) |
+| `tasks/fetch.py` | `HEAD_AIM_DEG`, `HEAD_AIM_EVERY_S` | 8°, 0.5 s | Once the object or the place is found, the head stays on it (approach, pick, put down): it turns back when the target is more than this far off its direction, checked this often while the base drives |
 | `manipulation/skills.py` | `FRAME_LAG_S`, `FRESH_WAIT_S` | 0.15 s, 2 s | After a lift / waist / head / base move, depth and detections come from the first frame written this long after it (no fixed wait); give up after the second |
 | `tasks/fetch.py` | `COAST_S` | 0.3 s | Frames after a straight `joy_control` drive are taken from this long after the stop. Estimate |
 | `tasks/fetch.py` | `DRIVE_POLL_S`, `DRIVE_START_S` | 0.2 s, 3 s | Base status reads while driving; a drive not seen "running" counts as over after the second (at once when it reports "succeeded" at the goal pose) |
@@ -152,6 +154,7 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `tasks/fetch.py` | `PLACE_GRID_X`, `PLACE_GRID_Y` | x −260…−60 step 40, y 640…740 mm | Place spots tried in front (after the pick spot); IK refuses the ones out of reach |
 | `tasks/fetch.py` | `PLACE_LOW_Z` | −480 mm | A level top lower than this (arm frame, lift 0) is a seat, never a place |
 | `tasks/fetch.py` | `KEEP_R_MM`, `KEEP_STEP_MM`, `KEEP_TOL_MM` | 400, 40, 40 mm | A table seen once is kept on the map; after each move it is looked for only within this radius of its kept spot (on this grid) and this close to its kept height |
+| `tasks/fetch.py` | `KEEP_EDGE_MM` | 30 mm | Its level top is kept on the map too; a spot put on from memory (where the camera no longer sees it) lies at least this far in from the last level point seen in every direction |
 | `tasks/fetch.py` | `PLACE_NAV_MAX` | 2 | Navigation drives round to a kept table at most this often per place, then straight ways only |
 | `tasks/fetch.py` | `PLACE_GOAL` | (−160, 670) mm | Where the base brings a table spot seen further away |
 | `tasks/fetch.py` | `FAR_R_MM`, `FAR_HALF_DEG`, `FAR_IN_MM` | 0.6–3 m, ±45°, 150 mm | A table further away: level tops looked for on sight lines this far, within this of where the camera looks; the base goes to the point this far in from its nearest edge |

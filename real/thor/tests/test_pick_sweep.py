@@ -77,4 +77,25 @@ for name, (sc, must) in PLACES.items():
             or r["result"] in ("exception", "timeout"):
         bad.append((name, r["result"], r.get("why"), r["moves"]))
 assert not bad, bad
+
+# ---------- live 2026-10-30: a round table at -327 mm ahead-left, lift 0. The torso camera sees its top from y ~640,
+# where the arm hardly reaches at that height: the base drove closer again and again, up to the table's edge ----------
+ROUND = lambda deg, near: {"c": P(deg, near + 0.45), "r": 0.45, "z": -327.0}
+for name, table in (("table in reach ahead-left", ROUND(20, 0.65)), ("table in reach, further left", ROUND(35, 0.55))):
+    r = ps.run_scene(ps.place_at([table]), 1.0)                 # in reach (with a waist turn): put down, no base move
+    print(f"place    {name:44s} {r['result']:8s} moves {[m[:3] for m in r['moves']]} {r.get('why') or ''}")
+    if r["result"] != "ok" or r["moves"]:
+        bad.append((name, r["result"], r.get("why"), r["moves"]))
+# ... out of reach: one drive closer; there the camera loses it (only part of it in view): put on the table kept from
+# before the drive, never another drive
+real_far, real_ahead = ps.fetch.far_table, ps.fetch.table_ahead
+ps.fetch.far_table = lambda *a, **k: None if ps.W["rec"]["moves"] else real_far(*a, **k)
+ps.fetch.table_ahead = lambda *a, **k: None if ps.W["rec"]["moves"] else real_ahead(*a, **k)
+r = ps.run_scene(ps.place_at([ROUND(0, 1.0)]), 1.0)
+ps.fetch.far_table, ps.fetch.table_ahead = real_far, real_ahead
+print(f"place    {'table lost after the drive':44s} {r['result']:8s} moves {[m[:3] for m in r['moves']]} "
+      f"{r.get('why') or ''}")
+if r["result"] != "ok" or len(r["moves"]) != 1:
+    bad.append(("table lost after the drive", r["result"], r.get("why"), r["moves"]))
+assert not bad, bad
 print("pick sweep scenes ok")

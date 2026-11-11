@@ -400,7 +400,8 @@ skills.on_table = lambda spots, table: [p for p in spots if p[1] >= 760][:1] if 
     else [p for p in spots if p[1] <= 700][:1]
 far_held = dict(skills._held)
 real_chain, real_options = skills.ik_chain, skills.place_options
-far_spot = lambda n: n.startswith("to (") and float(n.split(", ")[1].split(")")[0]) > 740   # line to a spot y > 740
+far_spot = lambda n: n.startswith("to (") and (float(n.split(", ")[1].split(")")[0]) > 740   # line to a spot y > 740
+                                                 or not any(c[0] == "joy" for c in calls))   # any before the drive
 skills.ik_chain = lambda wp, j: [[n, p, [0] * 6, "no IK solution" if far_spot(n) else None] for n, p in wp]
 skills.place_options = lambda *a: iter(())                                 # ... the arm does not reach it from here
 st = run(fetch.place)
@@ -826,6 +827,15 @@ threading.Timer(0.2, fetch.release_now).start()                            # "th
 st = run(fetch.give)
 assert st["status"] == "done" and not st["holding"] and ("open",) in calls, (st, calls)
 fetch.motion.poses = lambda: {"ready": [0] * 6, "carry": [3] * 6, "look": [0] * 6}
+
+# ---------- holding, the person says they hold it ("I've got it"): open where the arm is, nothing held ----------
+reset()
+st = run(fetch.start, ok)
+assert st["status"] == "holding", st
+calls.clear()
+assert fetch.let_go() is True
+st = fetch.state()
+assert st["status"] == "idle" and not st["holding"] and calls == [("open",)] and not skills._held, (st, calls)
 
 # ---------- another process holds it: give / place here take it over ----------
 reset()

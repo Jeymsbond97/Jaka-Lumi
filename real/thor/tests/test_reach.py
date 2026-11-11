@@ -108,6 +108,7 @@ arm_route.head_cam.head_centre = real_centre
 C = arm_route.head_cam.head_centre()[:2]
 body = {"waist": -20.31}                                    # the waist of measure-axis = the front
 fetch.head.status = lambda: [75.0, body["waist"], 0.0, -5.0]
+fetch.head.moveto = lambda pos, **kw: None                 # _reach turns the head onto the cup (_aim_head)
 around = lambda r, b: cup(C[0] - r * math.sin(math.radians(b)), C[1] + r * math.cos(math.radians(b)))
 
 o = cup(-300, 400)
