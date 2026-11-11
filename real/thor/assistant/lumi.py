@@ -2510,7 +2510,7 @@ class Lumi:
         elif cmd == "go_point":
             self.start_trip(tuple(d["point"]))
         elif cmd == "route":
-            self.start_trip(d["markers"], d.get("pause", 1.0), loop=d.get("loop", False))
+            self.start_trip(d["markers"], d.get("pause", 1.0), loop=d.get("loop", False), rounds=d.get("rounds", 0))
         elif cmd == "cancel":
             if self.mission_running():                    # running or paused: never goes on after a cancel
                 from tasks import fetch
@@ -2558,10 +2558,10 @@ class Lumi:
             self.calib_n = 0
             self.write_calib("collecting" if self.calib_until else "stopped")
 
-    def start_trip(self, target, pause_s=0.0, remember=True, loop=False):
+    def start_trip(self, target, pause_s=0.0, remember=True, loop=False, rounds=0):
         """Drive to a marker, a map point or a list of markers in order; with patrol mode on, people in the
         way are greeted on the way. `remember`: where Lumi stands now is where "come back" returns to. `loop`: the
-        markers there and back again until stopped (a, b, c, b, a, ...), the hand left up when it is up (Patrol)."""
+        markers there and back again (a, b, c, b, a, ...), `rounds` times (ending where it started), 0: until stopped."""
         if remember:
             from tasks import fetch
             fetch._task["trip_from"] = safe(agv.pose) or fetch._task["trip_from"]
@@ -2569,7 +2569,10 @@ class Lumi:
         if self.patrol:
             self.patrol.pause()
         route = list(target) if isinstance(target, list) else [target]
-        if loop and len(route) > 1:
+        if loop and len(route) > 1 and rounds:
+            back, forth = route[-2::-1], route[1:]
+            self.patrol = Patrol(route + (back + forth) * (rounds - 1) + back, once=True, pause_s=pause_s)
+        elif loop and len(route) > 1:
             self.patrol = Patrol(route + route[-2:0:-1], once=False, pause_s=pause_s)
         else:
             self.patrol = Patrol(route, once=True, pause_s=pause_s)
