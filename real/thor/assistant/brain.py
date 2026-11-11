@@ -2407,8 +2407,9 @@ GIVE_LOOSE = re.compile(   # with something in the hand, the whole sentence asks
 IN_MY_HAND = re.compile(r"\b(?:in|into|on) my (?:hands?|palm)\b|(?:제|내|나의|저의) 손(?:에|위에|바닥에|으로)", re.I)
 REFUSE_PICK = ("I'm holding something already. Tell me where to put it first.",
                "이미 뭔가 들고 있어요. 먼저 어디에 둘지 말씀해 주세요.")
-REFUSE_OPEN = ("I won't open my hand while I'm holding something: it would fall. Say put it down or hand it over.",
-               "물건을 들고 있어서 손을 펴면 떨어져요. 내려놓으라고 하시거나 달라고 해 주세요.")
+REFUSE_OPEN = ("I won't open my hand while I'm holding something: it would fall. Say put it down or hand it over, "
+               "or hold it and say let go.",
+               "물건을 들고 있어서 손을 펴면 떨어져요. 내려놓으라고 하시거나 달라고 하시거나, 잡으시고 놓으라고 해 주세요.")
 
 # ---------- while holding: the person says they hold it themselves, so the hand may open ("I've got it", "I am holding
 # the cuff, so let's open", "내가 잡고 있어", "제가 들고 있어요, 놓아"); whisper's cuff / cop for cup ----------

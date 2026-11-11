@@ -417,6 +417,8 @@ REACH_COME_M = 1.5                 # m; a person further than this is driven to 
                                    # never held out from afar (owner, 2026-10-28)
 COME_CLOSER_SAY = ("Please come a little closer.", "조금 더 가까이 와 주세요.")
 STAND_IN_FRONT_SAY = ("Please stand in front of me.", "제 앞에 서 주세요.")
+HAND_LOOK_KEEP_S = 10.0            # s a look at the hand (fetch.look_at_hand) stands for: the arm goes to carry and
+                                   # back once per order, not once per question about the hand
 REACH_HOLD_S = 30.0                # s the hand stays held out after a reach, then the arm folds back to look (estimate)
 HAND_EMPTY_SAID = re.compile(   # the person says Lumi's hand is empty: checked again (fetch.check_hand), not just agreed
     r"\b(?:nothing|not anything) (?:is )?in (?:your|ur) hand\b|\b(?:your|ur) hand(?:'s| is) empty\b|"
@@ -2268,7 +2270,10 @@ class Lumi:
             self.fetch_say(*STAND_IN_FRONT_SAY)
             return None
         if not turn:          # a waist turn takes the head along onto them (fetch._waist_to look): no head move here,
-            self.turn_head(HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle)), force=True)   # it raced it
+            yaw = HEAD_SIGN * max(-head.YAW_LIMIT, min(head.YAW_LIMIT, angle))                  # it raced it
+            log(f"  reach: the head on them ({yaw:+.0f} deg) while the arm goes out")
+            safe(fetch._aim_at, None)                    # an earlier task's target no longer holds the head (it looked
+            self.turn_head(yaw, force=True)              # away until the arm was out, 2026-10-30)
         self.stay()
         try:
             fetch.reach(turn, say=self.fetch_say, look=angle)
@@ -2343,8 +2348,14 @@ class Lumi:
         `look`: for an order that needs the hand or words about what is in it, a fully shut hand is looked at first
         (fetch.look_at_hand: the arm to carry, slowly)."""
         from tasks import fetch
+        seen = getattr(self, "hand_looked", (0.0, None))
+        if look and time.time() - seen[0] < HAND_LOOK_KEEP_S and seen[1] is not None:
+            return seen[1]                                 # one look per order: route asks several times
         h = safe(fetch.look_at_hand if look else fetch.check_hand)
-        return self.fetch_status() == "holding" if h is None else bool(h)
+        held = self.fetch_status() == "holding" if h is None else bool(h)
+        if look:
+            self.hand_looked = (time.time(), held)
+        return held
 
     # ---------- dashboard commands, trips ----------
     def poll_commands(self):
