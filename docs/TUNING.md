@@ -196,7 +196,8 @@ Every value here is a constant at the top of its file, with a comment on what it
 | File | Name | Default | What it does |
 |---|---|---|---|
 | `tasks/wave_greet.py` | `GREET_M` | 3.0 m | People waving further away (head camera depth) are not answered |
-| `tasks/wave_greet.py` | `HOLD_S` | 60 s | The hand stays up this long after the last wave seen, then goes down to `look` |
+| `tasks/wave_greet.py` | `GONE_S` | 10 s | A greeted person out of both cameras' view this long is forgotten: their next wave gets an introduction again |
+| `tasks/wave_greet.py` | `HOLD_S` | 40 s | The hand stays up this long after the last wave seen, then goes down to `look` |
 | `tasks/wave_greet.py` | `DOWN_SPEED` | "normal" | `motion.JOINT_SPEED` of the way down; the way up is `arm_route.SPEED` / `wave.ARRIVE_SPEED` (route, the Cobo π limit) |
 | `tasks/wave_greet.py` | `SWING_SPEED` | "swing" | `motion.JOINT_SPEED` of its swings (an asked wave uses `wave.SWING_SPEED`) |
 | `robot/motion.py` | `SPEED_ACCEL_FACTOR` | swing 4.0 | A joint speed with its own acceleration factor instead of `JOINT_ACCEL_FACTOR`: "swing" (60 °/s, 240 °/s²) for the greeting's short swings. Higher = snappier swings, more shaking |
@@ -207,8 +208,10 @@ Every value here is a constant at the top of its file, with a comment on what it
 | `tasks/wave_greet.py` | `WAIST_PARTS` | 1, 0.75, 0.5, 0.25 | A waist turn whose sweep is blocked is tried again this much of the way; the head covers the rest |
 | `tasks/wave_greet.py` | `REFUSED_S` | 30 s | After a refused wave (arm off, busy, holding) the next try waits this long |
 | `vision/waving.py` | `WINDOW_S`, `MIN_FLIPS` | 2 s, 2 | A wave: the hand's sideways motion changes direction this often within this long. Shorter window = quicker start and stop, slow waves missed |
+| `vision/waving.py` | `AT_HEAD`, `OVER_HEAD` | 0.3, 0.45 shoulder widths | A palm this near the face / ears, or this near the nose sideways (on or over the head), is not waving: scratching, a phone, hair, holding the head |
+| `vision/waving.py` | `FOREARM_UP_DEG` | 40° | The forearm must point at least this far up from level: talking with the hands and pointing (~25°) do not count |
 | `vision/waving.py` | `FLOW_PX` | 1.0 px / frame | Sideways hand motion (half-size frame) that counts as a swing. Lower = smaller waves count, more false waves |
-| `tasks/wave_lines.py` | `GREET`, `LONG` | 25 each | What Lumi says: greetings, and jokes for a long wave (English, Korean) |
+| `tasks/wave_lines.py` | `INTRO`, `GREET`, `LONG` | 10, 25, 25 | What Lumi says: an introduction to someone new, a hello to someone greeted already, jokes for a long wave (English, Korean) |
 
 ## Voice
 

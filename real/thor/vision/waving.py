@@ -2,8 +2,8 @@
 
 The pose keypoints have no fingers, and a wave from the wrist hardly moves the wrist keypoint (a few px), so the hand
 itself is measured: the sideways optical flow in a box over the palm (past the wrist, along the forearm), frame to
-frame. A wave is that flow changing direction MIN_FLIPS times within WINDOW_S with the hand above the shoulder and
-away from the head. A hand held up still, pointing or arms swinging while walking give no flips; a scratch, a phone
+frame. A wave is that flow changing direction MIN_FLIPS times within WINDOW_S with the hand above the shoulder, the forearm
+pointing up and the palm away from the head. A hand held up still, pointing or arms swinging while walking give no flips; a scratch, a phone
 at the ear or a hand at the face move at the head (AT_HEAD) and do not count.
 
     python vision/waving.py tests/data/waves/right_2m     # a recording of vision/wave_record.py, frame by frame
@@ -26,6 +26,10 @@ MIN_MOVING = 20              # flow pixels in the hand box needed to measure the
 PALM = 0.5                   # the palm's centre: this much of the forearm past the wrist
 BOX = 0.6                    # half the hand box's side, in forearm lengths
 MIN_BOX_PX = 8               # ... at least (half size)
+OVER_HEAD = 0.45             # shoulder widths; a palm this near the nose sideways is over or on the head (holding it,
+                             # fixing hair, stretching: recorded mostly 0.0-0.4), not waving (recorded waves 0.52 and more)
+FOREARM_UP_DEG = 40.0        # deg the forearm points up from level at least (recorded waves 52 and more; talking with
+                             # the hands, pointing 22-27; most hands at the head 30-50)
 AT_HEAD = 0.3                # shoulder widths: a palm this near the face or ears is at the head (scratching, a phone,
                              # glasses, hair; recorded 0.07-0.32), not waving (recorded waves 0.36 and more)
 TRACK_PX = 120               # px (full size); a person's shoulder centre moves less than this between frames
@@ -46,8 +50,13 @@ def _hand(kp):
         if not (w and e and s) or w[1] >= s[1]:
             continue
         fx, fy = w[0] - e[0], w[1] - e[1]
+        if np.degrees(np.arctan2(-fy, abs(fx))) < FOREARM_UP_DEG:
+            continue
         palm = (w[0] + PALM * fx, w[1] + PALM * fy)
         if any(np.hypot(palm[0] - f[0], palm[1] - f[1]) < near for f in face):
+            continue
+        nose = pose.seen(kp, "nose")
+        if nose and abs(palm[0] - nose[0]) < OVER_HEAD * near / AT_HEAD:
             continue
         c = (palm[0] * SCALE, palm[1] * SCALE)
         r = max(MIN_BOX_PX, BOX * np.hypot(fx, fy) * SCALE)

@@ -11,7 +11,12 @@ from vision import waving
 
 done = []                                           # what the robot did, in order
 arm = {"at": "look"}
-waver = {"w": None}                                 # (bearing, distance) of the person waving now
+waver = {"w": None}                                 # (bearing, distance, look, face) of the person waving now
+A, B = [1.0, 0.0, 1.0, 0.0], [0.0, 1.0, 0.0, 1.0]   # clothes signatures (vision/reid.py) of two people
+
+
+def W(bearing, look=A):
+    return (bearing, 2.0, look, None)
 plan_error = {"e": None}
 POSES = {"look": [0.0] * 6, "wave_out": [1.0] * 6, "wave_start": [2.0] * 6, "wave": [3.0] * 6}
 
@@ -56,6 +61,9 @@ switch = {"on": True, "free": True}
 g._on, g._free = (lambda: switch["on"]), (lambda: switch["free"])
 g._off = lambda: switch.update(on=False)
 g._bg = lambda fn, *args: fn(*args)                # the background parts run at once here
+queue = {"n": 0}                                    # moves the fake controller has queued
+g.arm.cmd = lambda name, **k: {"queue": queue["n"]} if name == "get_motion_state" else {}
+motion._wait = lambda *a, **k: done.append("settle")
 
 
 def run(t0, t1, dt=0.5):
@@ -72,17 +80,18 @@ def fresh():
     done.clear()
     said.clear()
     arm["at"] = "look"
-    g._st.update(up=False, last_wave=0.0, next_joke=0.0, free_at=0.0, refused_until=0.0, waist_out=False, follow_at=0.0)
+    g._st.update(up=False, last_wave=0.0, next_joke=0.0, free_at=0.0, refused_until=0.0, waist_out=False, follow_at=0.0, swing_at=0.0)
+    g._met.known.clear()
     switch.update(on=True, free=True)
     plan_error["e"] = None
 
 
 # someone waves 30 deg on the left at 2 m: head to them, a greeting, arm up at the route speed, one swing, waist to them
 fresh()
-waver["w"] = (30.0, 2.0)
+waver["w"] = W(30.0)
 run(100.0, 100.0)
 assert done == ["head +30", "up route", "swing", "waist +30 look 30.0"], done
-assert len(said) == 1 and said[0] in sum(g.wave_lines.GREET, ()), said
+assert len(said) == 1 and said[0] in sum(g.wave_lines.INTRO, ()), said        # someone new: Lumi introduces itself
 assert g.busy()
 
 # they keep waving: swings, and a joke after JOKE_AFTER_S, then not again before JOKE_EVERY_S
@@ -95,18 +104,18 @@ assert len(said) == 1 and said[0] in sum(g.wave_lines.LONG, ()), said
 # they move to the other side while waving: the waist turns to them again between swings, not more often than
 # FOLLOW_EVERY_S
 done.clear()
-waver["w"] = (-40.0, 2.0)
+waver["w"] = W(-40.0)
 g._st["follow_at"] = 0.0                            # (the fake waver stays at +30 after each turn: turned again so far)
 run(111.5, 111.5 + g.FOLLOW_EVERY_S - 0.5)
-assert done[0] == "waist -40 look -40.0" and done.count("waist -40 look -40.0") == 1, done
-waver["w"] = (30.0, 2.0)
+assert done[:2] == ["settle", "waist -40 look -40.0"] and done.count("waist -40 look -40.0") == 1, done  # swings end first
+waver["w"] = W(30.0)
 
 # they stop: the hand stays up, no swings; waving again: swings again, no new greeting within NEW_WAVE_S
 waver["w"] = None
 done.clear()
 run(112.0, 115.0)
 assert done == [], done
-waver["w"] = (30.0, 2.0)
+waver["w"] = W(30.0)
 said.clear()
 run(115.5, 116.0)
 assert done.count("swing") == 2 and said == [], (done, said)
@@ -122,7 +131,7 @@ assert not g.busy() and arm["at"] == "look"
 
 # the waist's way back is blocked: the arm still goes down; the waist is tried again every REFUSED_S while nobody waves
 fresh()
-waver["w"] = (30.0, 2.0)
+waver["w"] = W(30.0)
 run(150.0, 150.0)
 waver["w"] = None
 blocked = {"n": 1}
@@ -135,7 +144,7 @@ fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {re
 
 # beside a wall the full waist turn is blocked: it turns as far as its sweep is clear, the head on the person
 fresh()
-waver["w"] = (-66.0, 2.0)
+waver["w"] = W(-66.0)
 fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f} look {look}") or abs(rel) < 40
 run(160.0, 160.0)
 assert done[-3:] == ["waist -66 look -66.0", "waist -50 look -66.0", "waist -33 look -66.0"], done
@@ -143,7 +152,7 @@ fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {re
 
 # a wave nearly in front: only the head turns, the waist stays
 fresh()
-waver["w"] = (5.0, 1.5)
+waver["w"] = W(5.0)
 run(200.0, 200.0)
 assert done == ["up route", "swing"], done                     # the head looks there already (within HEAD_MIN_DEG)
 
@@ -155,7 +164,7 @@ assert done[:2] == ["waist +0 look None", "down normal"], done
 
 # the arm stops (STOP, a person too close) during a swing: switched off, nothing moves after it
 fresh()
-waver["w"] = (0.0, 2.0)
+waver["w"] = W(0.0)
 run(300.0, 300.0)
 
 
@@ -185,6 +194,29 @@ fresh()
 switch["free"] = False
 run(500.0, 505.0)
 assert done == [] and not g.busy(), done
+
+# Lumi introduces itself once per person: the same person waving again (after NEW_WAVE_S) gets a hello, someone
+# else an introduction, and the first person too once they were out of view for GONE_S
+fresh()
+waver["w"] = W(0.0)
+run(600.0, 600.0)
+waver["w"] = None
+run(600.5, 600.0 + g.NEW_WAVE_S + 1)
+waver["w"] = W(0.0)
+run(607.0, 607.0)
+waver["w"] = None
+run(607.5, 607.0 + g.NEW_WAVE_S + 1)
+waver["w"] = W(0.0, B)
+run(614.0, 614.0)
+assert [l in sum(g.wave_lines.INTRO, ()) for l in said] == [True, False, True], said
+assert said[1] in sum(g.wave_lines.GREET, ()), said
+for k in g._met.known:
+    k.last_seen -= g.GONE_S + 1                     # both left the view
+waver["w"] = None
+run(614.5, 614.0 + g.NEW_WAVE_S + 1)
+waver["w"] = W(0.0)
+run(621.0, 621.0)
+assert said[-1] in sum(g.wave_lines.INTRO, ()), said
 
 # a hand at the head (scratching, a phone at the ear) is not a raised hand; the same hand held out to the side is
 import numpy as np                                  # noqa: E402

@@ -1,7 +1,24 @@
 """What Lumi says while it waves back at someone (tasks/wave_greet.py), (English, Korean). One language per wave,
 picked at random: a passer-by's language is not known. The lines fit a hello and a goodbye alike."""
 
+# the first wave of someone new: Lumi introduces itself (once, until they leave the view)
+INTRO = [
+    ("Hi! I'm Lumi. Nice to meet you!", "안녕하세요! 저는 루미예요. 만나서 반가워요!"),
+    ("Hello! I'm Lumi, the robot of Cutshion!", "안녕하세요! 저는 컷션의 로봇 루미예요!"),
+    ("Hi there! My name is Lumi. Have a great day!", "안녕하세요! 제 이름은 루미예요. 좋은 하루 보내세요!"),
+    ("Hello! I'm Lumi. Thanks for waving!", "안녕하세요! 루미예요. 손 흔들어 주셔서 고마워요!"),
+    ("Hey! I'm Lumi. Waving back at you!", "안녕하세요! 루미예요. 저도 손 흔들어요!"),
+    ("Hi! Lumi here. Lovely to see you!", "안녕하세요! 루미예요. 만나서 정말 좋아요!"),
+    ("Hello, hello! I'm Lumi, nice to meet you!", "안녕하세요! 저는 루미, 반갑습니다!"),
+    ("Hi! I'm Lumi. I love a friendly wave!", "안녕하세요! 저는 루미예요. 손 인사 정말 좋아해요!"),
+    ("Hello! I'm Lumi. You made my day!", "안녕하세요! 루미예요. 덕분에 기분이 좋아졌어요!"),
+    ("Hi! I'm Lumi, your robot friend!", "안녕하세요! 여러분의 로봇 친구 루미예요!"),
+]
+
+# later waves of someone Lumi has already greeted
 GREET = [
+    ("Hello again!", "또 만났네요!"),
+    ("Hi again! Still here?", "또 안녕하세요! 아직 계셨네요?"),
     ("Hi there! Have a wonderful day!", "안녕하세요! 좋은 하루 보내세요!"),
     ("Hello, hello! Nice to see you!", "안녕하세요! 반가워요!"),
     ("Hey! I see you!", "어! 저 보여요, 보여요!"),
@@ -12,13 +29,11 @@ GREET = [
     ("Hey there! Big wave for you!", "안녕하세요! 크게 흔들어 드릴게요!"),
     ("Hi! Thanks for saying hello!", "안녕하세요! 인사해 주셔서 고마워요!"),
     ("Hello! You have a great wave!", "안녕하세요! 손 흔드는 모습이 멋져요!"),
-    ("Hi! I'm Lumi. Nice to meet you!", "안녕하세요! 저는 루미예요. 만나서 반가워요!"),
     ("Hey! Have a good one!", "안녕하세요! 좋은 시간 보내세요!"),
     ("Hello! Smile, it's a good day!", "안녕하세요! 웃어요, 좋은 날이에요!"),
     ("Hi! You waved, so I wave!", "안녕하세요! 손 흔드시니까 저도 흔들어요!"),
     ("Hello there! See you around!", "안녕하세요! 또 만나요!"),
     ("Hi! Robots love waves too!", "안녕하세요! 로봇도 손 인사를 좋아해요!"),
-    ("Hey! Hello from Lumi!", "안녕하세요! 루미가 인사드려요!"),
     ("Hi! Hope everything goes well today!", "안녕하세요! 오늘 일 다 잘 되길 바라요!"),
     ("Hello! Thanks for noticing me!", "안녕하세요! 저를 봐 주셔서 고마워요!"),
     ("Hi there! Sending you good energy!", "안녕하세요! 좋은 기운 보내 드려요!"),

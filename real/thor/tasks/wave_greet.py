@@ -3,9 +3,10 @@ either runs the assistant owns the robot and this waits. Runs in the API process
 
 Someone waving within GREET_M of either camera (vision/waving.py; the head camera may look elsewhere): the head turns to them and the arm goes up at
 once (manipulation/wave.py checks and plans the way, look -> wave_out -> wave_start, at the route speed), Lumi says a
-greeting (tasks/wave_lines.py), swings once even when they stopped meanwhile, then turns the waist to face them
-(fetch._waist_to, its sweep checked; the head stays on them). It swings while they wave, stops when they stop and
-keeps the hand up; waving again swings again. A long wave gets a joke now and then. Nobody waving for HOLD_S: the arm
+greeting (tasks/wave_lines.py; it introduces itself once to a person, until they leave the cameras' view: vision/reid.py
+face, else clothes), swings once even when they stopped meanwhile, then turns the waist to face them (fetch._waist_to,
+its sweep checked; the head stays on them). It swings back to back while they wave (one swing always queued behind
+the running one, no stop between), stops when they stop and keeps the hand up; waving again swings again. A long wave gets a joke now and then. Nobody waving for HOLD_S: the arm
 goes down slowly to look, the waist to the front, the head to rest.
 
 Any stop or failure of the arm (STOP, a person too close while the arm goes up, a refused move) switches the greeting
@@ -23,11 +24,14 @@ import numpy as np
 from manipulation import arm_route, wave
 from robot import head, motion
 from tasks import wave_lines
-from vision import camview, pose, waving
+from robot import arm
+from vision import camview, pose, reid, waving
 
 CAMERAS = ("head", "torso")   # both watched: the head may look away while the person is in the torso camera's view
 GREET_M = 3.0                # m; people waving further away are not answered
-HOLD_S = 60.0                # s the hand stays up after the last wave seen, then down to look
+HOLD_S = 40.0                # s the hand stays up after the last wave seen, then down to look (owner: 60 too long)
+GONE_S = 10.0                # s a greeted person may be out of both cameras' view and still be known (no new intro)
+SWING_POLL_S = 0.2           # s between looks at the controller's queue while swinging
 FRESH_S = 0.5                # s a waving person seen counts as waving now
 NEW_WAVE_S = 5.0             # s without any waving after which a wave is greeted anew (a new greeting line)
 JOKE_AFTER_S = 10.0          # s of waving before the first joke ...
@@ -49,6 +53,8 @@ CLOSE_FRESH_S = 1.5          # s a camera service detection counts for the too-c
 
 _seen = {c: {"t": 0.0, "wavers": []} for c in CAMERAS}   # wavers: [(bearing deg from the waist's front, + left;
                                                           # distance m)] in that camera, nearest first
+_met = reid.People()                 # people greeted (introduced to), forgotten GONE_S after they leave the view
+_met_lock = threading.Lock()
 _busy = threading.Event()            # the arm is up or moving for a greeting
 _speaking = threading.Lock()
 _on = _free = _off = None            # set by start()
@@ -106,20 +112,42 @@ def _watch(cam):
             continue
         depth, yaw = camview.depth(cam), _head_yaw(cam)
         gray = cv2.cvtColor(cv2.resize(img, None, fx=waving.SCALE, fy=waving.SCALE), cv2.COLOR_BGR2GRAY)
-        wavers = []
+        wavers, now = [], time.time()
         for p, is_waving in watcher.update(m, gray, pose.detect(img)):
             ls, rs = pose.seen(p["kp"], "left_shoulder"), pose.seen(p["kp"], "right_shoulder")
-            if not (is_waving and ls and rs):
+            if not (ls and rs):
                 continue
             at = ((ls[0] + rs[0]) / 2, (ls[1] + rs[1]) / 2)
             d = _dist(depth, at)
-            if d is not None and d <= GREET_M:
-                wavers.append((yaw - math.degrees(math.atan((at[0] - intr["cx"]) / intr["fx"])), d))
+            look = reid.look(img, p["box"])
+            face = reid.face(img, p["box"]) if is_waving and d is not None and d <= reid.FACE_MAX_M else None
+            with _met_lock:                          # someone greeted, still in view: stays known
+                known = _known(look, face, now)
+                if known:
+                    known.seen(look, face, now)
+            if is_waving and d is not None and d <= GREET_M:
+                wavers.append((yaw - math.degrees(math.atan((at[0] - intr["cx"]) / intr["fx"])), d, look, face))
         _seen[cam].update(t=time.time(), wavers=sorted(wavers, key=lambda w: w[1]))
 
 
+def _known(look, face, now):
+    """The greeted person this is (call with _met_lock held), None for someone new or gone longer than GONE_S."""
+    _met.known = [k for k in _met.known if now - k.last_seen < GONE_S]
+    return _met.recall(look, face, now)
+
+
+def _greeting(w):
+    """The lines to greet waver `w` with: an introduction for someone new (they are remembered), else a hello."""
+    now = time.time()
+    with _met_lock:
+        if _known(w[2], w[3], now):
+            return wave_lines.GREET
+        _met.add(w[2], w[3], now)
+    return wave_lines.INTRO
+
+
 def _waver():
-    """(bearing, distance) of the nearest person waving now in either camera, None when nobody waves."""
+    """(bearing, distance, look, face) of the nearest person waving now in either camera, None when nobody waves."""
     now = [w for s in _seen.values() if time.time() - s["t"] < FRESH_S for w in s["wavers"]]
     return min(now, key=lambda w: w[1], default=None)
 
@@ -197,10 +225,43 @@ def _up(route):
 
 
 def _swing():
-    """One swing, START -> SWING -> START, back to back."""
+    """One swing, START -> SWING -> START, waited for."""
     p, t0 = motion.poses(), time.time()
     motion.move_path([(p[wave.SWING], SWING_SPEED), (p[wave.START], SWING_SPEED)], queued=True)
     log(f"swing {time.time() - t0:.1f} s")
+
+
+def _pending():
+    """Moves the controller has still to run (its queue), 9 when it does not say."""
+    r = arm.cmd("get_motion_state")
+    return r.get("queue", 9) if "queue" in r else 9
+
+
+def _swing_on():
+    """Keep the swings going back to back: one more swing is queued while the running one has at most its last move
+    left. Not waited for, so a STOP or a protective stop is looked for here (motion._wait does it for waited moves).
+    False when the arm is not at the wave any more (someone moved it)."""
+    if motion._stopped.is_set():
+        raise motion.MotionError("stopped")
+    d = arm.cmd("get_data")
+    if d.get("protective_stop") or d.get("emergency_stop"):
+        raise motion.MotionError("the controller stopped the arm (protective / emergency stop)")
+    n = _pending()
+    if n > 1:
+        return True
+    if n == 0 and arm_route.where() not in (wave.START, wave.SWING):
+        return False
+    p = motion.poses()
+    motion.move_path([(p[wave.SWING], SWING_SPEED), (p[wave.START], SWING_SPEED)], wait=False, queued=True)
+    return True
+
+
+def _settle():
+    """Let the queued swings end at START before the waist turns or the arm goes down."""
+    start = motion.poses()[wave.START]
+    motion._wait(lambda d: max(abs(a - b) for a, b in zip(d["joint_actual_position"],
+                                                          motion.nearest(start, d["joint_actual_position"]))) <
+                 motion.AT_JOINT_DEG, 10.0, queued=True)
 
 
 def _face(bearing):
@@ -217,8 +278,9 @@ def _face(bearing):
     _head_to(bearing)
 
 
-def _greet(bearing, lang):
+def _greet(w, lang):
     """Head to them, a greeting, the arm up, one swing, the waist to them. False when the arm is refused."""
+    bearing = w[0]
     try:
         route, _ = wave.plan()
     except Exception as e:               # refused (arm off, busy, holding) or the controller did not answer
@@ -227,7 +289,7 @@ def _greet(bearing, lang):
     log(f"someone waves at {bearing:+.0f} deg: arm up")
     _busy.set()
     _head_to(bearing)
-    _say(wave_lines.GREET, lang)
+    _say(_greeting(w), lang)
     _up(route)
     _swing()                             # once, even if they stopped while the arm went up
     w = _waver()
@@ -241,6 +303,8 @@ def _down():
     from tasks import fetch
     _busy.set()
     try:
+        if _st["up"] and arm_route.where() is None:
+            _settle()                    # mid-swing: the queued swings end first
         fetch._stop.clear()
         _st["waist_out"] = not fetch._waist_to(0.0, in_place=True)
         if arm_route.where() in arm_route.WAVE_POSES:
@@ -252,7 +316,7 @@ def _down():
 
 
 _st = {"up": False, "last_wave": 0.0, "lang": 0, "next_joke": 0.0, "free": False, "free_at": 0.0, "refused_until": 0.0,
-       "waist_out": False, "follow_at": 0.0}                    # waist_out: the way back to the front was blocked, tried again later
+       "waist_out": False, "follow_at": 0.0, "swing_at": 0.0}                    # waist_out: the way back to the front was blocked, tried again later
 
 
 def step(now):
@@ -277,7 +341,7 @@ def step(now):
         st["last_wave"] = now
     if not st["up"]:
         if w and now > st["refused_until"]:
-            st["up"] = _greet(w[0], st["lang"])
+            st["up"] = _greet(w, st["lang"])
             if not st["up"]:
                 st["refused_until"] = now + REFUSED_S
         elif not w and st["waist_out"] and now > st["refused_until"]:
@@ -286,20 +350,21 @@ def step(now):
             st["waist_out"] = not fetch._waist_to(0.0, in_place=True)
             st["refused_until"] = now + REFUSED_S
     elif w:
-        if arm_route.where() not in (wave.START, wave.SWING):
-            st["up"] = False             # someone moved the arm: the next wave starts from where it is
-            return
         if new:
-            _say(wave_lines.GREET, st["lang"])
+            _say(_greeting(w), st["lang"])
         elif now > st["next_joke"]:
             _say(wave_lines.LONG, st["lang"])
             st["next_joke"] = now + JOKE_EVERY_S
         if abs(w[0]) > WAIST_FOLLOW_DEG and now > st["follow_at"]:
             st["follow_at"] = now + FOLLOW_EVERY_S
+            _settle()
             _face(w[0])                  # they moved: the waist turns to them again, between two swings
         else:
             _head_to(w[0])
-        _swing()
+        if now > st["swing_at"]:
+            st["swing_at"] = now + SWING_POLL_S
+            if not _swing_on():
+                st["up"] = False         # someone moved the arm: the next wave starts from where it is
     elif now - st["last_wave"] > HOLD_S:
         _down()
         st["up"] = False

@@ -2,6 +2,7 @@
 wave greeting is tuned and tested on. Moves nothing; Lumi only speaks (POST /say).
 
     python vision/wave_record.py [first_step]     # writes tests/data/waves/<label>.jsonl and <label>/<n>.jpg
+    python vision/wave_record.py more             # the second set: hands at the head, a phone from the pocket
 
 One line per frame: {t, n, people: [{box, kp (17 x [x, y, conf]), dist_m}]}; frame n at half size (640 x 360), for the
 hand's own motion (the keypoints have no fingers: a wave from the wrist hardly moves the wrist keypoint). People in
@@ -45,6 +46,24 @@ STEPS = [
     ("no_glasses", "Touch your face or fix your hair.", 6),
     ("no_walk", "Walk past me from one side to the other, swinging your arms, no wave.", 10),
     ("no_still", "Just stand still.", 6),
+]
+
+# second set: what started a wave greeting live although it is no wave
+MORE = [
+    ("no_hold_head", "Two metres in front of me. Hold your head with one hand.", 6),
+    ("no_hold_head2", "Now with both hands, on top of your head.", 6),
+    ("no_back_head", "Put a hand on the back of your head.", 6),
+    ("no_scratch_top", "Scratch the top of your head, hard.", 6),
+    ("no_scratch_side", "Scratch the side of your head, behind the ear.", 6),
+    ("no_pocket_phone", "Take your phone out of your pocket and hold it to your ear.", 8),
+    ("no_pocket_phone2", "Once more: phone from the pocket to the ear, then back.", 8),
+    ("no_phone_look", "Hold your phone up in front of your face and look at it.", 6),
+    ("no_hair", "Fix your hair with one hand.", 6),
+    ("no_stretch", "Stretch both arms up over your head.", 6),
+    ("no_rub_eyes", "Rub your eyes.", 6),
+    ("no_talk_hands", "Talk with your hands, as if explaining something.", 8),
+    ("wave_near_face", "Now a real wave, with your hand close to your face.", 8),
+    ("wave_small", "Now a small wave, only the hand moves.", 8),
 ]
 
 
@@ -103,7 +122,7 @@ if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     pose.load()
     first = sys.argv[1] if len(sys.argv) > 1 else STEPS[0][0]
-    steps = STEPS[[s[0] for s in STEPS].index(first):]
+    steps = MORE if first == "more" else STEPS[[s[0] for s in STEPS].index(first):]
     say("Let's record waves. Do what I say after I say go.")
     for label, text, seconds in steps:
         print(f"-- {label}", flush=True)
