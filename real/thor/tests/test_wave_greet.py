@@ -1,6 +1,7 @@
 """Self-check of the wave greeting (tasks/wave_greet.py) with a fake arm, head, waist and speech, no robot, and of the
 waving detector (vision/waving.py) on the recordings of vision/wave_record.py when they are here (tests/data/waves,
 local only: people in the pictures): python tests/test_wave_greet.py"""
+import json
 from pathlib import Path
 import time
 
@@ -310,7 +311,7 @@ waver["w"] = W(0.0)
 run(621.0, 621.0)
 assert said[-1] in sum(g.wave_lines.INTRO, ()), said
 
-# a loop patrol's wave for people passing: only with the hand up, someone within GREET_M, nobody by the arm
+# a loop patrol's wave for people passing: only with the hand up, someone within PASSER_M, nobody by the arm
 near = {"m": None}
 waver["w"] = None
 g._someone_within = lambda m: near["m"] is not None and near["m"] < m
@@ -331,6 +332,7 @@ done.clear()
 
 # a hand at the head (scratching, a phone at the ear) is not a raised hand; the same hand held out to the side is
 import numpy as np                                  # noqa: E402
+import cv2                                          # noqa: E402
 kp = np.zeros((17, 3))
 for name, xy in (("nose", (640, 200)), ("left_eye", (650, 190)), ("right_eye", (630, 190)), ("left_shoulder", (700, 320)),
                  ("right_shoulder", (580, 320)), ("right_elbow", (560, 260)), ("right_wrist", (600, 210))):
@@ -353,6 +355,18 @@ if DATA.exists():
             assert first < 2.0, (f.name, first)                # found within 2 s
             if f.name != "pause_2m":                           # (it stops waving half way)
                 assert sum(seen) > 0.75 * len(seen), (f.name, sum(seen), len(seen))
+    for name in ("right_3m", "left_3m"):                       # the same waves shrunk to 10 m: still found
+        w, n, hit, k = waving.Watcher(), 0, 0, 3 / 10
+        for line in open(DATA / f"{name}.jsonl"):
+            d = json.loads(line)
+            g = cv2.imread(str(DATA / name / f"{d['n']:04d}.jpg"), cv2.IMREAD_GRAYSCALE)
+            far = np.full_like(g, 128)
+            small = cv2.resize(g, None, fx=k, fy=k, interpolation=cv2.INTER_AREA)
+            far[:small.shape[0], :small.shape[1]] = small
+            n += 1
+            hit += any(v for _, v in w.update(d["t"], far, [{**p, "kp": np.array(p["kp"]) * [k, k, 1]}
+                                                            for p in d["people"]]))
+        assert hit > 0.75 * n, (name, hit, n)
     r = waving.run_recording(DATA / "pause_2m")                # stopped at ~6 s: no longer waving 2.5 s later
     assert not any(any(w) for t, w in r if t - r[0][0] > 8.5)
 else:

@@ -21,7 +21,9 @@ from vision import pose
 SCALE = 0.5                  # flow frame size / pose frame size
 WINDOW_S = 2.0               # s of flow looked at ...
 MIN_FLIPS = 2                # ... that has to change direction this often (a slow wave: one swing ~1 s)
-FLOW_PX = 1.0                # px per frame (half size) of sideways hand flow that counts as a swing
+FLOW_PX = 1.0                # px per frame (half size) of sideways hand flow that counts as a swing ...
+FLOW_SHOULDER_PX = 80        # ... for a person this wide at the shoulders (full size, ~3 m); smaller (further) people
+                             # count proportionally less flow, their hand moves fewer px
 MIN_MOVING = 20              # flow pixels in the hand box needed to measure the hand at all
 PALM = 0.5                   # the palm's centre: this much of the forearm past the wrist
 BOX = 0.6                    # half the hand box's side, in forearm lengths
@@ -65,7 +67,7 @@ def _hand(kp):
     return best
 
 
-def _flow_x(prev, gray, hand):
+def _flow_x(prev, gray, hand, swing_px):
     """Median sideways flow (px) of the moving pixels in the hand box, 0 when too little moves there."""
     (cx, cy), r = hand
     x0, y0, x1, y1 = int(max(0, cx - r)), int(max(0, cy - r)), int(cx + r), int(cy + r)
@@ -73,12 +75,12 @@ def _flow_x(prev, gray, hand):
     if min(a.shape) < 8:
         return 0.0
     fx = cv2.calcOpticalFlowFarneback(a, b, None, 0.5, 2, 9, 3, 5, 1.1, 0)[..., 0]
-    moving = np.abs(fx) > FLOW_PX / 2
+    moving = np.abs(fx) > swing_px / 2
     return float(np.median(fx[moving])) if moving.sum() >= MIN_MOVING else 0.0
 
 
-def _flips(flows):
-    s = np.sign([f for f in flows if abs(f) > FLOW_PX])
+def _flips(flows, swing_px):
+    s = np.sign([f for f in flows if abs(f) > swing_px])
     return int((np.diff(s) != 0).sum()) if len(s) > 1 else 0
 
 
@@ -105,9 +107,10 @@ class Watcher:
                 self.tracks.append(tr)
             tr["at"], tr["seen"] = at, t
             hand = _hand(p["kp"])
-            f = _flow_x(self.prev, gray, hand) if hand and self.prev is not None else 0.0
+            swing_px = FLOW_PX * min(1.0, np.hypot(ls[0] - rs[0], ls[1] - rs[1]) / FLOW_SHOULDER_PX)
+            f = _flow_x(self.prev, gray, hand, swing_px) if hand and self.prev is not None else 0.0
             tr["flows"] = [(ft, v) for ft, v in tr["flows"] if t - ft <= WINDOW_S] + [(t, f)]
-            out.append((p, hand is not None and _flips([v for _, v in tr["flows"]]) >= MIN_FLIPS))
+            out.append((p, hand is not None and _flips([v for _, v in tr["flows"]], swing_px) >= MIN_FLIPS))
         self.tracks = [k for k in self.tracks if t - k["seen"] <= LOST_S]
         self.prev = gray
         return out

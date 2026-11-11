@@ -198,7 +198,9 @@ Every value here is a constant at the top of its file, with a comment on what it
 
 | File | Name | Default | What it does |
 |---|---|---|---|
-| `tasks/wave_greet.py` | `GREET_M` | 3.0 m | People waving further away (head camera depth) are not answered |
+| `tasks/wave_greet.py` | `GREET_M` | 10.0 m | People waving further away are not answered (camera depth; without depth there, the shoulder width with `SHOULDER_M` 0.36 m) |
+| `tasks/wave_greet.py` | `PASSER_M` | 3.0 m | A patrol's wave for people passing waves only at people this near |
+| `vision/waving.py` | `FLOW_PX`, `FLOW_SHOULDER_PX` | 1.0 px, 80 px | Hand flow per frame that counts as a swing, for a person this wide at the shoulders; smaller (further) people need proportionally less |
 | `tasks/wave_greet.py` | `GONE_S` | 10 s | A greeted person out of both cameras' view this long is forgotten: their next wave gets an introduction again |
 | `tasks/wave_greet.py` | `HOLD_S` | 40 s | The hand stays up this long after the last wave seen, then goes down to `look` |
 | `tasks/wave_greet.py` | `DOWN_SPEED` | "normal" | `motion.JOINT_SPEED` of the way down; the way up is `arm_route.SPEED` / `wave.ARRIVE_SPEED` (route, the Cobo π limit) |

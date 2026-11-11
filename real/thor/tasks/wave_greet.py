@@ -30,7 +30,10 @@ from robot import arm
 from vision import camview, pose, reid, waving
 
 CAMERAS = ("head", "torso")   # both watched: the head may look away while the person is in the torso camera's view
-GREET_M = 3.0                # m; people waving further away are not answered
+GREET_M = 10.0               # m; people waving further away are not answered (the cameras' depth range)
+PASSER_M = 3.0               # m; a patrol's wave for people passing (passer_wave) waves only at people this near
+SHOULDER_M = 0.36            # m between the shoulder keypoints: a waver's distance from their width in the image when
+                             # depth has none there (far, or a colour-only camera); estimate (recordings 0.32-0.40)
 HOLD_S = 40.0                # s the hand stays up after the last wave seen, then down to look (owner: 60 too long)
 GONE_S = 10.0                # s a greeted person may be out of both cameras' view and still be known (no new intro)
 SWING_POLL_S = 0.2           # s between looks at the controller's queue while swinging
@@ -133,7 +136,7 @@ def _watch(cam):
             if not (ls and rs):
                 continue
             at = ((ls[0] + rs[0]) / 2, (ls[1] + rs[1]) / 2)
-            d = _dist(depth, at)
+            d = _dist(depth, at) or intr["fx"] * SHOULDER_M / max(1.0, math.hypot(ls[0] - rs[0], ls[1] - rs[1]))
             look = reid.look(img, p["box"])
             face = reid.face(img, p["box"]) if is_waving and d is not None and d <= reid.FACE_MAX_M else None
             with _met_lock:                          # someone greeted, still in view: stays known
@@ -411,11 +414,11 @@ def _nearest(m):
 
 def passer_wave():
     """A drive with the hand up (lumi.Patrol, the base stopped): the head to the one waving, else the nearest person
-    within GREET_M, and IDLE_SWINGS swings, waited for, then the head ahead again; none when nobody is within GREET_M
+    within PASSER_M, and IDLE_SWINGS swings, waited for, then the head ahead again; none when nobody is within PASSER_M
     or someone is within IDLE_CLEAR_M of the arm. A stop or a failure switches the greeting off (_stopped) and
     raises. True when it swung."""
     w = _waver()
-    bearing = w[0] if w else _nearest(GREET_M)
+    bearing = w[0] if w else _nearest(PASSER_M)
     if _on is None or not _on() or bearing is None or _someone_within(IDLE_CLEAR_M) or \
             arm_route.where() not in (wave.START, wave.SWING):
         return False
