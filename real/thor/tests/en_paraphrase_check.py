@@ -55,7 +55,7 @@ CAPS = {
     "sing":     ("sing a song", ["sing something", "sing for us", "give us a song", "play a song", "sing me a song",
                                  "can we hear a song", "sing one of your songs"]),
     "come_back": ("come back", ["come back to where you were", "go back to your spot", "return to where you started"]),
-    "body_up":  ("raise your body", ["make yourself taller", "lift your body", "go up higher", "stand taller"]),
+    "body_up":  ("raise your body", ["make yourself taller", "lift your body", "stand taller"]),
     "charge":   ("go charge", ["go charge yourself", "go to the charger", "go recharge", "go charge your battery"]),
 }
 FRAMES = {

@@ -29,8 +29,8 @@ INTENT = {
     "fetch": _with(["go get the <obj> for me", "go get me the <obj>", "fetch me the <obj>", "grab me the <obj>",
                     "bring the <obj> my way", "get the <obj> and bring it here", "could you bring over the <obj>",
                     "pass me the <obj>"]),
-    "lift": _with(["go up higher", "get taller", "raise yourself up", "make yourself shorter", "get lower",
-                   "lower yourself", "go up a bit", "go down a bit"]),
+    "lift": _with(["get taller", "raise yourself up", "make yourself shorter", "lower yourself", "make yourself taller"]),
+    # not "go up / down a bit": "move up a smidge" is a drive forward
     "follow": _with(["tag along", "stick with me", "come along with me", "walk behind me", "stay on my heels",
                      "keep up with me", "come with me, buddy"]),
     "come": _with(["get over here", "come over to me", "come on over", "come closer to me", "scoot over here",

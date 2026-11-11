@@ -139,7 +139,9 @@ NAME_ONLY = re.compile(r"^\s*(?:(?:hi|hey|hello|헤이|하이)[\s,]+)?(?:lumi|lo
 FETCH_STOP = re.compile(r"\b(sto+pp?|stob|halt|freeze|don'?t move)\b|^\W*(?:lumi\W+)?stopped\W*$|스탑|스텁|멈추(?:세요|십시오)|^\W*abort\W*$|\babort (?:the |this |your )?(?:mission|task|trip)\b|\bcancel (?:the |this |your )?(?:mission|task|trip)\b|"
                         r"머+엄*춰|머+엄*추(?:세요|십시오)|멈춰|멈추(?:게|시게|게나|시오|어라)|그만|정지|스톱|스땁|스떱|미션 ?취소|작업 ?취소|"
                         r"거기 ?서(?: ?봐| ?있어)?(?=[\s!.~,]*$)|(?:^|[\s,])서(?:라|요)?(?=[\s!.~,]*$)|\bhold it(?: right)? (?:there|here)\b|"
-                        r"^\W*(?:\w+\W+){0,3}hold it\W*$|멈[처쳐]|그마+안|\bstahp\b|움직이지 ?마|\bemergency stop\b|\b(?:stay|hold|keep) still\b|"
+                        r"^\W*(?:\w+\W+){0,3}hold it\W*$|멈[처쳐]|그마+안|\bstahp\b|움직이지 ?(?:마|말아|말고)|꼼짝(?:하지)? ?마|"
+                        r"가만(?:히)? ?(?:있어|있어요|계세요|있으세요|있으십시오|있어 ?봐)|\bemergency stop\b|\b(?:stay|hold|keep) still\b|"
+                        r"(?:멈추|정지하|그만하)자|(?:멈춥|정지합|그만합)시다|거기 ?(?:한번 )?서(?:라|조|자)?(?:\s*(?:빨리|당장|좀|봐))*(?=[\s!.~,]*$)|거기 ?섭시다|"
                         r"^\W*(?:wait|잠깐|잠깐만|기다려)\W*$", re.I)   # not "거기서 기다려"
 FETCH_GIVE = re.compile(r"\bgive (it|that|this|the \w+)( to me)?\b|\bhand (it )?(over|to me)\b|줘|주세요|건네", re.I)
 FETCH_PLACE = re.compile(r"\b(put|place|set) (it|that|this|the \w+) (down|on the table)\b|테이블에 ?(놔|놓|둬)|내려 ?(놔|놓)", re.I)
@@ -3928,7 +3930,7 @@ STOP_ONLY = re.compile(   # a whole sentence that only says stop / enough / stay
 
 
 STOP_POLITE = re.compile(   # a stop asked politely, after wording.ko_plain: "멈춰 주시겠어요?" -> "멈춰 줘?", "can you stop for me?"
-    r"\W*(?:(?:좀|지금|당장|잠깐|잠시|거기서?|이제|동작|모든 동작|하던 거|움직임|얼른|빨리)\s*)*(?:멈춰|멈춰 서|정지해|그만해|스톱해|스탑해|서)"
+    r"\W*(?:(?:좀|지금|당장|잠깐|잠시|거기서?|이제|동작|모든 동작|하던 거|움직임|얼른|빨리)\s*)*(?:멈춰|멈춰 서|정지해|그만해|스톱해|스탑해|서|움직이지 말아|움직이지 마|가만히 있어)"
     r"(?: ?(?:줘|도|봐))?(?:\W*(?:부탁(?:드립니다|드려요|해요|해)|제발))?\W*|"
     r"\W*(?:(?:please|lumi|hey|okay|ok)\W+)*(?:(?:can|could|would|will) (?:you|u)|you can) (?:please |just |kindly |"
     r"be so kind as to )?(?:go ahead and )?"
@@ -3948,7 +3950,18 @@ def stop_order(text, markers):
     bare = STOP_CALL.sub("", text or "")
     if re.fullmatch(r"\W*(?:wait|hold on|hang on|one (?:sec|second|moment)|잠깐(?:만)?(?:요)?|기다려(?:요)?)\W*", bare, re.I):
         return stop_order_said(text, markers)        # "Lumi, wait": a mission halts for a talk (mission_talk), not ended
-    return stop_order_said(text, markers) or bool(bare and bare != text and stop_order_said(bare, markers))
+    return stop_order_said(text, markers) or bool(bare and bare != text and stop_order_said(bare, markers)) or \
+        bool(STOP_CORE.fullmatch(EN_FRAME_END.sub("", EN_FRAME_START.sub("", bare or text or ""))))
+
+
+EN_FRAME_START = re.compile(r"^\W*(?:(?:please|hey|yo|c'?mon|okay|ok|lumi|now|just|so|whoa|go ahead and|you|u|"
+                            r"(?:could|would|can|will) (?:you|u)(?: please| kindly| be so kind as to)?|you can|can|"
+                            r"i(?: need| want| would like|'d like) (?:you|u) to)\W+)+", re.I)
+EN_FRAME_END = re.compile(r"(?:\W+(?:please|pls|plz|for me|for us|ok|okay|buddy|bro|dude|would ya|will ya|now|right now|"
+                          r"already|if you don'?t mind|thanks))+\W*$|\W+$", re.I)
+STOP_CORE = re.compile(r"stop(?: it| that| moving| everything| right there| right now| now| the robot)?|freeze|halt|cut it out|"
+                       r"knock it off|(?:stay|hold|keep) still|that'?s enough|emergency stop|don'?t move", re.I)
+    # an English stop inside the frames people put around it: "I'd like you to cut it out", "could you stay still?"
 
 
 def order_after_stop(text, markers, b):

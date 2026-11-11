@@ -268,13 +268,17 @@ NO = [t for t in NO if t not in _said]                              # a wording 
 
 CAMERA = re.compile(r"\b(?:see|seeing|saw|look(?:s|ing)?|watch|camera|wearing|holding|in front of|behind|colou?r|"
                     r"recogni[sz]e|remember)\b|보여|보이|보니|(?<!해 )(?<!해)(?<!쭤 )(?<!쭤)(?<!여쭈어 )봐(?!도 ?(?:돼|되|될|괜찮))|봤|입었|들고|색|카메라|앞에|뒤에|알아봐|기억", re.I)
-SPEC = re.compile(r"\b(?:what|which|how many|what kind of|what type of|what sort of) (?:depth )?cameras?\b|\bcameras? (?:do you (?:have|use)|"
+SPEC = re.compile(r"\b(?:what|which|how many|what kind of|what type of|what sort of) (?:depth )?cameras?\b|"
+                  r"\bwhere (?:are|is) (?:your|the) cameras?\b|\bcameras? how many\b|\bcameras? (?:do you (?:have|use)|"
                   r"model|brand|type|range|resolution)\b|\b(?:recogni[sz]e|remember) (?:faces|people|anyone|who people are)\b|"
                   r"\bface recognition\b|카메라(?:가|는|를)? ?(?:몇 ?개|몇 ?대|뭐 ?써|뭘 ?써|뭐 ?쓰|어떤 ?거|기종|모델|종류|제품|사양|스펙)|"
                   r"얼굴 ?(?:인식|알아보|알아봐|기억)|카메라(?:가|는)? ?(?:어디|위치)", re.I)
     # the cameras and face recognition as facts ("what cameras do you have?", "얼굴 인식 돼요?"), not what they see now
 ABOUT_ME = re.compile(r"\b(?:(?<!can )(?<!could )(?<!may )i(?! (?:call|address) you\b)(?! (?:talk|speak|chat) (?:to|with) you\b)|i'm|am i|my|"
                       r"(?<!tell )(?<!give )(?<!let )(?<!show )me|mine)\b|(?:^|\s)(?:나|내|제|저|난|전)(?:는|가|를|의)?\s", re.I)
+LUMI_FOR_ME = re.compile(r"\b(?:is it safe|safe for (?:me|my \w+)|how (?:do|can|should) i (?:stop|turn) you(?: off)?\b|"
+                         r"in an emergency|how do you (?:understand|hear) (?:me|my|what i)|can i touch you)\b", re.I)
+    # a question about Lumi said with I / my: "Is it safe for my kids to be near you?", "How do I stop you in an emergency?"
 FRAGMENT = re.compile(r"^\W*(?:and|so|but|then|or|also|why|really|seriously|wait|what about|how about|how come|are you sure)\b|"
                       r"^\W*(?:그럼|그러면|그리고|근데|그런데|그래서|아니|왜|진짜|정말|확실|설마|또)|"
                       r"\b(?:that|(?<!is )(?<!was )(?<!is it )(?<!how's )(?<!how is )(?<!time )(?<!day )it(?! is (?:now|today))|they|them|"
@@ -371,10 +375,19 @@ TELL = re.compile(r"(이름|성함|나이|키|무게|몸무게|속도|최고 ?�
     # "이름 대 봐", "나이 말해 봐라", "이름을 말씀해 주십시오": a question said as "tell me X" (봐 is not a look)
 
 
+EN_SLANG = [(re.compile(rx, re.I), to) for rx, to in (
+    (r"(?<![\w-])r u(?![\w-])", "are you"), (r"(?<![\w-])u(?![\w-])", "you"), (r"(?<![\w-])ur(?![\w-])", "your"),
+    (r"(?<![\w-])ya(?![\w-])", "you"), (r"\bdoin\b", "doing"), (r"\s*\btho\b", ""), (r"^\W*sup\b", "what's up"),
+    (r"\bwhat time's it\b", "what time is it"), (r"\bgonna\b", "going to"), (r"\bwanna\b", "want to"))]
+    # chat spellings: "how old r u", "can u sing tho?", "how ya doin?"
+
+
 def _tidy(text):
     """Stutters and words said twice taken out ("키가 얼— 얼마예요?", "너 너 몇 살이야"), laughs at the end, "X 대 봐" as
     "X 뭐야"."""
     t = TELL.sub(lambda m: m.group(1) + " 뭐야?", text or "")
+    for rx, to in EN_SLANG:
+        t = rx.sub(to, t)
     t = re.sub(r"(?<![\w])(\w{1,4})[—–-]+\s*(?=\1)", "", t)
     t = re.sub(r"\b(\w+)(?:[\s,]+\1\b)+", r"\1", t)
     return re.sub(r"(?<=\S)[\s~^ㅎㅋ]+(?=[?？!.]*$)|(?<=[?？!.])[\s~^ㅎㅋ]+$", "", t).strip()
@@ -416,7 +429,7 @@ def guarded(text, history=()):
         return "closing"                               # "goodbye" is never a hello
     if CAMERA.search(SPEC.sub(" ", t)):
         return "camera"
-    if ABOUT_ME.search(t):
+    if ABOUT_ME.search(t) and not LUMI_FOR_ME.search(t):
         return "about the visitor"
     lead = re.match(r"^\W*(?:and|so|but|okay so|then)\W+", t, re.I)
     if lead and len(t[lead.end():].split()) >= 3 and NAMES_LUMI.search(t[lead.end():]):

@@ -1059,7 +1059,13 @@ def not_an_order(text, asked=True):
                 CONDITION.search(now) or REMARK.search(now) or
                 TAKEN_BACK.search(t) or
                 rest != t and REMARK.search(rest) or asked and ASKED.search(t) or NEGATED.search(t) or ko_told(t) or
-                ABOUT_IT.search(t) or LATER_SAID.search(t) or ASIDE_NOW.search(t))
+                ABOUT_IT.search(t) or LATER_SAID.search(t) or ASIDE_NOW.search(t) or DOUBT.search(t))
+
+
+DOUBT = re.compile(r"\b(?:can|could) (?:you|u) (?:even|really)\b|"
+                   r"\b(?:he|she|they|my (?:son|daughter|kid|kids|friend|wife|husband|mom|dad|boss|brother|sister)) "
+                   r"(?:wants?|wanted|would like|likes?|loves?|tried) to (?!have you\b)", re.I)
+    # "can you even turn left?": a doubt; "my son wants to fold your arm": what someone else wants to do, no order
 
 
 STEP_AFTER = re.compile(r"(?:이동한|간|돈|돌아선|회전한|본|쳐다본|집은|잡은|든|흔든|내려놓은|놓은|온|돌아온|따라간|움직인|올린|내린|"
@@ -1637,8 +1643,9 @@ def _intent(text, markers=()):
         if action == "put":
             return ("put", "back" if re.search(r"\bback\b|\breturn\b|\bwhere (?:it was|you)\b|\bits (?:spot|place)\b|제자리|다시|원래|원위치|있던|도로", t)
                     else "down")
-        if action == "pick" and re.search(r"\b(?:grab|get|fetch|pick up|take) me\b|\bgimme\b", t):
-            return ("fetch", text)                        # "go grab me a cup": brought to me, not only picked
+        if action == "pick" and re.search(r"\b(?:grab|get|fetch|pick up|take) me\b|\bgimme\b|"
+                                          r"\b(?:go |come )?(?:grab|get|fetch) (?:the |that |this |a |an )?\w+(?: \w+)? for me\b", t):
+            return ("fetch", text)                        # "go grab me a cup", "go get the cup for me": brought to me
         if action in ("pick", "move_object") and far:
             return ("fetch", text)                        # "get me an orange at gate one": a trip there, not a pick here
         if action in ("pick", "move_object"):
@@ -2868,6 +2875,7 @@ UNSURE = re.compile(r"\b(not sure|don't know|do not know|don't have (any )?(info
 QUESTION_START = re.compile(r"^\s*(where|what|how|why|when|which|who|do you|does|is|are|can i|could i)\b|어디 ?(있|에 있)|"
                             r"(어디|뭐|왜|언제|몇)[^ ]*\s*\?*\s*$", re.I)    # a question about a place, not a command
 ABILITY_Q = re.compile(r"(?<!줄 )(?<!주실 )(?<!줘 )(?<!받을 )수 ?있(?:어|나|니|을까|습니까)\S*\s*\?*\s*$|\bdo you know how\b|"
+                       r"\b(?:can|could) (?:you|u) (?:even|really)\b|"
                        r"\bare you able\b|줄 ?(?:알아|아세요|알아요|아니|알지)\S*\s*\?+\s*$|"
                        r"보이(?:십니까|세요|시나요|나요|니|냐)\s*[?.!]*\s*$|보여요?\s*\?+\s*$", re.I)   # asks whether Lumi can ("손 흔들 줄 알아?");
     # "뒤가 보이십니까?", "등 좀 보이세요": about seeing / showing, no head turn

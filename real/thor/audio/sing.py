@@ -85,7 +85,10 @@ SONG_LIST = re.compile(r"\b(?:what|which) (?:kinds? of |sort of |other )?(?:song
 NOT_REQUEST = re.compile(r"\b(?:do|did) you (?:really )?(?:like|love|enjoy)\b|"
                          r"\bwho sings?\b|\bfavou?rite\b|좋아하는|좋아해|잘\s*(?:해|하|불러)|"
                          r"^\W*(?:is|are|was|were|does|did|has|have)\b(?!\s+you\s+(?:able|willing)\s+to\s+sing\s+(?:a|some|me|us|for|something|one|another)\b)|\b(?:can|do|could) robots? (?:really |even )?sing\b|"
-                         r"(?:노래|음악)\s*(?:하는|부르는)\s*로봇", re.I)   # "is Love Attack a new song?", "노래 부르는 로봇 신기하다"
+                         r"(?:노래|음악)\s*(?:하는|부르는)\s*로봇|"
+                         r"\b(?:he|she|they|my \w+|[A-Z][a-z]+) (?:wants?|wanted|likes?|loves?) to sing\b|"
+                         r"\b(?:told|asked) (?:me|him|her|them|us) to sing\b", re.I)
+    # "is Love Attack a new song?", "노래 부르는 로봇 신기하다", "my son wants to sing a song", "he told me to sing"
 NOT_ASKED = re.compile(r"\b(?:don'?t|do not|never)\s+(?:\w+\s+)?(?:sing|play)\b|\b(?:i|we)(?:'ll| will|'m going to)? sing\b|"
                        r"\b(?:i|we) (?:can'?t|cannot|can|could|used to) sing\b|\b(?:can|may|could|should) (?:i|we) sing\b|"
                        r"\b(?:later|tomorrow|tonight|next time|after (?:lunch|dinner|the|this|that|we|i)|"
@@ -122,6 +125,7 @@ STOP = re.compile(r"\b(stop|enough|halt|quiet|shh+)\b|멈춰|그만|스톱|정�
 KOREAN = re.compile(r"\bkorean\b|한국", re.I)
 ENGLISH = re.compile(r"\benglish\b|영어", re.I)
 FILLER = {"sing", "a", "an", "the", "song", "songs", "me", "us", "for", "please", "lumi", "some", "something", "now", "again",
+          "u", "ya", "yo", "already", "pls", "plz", "buddy", "tho", "real", "quick", "would", "ya'll", "dude", "bro",
           "one", "another", "different", "other", "next", "little", "short", "can", "you", "could", "would", "will", "to",
           "it", "that", "this", "together", "with", "and", "your", "nice", "hey", "hi", "ok", "okay", "play", "music",
           "in", "korean", "english", "else", "let's", "lets", "let", "now", "pretty", "beautiful", "my", "kids",

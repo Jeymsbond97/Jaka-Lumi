@@ -26,7 +26,7 @@ TURN_MORE_DEG = 15.0         # deg; "a bit more" right after a turn: this much f
 
 DIRS = (("back", r"\bback(?:wards?)?\b(?! down\b)|\bbackward\b|\breverse\b|\bretreat\b|^(?:let'?s )?(?:bake|big)\b(?= \d| half| a )|뒤로|뒤쪽|후진|"
                  r"물러"),                                    # whisper's "let's bake / big one meter"
-        ("forward", r"\bforwards?\b|\bahead\b|앞으로|앞쪽|전진"),
+        ("forward", r"\bforwards?\b|\bahead\b|\b(?:go|move|drive) (?:to the )?front\b|앞으로|앞쪽|전진"),   # "you go front one meter"
         ("left", r"\b(?:to the |to your )?left\b|왼 ?쪽|왼편|웬쪽|좌측"),
         ("right", r"(?<!all )\b(?:to the |to your )?right\b(?! now| away| here| there| back)|오른 ?쪽|오른편|우측"))
 VERB = re.compile(r"\b(?:move|go|come|drive|step|scoot|scooch|shift|inch|roll|back (?:up|off)|reverse|get)\b|"
