@@ -104,7 +104,7 @@ From the aligned depth inside the object mask:
 2. **Approach pose**: 10 cm before the grasp pose along the approach direction. Joint move, slow.
 3. **Linear move** in to the grasp pose, slower. The finger sensor (DI_1) looks below the gripper, not between the fingers, so it cannot confirm the object before the close (docs/10).
 4. **Close.** Read **AI_1** after the stroke:
-   - near the fully closed value → **missed** or **too small / too soft**: open, back off, report.
+   - near the fully closed value → **missed** or **too small / too soft**: open, back off, report. Except a cup about as wide as the belly's closed gap (fingers meet 77–`SHUT_GRIP_MM` 88 mm): AI_1 reads the same held or empty, so it is lifted and the torso camera decides (`skills.stands_still`): still standing at its place (top within `STILL_MM`) → missed; gone → held (kept as "narrow", `fetch._in_hand`).
    - stopped where the measured object width predicts (± tolerance) → **holding**.
    - stopped far wider than expected → grabbed something else (an edge, the table): open and back off.
 5. **Lift off** 3–5 cm straight up, read AI_1 and DI_1 again: still holding? Otherwise put back down and report a slip.

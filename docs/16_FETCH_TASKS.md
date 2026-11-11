@@ -167,7 +167,7 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
      will do. Spots in order, nearest the pick zone centre first; put down, back to `look`. Live 2026-10-20 17:59 every
      spot failed IK with the held turn (0°) on a table measured right (−385 mm). The cup's top there: its height over
      the pick table (`_top_on`); that table not measured: as high as it was picked, moved by the lift since. Nothing
-     is put down unless the table in front is measured right then.
+     is put down unless the table in front is measured right then, or it is the kept table's top seen before (below).
      Table heights are the level top only (`skills.flat_top`): each sight line's depth patch (7 × 7 pixels) must lie on
      a plane leaning < 12° (`FLAT_DEG`), and the height is the median of the largest group within 25 mm, at least 6
      points (`TABLE_MIN_POINTS`). Live 2026-10-20 the median of every sight line read one round white table at −324 …
@@ -180,6 +180,15 @@ to `carry` tilted the cup up to 36°; the straight move 2.5°. A small joint mov
      (`_place_far`: its level points within 850 mm, comfortable ones first, `on_table`, IK; `FAR_SPOTS` 4): live
      2026-10-26 18:53 the near part of the table in front was hidden at lift 0 ("no table in view") and the base,
      stopped at the table, "drove" +0.13 m six times. The drives are measured as for the pick (step 5).
+     The kept table's level points are kept on the map with it (`_remember`, waist at the front only, one per 10 mm
+     cell), so the part that drops below the camera's view (y < ~640 at table height, where the arm reaches) is still
+     known. Before the first drive and after every move (`_place_remembered`): spots of the remembered top nearest the
+     pick zone centre with remembered level points all round (`KEEP_EDGE_MM` 30 in from the last one seen), free of
+     what the camera sees standing now, IK as above; else the waist turn (in place, sweep checked) that brings a spot
+     nearest the column into reach, checked by IK first. The kept spot is where the camera's view of the table starts,
+     so after each drive it lies ~150 mm further again; without the memory the base drove on to the table's edge for
+     10 minutes (live 2026-10-30). A table not in view after a move is put on from memory; the height is the last one
+     measured.
      "Put it on the table" with a big top (`BIG_TOPS`: table, desk, bed): its YOLO box centre moves with the view
      ((22, 623), then (-349, 647) for one table, 18:55), so it is never aimed at: the top is measured by the grid /
      the far table, spots are the grid near `PLACE_GOAL` first, then the far table's points.
