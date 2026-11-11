@@ -518,6 +518,7 @@ MODES_FILE = "/dev/shm/lumi_modes.json"   # written by api/server.py: {"greeter"
 CMD_FILE = "/dev/shm/lumi_cmd.json"       # written by api/server.py: {"id", "cmd": go | go_point | cancel | calibrate
                                           # | fetch | fetch_give | fetch_place | fetch_stop | fetch_carry | fetch_release | fetch_steps
                                           # | fetch_pause | fetch_resume}
+STARTED = time.time()                     # commands written before this program started are old and skipped
 CALIB_FILE = "/dev/shm/lumi_calib.json"   # progress of a calibration session, for the dashboard
 BUSY_FILE = "/dev/shm/lumi_busy.json"     # what runs here now, for api/server.py robot_free(): {"busy": skill |
                                           # follow | drive | wave | null} (fetch tasks are in lumi_task.json)
@@ -2502,9 +2503,8 @@ class Lumi:
             return
         if d.get("id") == self.cmd_id:
             return
-        first = self.cmd_id is None
         self.cmd_id = d.get("id")
-        if first and time.time() - d.get("time", 0) > 5:      # an old command from before this start
+        if d.get("time", 0) < STARTED:                   # from before this start (a busy step can read a new one late)
             return
         cmd = d.get("cmd")
         log(f"dashboard: {cmd} {d.get('marker') or d.get('point') or d.get('markers') or ''}")

@@ -122,6 +122,20 @@ with os.fdopen(fd, "w") as f:
 L.poll_commands()
 os.remove(lumi.CMD_FILE)
 assert "stop" in done and run["status"] == "stopped" and L.mission_hold is None, done
+# the first command since the start, read 30 s late by a busy conversation step: still done; one from before the
+# start: skipped (2026-11-10: "go home" after boot was dropped as old)
+for written, taken in ((-30, True), (-90, False)):
+    done.clear()
+    L = halted(fresh())
+    L.cmd_id, started = None, lumi.STARTED
+    lumi.STARTED = time.time() - 60
+    fd, lumi.CMD_FILE = tempfile.mkstemp(suffix=".json")
+    with os.fdopen(fd, "w") as f:
+        json.dump({"id": 2, "time": time.time() + written, "cmd": "cancel"}, f)
+    L.poll_commands()
+    os.remove(lumi.CMD_FILE)
+    lumi.STARTED = started
+    assert ("stop" in done) == taken, (written, done)
 # 19:47 the dashboard's stop while following (no task runs): following ends too, not only the task
 from tasks import follow
 ended, real = [], (follow.stop, fetch.stop)
