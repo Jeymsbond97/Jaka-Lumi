@@ -122,6 +122,19 @@ with os.fdopen(fd, "w") as f:
 L.poll_commands()
 os.remove(lumi.CMD_FILE)
 assert "stop" in done and run["status"] == "stopped" and L.mission_hold is None, done
+# 19:47 the dashboard's stop while following (no task runs): following ends too, not only the task
+from tasks import follow
+ended, real = [], (follow.stop, fetch.stop)
+follow.stop, fetch.stop = (lambda: ended.append("follow")), (lambda: ended.append("task"))
+L = fresh()
+L.cmd_id, L.modes = 0, type("Modes", (), {"patrol": True})()
+fd, lumi.CMD_FILE = tempfile.mkstemp(suffix=".json")
+with os.fdopen(fd, "w") as f:
+    json.dump({"id": 1, "time": time.time(), "cmd": "fetch_stop"}, f)
+L.poll_commands()
+os.remove(lumi.CMD_FILE)
+follow.stop, fetch.stop = real
+assert ended == ["follow", "task"], ended
 
 
 # 16:56:38 "One more." right after "look left": further left; also "a bit more", "더", after a lift

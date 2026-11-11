@@ -2405,7 +2405,9 @@ class Lumi:
                 except fetch.FetchError as e:
                     log(f"  fetch refused: {e}")
             elif cmd == "fetch_stop":
-                safe(fetch.stop)
+                from tasks import follow
+                safe(follow.stop)                        # the dashboard's stop ends following too (agv.cancel
+                safe(fetch.stop)                         # does not stop joy_control)
             elif cmd == "fetch_release":
                 safe(fetch.release_now)
             elif cmd == "fetch_carry":
