@@ -2,21 +2,21 @@
 
 This folder (`~/Dev/lumi-wave`) is the software of our JAKA Lumi robot and runs on the robot's Jetson Thor. It also holds the project's documentation, so work can continue from here. The owner develops on a Mac, where the git repository lives (GitHub `Jeymsbond97/Jaka-Lumi`, folder `real/thor/`). This folder is a deployed copy: the code at the top level, the documentation in `docs/` and `tools/`, refreshed from the Mac with `tools/thor_sync/sync.sh`. This folder is also a git repository of its own (`.gitignore` keeps the local-only files below out); the owner pushes it with their own account to Gitea `Jaka_Lumi/Lumi` (backend-dev.podosee.com).
 
-## Where we are (2026-10-27)
+## Where we are (2026-10-30)
 
 Milestone: **pick and place by voice** ("Lumi, find the red cup, take it and put it here"), plan in [docs/15_PICK_AND_PLACE.md](docs/15_PICK_AND_PLACE.md), stages P0–P9; fetch tasks in [docs/16_FETCH_TASKS.md](docs/16_FETCH_TASKS.md); missions in [docs/17_MISSIONS.md](docs/17_MISSIONS.md).
 
 | Area | State |
 |---|---|
-| **OPEN LIVE PROBLEMS** | **docs/WORK_PLAN.md "Open problems from the live test"** (2026-10-28): "look at me" fails from 2 m+ (voice direction weak since 2026-10-27), "go back 1 m" refused by the arm check, "go charger" went home, arm moves slow; plus what was pushed but not tried live. Start there when the owner asks to continue (also from home over Tailscale) |
+| **OPEN LIVE PROBLEMS** | **docs/WORK_PLAN.md "Open problems"** (2026-10-30): gripper AI_1 read open while the fingers stayed shut at a put-down (owner test of Close / Open waiting); a cup put into the hand can't be put on a table; slow LLM answers; plus the long "not live yet" list of 2026-10-30 (WORK_PLAN "Live test list" 0). Start there when the owner asks to continue |
 | **READ FIRST** | **[docs/WORK_PLAN.md](docs/WORK_PLAN.md)**: the final results, the live test plan, owner decisions waiting, what is left |
 | **Results (offline)** | Intent bank 64246 wordings (EN + KO), 27 wrong of 109990; commands right 88–93 % at every speech level, English = Korean; typed = voice except 30 of 19393; 127 stop forms stop; quick answers 2280 / 2284, none wrong. Picks 93 % (every side 92–93 %), places 79 %, grasps turned > 15° 4. **Not live yet** |
 | **lumi-api** | Running with all of the current code (`main` = Gitea) |
-| Arm | Taught `look`, `wave_out`, `wave_start`, `wave` (= `wave_start` with J3 −14.7°). Wave = look → wave_out → wave_start, 2 swings back to back, stays at `wave_start`; down wave_start → wave_out → look. Moves one at a time (`SETTLE_S` 0.3 s, `JOINT_ACCEL_FACTOR` 1.5, route 40 °/s, `ARRIVE_SPEED` "normal" into `wave_start`); software STOP empties the controller queue |
+| Arm | Taught `look`, `wave_out`, `wave_start`, `wave` (= `wave_start` with J3 −14.7°). Wave = look → wave_out → wave_start, 2 swings back to back, stays at `wave_start`; down wave_start → wave_out → look. Moves one at a time (`SETTLE_S` 0.3 s, `JOINT_ACCEL_FACTOR` 1.5, route 40 °/s, `ARRIVE_SPEED` "normal" into `wave_start`); software STOP empties the controller queue. Dashboard "Wave greeting" (`tasks/wave_greet.py`, `vision/waving.py`): waves back at people waving within 10 m, faces them, talks; **not live** (collision limits first) |
 | Gitea | `Jaka_Lumi/Lumi` (private): clean snapshots only, pushed with `tools/gitea_push.sh` after each finished piece (tests first); the work log, plans, results and CLAUDE.md stay on the Thor |
 | LLM | `gemma4:26b` (logs/llm_bench.md); `gemma4:e4b` kept for colleagues |
 | Gripper / picks | Zimmer GEP2013IO-05-B; finger sizes in `docs/gripper/`, AI_1 → gap (docs/10 §2.1); widths 72–92 mm into the hooks' belly (camera width + 8). Steel cups / bowl unstable (shiny), paper cups crushed |
-| Attention, voice | Focus on whoever calls / commands; head stays on them, waist + head to 0 at the end. "Look at me" / "I'm on your right": voice direction (head array, offset 30 / 13.6°; clip reference off) then both cameras; behind: waist (Greeter) or base (Patrol). Stop words heard while Lumi talks / sings. Arm poses by voice; follow with head → waist → base. **Not live** (docs/WORK_PLAN.md) |
+| Attention, voice | Focus on whoever calls / commands / talks; head stays on them, waist + head to 0 at the end. Calls and "look at me": cameras first, head sweep ±110°, then the body turns (behind: waist with Greeter, base with Patrol). Head array recalibrated 2026-10-30 (was mirrored front / back): `data/doa_calib.json` sign +1 offset 140, median 27°. Head moves wait for a running body move (the controller drops a second one). **Not live** (docs/WORK_PLAN.md) |
 | Arm, reach, fetch | P2–P5 live (docs/15, docs/16); P6 / P7 / P9 live for pick, put back, drive holding in `look`; put on a named thing, far table, give with Release written, not live |
 | Cameras | Both at 5000M. Torso calibrated (3.3 mm). Head calibrated at any head pose (`vision/head_cam.py`, 6.0 mm) |
 | Docks | `home` = marker `Home`; `dock2` at (0.603, 8.460, θ −3.025); `charge` (num 3) at (−5.477, 11.168) |
@@ -72,6 +72,9 @@ In the docs, `real/thor/<path>` means `<path>` in this folder (for example `real
 - **The controller runs long joint moves far slower than commanded**: J1 60° at 25–40 °/s took 7–8 s.
 - **`stop_program` empties the controller's motion queue** (checked live: the next queued move did not run).
 - **The taught grasp point is the hooks' belly centre**; the finger tips are 28 mm further along the tool axis (owner's free-drive pose on a 66 mm can, `data/grasp_tips_teach.json`). The tips grasp (61–72 mm) missed twice live even with that offset (2026-10-22): it is off (`skills.MIN_WIDTH` 72); objects 72–92 mm go into the belly from above.
+- **The body controller drops a `moveto` sent while another body move runs and never answers it** (checked 2026-10-30: 20 s timeout, the head did not move; its `vel` reads 0 while moving). `head.moveto` waits until two position reads agree (`STILL_S`); every 30 s "head error: timed out" in the log was this.
+- **The head mic board's direction came out mirrored front / back** from ~2026-10-27 (cause unknown, not the USB cable): recalibrated from camera samples (`audio/doa.py --calibrate`, Greeter / Patrol off). Check `data/doa_calib.json` again after any work on the head.
+- **AI_1 read open (90) while the fingers stayed shut on a cup** at a put-down (2026-10-30); a 76 mm cup closes the new fingers as far as nothing (AI_1 ~4084 vs empty 4143–4182): the camera decides (`skills.stands_still`, `fetch._in_hand` at `carry`).
 - **Cobo π programs (`hand_shaking.jks`, `arm_reach.jks`) run from wherever the arm is**: started from `look`, the wave went through the head (2026-10-21). Never start a stored program without a checked route from a known pose.
 
 ## Documentation
