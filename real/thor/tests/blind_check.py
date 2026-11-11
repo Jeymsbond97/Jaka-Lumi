@@ -619,7 +619,7 @@ def score_silence(c, old, use_llm):
             outcome, said = "silent", ""
         else:
             rest = text[m.end():].strip(" ,.!?")
-            outcome, said, text = ("greet", lumi.WAKE_REPLY["en"], "") if len(rest) <= 2 else ("talk", "", rest)
+            outcome, said, text = ("greet", lumi.WAKE_REPLY["en"][0], "") if len(rest) <= 2 else ("talk", "", rest)
     else:
         outcome, said = "talk", ""
         with mock.patch.object(lumi.mouth, "recent_speech", lambda s=30.0: x["lumi_said"] or ""):

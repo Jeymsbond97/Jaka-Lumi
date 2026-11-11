@@ -141,7 +141,7 @@ assert not lumi.WAKE.search("I wake up at 7 every day") and not lumi.WAKE.search
 L = fresh()                                            # "How are you?" is answered, not "Yes? How can I help?"
 L.mic = Mic(U("How are you?"))
 L.check_wake()
-assert ("answer", "How are you?") in done and lumi.WAKE_REPLY["en"] not in said(), done
+assert ("answer", "How are you?") in done and not set(lumi.WAKE_REPLY["en"]) & set(said()), done
 L = fresh()                                            # "Hi Lumi, go home": done at once
 L.mic = Mic(U("Hi Lumi, go home."))
 L.check_wake()

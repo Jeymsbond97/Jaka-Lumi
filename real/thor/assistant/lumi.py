@@ -131,7 +131,9 @@ WAKE = re.compile(rf"\b(hi|hey|hello|okay|ok|hai|high|{WAKE_UP_EN})?[\s,.!]*(lum
                   rf"|^\W*(?:(?:hey|ok|okay|come on)\W+)?(?:{WAKE_UP_EN})\W*$|^\W*(?:(?:자|이제|얼른)\s+)?(?:{WAKE_UP_KO})[\s.!~]*$", re.I)
 # ^ "Hey Lumi", "Lumi", "wake up (Lumi)", "Lumi, wake up", "루미야", "헤이 루미", "루미야 일어나", "일어나세요";
 #   a bare "wake up" / "일어나" only as the whole utterance ("I wake up at 7" is no call)
-WAKE_REPLY = {"en": "Yes? How can I help?", "ko": "네? 무엇을 도와드릴까요?"}
+WAKE_REPLY = {"en": ["Yes? How can I help?", "I'm here. How can I help?", "Yes, I'm listening.", "Hi! What can I do for you?"],
+              "ko": ["네? 무엇을 도와드릴까요?", "네, 말씀하세요.", "네, 듣고 있어요.", "안녕하세요! 무엇을 도와드릴까요?"]}   # one at random
+NAME_REPLY = {"en": ["Yes?", "I'm listening.", "Yes, I'm here."], "ko": ["네?", "네, 말씀하세요.", "네, 듣고 있어요."]}   # "Lumi?" in a talk
 NAME_ONLY = re.compile(r"^\s*(?:(?:hi|hey|hello|헤이|하이)[\s,]+)?(?:lumi|loomi|rumi|루미|누미)(?:야|아)?[\s,.!?~]*$", re.I)
 # ^ only the name, also "루미야" / "헤이 루미" (went to the LLM: "안녕하세요! 제 이름 불러 주셔서 기뻐요." after 2.3 s)
 FETCH_STOP = re.compile(r"\b(sto+pp?|stob|halt|freeze|don'?t move)\b|^\W*(?:lumi\W+)?stopped\W*$|스탑|스텁|멈추(?:세요|십시오)|^\W*abort\W*$|\babort (?:the |this |your )?(?:mission|task|trip)\b|\bcancel (?:the |this |your )?(?:mission|task|trip)\b|"
@@ -3093,8 +3095,11 @@ class Lumi:
             return
         if self.resume_stopped(text):                      # "Lumi, keep going" after a stop word ended a mission
             return
-        if NAME_ONLY.match(text):                           # just "Lumi?": they want attention
-            mouth.say("Yes?" if self.lang == "en" else "네?")
+        if NAME_ONLY.match(text):                           # just "Lumi?": they want attention, the head turns to them
+            look = threading.Thread(target=self.look_at_speaker, daemon=True)   # while it answers
+            look.start()
+            mouth.say(random.choice(NAME_REPLY["en" if self.lang == "en" else "ko"]))
+            look.join()
             self.keep_listening()
             return
         from tasks import fetch                            # the way it goes: route(), as the dashboard's Command box
@@ -3334,9 +3339,11 @@ class Lumi:
         self.brain.reset()
         self.closing_pending = None
         command = rest if len(rest) > 2 else text if re.search(r"how are you", text, re.I) else ""   # answered
-        self.look_at_speaker()                                # as "look at me": the cameras, the voice's side, behind
+        look = threading.Thread(target=self.look_at_speaker, daemon=True)   # as "look at me": the cameras, the
+        look.start()                                          # voice's side, behind; turns while it answers
         if not command:                                       # just "Hi Lumi": a short answer, then listen
-            mouth.say(WAKE_REPLY[lang])
+            mouth.say(random.choice(WAKE_REPLY[lang]))
+        look.join()
         self.voice_until = time.time() + VOICE_SESSION_S
         self.last_activity, self.prompts = time.time(), 0
         if command:                                           # "Hi Lumi, go home": do it at once, no greeting
