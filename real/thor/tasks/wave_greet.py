@@ -32,6 +32,8 @@ GREET_M = 3.0                # m; people waving further away are not answered
 HOLD_S = 40.0                # s the hand stays up after the last wave seen, then down to look (owner: 60 too long)
 GONE_S = 10.0                # s a greeted person may be out of both cameras' view and still be known (no new intro)
 SWING_POLL_S = 0.2           # s between looks at the controller's queue while swinging
+SWING_S = 1.5                # s one swing takes (measured 1.5-1.6 at "swing"); with the queue reading, at most one swing
+SWING_LEAD_S = 0.5           # is queued ahead: the next is sent only when the ones sent end within this
 FRESH_S = 0.5                # s a waving person seen counts as waving now
 NEW_WAVE_S = 5.0             # s without any waving after which a wave is greeted anew (a new greeting line)
 JOKE_AFTER_S = 10.0          # s of waving before the first joke ...
@@ -237,7 +239,7 @@ def _pending():
     return r.get("queue", 9) if "queue" in r else 9
 
 
-def _swing_on():
+def _swing_on(now):
     """Keep the swings going back to back: one more swing is queued while the running one has at most its last move
     left. Not waited for, so a STOP or a protective stop is looked for here (motion._wait does it for waited moves).
     False when the arm is not at the wave any more (someone moved it)."""
@@ -246,6 +248,8 @@ def _swing_on():
     d = arm.cmd("get_data")
     if d.get("protective_stop") or d.get("emergency_stop"):
         raise motion.MotionError("the controller stopped the arm (protective / emergency stop)")
+    if _st["swing_end"] - now > SWING_LEAD_S:    # the swings sent still run longer than that: never pile up
+        return True
     n = _pending()
     if n > 1:
         return True
@@ -253,6 +257,7 @@ def _swing_on():
         return False
     p = motion.poses()
     motion.move_path([(p[wave.SWING], SWING_SPEED), (p[wave.START], SWING_SPEED)], wait=False, queued=True)
+    _st["swing_end"] = max(now, _st["swing_end"]) + SWING_S
     return True
 
 
@@ -316,7 +321,8 @@ def _down():
 
 
 _st = {"up": False, "last_wave": 0.0, "lang": 0, "next_joke": 0.0, "free": False, "free_at": 0.0, "refused_until": 0.0,
-       "waist_out": False, "follow_at": 0.0, "swing_at": 0.0}                    # waist_out: the way back to the front was blocked, tried again later
+       "waist_out": False, "follow_at": 0.0, "swing_at": 0.0,
+       "swing_end": 0.0}                     # swing_end: when the swings sent so far should be done                    # waist_out: the way back to the front was blocked, tried again later
 
 
 def step(now):
@@ -363,7 +369,7 @@ def step(now):
             _head_to(w[0])
         if now > st["swing_at"]:
             st["swing_at"] = now + SWING_POLL_S
-            if not _swing_on():
+            if not _swing_on(now):
                 st["up"] = False         # someone moved the arm: the next wave starts from where it is
     elif now - st["last_wave"] > HOLD_S:
         _down()

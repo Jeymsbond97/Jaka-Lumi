@@ -80,7 +80,7 @@ def fresh():
     done.clear()
     said.clear()
     arm["at"] = "look"
-    g._st.update(up=False, last_wave=0.0, next_joke=0.0, free_at=0.0, refused_until=0.0, waist_out=False, follow_at=0.0, swing_at=0.0)
+    g._st.update(up=False, last_wave=0.0, next_joke=0.0, free_at=0.0, refused_until=0.0, waist_out=False, follow_at=0.0, swing_at=0.0, swing_end=0.0)
     g._met.known.clear()
     switch.update(on=True, free=True)
     plan_error["e"] = None
@@ -98,7 +98,7 @@ assert g.busy()
 done.clear()
 said.clear()
 run(100.5, 100.0 + g.JOKE_AFTER_S + 1)
-assert done.count("swing") >= 10 and "up route" not in done, done
+assert done.count("swing") >= g.JOKE_AFTER_S / g.SWING_S - 1 and "up route" not in done, done  # one per SWING_S
 assert len(said) == 1 and said[0] in sum(g.wave_lines.LONG, ()), said
 
 # they move to the other side while waving: the waist turns to them again between swings, not more often than
@@ -110,6 +110,17 @@ run(111.5, 111.5 + g.FOLLOW_EVERY_S - 0.5)
 assert done[:2] == ["settle", "waist -40 look -40.0"] and done.count("waist -40 look -40.0") == 1, done  # swings end first
 waver["w"] = W(30.0)
 
+# never more than one swing queued ahead, even if the controller's queue always read empty
+g._st["swing_end"], g._st["swing_at"] = 0.0, 0.0
+done.clear()
+for _ in range(10):
+    g._swing_on(1000.0)
+assert done.count("swing") == 1, done
+g._st["swing_end"] -= g.SWING_S                     # it ended: the next is sent
+g._swing_on(1000.0)
+assert done.count("swing") == 2, done
+g._st["swing_end"] = 0.0
+
 # they stop: the hand stays up, no swings; waving again: swings again, no new greeting within NEW_WAVE_S
 waver["w"] = None
 done.clear()
@@ -118,7 +129,7 @@ assert done == [], done
 waver["w"] = W(30.0)
 said.clear()
 run(115.5, 116.0)
-assert done.count("swing") == 2 and said == [], (done, said)
+assert done.count("swing") == 1 and said == [], (done, said)
 
 # nobody waves for HOLD_S: arm down slowly, waist to the front, head to rest; not before
 waver["w"] = None
