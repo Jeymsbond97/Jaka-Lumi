@@ -34,9 +34,14 @@ JOKE_AFTER_S = 10.0          # s of waving before the first joke ...
 JOKE_EVERY_S = 12.0          # ... and between jokes
 WAIST_MIN_DEG = 10.0         # deg; a person nearer the front than this: only the head turns
 HEAD_MIN_DEG = 8.0           # deg the person may move off the head's direction before the head follows
-DOWN_SPEED = "slow"          # motion.JOINT_SPEED of the way down (owner: slowly)
+DOWN_SPEED = "normal"        # motion.JOINT_SPEED of the way down (owner: 2x the first "slow")
+SWING_SPEED = "swing"        # motion.JOINT_SPEED of the swings, 60 deg/s at 4x the usual acceleration (owner: faster;
+                             # wave.SWING_SPEED of an asked wave is "quick")
 FREE_EVERY_S = 1.0           # s between checks that nothing else runs (it asks the AGV)
-REFUSED_S = 30.0             # s before trying again after the arm was refused (off, busy, holding something)
+REFUSED_S = 30.0             # s before trying again after the arm was refused (off, busy, holding something) and
+                             # between tries to bring a blocked waist back to the front
+HEAD_TIMEOUT_S = 5.0         # s a head move may take; the body API now and then never answers a moveto, and the call
+                             # holds the body lock all that time (the waist turn waited 30 s behind it)
 CLOSE_FRESH_S = 1.5          # s a camera service detection counts for the too-close check
 
 _seen = {"t": 0.0, "wavers": []}     # wavers: [(bearing deg from the waist's front, + left; distance m)], nearest first
@@ -147,10 +152,20 @@ def _say(lines, lang):
     _bg(run)
 
 
+def _turn_head(yaw, pitch=None):
+    """head.turn with HEAD_TIMEOUT_S; a move that times out is logged (the head finishes it anyway)."""
+    try:
+        lift, waist, _, now_pitch = head.status()
+        yaw = max(-head.YAW_LIMIT, min(head.YAW_LIMIT, yaw))
+        head.moveto([lift, waist, yaw, now_pitch if pitch is None else pitch], timeout=HEAD_TIMEOUT_S)
+    except Exception as e:
+        log(f"head move: {e!r}")
+
+
 def _head_to(bearing):
     """The head to a bearing from the waist's front, in the background, unless it looks there already."""
     if abs(bearing - _head_yaw()) > HEAD_MIN_DEG:
-        _bg(head.turn, bearing)
+        _bg(_turn_head, bearing)
 
 
 def _up(route):
@@ -167,16 +182,19 @@ def _up(route):
                 motion.stop()
                 return
     threading.Thread(target=guard, daemon=True).start()
+    t0 = time.time()
     try:
         motion.move_path([(j, arm_route.SPEED) for _, j in route[:-1]] + [(route[-1][1], wave.ARRIVE_SPEED)])
     finally:
         done.set()
+    log(f"arm up after {time.time() - t0:.1f} s")
 
 
 def _swing():
     """One swing, START -> SWING -> START, back to back."""
-    p = motion.poses()
-    motion.move_path([(p[wave.SWING], wave.SWING_SPEED), (p[wave.START], wave.SWING_SPEED)], queued=True)
+    p, t0 = motion.poses(), time.time()
+    motion.move_path([(p[wave.SWING], SWING_SPEED), (p[wave.START], SWING_SPEED)], queued=True)
+    log(f"swing {time.time() - t0:.1f} s")
 
 
 def _face(bearing):
@@ -210,21 +228,23 @@ def _greet(bearing, lang):
 
 
 def _down():
-    """Arm slowly down to look, waist to the front, head to rest."""
+    """Waist to the front first, the way it came with the hand up (in `look` the arm sticks out further and the same
+    turn back can be blocked), then the arm slowly down to look and the head to rest."""
     from tasks import fetch
     _busy.set()
     try:
+        fetch._stop.clear()
+        _st["waist_out"] = not fetch._waist_to(0.0, in_place=True)
         if arm_route.where() in arm_route.WAVE_POSES:
             arm_route.move(arm_route.plan(arm_route.HOME), DOWN_SPEED)
-        fetch._stop.clear()
-        fetch._waist_to(0.0, in_place=True)
-        head.turn(0.0, head.HEAD_REST_PITCH)
+        _turn_head(0.0, head.HEAD_REST_PITCH)
         log("nobody waves: arm down")
     finally:
         _busy.clear()
 
 
-_st = {"up": False, "last_wave": 0.0, "lang": 0, "next_joke": 0.0, "free": False, "free_at": 0.0, "refused_until": 0.0}
+_st = {"up": False, "last_wave": 0.0, "lang": 0, "next_joke": 0.0, "free": False, "free_at": 0.0, "refused_until": 0.0,
+       "waist_out": False}                    # waist_out: the way back to the front was blocked, tried again later
 
 
 def step(now):
@@ -252,6 +272,11 @@ def step(now):
             st["up"] = _greet(w[0], st["lang"])
             if not st["up"]:
                 st["refused_until"] = now + REFUSED_S
+        elif not w and st["waist_out"] and now > st["refused_until"]:
+            from tasks import fetch
+            fetch._stop.clear()
+            st["waist_out"] = not fetch._waist_to(0.0, in_place=True)
+            st["refused_until"] = now + REFUSED_S
     elif w:
         if arm_route.where() not in (wave.START, wave.SWING):
             st["up"] = False             # someone moved the arm: the next wave starts from where it is

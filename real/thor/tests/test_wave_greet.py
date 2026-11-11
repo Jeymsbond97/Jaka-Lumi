@@ -42,7 +42,9 @@ motion.move_path = move_path
 arm_route.where = lambda now=None: arm["at"]
 arm_route.plan = lambda target, holding=False, leaf=False, now=None: [("wave_out", None), ("look", None)]
 arm_route.move = route_move
-head.turn = lambda yaw, pitch=None, **k: done.append(f"head {yaw:+.0f}" + ("" if pitch is None else " rest"))
+head.status = lambda: [0.0, 0.0, 0.0, 10.0]
+head.moveto = lambda pos, **k: done.append(f"head {pos[2]:+.0f}" + (" rest" if pos[3] == head.HEAD_REST_PITCH else "")
+                                           + (" timeout" if k.get("timeout") != g.HEAD_TIMEOUT_S else ""))
 fetch._waist_turn = lambda: 0.0
 fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f} look {look}") or True
 g._head_yaw = lambda: 0.0
@@ -70,7 +72,7 @@ def fresh():
     done.clear()
     said.clear()
     arm["at"] = "look"
-    g._st.update(up=False, last_wave=0.0, next_joke=0.0, free_at=0.0, refused_until=0.0)
+    g._st.update(up=False, last_wave=0.0, next_joke=0.0, free_at=0.0, refused_until=0.0, waist_out=False)
     switch.update(on=True, free=True)
     plan_error["e"] = None
 
@@ -106,8 +108,21 @@ done.clear()
 run(116.5, 116.0 + g.HOLD_S - 1)
 assert done == [], done
 run(116.0 + g.HOLD_S + 0.5, 116.0 + g.HOLD_S + 0.5)
-assert done == ["down slow", "waist +0 look None", "head +0 rest"], done
+assert done == ["waist +0 look None", "down normal", "head +0 rest"], done
 assert not g.busy() and arm["at"] == "look"
+
+# the waist's way back is blocked: the arm still goes down; the waist is tried again every REFUSED_S while nobody waves
+fresh()
+waver["w"] = (30.0, 2.0)
+run(150.0, 150.0)
+waver["w"] = None
+blocked = {"n": 1}
+fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f}") or (
+    blocked.update(n=blocked["n"] - 1) or False if blocked["n"] > 0 else True)
+done.clear()
+run(150.5 + g.HOLD_S, 150.5 + g.HOLD_S + g.REFUSED_S * 2.5)
+assert done[:3] == ["waist +0", "down normal", "head +0 rest"] and done[3:] == ["waist +0"], done
+fetch._waist_to = lambda rel, in_place=False, look=None: done.append(f"waist {rel:+.0f} look {look}") or True
 
 # a wave nearly in front: only the head turns, the waist stays
 fresh()
@@ -119,7 +134,7 @@ assert done == ["up route", "swing"], done                     # the head looks 
 switch["on"] = False
 done.clear()
 run(200.5, 200.5)
-assert done[0] == "down slow", done
+assert done[:2] == ["waist +0 look None", "down normal"], done
 
 # the arm stops (STOP, a person too close) during a swing: switched off, nothing moves after it
 fresh()
@@ -153,6 +168,17 @@ fresh()
 switch["free"] = False
 run(500.0, 505.0)
 assert done == [] and not g.busy(), done
+
+# a hand at the head (scratching, a phone at the ear) is not a raised hand; the same hand held out to the side is
+import numpy as np                                  # noqa: E402
+kp = np.zeros((17, 3))
+for name, xy in (("nose", (640, 200)), ("left_eye", (650, 190)), ("right_eye", (630, 190)), ("left_shoulder", (700, 320)),
+                 ("right_shoulder", (580, 320)), ("right_elbow", (560, 260)), ("right_wrist", (600, 210))):
+    kp[g.pose.K[name]] = (*xy, 1.0)
+assert waving._hand(kp) is None                     # palm at (620, 185): beside the eye
+kp[g.pose.K["right_wrist"]] = (480, 200, 1.0)
+kp[g.pose.K["right_elbow"]] = (520, 280, 1.0)
+assert waving._hand(kp) is not None                 # palm at (460, 160): out to the side
 
 # the detector on the recordings: every wave found, nothing else ever counts as waving
 DATA = Path(__file__).parent / "data" / "waves"

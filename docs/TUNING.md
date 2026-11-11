@@ -194,7 +194,9 @@ Every value here is a constant at the top of its file, with a comment on what it
 |---|---|---|---|
 | `tasks/wave_greet.py` | `GREET_M` | 3.0 m | People waving further away (head camera depth) are not answered |
 | `tasks/wave_greet.py` | `HOLD_S` | 60 s | The hand stays up this long after the last wave seen, then goes down to `look` |
-| `tasks/wave_greet.py` | `DOWN_SPEED` | "slow" | `motion.JOINT_SPEED` of the way down; the way up is `arm_route.SPEED` / `wave.ARRIVE_SPEED` (route, the Cobo π limit) |
+| `tasks/wave_greet.py` | `DOWN_SPEED` | "normal" | `motion.JOINT_SPEED` of the way down; the way up is `arm_route.SPEED` / `wave.ARRIVE_SPEED` (route, the Cobo π limit) |
+| `tasks/wave_greet.py` | `SWING_SPEED` | "swing" | `motion.JOINT_SPEED` of its swings (an asked wave uses `wave.SWING_SPEED`) |
+| `robot/motion.py` | `SPEED_ACCEL_FACTOR` | swing 4.0 | A joint speed with its own acceleration factor instead of `JOINT_ACCEL_FACTOR`: "swing" (60 °/s, 240 °/s²) for the greeting's short swings. Higher = snappier swings, more shaking |
 | `tasks/wave_greet.py` | `NEW_WAVE_S` | 5 s | No waving this long: the next wave gets a new greeting line |
 | `tasks/wave_greet.py` | `JOKE_AFTER_S`, `JOKE_EVERY_S` | 10 s, 12 s | Waving on and on: the first joke after this long, then one every this long |
 | `tasks/wave_greet.py` | `WAIST_MIN_DEG` | 10° | A person nearer the front than this: only the head turns, not the waist |

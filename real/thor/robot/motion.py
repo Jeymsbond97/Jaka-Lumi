@@ -25,12 +25,14 @@ ROOT = Path(__file__).resolve().parents[1]      # the project folder
 POSES_FILE = ROOT / "data" / "arm_poses.json"
 LIMITS = [360, 125, 130, 360, 120, 360]              # deg, ± factory range per joint (docs/01_HARDWARE.md)
 LIMIT_MARGIN = 5.0                                   # deg kept away from every limit
-JOINT_SPEED = {"slow": 20.0, "normal": 50.0, "quick": 50.0, "route": 60.0}   # deg/s; slow / normal doubled for picks and
+JOINT_SPEED = {"slow": 20.0, "normal": 50.0, "quick": 50.0, "route": 60.0, "swing": 60.0}   # deg/s; slow / normal doubled for picks and
                                                      # puts (owner, 2026-10-29); route: empty-hand pose-graph moves (the Cobo π joint speed limit, 60)
 LINEAR_SPEED = {"slow": 40.0, "normal": 100.0}       # mm/s; slow / normal doubled for picks and puts (owner, 2026-10-29)
 ACCEL_FACTOR = 3.0                                   # straight moves: accel = speed x this (per s)
 JOINT_ACCEL_FACTOR = 1.5                             # joint moves: accel = speed x this (per s); estimate: x 3
                                                      # stopped at each pose with a jolt that shook the robot
+SPEED_ACCEL_FACTOR = {"swing": 4.0}                  # a speed with its own accel factor: the greeting's short swings
+                                                     # (14.7 deg of J3) never reach their speed at 1.5
 MAX_FLIP = 90.0                                      # deg; an IK answer turning J1 / J4 / J6 more than this is refused
 MAX_TRAVEL = 200.0                                   # deg; a joint move turning any joint further is refused
 FULL_TURN = (0, 3, 5)                                # J1, J4, J6: ±360 joints; a target and target ± 360 are the same pose
@@ -191,7 +193,7 @@ def move_path(moves, wait=True, queued=False):
         if k and not queued and _stopped.wait(SETTLE_S):
             raise MotionError("stopped")
         deg_s = JOINT_SPEED[speed]
-        r = arm.cmd("joint_move", relFlag=0, jointPosition=list(t), speed=deg_s, accel=deg_s * JOINT_ACCEL_FACTOR)
+        r = arm.cmd("joint_move", relFlag=0, jointPosition=list(t), speed=deg_s, accel=deg_s * SPEED_ACCEL_FACTOR.get(speed, JOINT_ACCEL_FACTOR))
         if _stopped.is_set():               # STOP pressed while sending: stop again, after this move
             stop()
             raise MotionError("stopped")

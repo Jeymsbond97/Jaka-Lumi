@@ -2,8 +2,9 @@
 
 The pose keypoints have no fingers, and a wave from the wrist hardly moves the wrist keypoint (a few px), so the hand
 itself is measured: the sideways optical flow in a box over the palm (past the wrist, along the forearm), frame to
-frame. A wave is that flow changing direction MIN_FLIPS times within WINDOW_S with the hand above the shoulder. A
-hand held up still, a scratch, a phone, pointing or arms swinging while walking give no flips.
+frame. A wave is that flow changing direction MIN_FLIPS times within WINDOW_S with the hand above the shoulder and
+away from the head. A hand held up still, pointing or arms swinging while walking give no flips; a scratch, a phone
+at the ear or a hand at the face move at the head (AT_HEAD) and do not count.
 
     python vision/waving.py tests/data/waves/right_2m     # a recording of vision/wave_record.py, frame by frame
 
@@ -25,19 +26,30 @@ MIN_MOVING = 20              # flow pixels in the hand box needed to measure the
 PALM = 0.5                   # the palm's centre: this much of the forearm past the wrist
 BOX = 0.6                    # half the hand box's side, in forearm lengths
 MIN_BOX_PX = 8               # ... at least (half size)
+AT_HEAD = 0.3                # shoulder widths: a palm this near the face or ears is at the head (scratching, a phone,
+                             # glasses, hair; recorded 0.07-0.32), not waving (recorded waves 0.36 and more)
 TRACK_PX = 120               # px (full size); a person's shoulder centre moves less than this between frames
 LOST_S = 1.0                 # s a person may be unseen before their history is dropped
 
 
 def _hand(kp):
-    """(centre (x, y) half size, half side px) of the higher raised hand, None when no hand is above its shoulder."""
+    """(centre (x, y) half size, half side px) of the higher raised hand away from the head, None when there is
+    none."""
     best = None
+    ls, rs = pose.seen(kp, "left_shoulder"), pose.seen(kp, "right_shoulder")
+    face = [p for p in (pose.seen(kp, n) for n in ("nose", "left_eye", "right_eye", "left_ear", "right_ear")) if p]
+    if not (ls and rs):
+        return None
+    near = AT_HEAD * np.hypot(ls[0] - rs[0], ls[1] - rs[1])
     for side in ("left", "right"):
         w, e, s = (pose.seen(kp, f"{side}_{j}") for j in ("wrist", "elbow", "shoulder"))
         if not (w and e and s) or w[1] >= s[1]:
             continue
         fx, fy = w[0] - e[0], w[1] - e[1]
-        c = ((w[0] + PALM * fx) * SCALE, (w[1] + PALM * fy) * SCALE)
+        palm = (w[0] + PALM * fx, w[1] + PALM * fy)
+        if any(np.hypot(palm[0] - f[0], palm[1] - f[1]) < near for f in face):
+            continue
+        c = (palm[0] * SCALE, palm[1] * SCALE)
         r = max(MIN_BOX_PX, BOX * np.hypot(fx, fy) * SCALE)
         if best is None or c[1] < best[0][1]:
             best = (c, r)
