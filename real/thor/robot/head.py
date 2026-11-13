@@ -59,9 +59,34 @@ def moveto(pos, vel=VEL, acc=ACC, timeout=30):
         return _call("moveto", {"pos": pos, "vel": vel, "acc": acc}, timeout=max(1.0, end - time.time()))
 
 
+def joints():
+    """The controller's own status: one dict per joint (id, pos, vel, toq, enable, error, ecode)."""
+    return _call("status")
+
+
 def status():
     """[lift mm, waist deg, head yaw deg, head pitch deg]"""
-    return [j["pos"] for j in _call("status")]
+    return [j["pos"] for j in joints()]
+
+
+def enabled():
+    """True when all four body joints are enabled."""
+    return all(j["enable"] for j in joints())
+
+
+def set_enabled(on, retries=5):
+    """Enable (vendor pattern: reset, enable, check, repeat) or disable all four body joints. Returns enabled()."""
+    with _one:                                             # never in the middle of a moveto
+        if not on:
+            _call("enable", {"enable": 0})
+            return enabled()
+        for _ in range(retries):
+            _call("reset", {})
+            _call("enable", {"enable": 1})
+            if enabled():
+                return True
+            time.sleep(0.3)
+        return enabled()
 
 
 def turn(yaw, pitch=None, vel=VEL, acc=ACC, limit=YAW_LIMIT):
