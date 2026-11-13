@@ -160,6 +160,8 @@ From the Lumi manual 6.5, the quick manual, web doc 3.2 and the chassis ports do
 | Green | Dock powered, not charging, or charging with battery ≥ 90 % |
 | Red | Charging, battery < 90 % |
 
+**Docked but not charging (2026-11-13).** After the column E-stop had been pressed and released, Lumi sat on its dock with `charge_state` true and 29.4 V at the contacts, but `/api/get_power_status` `battery_current` stayed negative (−0.7…−0.9 A, the battery emptying 90 → 81 %) and the dock light stayed green below 90 %. Driving off and docking again did not help, neither did unplugging the dock. A full power cycle of the base (off: hold, release on the 8th beep; on: hold, release on the 3rd) did: +4.3 A right after. Check `battery_current` (+ is charging), not `charge_state`, to know it really charges.
+
 Power button: hold → two short beeps (LED purple) → release after the third, long beep (LED flashes green while booting). Off: hold → seven short beeps → release on the eighth, long beep.
 
 **E-stop (red button on the column):** cuts arm power and stops the lift column; the base becomes free to push by hand. After releasing the E-stop the base cannot be pushed any more. (Web doc 3.3.3.4.)
