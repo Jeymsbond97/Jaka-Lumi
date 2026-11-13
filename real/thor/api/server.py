@@ -229,8 +229,9 @@ def status():
                                        "running_status", "error_code", "estop_state", "is_paused")}
 
     def body():
-        return dict(zip(["lift_mm", "waist_deg", "head_yaw_deg", "head_pitch_deg"],
-                        (round(p, 2) for p in head.status())))
+        j = head.joints()
+        return {**dict(zip(["lift_mm", "waist_deg", "head_yaw_deg", "head_pitch_deg"], (round(x["pos"], 2) for x in j))),
+                "enabled": all(x["enable"] for x in j)}
 
     def arm_state():
         r = arm.cmd("get_robot_state")
