@@ -21,6 +21,8 @@ HEAD_REST_PITCH = PITCH_RANGE[0]  # deg; the head's rest: its lowest, looking do
                                  # and near things are in view. Every "head back / ahead" uses it; yaw rests at 0
 VEL = 40                         # speed ratio %, 1-100 (was 15: too slow to follow a visitor)
 ACC = 40                         # acceleration ratio %, 1-100
+ENABLE_TIMEOUT_S = 10.0          # s for reset / enable: the controller answers enable after more than 2 s (2026-11-13:
+                                 # the app's BODY enable failed twice with a 2 s timeout right after a power cycle)
 # Temporary: the head camera's cable is too short, any lift above the bottom pulls it out, so the lift stays at 0 and
 # Lumi searches by driving and turning. Back to 250 mm (the body API allows 300) when the longer cable is in.
 LIFT_MAX_MM = 0.0
@@ -60,7 +62,7 @@ def moveto(pos, vel=VEL, acc=ACC, timeout=30):
             if all(abs(a["pos"] - b["pos"]) < 0.05 for a, b in zip(before, joints)):   # the positions tell
                 break
         if not all(j["enable"] for j in joints):           # off after a controller power cycle; moveto needs them on
-            _call("enable", {"enable": 1})
+            _call("enable", {"enable": 1}, timeout=ENABLE_TIMEOUT_S)
         raw = [pos[0], pos[1] + WAIST_FRONT_DEG, pos[2], pos[3]]   # the controller counts the waist from its own 0
         return _call("moveto", {"pos": raw, "vel": vel, "acc": acc}, timeout=max(1.0, end - time.time()))
 
@@ -87,11 +89,11 @@ def set_enabled(on, retries=5):
     """Enable (vendor pattern: reset, enable, check, repeat) or disable all four body joints. Returns enabled()."""
     with _one:                                             # never in the middle of a moveto
         if not on:
-            _call("enable", {"enable": 0})
+            _call("enable", {"enable": 0}, timeout=ENABLE_TIMEOUT_S)
             return enabled()
         for _ in range(retries):
-            _call("reset", {})
-            _call("enable", {"enable": 1})
+            _call("reset", {}, timeout=ENABLE_TIMEOUT_S)
+            _call("enable", {"enable": 1}, timeout=ENABLE_TIMEOUT_S)
             if enabled():
                 return True
             time.sleep(0.3)
