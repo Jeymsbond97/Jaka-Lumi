@@ -763,6 +763,12 @@ def arm_enable(body: OnBody):
     return arm.cmd("enable_robot" if body.on else "disable_robot")
 
 
+@app.post("/body/enable", tags=["body"], summary="Enable / disable the lift, waist and head (all four joints)")
+def body_enable(body: OnBody):
+    robot_free(manual=True)
+    return {"enabled": head.set_enabled(body.on)}
+
+
 @app.post("/arm/run", tags=["arm"], summary="Run a Cobo π program (.jks) once, only from look; returns at once")
 def arm_run(body: ProgramBody):
     robot_free(manual=True)
