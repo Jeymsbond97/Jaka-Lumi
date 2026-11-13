@@ -7,6 +7,26 @@ replies always polite); Lumi is presented as developed by Cutshion Company (쿳�
 
 Update this file when a part is done. A new session: read this, then docs/17_MISSIONS.md, then ROADMAP.
 
+## Next session starts here (written 2026-11-13 evening)
+
+Done on 2026-11-13 (with the Lumi app work): `/body/enable` and `body.enabled` in `/status` (deployed to the Thor and
+running); the waist counted from the real front (`robot/head.py` `WAIST_FRONT_DEG` −20.4, `data/fetch_calib.json`
+`waist_deg` converted to +0.09) **written in this repo but NOT on the Thor yet**; base switched to map
+`cutshion_708_B_block` and marker `Home` set to the docked pose (docs/05 §2.3); charging stuck after the E-stop, fixed by a
+base power cycle (docs/01). Lumi was left on its dock, waist at −20.4° on the controller (the real front).
+
+1. Deploy and restart lumi-api (from the Mac):
+   `cd ~/Documents/PROJECTS/JakaLumi_simulation/real/thor && scp robot/head.py cutshion@192.168.0.250:Dev/lumi-wave/robot/head.py && scp data/fetch_calib.json cutshion@192.168.0.250:Dev/lumi-wave/data/fetch_calib.json && ssh cutshion@192.168.0.250 'systemctl --user restart lumi-api'`
+2. Check: `/status` `body.waist_deg` about 0 with the torso facing the base's front. If the front looks off, change only
+   `WAIST_FRONT_DEG` (try −20 / −21) and deploy again. Then `/body/move {"waist_deg": 0}` must keep it at the front.
+3. Run the self-checks on the Thor (they need its venv): `for t in tests/test_*.py; do .venv/bin/python "$t" || echo "FAILED $t"; done`,
+   first `test_fetch.py`, `test_fetch_head_aim.py`, `test_follow.py`, `test_look_me.py`, `test_come_give.py`.
+4. Open question: was the waist's front at −20 on the controller before too? Logs show it resting at −20 on earlier
+   days and the fetch calibration was measured at −20.31, so probably yes; a pick after the deploy will tell
+   (fetch uses the converted `waist_deg`).
+5. Lumi app (separate repo, Gitea `Jaka_Lumi/Lumi-App`): live test of the BODY and ARM chips, and the 3D waist and head
+   pitch against the real robot.
+
 ## Night 6 (2026-11-01 23:30 → 11-02 07:00): Korean first, then English — ENDED
 Owner: grow Korean understanding (banks, quick answers, LLM) at every register — 반말 / casual-rude 명령조 / 해요 /
 하십시오 / honorific / suggestion (가자, 갑시다) — with many sentences of the same meaning per command; then English the same;
