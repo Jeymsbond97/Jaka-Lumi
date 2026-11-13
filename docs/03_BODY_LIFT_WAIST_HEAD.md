@@ -19,7 +19,11 @@ The vendor web UI can show the lift above 300 mm (355 mm in a vendor screenshot)
 
 **Lift limit on this robot: 0–105 mm.** The head camera's cable is too short for a higher lift. One constant sets it: `robot/head.py` `LIFT_MAX_MM` (the `moveto()` clamp, `tasks/fetch.py` `LIFT_RANGE` / `LIFT_TRIES` and the dashboard jog follow it).
 
-Head yaw: the dashboard uses the full ±180°; the assistant's head tracking stays within `head.YAW_LIMIT` (±60°). The head pitch sign is not documented by the vendor.
+Head yaw: the dashboard uses the full ±180°; the assistant's head tracking stays within `head.YAW_LIMIT` (±60°). The head pitch sign is not documented by the vendor; on this robot **+pitch is up** and the bottom stop reads −5°. The URDF's `l_4` turns the other way (+ tilts the head down), so a 3D view of the URDF flips the sign (the Lumi app does).
+
+**Waist front: the controller's 0 is not the front.** With the torso facing the base's front (torso camera and the Cutshion logo over the middle of the base) the controller reads **−20.4°**; at its 0 the torso turns about 20° to the left (owner by eye, 2026-11-13). `robot/head.py` `WAIST_FRONT_DEG = -20.4` handles it in one place: `head.joints()` / `head.status()` give the waist from the front, `head.moveto()` adds the offset back, and the waist limits are shifted with it. Everything above `head.py` (lumi-api `/status`, `/body/move`, the assistant, fetch, follow, the dashboard and the Lumi app) counts 0 as the front. `data/fetch_calib.json` `waist_deg` was converted with it (−20.31 on the controller = +0.09 from the front). If the front looks off, change only `WAIST_FRONT_DEG`.
+
+**After a controller power cycle the joints are disabled and their angles are not real.** Seen 2026-11-13: right after power on the body read lift −5.7 mm, waist 17°, head yaw 8°, pitch −28° (under the −5° stop) with the robot at rest; a few minutes later, still disabled, it read real values. Do not show or use the angles until the joints are enabled (`/status` `body.enabled`, see §2).
 
 ---
 
@@ -50,6 +54,8 @@ Base URL: `http://192.168.10.90:5000/api/extaxis` (old documents: `http://10.5.5
 | POST | `/moveto` | `{"pos": [lift_mm, waist_deg, head_yaw_deg, head_pitch_deg], "vel": 100, "acc": 100}` | Move all 4 joints. **Blocks** until the motion ends or fails |
 | POST | `/stop` | `{}` | Stop the current motion (used by the vendor ROS node; not in the written doc) |
 | GET | `/status` | — | Array of 4 joint objects |
+
+lumi-api wraps it (`api/server.py`): `GET /status` → `body` = lift, waist (from the front), head yaw, head pitch and `enabled` (all four joints on); `POST /body/move` (slow; empty fields keep their value); `POST /body/enable {"on": true|false}` (vendor pattern: reset, enable, check, up to 5 times; off: disable) → `{"enabled": bool}`.
 
 `moveto` fields:
 
