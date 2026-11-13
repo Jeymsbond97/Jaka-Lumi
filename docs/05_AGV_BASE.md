@@ -43,6 +43,10 @@ Use Chrome.
 1. Map management → **Switch Map** → choose the map name and floor → **Apply** (the page `192.168.10.10:9001/robot-map-config.html`).
 2. Close map management and check the new map on the main page.
 
+Or through the API: `/api/map/set_current_map?map_name=<name>&floor=1` (the base service restarts, the reply is lost; it answers again after about 30 s). Docked with a dock marker on the new map, the base snaps to that marker by itself.
+
+**Current map (2026-11-13): `cutshion_708_B_block`.** Switched from `Solid` through the API with Lumi on its dock; it snapped to `Home`, 2 cm off. Then `Home` (type 11, num 1) was set to the docked pose with `/api/markers/insert_by_pose?name=Home&x=-1.222&y=0.0541&theta=-0.0435&floor=1&type=11&num=1`. Other markers unchanged (`a`, `b`, `p1`–`p10`, `PInit`, `Wp`, `exit`, `final`, docks `dock2`, `charge`). Maps on the base: `22`, `KINTEX`, `Solid` (marker `home`), `coex_*`, `cutshion_708*`, `expo1`, `factory_test`.
+
 ### 2.4 Position correction (relocalise)
 
 When the robot icon on the map is not where the robot really is (for example after switching maps, after pushing it while off, or after starting away from the dock):
