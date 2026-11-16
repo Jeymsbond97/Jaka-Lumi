@@ -200,18 +200,58 @@ def waist_turned():
     return safe(fetch._waist_turn, default=0.0) or 0.0
 
 
-def wave_greet_on():
-    """The dashboard's "Wave greeting" switch (MODES_FILE, written by api/server.py)."""
+def _switch(*keys):
     try:
         with open(MODES_FILE) as f:
-            return bool(json.load(f).get("wave_greet"))
+            d = json.load(f)
+        return any(bool(d.get(k)) for k in keys)
     except (OSError, ValueError):
         return False
 
 
+def base_stopped(timeout=None, every=0.2):
+    """Wait until the base stands (move_status not "running"), at most `timeout` s (BASE_STOP_WAIT_S). False if not."""
+    end = time.time() + (BASE_STOP_WAIT_S if timeout is None else timeout)
+    while True:
+        st = safe(agv.status, default=None) or {}
+        if st.get("move_status") not in ("running", None):
+            return True
+        if time.time() >= end:
+            return False
+        time.sleep(every)
+
+
+def talk_allowed(modes):
+    """Lumi talks, takes wake words and orders only with Greeter or Patrol on; with only Wave / Welcome it only waves
+    (owner, 2026-11-16). A stop word on the way works in every mode."""
+    return bool(getattr(modes, "greeter", True) or getattr(modes, "patrol", False))   # no switches known: as before
+
+
+def wave_greet_on():
+    """The Wave switch (MODES_FILE "wave_greet", written by api/server.py): waving on the way."""
+    return _switch("wave_greet")
+
+
+def welcome_on():
+    """The Welcome switch: on the charger the hand up in wave_start, waving at people who come into view."""
+    return _switch("welcome")
+
+
+def waving_on():
+    """The wave greeting runs (waves back at people who wave, keep alive) with Wave or Welcome on."""
+    return _switch("wave_greet", "welcome")
+
+
+def wave_only():
+    """Wave on without Greeter and Patrol (owner, 2026-11-16): the hand always up, waves at people passing, keep alive.
+    With Greeter or Patrol on too, Wave only answers people who wave, and drives go in look."""
+    return _switch("wave_greet") and not _switch("greeter", "patrol")
+
+
 def wave_greet_off():
-    """Switch the wave greeting off (after a stop of the arm), through the API like the dashboard does."""
-    req = urllib.request.Request(API_URL + "/assistant/modes", data=json.dumps({"wave_greet": False}).encode(),
+    """Switch the waving off after a stop of the arm, Wave and Welcome both (else Welcome raises the arm again by
+    itself), through the API like the dashboard does."""
+    req = urllib.request.Request(API_URL + "/assistant/modes", data=json.dumps({"wave_greet": False, "welcome": False}).encode(),
                                  headers={"Content-Type": "application/json"})
     try:
         urllib.request.urlopen(req, timeout=5).close()
@@ -241,15 +281,15 @@ def waist_home_rest(why):
                 log(f"  arm and waist stay ({why}): a task runs or something is in my hand")
                 return False
             fetch._stop.clear()
-            if wave_greet_on() and arm_route.where() in arm_route.WAVE_POSES:
-                wave_greet._quiet(10.0)               # the hand up for the greeting: the waist turns with it up,
-                                                      # its swings ended first
-            elif not fetch._at_pose(arm_route.HOME):
-                if not fetch._at_pose(arm_route.rest_pose()):
-                    log(f"  arm and waist stay ({why}): my arm is out")
-                    return False
-                arm_route.move(arm_route.plan(arm_route.HOME), HOME_ARM_SPEED)
-                log(f"  arm to look at home ({why})")
+            if arm_route.where() in arm_route.WAVE_POSES:
+                wave_greet._quiet(10.0)               # the hand up already: the waist turns with it up, its swings
+                                                      # ended first
+            else:                                     # on the charger the hand rests up in wave_start, with or
+                if not (fetch._at_pose(arm_route.HOME) or fetch._at_pose(arm_route.rest_pose())):   # without
+                    log(f"  arm and waist stay ({why}): my arm is out")                            # Welcome
+                    return False                                                                    # (owner,
+                arm_route.move(arm_route.plan(wave_mod.START), HOME_ARM_SPEED)                    # 2026-11-16)
+                log(f"  arm up to {wave_mod.START} at home ({why})")
             if fetch._waist_to(HOME_WAIST_DEG, in_place=True):
                 log(f"  waist to its rest at home, {HOME_WAIST_DEG:+.0f} deg ({why})")
                 return True
@@ -310,7 +350,7 @@ def _drive_arm(why):
             return
     except wave_mod.WaveError as e:                   # the way up refused: the drive goes in look
         log(f"  hand not up for the drive ({why}): {e.args[0]}")
-    wave_greet.lower()                                # a hand up for a wave greeting comes down before any drive
+    wave_greet.lower(speed=HOME_ARM_SPEED)            # a hand up comes down slowly to look before the drive (owner)
     if not fetch._at_pose(rest := fetch.drive_arm()):
         log(f"  arm to {rest} first ({why})")
         arm_route.move(arm_route.plan(rest, holding=False), None, False)
@@ -546,8 +586,11 @@ HEALTH_S = 30.0                    # s between "camera ok" lines in the log
 PATROL_WAIT_S = 8.0                # s; on patrol, after the greeting or the last answer, wait this long for speech
 LOW_BATTERY, RESUME_BATTERY = 5, 60    # %
 PAUSE_AT_END = 3.0                 # s to wait at each patrol point
-PASSER_WAVE_EVERY_S = 15.0         # s; a drive with the hand up stops to wave at people at most this often (else the
-                                   # same person is waved at again and again; estimate)
+BASE_STOP_WAIT_S = 5.0             # s a drive's stop for a wave waits for the base to stand; it never swings on a moving
+                                   # base (agv.cancel is only a request; review 2026-11-16)
+PASSER_WAVE_EVERY_S = 5.0          # s; a drive with the hand up stops to wave at people at most this often; each
+                                   # person is waved at once (wave_greet._passed), this only keeps a stop that could not
+                                   # wave (someone by the arm) from repeating every second (was 15 s; 2026-11-16)
 WAVER_AGAIN_S = 3.0                # s after a drive's swings before someone waving stops it again (they are still
                                    # waving at the swings they got; estimate)
 DOCK_QUIET_M = 2.0                 # m; on the way to the dock nearer than this no stop for a wave (the docking starts
@@ -885,6 +928,7 @@ class Patrol:
         self.dock_leg = False            # this leg goes to the dock: a stop near it undid the docking (dock_far)
         self.waving = None               # the thread swinging for people passing (wave_greet.passer_wave)
         self.wave_after = 0.0            # no wave for passers before this (PASSER_WAVE_EVERY_S)
+        wave_greet.note_quiet_start()    # keep alive counts from the start of this trip
         self.waver_after = 0.0           # nor for someone waving (WAVER_AGAIN_S after the last swings)
         self.mode = "patrol"             # patrol | going_home | charging | done
         self.moving = False              # a move that we started is running
@@ -930,15 +974,18 @@ class Patrol:
             return
 
         if self.moving:
-            if ms == "running" and self.hand_up and now >= self.waver_after and wave_greet_on():
-                target = self.route[self.i]              # someone waving: answered every time (WAVER_AGAIN_S);
-                waver = wave_greet._waver() and (not self.dock_leg or self.dock_far(st))   # anyone else on the
-                passer = now >= self.wave_after and not self.dock_leg and isinstance(target, str) and \
-                    (self.passers or target.startswith(PASSER_MARKERS)) and wave_greet.passer_due()   # lines
-                if waver or passer:
+            if ms == "running" and now >= self.waver_after and wave_greet_on():
+                alone = wave_only()                      # Wave alone: waves at people passing (each once), keep alive;
+                waver = bool(wave_greet._waver()) and (not self.dock_leg or self.dock_far(st))   # with Greeter /
+                passer = alone and self.hand_up and now >= self.wave_after and not self.dock_leg and \
+                    wave_greet.passer_due()              # Patrol only someone waving is answered (owner, 2026-11-16)
+                keep = alone and self.hand_up and not (waver or passer) and now >= self.wave_after and \
+                    not self.dock_leg and wave_greet.keep_alive_due(now)   # 30 s quiet
+                if waver or passer or keep:
                     self.pause()                         # the base stops; the next tick drives on to the same marker
                     self.wave_after = now + PASSER_WAVE_EVERY_S
-                    self.waving = threading.Thread(target=self.passer_wave, daemon=True)
+                    job = self.keep_alive if keep else self.passer_wave if self.hand_up else self.answer_waver
+                    self.waving = threading.Thread(target=job, daemon=True)
                     self.waving.start()
                     return
             if ms == "running":
@@ -953,12 +1000,11 @@ class Patrol:
                         f"(no free path? glass door, people, no-go line) - cancelled")
                     safe(agv.cancel)
                     self.moving, self.progress = False, None
-                    self.stuck = target
-                    if self.once:
+                    self.stuck = target                 # said aloud (say_stuck), also with only Wave on
+                    if self.once and not wave_only():   # a trip by voice: "try again", "go around it" (detour)
                         self.mode = "done"
-                    else:
-                        self.i = (self.i + 1) % len(self.route)
-                        self.wait_until = now + 5
+                    else:                               # a loop, or a Wave trip: the same place again once the way
+                        self.wait_until = now + 5       # is free (owner, 2026-11-16; it went on to the next one)
                 return
             self.moving, self.progress = False, None
             if self.mode == "going_home":
@@ -985,6 +1031,8 @@ class Patrol:
                 self.wait_until = now + 5
             return
         if (ms == "running" and not force) or now < self.wait_until:   # something else is driving, or waiting
+            return
+        if wave_greet.drive_wave_busy():                # an earlier trip's swings still run: the arm must be still
             return
         target = self.route[self.i]
         if not waist_home("driving", fold=True):                   # every drive starts with the waist at the front
@@ -1013,11 +1061,37 @@ class Patrol:
         pose = st.get("current_pose") or {}
         return xy is not None and math.hypot(pose.get("x", 0.0) - xy[0], pose.get("y", 0.0) - xy[1]) > DOCK_QUIET_M
 
+    def answer_waver(self):
+        """Someone waves at a drive in look (Greeter / Patrol with Wave): the hand up, waves while they wave, down
+        slowly to look again, then the drive goes on (wave_greet.answer_waver). A stop or a failure ends the patrol."""
+        try:
+            if base_stopped():
+                wave_greet.answer_waver(speed=HOME_ARM_SPEED)
+        except Exception as e:
+            log(f"patrol ended: the arm stopped ({e!r})")
+            self.mode = "done"
+        finally:
+            self.waver_after = time.time() + WAVER_AGAIN_S
+
+    def keep_alive(self):
+        """Keep alive on the way (wave_greet.keep_alive_wave), once the base stands: a stop or a failure of the arm
+        ends the patrol. No swing (the base did not stop, the hand not at the wave, someone by the arm): the quiet
+        count starts again, so the base is not stopped again at once."""
+        try:
+            if not (base_stopped() and wave_greet.keep_alive_wave()):
+                wave_greet.note_quiet_start()
+        except Exception as e:
+            log(f"patrol ended: the arm stopped ({e!r})")
+            self.mode = "done"
+
     def passer_wave(self):
         """Swings for the people passing (wave_greet.passer_wave); a stop or a failure of the arm ends the patrol (the
         arm never moves again by itself after a stop)."""
         try:
-            wave_greet.passer_wave()
+            if base_stopped():
+                wave_greet.passer_wave()
+            else:
+                log("no wave: the base did not stop")
         except Exception as e:
             log(f"patrol ended: the arm stopped ({e!r})")
             self.mode = "done"
@@ -1030,7 +1104,8 @@ class Modes:
 
     def __init__(self, args):
         self.greeter, self.patrol = True, bool(args.patrol)
-        self.wave = not args.no_arm
+        self.wave = not args.no_arm                # the arm may be used at all (--no-arm; an old "wave" key too)
+        self.wave_greet = self.welcome = False     # the Wave and Welcome switches (owner, 2026-11-16)
         self._read, self._mtime = 0.0, None
         self.refresh(force=True)
 
@@ -1044,7 +1119,8 @@ class Modes:
             if m != self._mtime:
                 self._mtime = m
                 d = json.load(open(MODES_FILE))
-                changed = {k: d[k] for k in ("greeter", "patrol", "wave") if k in d and d[k] != getattr(self, k)}
+                changed = {k: d[k] for k in ("greeter", "patrol", "wave", "wave_greet", "welcome")
+                           if k in d and d[k] != getattr(self, k)}
                 for k, v in changed.items():
                     setattr(self, k, bool(v))
                 if changed and not force:
@@ -3565,6 +3641,8 @@ class Lumi:
             log(f"  stop word while moving: {text!r} (no wake word needed)")   # "Stop." on a trip went on, 2026-10-23
             self.stop_all()
             return True
+        if not talk_allowed(getattr(self, "modes", None)):   # only Wave / Welcome on: no calls, no talk
+            return False
         if during:
             if text and WAKE.search(text):
                 log(f"  heard {text!r} while I talked: not taken as a call (it could be my own voice)")
@@ -3919,7 +3997,7 @@ class Lumi:
         following = follow.running()                       # no greetings (the head would turn away), keep listening
         greet_now = self.modes.greeter and not moving and time.time() > self.quiet_until and not following \
             and not self.doing() and self.current is None  # never during a task or while talking with someone
-        if greet_now and wave_greet_on():                  # a wave is answered by the wave greeting (arm and words)
+        if greet_now and waving_on():                      # a wave is answered by the wave greeting (arm and words)
             greet_now = False
         candidate = self.waver() if greet_now else None    # Lumi never speaks to someone who only stands there or
         focus = self.current or candidate                  # walks past: a wave (or the wake word) calls it
@@ -4045,10 +4123,15 @@ class Lumi:
                      self.fetch_status() != "running", look_held=self.look_held)
         self.warm_llm()
         if self.vision and self.modes.wave:            # the API's wave greeting waits while this process runs
-            wave_greet.start(wave_greet_on, self.wave_free, wave_greet_off, free_every=0.05,
+            wave_greet.start(waving_on, self.wave_free, wave_greet_off, free_every=0.05,
+                             talk=lambda: talk_allowed(self.modes), drive_on=wave_only,
+                             welcome=lambda: on_charger() or wave_only(),   # the hand held up: at home, or Wave alone
+                             home=lambda: welcome_on() and on_charger() and self.current is None and
+                             time.time() >= self.voice_until,
                              rest=lambda: HOME_WAIST_DEG if on_charger() else 0.0,
-                             rest_arm=lambda: arm_route.HOME if on_charger() else arm_route.rest_pose(),
-                             idle=lambda: time.time() - getattr(self, "last_activity", 0.0) > IDLE_AFTER_S and on_charger())   # 0: idle
+                             rest_arm=lambda: wave_mod.START if on_charger() else arm_route.rest_pose(),
+                             idle=lambda: welcome_on() and on_charger() and time.time() >= self.voice_until and
+                             time.time() - getattr(self, "last_activity", 0.0) > wave_greet.KEEP_QUIET_S)   # keep alive
                              # from the start when nobody has talked yet
         log("ready")
         self.run_camera() if self.vision else self.run_desk()
