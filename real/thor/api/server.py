@@ -38,6 +38,7 @@ from robot import motion
 from vision import objects
 from robot import head
 from manipulation import arm_route
+from robot import rosbridge
 from manipulation import skills
 from manipulation import wave
 from tasks import wave_greet
@@ -726,6 +727,20 @@ class MapBody(BaseModel):
     floor: int = 1
 
 
+MARKER_NAME = r"^[A-Za-z0-9_-]{1,50}$"   # the base takes letters, digits, _ and - only, at most 50 characters
+
+
+class MarkerBody(BaseModel):
+    name: str = Field(examples=["door_1"], description="letters, digits, _ and - (an existing name is moved)")
+    x: float | None = Field(None, description="m, map frame; none: where Lumi stands now")
+    y: float | None = None
+    theta: float = Field(0.0, description="rad, map frame (with x, y)")
+
+
+class MarkerName(BaseModel):
+    name: str
+
+
 class OnBody(BaseModel):
     on: bool
 
@@ -764,15 +779,31 @@ def map_info():
             "maps": [{"name": n, "floors": f} for n, f in sorted(maps.items())]}
 
 
+DARK_UNKNOWN, DARK_FREE, DARK_WALL = (10, 11, 13), (22, 26, 31), (232, 232, 232)   # RGB, the Lumi app's look
+
+
+def _dark(png):
+    """The base's grey map (205 unknown, 255 free, 0 walls) in the app's dark look, same size."""
+    import cv2
+    import numpy as np
+    g = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_GRAYSCALE)
+    out = np.empty(g.shape + (3,), np.uint8)
+    out[:] = DARK_UNKNOWN[::-1]                      # BGR
+    out[g > 230] = DARK_FREE[::-1]
+    out[g < 60] = DARK_WALL[::-1]
+    return cv2.imencode(".png", out)[1].tobytes()
+
+
 @app.get("/map/image", tags=["map"], summary="Map picture (PNG) from the base; default the current map")
-def map_image(map_name: str | None = None, floor: int | None = None):
+def map_image(map_name: str | None = None, floor: int | None = None, dark: bool = False):
     if map_name is None:
         cur = agv.request("/api/map/get_current_map")["results"]
         map_name, floor = cur["map_name"], cur["floor"]
     url = f"{AGV_WEB}/maps/{urllib.request.quote(map_name)}/{floor or 1}/map.png"
     try:
         with urllib.request.urlopen(url, timeout=10) as r:
-            return Response(r.read(), media_type="image/png", headers={"Cache-Control": "max-age=60"})
+            png = r.read()
+        return Response(_dark(png) if dark else png, media_type="image/png", headers={"Cache-Control": "max-age=60"})
     except Exception as e:
         raise HTTPException(502, f"map picture not available: {e}")
 
@@ -784,6 +815,75 @@ def map_switch(body: MapBody):
         r = agv.request(f"/api/map/set_current_map?map_name={body.map_name}&floor={body.floor}", timeout=10)
     except Exception as e:                       # the base restarts and may not answer
         r = {"note": f"no reply ({e}); the base is restarting"}
+    return {"ok": True, "reply": r}
+
+
+def _marker_name(name):
+    if not re.match(MARKER_NAME, name or ""):
+        raise HTTPException(422, "A marker name has letters, digits, _ and - only (at most 50).")
+    return name
+
+
+@app.post("/map/marker", tags=["map"], summary="Save a marker where Lumi stands, or at x, y, theta (the Lumi app)")
+def marker_save(body: MarkerBody):
+    name = _marker_name(body.name)
+    if body.x is None or body.y is None:
+        r = agv.request(f"/api/markers/insert?name={name}&type=0&num=1")
+    else:
+        r = agv.request(f"/api/markers/insert_by_pose?name={name}&x={body.x}&y={body.y}&theta={body.theta}&type=0")
+    agv.known_markers(fresh=True)                # drives to it work at once
+    return {"ok": True, "reply": r}
+
+
+@app.post("/map/marker/delete", tags=["map"], summary="Delete a marker (never the main dock)")
+def marker_delete(body: MarkerName):
+    name = _marker_name(body.name)
+    if name == agv.dock_marker():
+        raise HTTPException(409, "The charger's marker stays: Lumi docks with it.")
+    r = agv.request(f"/api/markers/delete?name={name}")
+    agv.known_markers(fresh=True)
+    return {"ok": True, "reply": r}
+
+
+@app.post("/map/position", tags=["map"], summary="Set where Lumi is on the map (relocalise; x, y in m, theta in rad)")
+def map_position(body: PointBody):
+    robot_free()
+    r = agv.request(f"/api/position_adjust_by_pose?x={body.x}&y={body.y}&theta={body.theta}")
+    return {"ok": True, "reply": r}
+
+
+LASER_X = 0.126   # m the 2D lidar sits ahead of the base's centre (URDF Radar_Link, docs/01_HARDWARE.md)
+
+
+def scan_points(scan, every=2, laser_x=LASER_X):
+    """A sensor_msgs/LaserScan as points [x ahead, y left] (m) around the base's centre; every `every`-th ray, rays
+    without a reading or out of range left out."""
+    a0, da = scan.get("angle_min", 0.0), scan.get("angle_increment", 0.0)
+    lo, hi = scan.get("range_min", 0.0), scan.get("range_max", 1e9)
+    out = []
+    for i, r in enumerate(scan.get("ranges") or []):
+        if i % every or r is None or not (lo <= r <= hi):
+            continue
+        a = a0 + i * da
+        out.append([round(laser_x + r * math.cos(a), 3), round(r * math.sin(a), 3)])
+    return out
+
+
+@app.get("/map/scan", tags=["map"], summary="What the lidar sees now, as points around the base (the Lumi app's "
+                                             "position correction)")
+def map_scan():
+    try:
+        m = rosbridge.read_once("/scan", timeout=3.0)
+    except OSError as e:
+        raise HTTPException(502, f"lidar not available: {e}")
+    return {"frame": "base", "points": scan_points(m["msg"])}
+
+
+@app.post("/map/position/marker", tags=["map"], summary="Lumi stands at this marker: its pose is taken from it")
+def map_position_marker(body: MarkerName):
+    name = _marker_name(body.name)
+    robot_free()
+    r = agv.request(f"/api/position_adjust?marker={name}")
     return {"ok": True, "reply": r}
 
 

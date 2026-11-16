@@ -305,3 +305,33 @@ Commissioning checks:
 4. Try the soft E-stop on and off.
 5. Subscribe to `human_detection`, walk around the robot, log positions (shows whether leg tracking is enabled).
 6. Create a marker, `/api/move?marker=...`, poll until `succeeded`.
+
+## 6. The map from the Lumi app (lumi-wave `/map/*`)
+
+The Lumi app's Map screen does what the web monitor's map page does, through lumi-wave (`api/server.py`, tag `map`).
+Tests: `tests/test_map_edit.py`, `tests/test_rosbridge.py` (no robot needed).
+
+| Endpoint | What it does | On the base |
+|---|---|---|
+| `GET /map/info` | current map, size, resolution, origin, markers with poses, all maps | `map/get_current_map`, `markers/query_list` |
+| `GET /map/image?dark=true` | the map picture; `dark` recolours it for the app (unknown, free, wall) | map PNG |
+| `POST /map/switch` | use another map (the base service restarts, about 15 s; relocalise after) | `map/set_current_map` |
+| `POST /map/marker` | save a marker where Lumi stands, or at `x, y, theta` | `markers/insert`, `markers/insert_by_pose` |
+| `POST /map/marker/delete` | delete a marker; the main dock is refused (409) | `markers/delete` |
+| `POST /map/position` | position correction at `x, y, theta` (only while the base is free) | `position_adjust_by_pose` |
+| `POST /map/position/marker` | Lumi stands at this marker: pose taken from it | `position_adjust?marker=` |
+| `GET /map/scan` | what the lidar sees now, points `[x ahead, y left]` (m) around the base's centre | rosbridge `/scan` |
+| `POST /agv/go_point` | drive to a point on the map | `move?location=` |
+
+Marker names: letters, digits, `_` and `-`, at most 50 (`MARKER_NAME`).
+
+**The lidar.** The base runs rosbridge on `ws://192.168.10.10:9090` (its own web pages use it). `robot/rosbridge.py` is a
+small WebSocket client of our own (no extra package) that reads one message of a topic. `/scan` (frame `front_laser`)
+has 683 rays over ±120°, 0.05 to 30 m; `/map/scan` keeps every second ray and moves them by `LASER_X` 0.126 m (the
+lidar sits ahead of the centre, URDF `Radar_Link`). `/tf_static` did not answer through rosbridge, so the offset is
+taken from the URDF.
+
+**Position correction in the app** works like §2.4: POSITION ▾ → *Tap or drag on the map*. The scan is drawn once a
+second in red at the pose the base believes and in purple at the new pose; arrows move the new pose 5 cm, turns 2°;
+a tap or a drag on the map sets the place and heading. When the purple dots sit on the walls, SET POSITION. Or
+*Lumi is at* → a marker.
