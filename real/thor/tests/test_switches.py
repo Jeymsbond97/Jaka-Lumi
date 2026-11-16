@@ -239,7 +239,7 @@ assert lumi.waist_home("test") is False
 # also with the waist at the front already
 went = []
 real_plan, real_move, real_lower = lumi.arm_route.plan, lumi.arm_route.move, lumi.wave_greet.lower
-lumi.arm_route.plan, lumi.wave_greet.lower = (lambda target, holding=False: [target]), (lambda: None)
+lumi.arm_route.plan, lumi.wave_greet.lower = (lambda target, holding=False: [target]), (lambda **k: None)
 lumi.arm_route.move = lambda seq, speed=None, holding=False: went.append(seq[-1])
 fetch._waist_turn, fetch._at_pose, fetch.state = (lambda: 0.4), (lambda name: name == "rest"), (lambda: {"status": "idle"})
 assert lumi.waist_home("drive", fold=True) and went == ["look"], went
@@ -269,19 +269,23 @@ order.clear()
 P = lumi.Patrol(["p3"])
 P.tick(force=True)
 assert order == ["waist", ("go", "home")] and P.mode == "going_home", order
-# a there-and-back loop (p1, p2) stops for anyone passing, a plain trip to p3 only for someone waving
+# with Wave on every drive (a loop or a plain trip) stops for someone new passing (owner, 2026-11-16); a dock leg not
 lumi.agv.status = lambda: {"move_status": "running", "power_percent": 90}
 real_on, real_due, real_waver = lumi.wave_greet_on, lumi.wave_greet.passer_due, lumi.wave_greet._waver
+real_only, lumi.wave_only = lumi.wave_only, (lambda: True)   # Wave alone: stops for people passing
 lumi.wave_greet_on, lumi.wave_greet.passer_due, lumi.wave_greet._waver = (lambda: True), (lambda: True), \
     (lambda: False)
-for passers, stops in ((True, True), (False, False)):
-    P = lumi.Patrol(["p1", "p2"], passers=passers)
+for route, passers, stops in ((["p1", "p2"], True, True), (["p3"], False, True), ([(1.0, 2.0, 0.0)], False, True),
+                              (["home"], False, False)):
+    P = lumi.Patrol(route, passers=passers)
+    P.dock_leg = route == ["home"]
     P.moving, P.hand_up, P.passer_wave = True, True, (lambda: None)
     P.pause = lambda: order.append("pause")
     order.clear()
     P.tick(force=True)
-    assert (order == ["pause"]) == stops, (passers, order)
+    assert (order == ["pause"]) == stops, (route, order)
 lumi.wave_greet_on, lumi.wave_greet.passer_due, lumi.wave_greet._waver = real_on, real_due, real_waver
+lumi.wave_only = real_only
 lumi.agv.status = lambda: {"move_status": "idle", "power_percent": 90}
 L.modes.patrol = True
 real_turned, lumi.waist_turned = lumi.waist_turned, lambda: 30.0   # turned 30 left for someone
@@ -307,11 +311,13 @@ with tempfile.TemporaryDirectory() as tmp:
     m = lumi.Modes(types.SimpleNamespace(patrol=None, no_arm=False))
     assert (m.greeter, m.patrol, m.wave) == (True, True, False) and not hasattr(m, "drive"), vars(m)
 
-# ---------- on the charger with nothing to do: the arm slowly from rest to look, the waist to HOME_WAIST_DEG; off
+# ---------- on the charger with nothing to do: the arm slowly from rest or look up to wave_start (owner, 2026-11-16:
+# at home the hand rests up, with or without Welcome), the waist to HOME_WAIST_DEG; off
 # it, with a drive running, a task, a cup or the hand out: nothing moves ----------
 turned, arm_at = [], {"now": "rest"}
 real_waist_to, real_at_pose, real_state = fetch._waist_to, fetch._at_pose, fetch.state
 real_plan, real_move, real_rest = lumi.arm_route.plan, lumi.arm_route.move, lumi.arm_route.rest_pose
+real_where, lumi.arm_route.where = lumi.arm_route.where, (lambda now=None: arm_at["now"])
 fetch._waist_to = lambda rel, in_place=False, look=None: turned.append(("waist", rel)) or True
 fetch._at_pose = lambda name: name == arm_at["now"]
 lumi.arm_route.rest_pose = lambda holding=False: "rest"
@@ -319,8 +325,9 @@ lumi.arm_route.plan = lambda target, holding=False: [target]
 lumi.arm_route.move = lambda seq, speed=None, holding=False: turned.append(("arm", seq[-1], speed)) or arm_at.update(now=seq[-1])
 fetch.state = lambda: {"status": "idle"}
 for st, at, want in (({"charge_state": True, "move_status": "succeeded"}, "rest",
-                      [("arm", "look", lumi.HOME_ARM_SPEED), ("waist", lumi.HOME_WAIST_DEG)]),
-                     ({"charge_state": True, "move_status": "idle"}, "look", [("waist", lumi.HOME_WAIST_DEG)]),
+                      [("arm", "wave_start", lumi.HOME_ARM_SPEED), ("waist", lumi.HOME_WAIST_DEG)]),
+                     ({"charge_state": True, "move_status": "idle"}, "look",
+                      [("arm", "wave_start", lumi.HOME_ARM_SPEED), ("waist", lumi.HOME_WAIST_DEG)]),
                      ({"charge_state": True, "move_status": "running"}, "rest", []),      # leaving the charger
                      ({"charge_state": False, "move_status": "idle"}, "rest", []),       # not at home
                      ({"charge_state": True, "move_status": "idle"}, "give", [])):       # the hand held out
@@ -332,6 +339,7 @@ for task in ({"status": "running"}, {"status": "idle", "holding": True}):   # a 
     assert not lumi.waist_home_rest("test") and turned == [], task
 fetch._waist_to, fetch._at_pose, fetch.state = real_waist_to, real_at_pose, real_state
 lumi.arm_route.plan, lumi.arm_route.move, lumi.arm_route.rest_pose = real_plan, real_move, real_rest
+lumi.arm_route.where = real_where
 
 # ---------- on the charger the body stays turned to its rest: someone speaking or calling turns the head only ------
 moves = []

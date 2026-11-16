@@ -41,7 +41,7 @@ manual = (lambda: server.jog(JOG), server.gripper_open, server.gripper_close)
 
 # a modes file with keys no longer used ("drive", "wave" when asked) still loads, without them
 server.MODES_FILE.write_text(json.dumps({"greeter": True, "patrol": False, "wave": True, "drive": False}))
-assert server.read_modes() == {"greeter": True, "patrol": False, "wave_greet": False}, server.read_modes()
+assert server.read_modes() == {"greeter": True, "patrol": False, "wave_greet": False, "welcome": False}, server.read_modes()
 
 # idle, Patrol on: allowed
 server.MODES_FILE.write_text(json.dumps({"greeter": True, "patrol": True}))

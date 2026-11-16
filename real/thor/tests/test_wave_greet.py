@@ -227,65 +227,83 @@ done.clear()
 g.lower()                                           # the hand is down: nothing moves
 assert done == [], done
 
-# nothing asked for a while on the charger (_idle): the hand goes up and stays up, no words; 2 swings every
-# IDLE_WAVE_EVERY_S while nobody talks; a call stops them (the hand still up); a drive brings it down (lower); someone
-# waving is greeted as always
+# Welcome (owner, 2026-11-16): switched on, the hand goes up to wave_start at once and stays, no swings yet, no words;
+# someone right by the arm: later. At home (_home) a new person 0.8..6 m: the head to them and IDLE_SWINGS swings, each
+# person once. Keep alive (_idle: Welcome, on the charger, nobody talked for KEEP_QUIET_S): KEEP_QUIET_S after the last
+# wave at people, IDLE_SWINGS swings every IDLE_WAVE_EVERY_S toward the nearest person at any distance, else the front.
 fresh()
 waver["w"] = None
-g._idle, g._rest_arm = (lambda: True), (lambda: "look")
-g._someone_within = lambda m: True                      # someone right by the arm: no idle wave, tried again later
-g._st["idle_at"] = 0.0
+g._welcome, g._home, g._idle, g._rest_arm = (lambda: True), (lambda: False), (lambda: False), (lambda: "look")
+g._someone_within = lambda m: True
 run(690.0, 690.0)
 assert done == [], done
 g._someone_within = lambda m: False
-arm["at"] = "rest"                                      # the arm still on its way to look on the charger: not yet
-g._st["idle_at"] = 0.0
 run(691.0, 691.0)
-assert done == [], done
-arm["at"] = "look"
-g._st["idle_at"] = 700.0                                # the last idle wave
-run(700.0, 700.0 + g.IDLE_WAVE_EVERY_S - 1)
-assert done == [] and said == [], done                  # not before IDLE_WAVE_EVERY_S
-run(700.0 + g.IDLE_WAVE_EVERY_S + 0.5, 700.0 + g.IDLE_WAVE_EVERY_S + 0.5)
-assert done == ["up route"] + ["swing"] * g.IDLE_SWINGS and said == [] and g._st["up"] and g._st["held"], (done, said)
+assert done == ["up route"] and g._st["up"] and g._st["held"] and said == [], (done, said)
+run(691.5, 700.0)
+assert done == ["up route"], done                       # held up, still: nobody new, keep alive not allowed
+g._home = lambda: True
+person, marked = {"p": (25.0, 3.0, None, None)}, []
+real_new, real_mark = g._new_passer, g._mark_passed
+g._new_passer = lambda now=None: person["p"]
+g._mark_passed = lambda now=None: marked.append(1) or person.update(p=None)
 done.clear()
-t = 700.0 + g.IDLE_WAVE_EVERY_S + 1
-run(t, t + g.IDLE_WAVE_EVERY_S - 2)
-assert done == [], done                                 # up, still, until the next swings
-run(t + g.IDLE_WAVE_EVERY_S, t + g.IDLE_WAVE_EVERY_S + 200)
-assert done.count("swing") >= 2 * 9 and "down normal" not in done and "up route" not in done, done   # never down
+run(701.0, 702.0)
+assert done[0] == "head +25" and done.count("swing") == g.IDLE_SWINGS and marked == [1] and said == [], done
+done.clear()
+run(702.5, 710.0)
+assert "swing" not in done, done                        # the same person: not again
+g._idle = lambda: True
+nearest = {"b": None}
+real_any, g._nearest_any = g._nearest_any, (lambda now=None: nearest["b"])
+run(710.5, 701.0 + g.KEEP_QUIET_S - 1)
+assert "swing" not in done, done                        # not before KEEP_QUIET_S after the last wave at people
+run(701.0 + g.KEEP_QUIET_S + 0.5, 701.0 + g.KEEP_QUIET_S + 1.5)
+assert done.count("swing") == g.IDLE_SWINGS, done       # nobody seen: to the front
+done.clear()
+t = 701.0 + g.KEEP_QUIET_S + 2
+nearest["b"] = -40.0                                    # someone far away on the right
+run(t, t + g.IDLE_WAVE_EVERY_S - 3)
+assert done == [], done                                 # not before IDLE_WAVE_EVERY_S
+run(t + g.IDLE_WAVE_EVERY_S, t + g.IDLE_WAVE_EVERY_S + 1)
+assert done[0] == "head -40" and done.count("swing") == g.IDLE_SWINGS, done
+done.clear()
 talk = {"on": True}                                     # someone talks to Lumi: no swings, the hand stays up, still
 g._idle = lambda: not talk["on"]
-done.clear()
+g._home = lambda: not talk["on"]
 run(1000.0, 1100.0)
 assert done == [] and g._st["up"], done
-talk["on"] = False                                      # quiet again: the swings go on
-run(1101.0, 1102.0)
-assert done == ["swing"] * g.IDLE_SWINGS, done
-done.clear()
 g.lower()                                               # a drive: down to the front first
 assert "down normal" in done and not g._st["up"] and not g._st["held"], done
-done.clear()                                            # the hand left up (its way down did not run): swings from there
-arm["at"], g._st["idle_at"] = "wave_start", 0.0
-run(1200.0, 1200.0)
-assert done == ["swing"] * g.IDLE_SWINGS and g._st["held"], done
-g.lower()
-g._idle = lambda: True
 done.clear()
-said.clear()                                            # someone waves back during an idle wave: greeted as always,
-real_waver, g._waver = g._waver, (lambda: W(20.0))      # the hand stays up and swings on
-arm["at"], g._st["idle_at"], g._st["up"] = "look", 0.0, False
-run(760.0, 760.0)
-assert "up route" in done and "down normal" not in done and g._st["up"], done
-run(760.5, 762.0)
-assert said and said[0] in sum(g.wave_lines.INTRO + g.wave_lines.GREET, ()) and done.count("swing") >= 1, (done, said)
-g._waver = real_waver
-g._st["up"] = g._st["held"] = False
-done.clear()
-g._idle = lambda: False                                 # someone talks to Lumi, or off the charger: no idle waves
-run(800.0, 900.0)
+g._welcome = lambda: False                              # Welcome off: nothing goes up by itself on the charger
+g._idle = g._home = lambda: True
+run(1200.0, 1300.0)
 assert done == [], done
-g._idle, g._rest_arm = (lambda: False), g.arm_route.rest_pose
+g._welcome, g._home, g._idle, g._rest_arm = (lambda: False), (lambda: False), (lambda: False), g.arm_route.rest_pose
+g._new_passer, g._mark_passed, g._nearest_any = real_new, real_mark, real_any
+
+# keep alive on the way (Wave on, lumi.Patrol): due KEEP_QUIET_S after the last swing of any kind, not with someone by
+# the arm; IDLE_SWINGS swings toward the nearest person at any distance, else the front, only with the hand up
+g._st["any_wave"] = 2000.0
+assert not g.keep_alive_due(2000.0 + g.KEEP_QUIET_S - 1)
+assert g.keep_alive_due(2000.0 + g.KEEP_QUIET_S)
+g._someone_within = lambda m: True
+assert not g.keep_alive_due(2000.0 + g.KEEP_QUIET_S)
+g._someone_within = lambda m: False
+g.note_quiet_start(3000.0)
+assert not g.keep_alive_due(3000.0 + 1) and g.keep_alive_due(3000.0 + g.KEEP_QUIET_S)
+real_any, g._nearest_any = g._nearest_any, (lambda now=None: 15.0)
+arm["at"] = "look"
+done.clear()
+assert not g.keep_alive_wave() and done == []          # the hand is not up
+arm["at"] = "wave_start"
+assert g.keep_alive_wave() and done.count("swing") == g.IDLE_SWINGS, done
+time.sleep(0.2)
+assert "head +15" in done and done[-1] == "head +0" and g._st["any_wave"] > 3000.0, done
+g._nearest_any = real_any
+arm["at"] = "look"
+done.clear()
 
 # Lumi introduces itself once per person: the same person waving again (after NEW_WAVE_S) gets a hello, someone
 # else an introduction, and the first person too once they were out of view for GONE_S
@@ -310,29 +328,62 @@ waver["w"] = W(0.0)
 run(621.0, 621.0)
 assert said[-1] in sum(g.wave_lines.INTRO, ()), said
 
-# a loop patrol's wave for people passing: only with the hand up, someone within PASSER_M, nobody by the arm
+# a drive's wave for people passing (Wave on): only with the hand up, a new person PASSER_MIN_M..PASSER_M away,
+# nobody by the arm; each person once (_mark_passed after the swings, owner 2026-11-16)
 near = {"m": None}
+marked = []
 waver["w"] = None
 g._someone_within = lambda m: near["m"] is not None and near["m"] < m
-g._nearest = lambda m: 20.0 if near["m"] is not None and near["m"] < m else None
+real_new, g._new_passer = g._new_passer, lambda now=None: (20.0, near["m"], None, None) \
+    if near["m"] is not None and g.PASSER_MIN_M <= near["m"] <= g.PASSER_M else None
+real_mark, g._mark_passed = g._mark_passed, lambda now=None: marked.append(1)
+assert (g.PASSER_MIN_M, g.PASSER_M, g.IDLE_CLEAR_M) == (0.8, 6.0, 0.8)
 saved, arm["at"] = arm["at"], "wave_start"
 done.clear()
 assert not g.passer_wave() and not done              # nobody there
 assert not g.passer_due()
 near["m"] = 0.5
 assert not g.passer_wave() and not done and not g.passer_due()   # someone right by the arm: no stop, no wave
-near["m"] = 1.2
-assert g.passer_due()                                # just over 1 m: a stop and a wave
+near["m"] = 0.75
+assert not g.passer_due()                            # within IDLE_CLEAR_M 0.8: no stop
+near["m"] = 0.9
+assert g.passer_due()                                # just over 0.8 m: a stop and a wave
 near["m"] = g.PASSER_M + 0.5
 assert not g.passer_due()                            # too far
 near["m"] = 2.0
-assert g.passer_wave() and done.count("swing") == g.IDLE_SWINGS
+assert g.passer_wave() and done.count("swing") == g.IDLE_SWINGS and marked == [1]   # remembered as waved at
 time.sleep(0.2)                                      # the head turns in the background
 assert "head +20" in done and done[-1] == "head +0"  # to them, then ahead again for the drive
 arm["at"], near["m"] = "look", 2.0
 assert not g.passer_wave()                           # the hand is not up
 arm["at"] = saved
 done.clear()
+g._mark_passed = real_mark
+g._new_passer = real_new                             # the module's own again
+
+# each person once: someone waved at is not new again while in view, and new again after GONE_S out of view
+import numpy as np                                   # noqa: E402
+from vision import reid                              # noqa: E402
+img = np.zeros((200, 200, 3), np.uint8)
+img[:, :100] = (200, 30, 30)
+img[:, 100:] = (30, 200, 30)
+red, green = reid.look(img, (0, 0, 100, 200)), reid.look(img, (100, 0, 200, 200))
+g._passed.known = []
+now = 1000.0
+g._seen["head"].update(t=now, people=[(10.0, 2.0, red, None), (-30.0, 7.5, green, None)])
+g._seen["torso"].update(t=0.0, people=[])
+p = g._new_passer(now)
+assert p is not None and p[1] == 2.0, p              # the one at 7.5 m is too far
+g._mark_passed(now)
+assert g._new_passer(now + 0.1) is None              # waved at: not new again
+g._seen["head"].update(t=now + 3, people=[(5.0, 3.0, red, None), (0.0, 4.0, green, None)])
+p = g._new_passer(now + 3)
+assert p is not None and p[1] == 4.0, p              # the other one came near: new
+g._mark_passed(now + 3)
+g._seen["head"].update(t=now + 3 + g.GONE_S + 1, people=[(5.0, 3.0, red, None)])
+assert g._new_passer(now + 3 + g.GONE_S + 1) is not None   # gone longer than GONE_S: waved at again
+g._seen["head"].update(t=0.0, people=[])
+g._passed.known = []
 
 # the hand held up, someone waves for a moment and stops: GREET_SWINGS swings all the same, then no more
 fresh()
@@ -346,14 +397,18 @@ assert done.count("swing") == g.GREET_SWINGS and g._st["owed"] == 0, done
 arm["at"] = "look"
 done.clear()
 
-# on the charger, the waving over: after HOLD_S the waist back to the front and IDLE_SWINGS swings at once
+# on the charger with Welcome, the waving over: after HOLD_S the waist back to the front, the hand held; keep alive
+# swings once KEEP_QUIET_S passed since that wave
 fresh()
 arm["at"] = "wave_start"
-g._st.update(up=True, held=False, last_wave=600.0)
+g._st.update(up=True, held=False, last_wave=600.0, people_wave=0.0, idle_at=0.0)
 real_idle, g._idle = g._idle, (lambda: True)
+real_any, g._nearest_any = g._nearest_any, (lambda now=None: None)   # never the live camera files
 run(600.0 + g.HOLD_S + 0.5, 600.0 + g.HOLD_S + 2.0)
-assert done[0] == "waist +0 look None" and done[1:] == ["swing"] * g.IDLE_SWINGS and g._st["held"], done
-g._idle = real_idle
+assert done == ["waist +0 look None"] and g._st["held"], done
+run(600.0 + g.KEEP_QUIET_S + 0.5, 600.0 + g.KEEP_QUIET_S + 2.0)
+assert done[1:] == ["swing"] * g.IDLE_SWINGS, done
+g._idle, g._nearest_any = real_idle, real_any
 arm["at"] = "look"
 done.clear()
 

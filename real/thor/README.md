@@ -146,10 +146,15 @@ Credentials are kept by the project owner.
 
 ## Operating modes
 
-Set from the dashboard; both are off after every restart.
+Set from the dashboard or the Lumi app; all are off after every restart. Each works on its own, in any mix
+(details: [docs/18_MODES.md](../../docs/18_MODES.md)).
 
-- **Greeter:** Lumi stays in place and converses.
+- **Greeter:** Lumi stays in place and does everything but drive: converses, sings, gestures.
 - **Patrol:** all capabilities, including navigation and manipulation.
+- **Wave:** drives with its hand raised and stops to wave at each person on the way once, waves back at people who
+  wave; alone it only waves, it does not talk.
+- **Welcome:** on the charger the hand stays raised; it waves at people who come into view and at people who wave.
+- Wave and Welcome keep Lumi visibly alive: after 30 s without a wave it waves (at home every 15 s).
 - **STOP:** halts the base, arm, body and assistant immediately.
 
 ## Safety
@@ -331,10 +336,15 @@ docs/, tools/   문서와 운영 도구
 
 ## 동작 모드
 
-대시보드에서 설정하며, 재시작 후에는 모두 꺼진 상태입니다.
+대시보드나 Lumi 앱에서 설정하며, 재시작 후에는 모두 꺼진 상태입니다. 각 모드는 단독으로도, 함께도 동작합니다
+(자세한 내용: [docs/18_MODES.md](../../docs/18_MODES.md)).
 
-- **그리터:** 제자리에서 대화합니다.
+- **그리터:** 제자리에서 주행 외의 모든 일을 합니다: 대화, 노래, 동작.
 - **순찰:** 주행과 조작을 포함한 모든 기능을 사용합니다.
+- **손 인사(Wave):** 손을 든 채 주행하며 길에서 만난 사람마다 한 번씩 멈춰 손을 흔들고, 손을 흔드는 사람에게 답합니다.
+  이것만 켜져 있으면 말하지 않고 손만 흔듭니다.
+- **환영(Welcome):** 충전기 위에서 손을 든 채 기다리며, 보이는 사람과 손을 흔드는 사람에게 손을 흔듭니다.
+- 손 인사와 환영 모드에서는 30초 동안 손을 흔들지 않으면 스스로 흔듭니다(충전기에서는 15초마다).
 - **정지(STOP):** 베이스, 팔, 바디, 어시스턴트를 즉시 멈춥니다.
 
 ## 안전
