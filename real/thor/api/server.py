@@ -70,7 +70,12 @@ def assistant_pids():
 MODES_FILE = Path("/dev/shm/lumi_modes.json")
 CMD_FILE = Path("/dev/shm/lumi_cmd.json")
 CALIB_FILE = Path("/dev/shm/lumi_calib.json")
-DEFAULT_MODES = {"greeter": False, "patrol": False, "wave_greet": False}
+DEFAULT_MODES = {"greeter": False, "patrol": False, "wave_greet": False, "welcome": False}
+
+
+def any_on(m):
+    """Each of the four switches works on its own (owner, 2026-11-16): lumi.py runs while any is on."""
+    return any(m.get(k) for k in DEFAULT_MODES)
 
 
 def read_modes():
@@ -636,11 +641,64 @@ def volume_set(body: VolumeBody):
 
 @app.post("/stop", tags=["status"], summary="STOP everything: base drive, arm program and the assistant")
 def stop_all():
+    _waving_off()                                    # first: the supervisor must not bring lumi.py back to wave
     jogger.stop()
     _route.stop()
     task = part(_fetch_stop)                         # first, so the runner starts nothing new
     stopped = assistant_stop()
     return {"assistant": stopped["stopped"], "agv": part(agv.cancel), "arm": part(skills.cancel), "task": task}
+
+
+def _charging():
+    """The base stands on its charger (charging), not driving."""
+    try:
+        st = agv.status() or {}
+    except Exception:
+        return False
+    return bool(st.get("charge_state")) and st.get("move_status") != "running"
+
+
+def _waving_off():
+    """STOP switches Wave and Welcome off (they would raise the arm again by itself); Greeter and Patrol keep theirs."""
+    m = {**read_modes(), "wave_greet": False, "welcome": False}
+    tmp = MODES_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(m))
+    os.replace(tmp, MODES_FILE)
+
+
+def _bg(fn):
+    threading.Thread(target=fn, daemon=True).start()
+
+
+_lowering = threading.Lock()          # one stop_when_lowered at a time
+
+
+def stop_when_lowered(wait_s=10.0, every=0.2):
+    """The last switch off: lumi.py lowers the hand (wave_greet sees the switch off) before it is stopped, at most
+    `wait_s` s; a stop part-way down would leave the hand up (review 2026-11-16). A switch on again meanwhile: not
+    stopped after all (it was, and the supervisor started lumi.py again and again, 2026-11-16 16:31). None then."""
+    if not _lowering.acquire(blocking=False):
+        return None                              # one is waiting already; it checks the switches at its end
+    try:
+        return _stop_when_lowered(wait_s, every)
+    finally:
+        _lowering.release()
+
+
+def _stop_when_lowered(wait_s, every):
+    end = time.time() + wait_s
+    while time.time() < end:
+        try:
+            if arm_route.where() not in arm_route.WAVE_POSES:
+                break
+        except Exception:
+            break
+        time.sleep(every)
+        if any_on(read_modes()):
+            return None                          # switched on again while the hand came down
+    if any_on(read_modes()):
+        return None
+    return assistant_stop()
 
 
 def _fetch_stop():
@@ -961,6 +1019,7 @@ class TaskBody(BaseModel):
 
 
 SWITCHES_OFF = "Switch on Greeter or Patrol first."
+WELCOME_OFF_CHARGER = "Welcome works only on the charger."   # owner, 2026-11-16: it is the home mode
 BASE_OFF = "I can't drive or turn my waist right now. Switch on Patrol for that."   # lumi.BASE_OFF_SAY, as by voice
 
 
@@ -1416,7 +1475,10 @@ def task_state():
 class ModesBody(BaseModel):
     greeter: bool | None = Field(None, description="standing: greet people who come close, talk, wake word")
     patrol: bool | None = Field(None, description="driving anywhere: stop for people in the way, talk, drive on")
-    wave_greet: bool | None = Field(None, description="wave back at people who wave, with or without Greeter / Patrol")
+    wave_greet: bool | None = Field(None, description="Wave: on the way wave at people (each once), wave back at people "
+                                                      "who wave, keep alive; alone or with Greeter / Patrol")
+    welcome: bool | None = Field(None, description="Welcome: on the charger the hand up in wave_start, wave at people "
+                                                   "who come into view, wave back, keep alive; alone or with the others")
 
 
 @app.get("/assistant/modes", tags=["assistant"], summary="Greeter / patrol / wave greeting switches")
@@ -1425,17 +1487,19 @@ def modes_get():
 
 
 @app.post("/assistant/modes", tags=["assistant"],
-          summary="Switch greeter / patrol (lumi.py starts when one is on and stops when both are off)")
+          summary="Switch Greeter / Patrol / Wave / Welcome (lumi.py runs while any is on, stops when all are off)")
 def modes_set(body: ModesBody):
+    if body.welcome and not _charging():
+        raise HTTPException(409, WELCOME_OFF_CHARGER)
     m = {**read_modes(), **{k: v for k, v in body.model_dump().items() if v is not None}}
     tmp = MODES_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(m))
     os.replace(tmp, MODES_FILE)
     calibrating = _calib_active()
-    if (m["greeter"] or m["patrol"]) and not assistant_pids():
+    if any_on(m) and not assistant_pids():
         start_assistant()
-    elif not (m["greeter"] or m["patrol"]) and assistant_pids() and not calibrating:
-        assistant_stop()
+    elif not any_on(m) and assistant_pids() and not calibrating:
+        _bg(stop_when_lowered)                       # the hand down first; the reply does not wait for it
     return {**m, "running": bool(assistant_pids())}
 
 
@@ -1505,19 +1569,19 @@ def doa_reset():
     return {"ok": True}
 
 def _supervise():
-    """Keep lumi.py running while greeter or patrol is switched on (it can crash or be killed);
+    """Keep lumi.py running while any switch is on (it can crash or be killed);
     wait longer after each quick failure so a broken start does not loop."""
     wait, last_start = 5.0, 0.0
     while True:
         time.sleep(5.0)
         try:
             m = read_modes()
-            if not (m["greeter"] or m["patrol"]) or assistant_pids() or time.time() - last_start < wait:
+            if not any_on(m) or assistant_pids() or time.time() - last_start < wait:
                 if assistant_pids() and time.time() - last_start > 120:
                     wait = 5.0                                   # it has been running fine: reset the back-off
                 continue
             with open(CONSOLE_LOG, "a") as f:
-                f.write(f"\n{time.strftime('%H:%M:%S')} supervisor: greeter/patrol is on but lumi.py is not running - starting it\n")
+                f.write(f"\n{time.strftime('%H:%M:%S')} supervisor: a switch is on but lumi.py is not running - starting it\n")
             start_assistant()
             last_start, wait = time.time(), min(wait * 2, 120.0)
         except Exception:
@@ -1556,5 +1620,5 @@ if __name__ == "__main__":
     threading.Thread(target=_supervise, daemon=True).start()
     wave_greet.start(lambda: read_modes()["wave_greet"],
                      lambda: not assistant_pids() and running_now() in (None, "wave_greet"),
-                     lambda: modes_set(ModesBody(wave_greet=False)))
+                     lambda: modes_set(ModesBody(wave_greet=False, welcome=False)))
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
