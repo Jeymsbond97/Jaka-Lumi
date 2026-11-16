@@ -32,8 +32,8 @@ from vision import camview, pose, reid, waving
 
 CAMERAS = ("head", "torso")   # both watched: the head may look away while the person is in the torso camera's view
 GREET_MIN_M, GREET_M = 1.0, 5.0   # m; people waving nearer or further away are not answered (owner)
-PASSER_M = GREET_M          # m; a patrol's wave for people passing (passer_wave) waves only at people this near, and
-                             # only when nobody is within IDLE_CLEAR_M (owner: just over 1 m is enough)
+PASSER_MIN_M, PASSER_M = 0.8, 6.0   # m; a drive with Wave on stops for people passing this near (passer_wave), each
+                             # person once, and only when nobody is within IDLE_CLEAR_M (owner, 2026-11-16)
 SHOULDER_M = 0.36            # m between the shoulder keypoints: a waver's distance from their width in the image when
                              # depth has none there (far, or a colour-only camera); estimate (recordings 0.32-0.40)
 HOLD_S = 15.0                # s the waist stays on the last one who waved, then back to its rest, the hand kept up and
@@ -63,10 +63,13 @@ HEAD_TIMEOUT_S = 5.0         # s a head move may take; the body API now and then
                              # holds the body lock all that time (the waist turn waited 30 s behind it)
 IDLE_WAVE_EVERY_S = 15.0     # s between two waves while nothing is asked of Lumi on the charger (owner: now and then for
                              # the passers-by; estimate), from the end of the last one (or anyone's last wave)
-IDLE_SWINGS = 3              # swings of such a wave
+IDLE_SWINGS = 3              # swings of such a wave (also keep alive and a wave at someone new)
+KEEP_QUIET_S = 30.0          # s without a wave before keep alive (owner, 2026-11-16): on the way Lumi stops and waves;
+                             # at home (Welcome) it waves every IDLE_WAVE_EVERY_S until someone comes or waves
 GREET_SWINGS = 3             # swings at least for someone who starts waving, more while they go on (owner: one too few)
-IDLE_CLEAR_M = 1.0           # m; nobody this near in either camera when such a wave starts (one coming closer while the
-                             # arm goes up still stops it: _too_close); estimate
+IDLE_CLEAR_M = 0.8           # m; nobody this near in either camera when such a wave starts (one coming closer while the
+                             # arm goes up still stops it: _too_close); owner 2026-11-16 (was 1.0): the hand is already
+                             # up in wave_start before drives and waves, so it does not sweep into someone in front
 RAISE_WAIT_S = 10.0          # s a drive waits for someone right by the arm to step back before the hand goes up
                              # (else it drives in look); estimate
 IDLE_RETRY_S = 1.0          # s between two asks whether Lumi is idle (it asks the base whether it charges)
@@ -77,6 +80,8 @@ LINK_RETRY_S = 3.0           # s before trying again when the arm controller or 
 _seen = {c: {"t": 0.0, "wavers": []} for c in CAMERAS}   # wavers: [(bearing deg from the waist's front, + left;
                                                           # distance m)] in that camera, nearest first
 _met = reid.People()                 # people greeted (introduced to), forgotten GONE_S after they leave the view
+_passed = reid.People()              # people a drive already stopped and waved at (each once), forgotten the same way
+_drive_wave = threading.Lock()       # held while a drive's swings run (passer_wave, keep_alive_wave): no new drive then
 _met_lock = threading.Lock()
 _busy = threading.Event()            # the arm is up or moving for a greeting
 _speaking = threading.Lock()
@@ -84,6 +89,11 @@ _on = _free = _off = None            # set by start()
 _rest = lambda: 0.0                  # waist angle (deg from the front) the waist goes back to; set by start()
 _rest_arm = arm_route.rest_pose      # the pose the arm goes down to; set by start()
 _idle = lambda: False                # nothing asked of Lumi for a while (on the charger): a wave now and then; set by start()
+_talk = lambda: True                 # the greeting may speak (Greeter or Patrol on); only waves when not; set by start()
+_welcome = lambda: False             # Welcome is on: the hand goes up to wave_start and stays; set by start()
+_home = lambda: False                # Welcome, on the charger, nobody talked to: waves at someone new; set by start()
+_drive_on = None                     # the hand rides up on drives only with this on (Wave; Welcome alone: down);
+                                     # _on when not set by start()
 
 
 def log(*a):
@@ -138,7 +148,7 @@ def _watch(cam):
             continue
         depth, yaw = camview.depth(cam), _head_yaw(cam)
         gray = cv2.cvtColor(cv2.resize(img, None, fx=waving.SCALE, fy=waving.SCALE), cv2.COLOR_BGR2GRAY)
-        wavers, now = [], time.time()
+        wavers, people, now = [], [], time.time()
         for p, is_waving in watcher.update(m, gray, pose.detect(img)):
             ls, rs = pose.seen(p["kp"], "left_shoulder"), pose.seen(p["kp"], "right_shoulder")
             if not (ls and rs):
@@ -151,9 +161,18 @@ def _watch(cam):
                 known = _known(look, face, now)
                 if known:
                     known.seen(look, face, now)
+            bearing = yaw - math.degrees(math.atan((at[0] - intr["cx"]) / intr["fx"]))
+            if d is not None:
+                people.append((bearing, d, look, None))
+                with _met_lock:                      # someone already waved at, still in view: stays known
+                    _passed.known = [k for k in _passed.known if now - k.last_seen < GONE_S]
+                    known = _passed.recall(look, None, now)
+                    if known:
+                        known.seen(look, None, now)
             if is_waving and d is not None and GREET_MIN_M <= d <= GREET_M:
-                wavers.append((yaw - math.degrees(math.atan((at[0] - intr["cx"]) / intr["fx"])), d, look, face))
-        _seen[cam].update(t=time.time(), wavers=sorted(wavers, key=lambda w: w[1]))
+                wavers.append((bearing, d, look, face))
+        _seen[cam].update(t=time.time(), wavers=sorted(wavers, key=lambda w: w[1]),
+                          people=sorted(people, key=lambda w: w[1]))
 
 
 def _known(look, face, now):
@@ -211,7 +230,11 @@ def _bg(fn, *args):
 
 
 def _say(lines, lang):
-    """One line of `lines` in language 0 (English) / 1 (Korean), in the background; skipped while Lumi speaks."""
+    """One line of `lines` in language 0 (English) / 1 (Korean), in the background; skipped while Lumi speaks and
+    when talk is not allowed (only Wave / Welcome on: Lumi only waves, owner 2026-11-16)."""
+    if not _talk():
+        return
+
     def run():
         if not _speaking.acquire(blocking=False):
             return
@@ -267,6 +290,7 @@ def _swing():
     """One swing, START -> SWING -> START, waited for."""
     p, t0 = motion.poses(), time.time()
     motion.move_path([(p[wave.SWING], SWING_SPEED), (p[wave.START], SWING_SPEED)], queued=True)
+    _st["any_wave"] = time.time()        # keep alive counts from the last swing of any kind
     log(f"swing {time.time() - t0:.1f} s")
 
 
@@ -360,19 +384,118 @@ def _idle_wave():
         except Exception as e:
             log(f"no idle wave: {e.args[0] if isinstance(e, wave.WaveError) else repr(e)}")
             return False
-    log("nothing asked for a while: the hand up for the passers-by")
+    log("Welcome: the hand up to wave_start, held")
     _busy.set()
     try:
         if route:
             _up(route)
         _st.update(up=True, held=True, held_at=0.0)
-        _idle_swings()
     finally:
         _busy.clear()
     return True
 
 
-def _idle_swings():
+def _held_swings(bearing, allowed):
+    """The held hand: the head to `bearing` and IDLE_SWINGS swings while `allowed()` (_idle_swings ends them for a
+    waver or a talk)."""
+    _busy.set()
+    _head_to(bearing)
+    try:
+        _idle_swings(allowed)
+    finally:
+        _busy.clear()
+
+
+def _nearest_any(now=None):
+    """Bearing of the nearest person either camera sees at any distance (also far beyond PASSER_M), else None."""
+    now = time.time() if now is None else now
+    seen = [p for cam in CAMERAS if now - _seen[cam]["t"] < CLOSE_FRESH_S for p in _seen[cam].get("people", [])]
+    if seen:
+        return min(seen, key=lambda p: p[1])[0]
+    return _nearest(1e9)
+
+
+def note_quiet_start(now=None):
+    """A trip starts: keep alive counts KEEP_QUIET_S from here (not from a wave long ago)."""
+    _st["any_wave"] = time.time() if now is None else now
+
+
+def keep_alive_due(now=None):
+    """On the way (lumi.Patrol, Wave on): KEEP_QUIET_S without a swing of any kind, nobody by the arm."""
+    now = time.time() if now is None else now
+    return now - _st["any_wave"] >= KEEP_QUIET_S and not _someone_within(IDLE_CLEAR_M)
+
+
+def answer_waver(speed=None):
+    """A drive in look stopped for someone waving (Greeter / Patrol with Wave, lumi.Patrol): the hand up (wave.plan,
+    refused while holding something), the head to them, swings while they wave (GREET_SWINGS at least), the head ahead
+    and the hand down to the drive pose at `speed`. A stop or a failure switches the waving off and raises. True when
+    it swung."""
+    with _drive_wave:
+        w = _waver()
+        if _on is None or not _on() or not w or _someone_within(IDLE_CLEAR_M):
+            return False
+        from tasks import fetch
+        raised = arm_route.where() not in (wave.START, wave.SWING)
+        _busy.set()
+        try:
+            if raised:
+                try:
+                    route, _ = wave.plan()
+                except wave.WaveError as e:
+                    log(f"no answer to a wave: {e.args[0]}")
+                    return False
+                _up(route)
+            _head_to(w[0])
+            n = 0
+            while n < GREET_SWINGS or (_waver() and n < 4 * GREET_SWINGS):
+                if _someone_within(IDLE_CLEAR_M):
+                    break
+                _swing()
+                n += 1
+        except Exception as e:
+            _stopped(e)
+            raise
+        finally:
+            _busy.clear()
+            _turn_head(0.0)
+        if raised:
+            _down(0.0, fetch.drive_arm(), speed)
+        return True
+
+
+def keep_alive_wave():
+    """See _keep_alive_wave; the next drive waits for it (_drive_wave)."""
+    with _drive_wave:
+        return _keep_alive_wave()
+
+
+def _keep_alive_wave():
+    """A drive with the hand up stopped for keep alive (the base stopped): the head toward the nearest person at any
+    distance, else ahead, IDLE_SWINGS swings, the head ahead again. A stop or a failure switches the greeting off and
+    raises. True when it swung."""
+    if _on is None or not _on() or _someone_within(IDLE_CLEAR_M) or arm_route.where() not in (wave.START, wave.SWING):
+        return False
+    b = _nearest_any()
+    b = 0.0 if b is None else b
+    log(f"keep alive: nobody waved at for {KEEP_QUIET_S:.0f} s, a wave toward {b:+.0f} deg")
+    _busy.set()
+    _head_to(b)
+    try:
+        for _ in range(IDLE_SWINGS):
+            if _someone_within(IDLE_CLEAR_M):
+                break
+            _swing()
+    except Exception as e:
+        _stopped(e)
+        raise
+    finally:
+        _busy.clear()
+        _turn_head(0.0)
+    return True
+
+
+def _idle_swings(allowed=None):
     """IDLE_SWINGS swings of the held hand; someone waving back (greeted as always, step) or talking to Lumi (the hand
     stays up, still) ends them."""
     for _ in range(IDLE_SWINGS):
@@ -380,16 +503,21 @@ def _idle_swings():
             log("idle wave: someone waves back")
             _st["last_wave"] = 0.0
             return
-        if not (_free() and _idle()):
+        if not (_free() and (allowed or _idle)()):
             log("idle wave: someone talks to me, the hand stays up")
+            return
+        if _someone_within(IDLE_CLEAR_M) or not _on():
+            log("idle wave: someone by the arm, or switched off: no more swings")
             return
         _swing()
 
 
 def raise_for_drive():
     """With the switch on, the empty arm drives with the hand up at START (owner, 2026-11-07): the way up (wave.plan)
-    unless it is up already. A stop or a failure switches the greeting off (_stopped) and raises. True when it is up."""
-    if _on is None or not _on():
+    unless it is up already. A stop or a failure switches the greeting off (_stopped) and raises. True when it is up.
+    Only with Wave on (_drive_on): Welcome alone drives with the hand down (owner, 2026-11-16)."""
+    on = _drive_on or _on
+    if on is None or not on():
         return False
     if arm_route.where() in arm_route.WAVE_POSES:
         return True
@@ -427,18 +555,60 @@ def _nearest(m):
     return min(near)[1] if near else None
 
 
+def _in_range(now):
+    """Everyone either camera sees now PASSER_MIN_M..PASSER_M away: [(bearing, distance, look, face)], nearest first."""
+    out = []
+    for cam in CAMERAS:
+        s = _seen[cam]
+        if now - s["t"] < CLOSE_FRESH_S:
+            out += [p for p in s.get("people", []) if PASSER_MIN_M <= p[1] <= PASSER_M]
+    return sorted(out, key=lambda p: p[1])
+
+
+def _new_passer(now=None):
+    """The nearest person in range not waved at yet (each once until they were out of view GONE_S), else None."""
+    now = time.time() if now is None else now
+    with _met_lock:
+        _passed.known = [k for k in _passed.known if now - k.last_seen < GONE_S]
+        return next((p for p in _in_range(now) if _passed.recall(p[2], p[3], now) is None), None)
+
+
+def _mark_passed(now=None):
+    """Everyone in range now has been waved at (they saw the wave): no stop for them again while in view."""
+    now = time.time() if now is None else now
+    with _met_lock:
+        for p in _in_range(now):
+            known = _passed.recall(p[2], p[3], now)
+            if known:
+                known.seen(p[2], p[3], now)
+            else:
+                _passed.add(p[2], p[3], now)
+
+
+def drive_wave_busy():
+    """A drive's swings run (lumi.Patrol waits with the next drive until they end)."""
+    return _drive_wave.locked()
+
+
 def passer_due():
-    """Someone passing to wave at: a person within PASSER_M, nobody within IDLE_CLEAR_M (lumi.Patrol stops for it)."""
-    return _nearest(PASSER_M) is not None and not _someone_within(IDLE_CLEAR_M)
+    """Someone new passing to wave at (_new_passer), nobody within IDLE_CLEAR_M (lumi.Patrol stops for it)."""
+    return _new_passer() is not None and not _someone_within(IDLE_CLEAR_M)
 
 
 def passer_wave():
+    """See _passer_wave; the next drive waits for it (_drive_wave)."""
+    with _drive_wave:
+        return _passer_wave()
+
+
+def _passer_wave():
     """A drive with the hand up (lumi.Patrol, the base stopped): the head to the one waving, else the nearest person
     within PASSER_M, and IDLE_SWINGS swings, waited for, then the head ahead again; none when nobody is within PASSER_M
     or someone is within IDLE_CLEAR_M of the arm. A stop or a failure switches the greeting off (_stopped) and
     raises. True when it swung."""
     w = _waver()
-    bearing = w[0] if w else _nearest(PASSER_M)
+    p = None if w else _new_passer()
+    bearing = w[0] if w else p[0] if p else None
     if _on is None or not _on() or bearing is None or _someone_within(IDLE_CLEAR_M) or \
             arm_route.where() not in (wave.START, wave.SWING):
         return False
@@ -450,6 +620,7 @@ def passer_wave():
             if _someone_within(IDLE_CLEAR_M):
                 break
             _swing()
+        _mark_passed()                   # each person once
     except Exception as e:
         _stopped(e)
         raise
@@ -472,7 +643,7 @@ def _rest_waist():
         _busy.clear()
 
 
-def _down(waist=None, arm_to=None):
+def _down(waist=None, arm_to=None, speed=None):
     """Waist to its rest (`waist` deg from the front, else _rest()) first, the way it came with the hand up (in `look`
     the arm sticks out further and the same turn back can be blocked), then the arm slowly down (_rest_arm) and the
     head to rest."""
@@ -485,7 +656,7 @@ def _down(waist=None, arm_to=None):
         _st["waist_out"] = not fetch._waist_to(_rest() if waist is None else waist, in_place=True)
         at = arm_route.where()
         if at in arm_route.WAVE_POSES:
-            arm_route.move(arm_route.plan(arm_to or _rest_arm()), DOWN_SPEED)
+            arm_route.move(arm_route.plan(arm_to or _rest_arm()), speed or DOWN_SPEED)
         _turn_head(0.0, head.HEAD_REST_PITCH)
         log("arm down" if at in arm_route.WAVE_POSES or at in (_rest_arm(), arm_to) else f"arm left where it is ({at or 'between poses'})")
     finally:
@@ -494,7 +665,8 @@ def _down(waist=None, arm_to=None):
 
 _st = {"up": False, "last_wave": 0.0, "lang": 0, "next_joke": 0.0, "free": False, "free_at": 0.0, "refused_until": 0.0,
        "waist_out": False, "follow_at": 0.0, "swing_at": 0.0,
-       "swing_end": 0.0, "idle_at": 0.0, "held": False, "held_at": 0.0, "owed": 0}   # held: the hand kept up on the charger
+       "swing_end": 0.0, "idle_at": 0.0, "held": False, "held_at": 0.0, "owed": 0, "people_wave": 0.0, "any_wave": 0.0,
+       "raise_at": 0.0}   # held: the hand kept up on the charger
                                                                           # (_idle_wave)                     # swing_end: when the swings sent so far should be done                    # waist_out: the way back to the front was blocked, tried again later
 
 
@@ -526,13 +698,10 @@ def step(now):
             st["owed"] = 0               # _greet swung them
             if not st["up"]:
                 st["refused_until"] = now + REFUSED_S
-        elif not w and now > st["refused_until"] and now - max(st["idle_at"], st["last_wave"]) > IDLE_WAVE_EVERY_S:
-            if not _idle():
-                st["idle_at"] = now - IDLE_WAVE_EVERY_S + IDLE_RETRY_S   # asked again in IDLE_RETRY_S, not every step
-            elif not _idle_wave():
+        elif not w and now > st["refused_until"] and now - st["raise_at"] >= IDLE_RETRY_S and _welcome():
+            st["raise_at"] = now                 # Welcome: the hand up at once, whatever the pose (owner, 2026-11-16)
+            if not _idle_wave():
                 st["refused_until"] = now + REFUSED_S
-            else:
-                st["idle_at"] = now              # its swings IDLE_WAVE_EVERY_S apart
         elif not w and st["waist_out"] and now > st["refused_until"]:
             from tasks import fetch
             fetch._stop.clear()
@@ -554,19 +723,22 @@ def step(now):
             st["swing_at"] = now + SWING_POLL_S
             if not _swing_on(now):
                 st["up"] = False         # someone moved the arm: the next wave starts from where it is
-    elif st["held"]:                     # held up on the charger: swings now and then while nobody talks to Lumi
-        if now - st["idle_at"] > IDLE_WAVE_EVERY_S and now - st["held_at"] > IDLE_RETRY_S:
+    elif st["held"]:                     # held up (Welcome): someone new at home, keep alive on the charger
+        if now - st["held_at"] >= IDLE_RETRY_S:
             st["held_at"] = now
-            if _idle():
-                if arm_route.where() in (wave.START, wave.SWING):
-                    _busy.set()
-                    try:
-                        _idle_swings()
-                    finally:
-                        _busy.clear()
-                    st["idle_at"] = now
-                else:                    # an order moved the arm meanwhile: not held any more
-                    st["up"] = st["held"] = False
+            if arm_route.where() not in (wave.START, wave.SWING):
+                st["up"] = st["held"] = False    # an order moved the arm meanwhile (Welcome raises it again)
+            elif _home() and not _someone_within(IDLE_CLEAR_M) and (p := _new_passer()) is not None:
+                log(f"Welcome: someone new at {p[0]:+.0f} deg, {p[1]:.1f} m: a wave")
+                _held_swings(p[0], _home)
+                _mark_passed()
+                st["people_wave"] = st["idle_at"] = now
+            elif _idle() and now - max(st["last_wave"], st["people_wave"]) >= KEEP_QUIET_S and \
+                    now - st["idle_at"] >= IDLE_WAVE_EVERY_S and not _someone_within(IDLE_CLEAR_M):
+                b = _nearest_any()
+                log(f"keep alive at home: a wave toward {0.0 if b is None else b:+.0f} deg")
+                _held_swings(0.0 if b is None else b, _idle)
+                st["idle_at"] = now
     elif now - st["last_wave"] > HOLD_S:           # nobody waves: the hand stays up (owner), the waist to its rest
         _rest_waist()
         st["held"], st["idle_at"], st["held_at"] = True, now - IDLE_WAVE_EVERY_S, 0.0   # swings due at once
@@ -632,7 +804,7 @@ def front_hand_up(wait_s=10.0):
     return fetch._waist_to(0.0, in_place=True)
 
 
-def lower(wait_s=10.0):
+def lower(wait_s=10.0, speed=None):
     """A drive or a turn takes the robot (lumi.waist_home): the way up and the queued swings end, then a hand left in
     a wave pose comes down to look, the waist to the front. Never driven with the hand up. Nothing when the greeting
     does not run in this process (start() not called)."""
@@ -642,18 +814,22 @@ def lower(wait_s=10.0):
     _st["up"] = arm_route.where() in arm_route.WAVE_POSES
     if _st["up"]:
         from tasks import fetch
-        _down(0.0, fetch.drive_arm())    # a drive follows: the waist to the front, the arm to its drive pose
+        _down(0.0, fetch.drive_arm(), speed)   # a drive follows: the waist to the front, the arm to its drive pose
     _st["up"] = _st["held"] = False
 
 
-def start(on, free, off, free_every=FREE_EVERY_S, rest=None, rest_arm=None, idle=None):
+def start(on, free, off, free_every=FREE_EVERY_S, rest=None, rest_arm=None, idle=None, talk=None, welcome=None,
+          home=None, drive_on=None):
     """`on()`: the switch is on; `free()`: nothing else has the robot (asked every `free_every` s); `off()`: turn the
     switch off; `rest()`: the waist's angle when the hand is down (the front unless given); `rest_arm()`: the arm's
     pose then (arm_route.rest_pose unless given); `idle()`: nothing asked for a while, a wave every IDLE_WAVE_EVERY_S
-    (never unless given)."""
-    global _on, _free, _off, FREE_EVERY_S, _rest, _rest_arm, _idle
+    (never unless given); `talk()`: the greeting may speak (always unless given); `welcome()`: the hand up and held;
+    `home()`: wave at someone new (both never unless given); `drive_on()`: the hand up on drives (`on` unless given)."""
+    global _on, _free, _off, FREE_EVERY_S, _rest, _rest_arm, _idle, _talk, _welcome, _home
+    global _drive_on
+    _welcome, _home, _drive_on = welcome or _welcome, home or _home, drive_on or _drive_on
     _on, _free, _off, FREE_EVERY_S = on, free, off, free_every
-    _rest, _rest_arm, _idle = rest or _rest, rest_arm or _rest_arm, idle or _idle
+    _rest, _rest_arm, _idle, _talk = rest or _rest, rest_arm or _rest_arm, idle or _idle, talk or _talk
     for cam in CAMERAS:
         threading.Thread(target=_watch, args=(cam,), daemon=True).start()
     threading.Thread(target=_run, daemon=True).start()
