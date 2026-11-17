@@ -1,11 +1,13 @@
-"""Read one message of a ROS topic from the AGV base's rosbridge (WebSocket, ws://192.168.10.10:9090; its own web
-pages use it). Only what the Lumi app needs: the lidar scan for position correction and the map's no-go lines. A
-small WebSocket client of our own (no extra package): one connection per read or service call, then close."""
+"""Read ROS topics from the AGV base's rosbridge (WebSocket, ws://192.168.10.10:9090; its own web pages use it).
+Only what the Lumi app needs: the lidar scan for position correction, the map's no-go lines and a new map while it is
+made (pose, map size, optimizing progress). A small WebSocket client of our own (no extra package): one connection
+per read or service call, then close."""
 import base64
 import json
 import os
 import socket
 import struct
+import time
 
 HOST, PORT = "192.168.10.10", 9090
 
@@ -89,3 +91,27 @@ def call_service(service, args, timeout=3.0):
                 if not msg.get("result", False):
                     raise RuntimeError(f"{service} failed: {msg.get('values')}")
                 return msg.get("values") or {}
+
+
+def read_many(topics, timeout=1.5):
+    """The next message of each topic, read on one connection: {topic: msg}. A topic that sends nothing within
+    `timeout` is left out (the map builder sends /optimizing_progress only while it optimizes)."""
+    s, buf = _connect(timeout)
+    got = {}
+    with s:
+        for t in topics:
+            s.sendall(client_frame(json.dumps({"op": "subscribe", "topic": t, "queue_length": 1}).encode()))
+        end = time.monotonic() + timeout
+        try:
+            while len(got) < len(topics):
+                left = end - time.monotonic()
+                if left <= 0:
+                    break
+                s.settimeout(left)
+                msg, buf = read_message(s, buf)
+                t = msg.get("topic")
+                if msg.get("op") == "publish" and t in topics and t not in got:
+                    got[t] = msg.get("msg") or {}
+        except TimeoutError:
+            pass
+    return got

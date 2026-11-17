@@ -880,6 +880,7 @@ def map_image(map_name: str | None = None, floor: int | None = None, dark: bool 
 @app.post("/map/switch", tags=["map"], summary="Use another map (the base service restarts; relocalise after)")
 def map_switch(body: MapBody):
     robot_free()
+    scan_free()
     try:
         r = agv.request(f"/api/map/set_current_map?map_name={body.map_name}&floor={body.floor}", timeout=10)
     except Exception as e:                       # the base restarts and may not answer
@@ -926,6 +927,7 @@ def marker_delete(body: MarkerName):
 @app.post("/map/position", tags=["map"], summary="Set where Lumi is on the map (relocalise; x, y in m, theta in rad)")
 def map_position(body: PointBody):
     robot_free()
+    scan_free()
     r = agv.request(f"/api/position_adjust_by_pose?x={body.x}&y={body.y}&theta={body.theta}")
     return {"ok": True, "reply": r}
 
@@ -963,6 +965,195 @@ def map_position_marker(body: MarkerName):
     robot_free()
     r = agv.request(f"/api/position_adjust?marker={name}")
     return {"ok": True, "reply": r}
+
+
+# ---------- a new map (the base's own map builder on :8809, docs/05_AGV_BASE.md §7) ----------
+# Its page map-build/map.html talks to a small HTTP API (map-build-api/start, get_info, stop) and reads the live map
+# picture (maps/<name>/<floor>/map-temp.png) with its geometry (/map_metadata), the pose (/robot_pose) and the
+# optimizing progress (/optimizing_progress) over rosbridge. The base has no "cancel": a scan ends by saving it.
+MAP_BUILD = "http://192.168.10.10:8809"
+NEW_MAP_NAME = r"^[A-Za-z0-9_]{1,36}$"          # the base's map tool: letters, digits and _ only, at most 36
+SCAN_DELTAS = {"small": 0, "middle": 1, "large": 2}     # map size -> index in /map_build_tool/deltas (m per pixel)
+SCAN_DELTAS_DEFAULT = [0.02, 0.03, 0.05]         # what the base answered, 2026-11-17
+SCAN_FILE = Path("/dev/shm/lumi_mapping.json")   # the scan this API started: {name, floor, maps before}
+SCAN_SAVE_S = 180                                # the base answers `stop` once the map is saved
+_scan_meta = {}                                  # (width, height) -> the map's geometry at that size (newest kept)
+
+
+class NewMapBody(BaseModel):
+    name: str = Field(examples=["office_2"], description="letters, digits and _ (at most 36); not a map that exists")
+    size: str = Field("small", description="small (< 3600 m²), middle (3600 to 10000 m²) or large")
+
+
+def _build_get(path, timeout=5.0):
+    """One GET of the base's map builder (MAP_BUILD + path): the raw body."""
+    with urllib.request.urlopen(f"{MAP_BUILD}/{path}", timeout=timeout) as r:
+        return r.read()
+
+
+def _scan_info():
+    """The map builder's state: {mapping, name, floor, map_type}; 502 when it does not answer."""
+    try:
+        d = json.loads(_build_get("map-build-api/get_info?hotelid=&floor="))
+    except Exception as e:
+        raise HTTPException(502, f"the base's map builder did not answer: {e}")
+    return {"mapping": bool(d.get("mapbuilding")), "name": d.get("hotelid") or "",
+            "floor": int(d.get("floor") or 1), "map_type": d.get("map_type") or ""}
+
+
+def _scanning():
+    """A scan this API started is still running (checked with the base only when one was started here)."""
+    if not SCAN_FILE.exists():
+        return False
+    try:
+        if _scan_info()["mapping"]:
+            return True
+    except HTTPException:
+        return True                              # the base does not say: keep refusing until it does
+    SCAN_FILE.unlink(missing_ok=True)            # saved from the base's own page
+    return False
+
+
+def scan_free():
+    if _scanning():
+        raise HTTPException(409, "A new map is being made. Save or cancel it first.")
+
+
+def _scan_meta_keep(m):
+    """Remember the geometry of a /map_metadata message by its size; the picture is matched to it."""
+    if not m or not m.get("width"):
+        return None
+    o = (m.get("origin") or {}).get("position") or {}
+    g = {"width": m["width"], "height": m["height"], "resolution": round(m.get("resolution", 0.05), 6),
+         "origin_x": o.get("x", 0.0), "origin_y": o.get("y", 0.0)}
+    _scan_meta[(g["width"], g["height"])] = g
+    while len(_scan_meta) > 20:
+        del _scan_meta[next(iter(_scan_meta))]
+    return g
+
+
+@app.post("/map/scan/start", tags=["map"], summary="Start making a new map (the base leaves the current map)")
+def scan_start(body: NewMapBody):
+    if not re.match(NEW_MAP_NAME, body.name or ""):
+        raise HTTPException(422, "A map name has letters, digits and _ only (at most 36).")
+    if body.size not in SCAN_DELTAS:
+        raise HTTPException(422, "size is small, middle or large.")
+    robot_free()
+    robot_free(manual=True)
+    info = _scan_info()
+    if info["mapping"]:
+        raise HTTPException(409, f"A new map is being made already: {info['name']}. Save or cancel it first.")
+    maps = agv.request("/api/map/list")["results"] or {}
+    if body.name in maps:
+        raise HTTPException(409, f"A map named {body.name} exists already.")
+    try:
+        deltas = json.loads(json.loads(rosbridge.call_service("/rosapi/get_param",
+                                                              {"name": "/map_build_tool/deltas"})["value"]))
+        delta = float(deltas[SCAN_DELTAS[body.size]])
+    except Exception:
+        delta = SCAN_DELTAS_DEFAULT[SCAN_DELTAS[body.size]]
+    SCAN_FILE.write_text(json.dumps({"name": body.name, "floor": 1, "maps": sorted(maps), "time": time.time()}))
+    try:
+        reply = _build_get(f"map-build-api/start?hotelid={body.name}&floor=1&delta={delta:g}&map_type=v2", 30)
+    except Exception as e:
+        SCAN_FILE.unlink(missing_ok=True)
+        raise HTTPException(502, f"the base did not start the scan: {e}")
+    return {"ok": True, "name": body.name, "floor": 1, "delta": delta, "reply": reply.decode(errors="replace")[:300]}
+
+
+@app.get("/map/scan/state", tags=["map"], summary="The new map being made: its name, Lumi's pose, optimizing progress")
+def scan_state():
+    info = _scan_info()
+    if not info["mapping"]:
+        return {**info, "pose": None, "progress": None, "map": None}
+    try:
+        got = rosbridge.read_many(["/robot_pose", "/map_metadata", "/optimizing_progress"], timeout=1.2)
+    except OSError:
+        got = {}
+    p = got.get("/robot_pose")
+    pose = None
+    if p and "position" in p:
+        q = p.get("orientation") or {}
+        pose = {"x": p["position"]["x"], "y": p["position"]["y"],
+                "theta": 2 * math.atan2(q.get("z", 0.0), q.get("w", 1.0))}
+    prog = (got.get("/optimizing_progress") or {}).get("data")
+    return {**info, "pose": pose, "map": _scan_meta_keep(got.get("/map_metadata")),
+            "progress": None if prog is None else min(1.0, max(0.0, float(prog)))}
+
+
+@app.get("/map/scan/picture", tags=["map"], summary="The new map as it grows: a picture (PNG, base64) and its geometry")
+def scan_picture(dark: bool = True):
+    import base64
+    import cv2
+    import numpy as np
+    info = _scan_info()
+    if not info["mapping"]:
+        raise HTTPException(409, "No new map is being made.")
+    try:
+        png = _build_get(f"maps/{urllib.request.quote(info['name'])}/{info['floor']}/map-temp.png?t={time.time():.0f}",
+                         10)
+        h, w = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_GRAYSCALE).shape
+    except Exception as e:
+        raise HTTPException(502, f"the new map's picture is not there yet: {e}")
+    try:
+        _scan_meta_keep(rosbridge.read_once("/map_metadata", timeout=1.5).get("msg"))
+    except OSError:
+        pass
+    geo = _scan_meta.get((w, h))
+    exact = geo is not None
+    if not exact:                                # the picture and its geometry come apart while the map grows
+        if not _scan_meta:
+            raise HTTPException(502, "the new map's size is not known yet")
+        geo = {**list(_scan_meta.values())[-1], "width": w, "height": h}
+    return {**geo, "exact": exact, "png": base64.b64encode(_dark(png) if dark else png).decode()}
+
+
+def _scan_end():
+    """Ends the scan the base's way (`stop` saves it); the name and floor it had."""
+    info = _scan_info()
+    if not info["mapping"]:
+        raise HTTPException(409, "No new map is being made.")
+    try:
+        _build_get("map-build-api/stop", SCAN_SAVE_S)
+    except Exception as e:
+        raise HTTPException(502, f"the base did not save the map: {e}")
+    return info
+
+
+@app.post("/map/scan/save", tags=["map"], summary="Save the new map (best after optimizing reaches 100 %)")
+def scan_save():
+    robot_free(manual=True)
+    info = _scan_end()
+    SCAN_FILE.unlink(missing_ok=True)
+    return {"ok": True, "name": info["name"], "floor": info["floor"]}
+
+
+@app.post("/map/scan/cancel", tags=["map"], summary="Stop making the new map and delete it")
+def scan_cancel():
+    """The base cannot drop a scan: it is saved, then deleted, but only a map this API started under a new name and
+    one the base does not use now. Otherwise it stays (deleted: false, note says why)."""
+    robot_free(manual=True)
+    try:
+        started = json.loads(SCAN_FILE.read_text())
+    except (FileNotFoundError, ValueError):
+        started = {}
+    info = _scan_end()
+    SCAN_FILE.unlink(missing_ok=True)
+    name, floor = info["name"], info["floor"]
+    if started.get("name") != name or name in started.get("maps", [name]):
+        return {"ok": True, "name": name, "deleted": False, "note": "not a map this API started: it stays"}
+    try:
+        cur = agv.request("/api/map/get_current_map")["results"]
+        if cur.get("map_name") == name:
+            return {"ok": True, "name": name, "deleted": False, "note": "the base uses this map now: it stays"}
+        v = rosbridge.call_service("/water_map_manager/map_service",
+                                   {"cmd": "delete_map", "message": json.dumps({"mapName": name, "floors": [floor]})},
+                                   timeout=10)
+    except Exception as e:
+        return {"ok": True, "name": name, "deleted": False, "note": f"the base did not delete it: {e}"}
+    if not v.get("success"):
+        return {"ok": True, "name": name, "deleted": False, "note": f"the base did not delete it: {v.get('message')}"}
+    return {"ok": True, "name": name, "deleted": True}
 
 
 @app.post("/agv/go_point", tags=["base"], summary="Drive to a point on the map (x, y in m, theta in rad)")
