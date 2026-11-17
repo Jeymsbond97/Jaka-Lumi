@@ -1,5 +1,5 @@
 """Self-check of the map edits for the Lumi app (2026-11-16): save a marker where Lumi stands or at a tapped pose,
-delete one (never the main dock), set Lumi's position on the map. Fake base, no robot: python tests/test_map_edit.py"""
+delete one (a charger's too), save a charger's marker, set Lumi's position on the map. Fake base, no robot: python tests/test_map_edit.py"""
 import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from fastapi import HTTPException
 
@@ -31,12 +31,23 @@ for bad in ("", "a b", "x/y", "로비", "a" * 51):     # the base takes letters,
     assert refused(server.marker_save, server.MarkerBody(name=bad), code=422), bad
 assert sent == [], sent
 
-# delete; never the main dock (docking needs it)
+# delete, the main dock too (the owner moves the charger; the app warns that Lumi then cannot dock)
 server.marker_delete(server.MarkerName(name="door_1"))
 assert sent == ["/api/markers/delete?name=door_1", "refresh"], sent
 sent.clear()
-assert refused(server.marker_delete, server.MarkerName(name="Home"))
-assert sent == [], sent
+server.marker_delete(server.MarkerName(name="Home"))
+assert sent == ["/api/markers/delete?name=Home", "refresh"], sent
+sent.clear()
+
+# a charger's marker (type 11): its own dock number when it is one, else the next free one
+marks = {"Home": {"key": 11, "num": 1}, "p1": {"key": 0}}
+server.agv.request = lambda cmd, timeout=3.0: (sent.append(cmd) or {"status": "OK", "results": marks if "query_list" in cmd else {}})
+server.marker_save(server.MarkerBody(name="Home", charger=True))
+assert sent[-2] == "/api/markers/insert?name=Home&type=11&num=1", sent
+server.marker_save(server.MarkerBody(name="dock_b", x=1, y=2, theta=0, charger=True))
+assert sent[-2] == "/api/markers/insert_by_pose?name=dock_b&x=1.0&y=2.0&theta=0.0&type=11&num=2", sent
+server.agv.request = lambda cmd, timeout=3.0: sent.append(cmd) or {"status": "OK", "results": {}}
+sent.clear()
 
 # Lumi's position on the map (relocalise), only while nothing runs
 server.map_position(server.PointBody(x=-1.2, y=0.05, theta=-0.04))

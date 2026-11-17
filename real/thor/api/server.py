@@ -750,6 +750,7 @@ class MarkerBody(BaseModel):
     x: float | None = Field(None, description="m, map frame; none: where Lumi stands now")
     y: float | None = None
     theta: float = Field(0.0, description="rad, map frame (with x, y)")
+    charger: bool = Field(False, description="a charger's marker (type 11): the base docks with it")
 
 
 class MarkerName(BaseModel):
@@ -855,19 +856,28 @@ def _marker_name(name):
 @app.post("/map/marker", tags=["map"], summary="Save a marker where Lumi stands, or at x, y, theta (the Lumi app)")
 def marker_save(body: MarkerBody):
     name = _marker_name(body.name)
+    kind = f"type=11&num={_dock_num(name)}" if body.charger else "type=0"
     if body.x is None or body.y is None:
-        r = agv.request(f"/api/markers/insert?name={name}&type=0&num=1")
+        r = agv.request(f"/api/markers/insert?name={name}&{kind}" + ("" if body.charger else "&num=1"))
     else:
-        r = agv.request(f"/api/markers/insert_by_pose?name={name}&x={body.x}&y={body.y}&theta={body.theta}&type=0")
+        r = agv.request(f"/api/markers/insert_by_pose?name={name}&x={body.x}&y={body.y}&theta={body.theta}&{kind}")
     agv.known_markers(fresh=True)                # drives to it work at once
     return {"ok": True, "reply": r}
 
 
-@app.post("/map/marker/delete", tags=["map"], summary="Delete a marker (never the main dock)")
+def _dock_num(name):
+    """A charger marker's dock number: its own when it is one already, else the next free one (the lowest is the main
+    dock, agv.dock_marker), so a renamed charger (saved anew, then the old one deleted) becomes the main dock again."""
+    marks = agv.request("/api/markers/query_list")["results"] or {}
+    if marks.get(name, {}).get("key") == 11:
+        return marks[name].get("num", 1)
+    nums = [m.get("num", 1) for m in marks.values() if m.get("key") == 11]
+    return max(nums) + 1 if nums else 1
+
+
+@app.post("/map/marker/delete", tags=["map"], summary="Delete a marker (a charger's too: the app warns first)")
 def marker_delete(body: MarkerName):
     name = _marker_name(body.name)
-    if name == agv.dock_marker():
-        raise HTTPException(409, "The charger's marker stays: Lumi docks with it.")
     r = agv.request(f"/api/markers/delete?name={name}")
     agv.known_markers(fresh=True)
     return {"ok": True, "reply": r}
