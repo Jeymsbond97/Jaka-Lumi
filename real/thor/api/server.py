@@ -757,6 +757,12 @@ class MarkerName(BaseModel):
     name: str
 
 
+class NoGoLineBody(BaseModel):
+    name: str = Field(examples=["door_1"], description="letters, digits, _ and - (an existing name is replaced)")
+    points: list[list[float]] = Field(min_length=2, examples=[[[0.0, 1.0], [2.0, 1.0]]],
+                                      description="[x, y] in m, map frame, in order")
+
+
 class OnBody(BaseModel):
     on: bool
 
@@ -784,14 +790,48 @@ def jog_stop():
 
 def _forbidden_lines(floor):
     """The map's no-go lines drawn in the base's web page (forbidden_manager): [{name, points [[x, y], ...]}] on
-    this floor, in map metres. Empty when the base does not answer: the map still shows."""
+    this floor, in map metres, the newest first. Empty when the base does not answer: the map still shows."""
     try:
         values = rosbridge.call_service("/forbidden_manager/action_service", {"cmd": "list_lines", "message": ""})
         lines = json.loads(values.get("message") or "{}") if values.get("success") else {}
     except Exception:
         return []
-    return [{"name": n, "points": l["points"]} for n, l in sorted(lines.items())
+    newest = sorted(lines.items(), key=lambda nl: (nl[1].get("date") or "", nl[0]), reverse=True)   # the base dates each
+    return [{"name": n, "points": l["points"]} for n, l in newest
             if l.get("floor", 1) == floor and len(l.get("points") or []) >= 2]
+
+
+FORBIDDEN = "/forbidden_manager/action_service"         # the base's no-go lines (its web page :9001 uses it)
+
+
+def _lines_call(cmd, message):
+    """One forbidden_manager command; raises 502 when the base refuses or does not answer."""
+    try:
+        v = rosbridge.call_service(FORBIDDEN, {"cmd": cmd, "message": json.dumps(message)})
+    except Exception as e:
+        raise HTTPException(502, f"the base did not answer: {e}")
+    if not v.get("success"):
+        raise HTTPException(502, f"the base refused: {v.get('message')}")
+    return v
+
+
+@app.post("/map/line", tags=["map"], summary="Save a no-go line on this floor (the base never drives across it)")
+def line_save(body: NoGoLineBody):
+    name = _marker_name(body.name)
+    if any(len(pt) != 2 for pt in body.points):
+        raise HTTPException(422, "Each point is [x, y].")
+    floor = agv.request("/api/map/get_current_map")["results"]["floor"]
+    line = {"name": name, "type": "forbidden", "floor": floor, "points": [[round(x, 3), round(y, 3)] for x, y in body.points],
+            "comment": "", "properties": "{}"}
+    _lines_call("add_lines", {"data": [line]})
+    return {"ok": True, "line": line}
+
+
+@app.post("/map/line/delete", tags=["map"], summary="Delete a no-go line")
+def line_delete(body: MarkerName):
+    name = _marker_name(body.name)
+    _lines_call("delete_lines", {"names": [name]})
+    return {"ok": True}
 
 
 @app.get("/map/info", tags=["map"], summary="Current map, its geometry, the markers with poses and all maps")

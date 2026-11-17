@@ -23,7 +23,8 @@ def fake(cmd, timeout=3.0):
     raise AssertionError(cmd)
 
 
-LINES = {"door": {"floor": 1, "points": [[0, 1], [2, 1]], "type": "forbidden"},
+LINES = {"door": {"floor": 1, "points": [[0, 1], [2, 1]], "type": "forbidden", "date": "2026-10-08 16:35:09"},
+         "new": {"floor": 1, "points": [[5, 5], [6, 5]], "date": "2026-11-17 15:00:00"},
          "up": {"floor": 2, "points": [[0, 0], [1, 0]]}, "dot": {"floor": 1, "points": [[3, 3]]}}
 
 
@@ -36,7 +37,8 @@ agv.request = server.agv.request = fake
 server.rosbridge.call_service = fake_service
 names = lambda d: [m["name"] for m in d["markers"]]
 assert names(server.map_info()) == ["home_dock"]
-assert server.map_info()["lines"] == [{"name": "door", "points": [[0, 1], [2, 1]]}]   # this floor, two points or more
+assert server.map_info()["lines"] == [{"name": "new", "points": [[5, 5], [6, 5]]},      # newest first
+                                      {"name": "door", "points": [[0, 1], [2, 1]]}]    # this floor, 2 points or more
 assert server.markers()["markers"] == ["home"] and agv.known_markers() == ["home"]
 
 MARKS["p13"] = {"key": 0, "floor": 1, "pose": {"position": {"x": 1.0, "y": 2.0}, "orientation": {"z": 0, "w": 1}}}
