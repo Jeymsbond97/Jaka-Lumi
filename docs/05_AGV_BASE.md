@@ -335,3 +335,33 @@ taken from the URDF.
 second in red at the pose the base believes and in purple at the new pose; arrows move the new pose 5 cm, turns 2°;
 a tap or a drag on the map sets the place and heading. When the purple dots sit on the walls, SET POSITION. Or
 *Lumi is at* → a marker.
+
+## 7. Making a new map from the Lumi app (lumi-wave `/map/scan/*`)
+
+The base's map builder (§2.2, `http://192.168.10.10:8809/map-build/map.html?hotelid=<map>&floor=1&map_type=v2`) is a
+page over a small HTTP API (CherryPy) plus rosbridge. Read from its scripts (`map-build/js/src/Map.js`, 2026-11-17):
+
+| Step | The base's page | lumi-wave |
+|---|---|---|
+| Start | `GET :8809/map-build-api/start?hotelid=<name>&floor=1&delta=<m per px>&map_type=v2`; `delta` from rosparam `/map_build_tool/deltas` = `[0.02, 0.03, 0.05]` (small, middle, large map). The 9001 page's *Create Map* only opens this page | `POST /map/scan/start {name, size}` (size small by default) |
+| State | `GET :8809/map-build-api/get_info` → `{mapbuilding, hotelid, floor, map_type, resolution, iscontinue}` | `GET /map/scan/state` |
+| Live map | picture `:8809/maps/<name>/<floor>/map-temp.png` (or `map-temp-mini.png`) once a second; its geometry from topic `/map_metadata` (`nav_msgs/MapMetaData`), matched by width and height (they come apart while the map grows) | `GET /map/scan/picture` (PNG as base64 in the dark look, with `width, height, resolution, origin_x, origin_y, exact`) |
+| Pose | topic `/robot_pose` (`geometry_msgs/Pose`) | in `/map/scan/state` |
+| Optimizing | topic `/optimizing_progress` (`std_msgs/Float32`, 0..1, v2 only): "suggested to save after optimization" | `progress` in `/map/scan/state` |
+| Drive | keys publish `geometry_msgs/Twist` on `/ctrl_cmd_vel` (the TCP API's `joy_control` publishes there too, node `/water_tcp_socket`) | the app's joystick, `/jog` |
+| Save | publishes `/web_operation` `{operation: "new_save"}` (only logged by `/log_manager`), then `GET :8809/map-build-api/stop`; the builder then sends `{"event": "new_save"}` on `/map_build_tool/map_event` | `POST /map/scan/save` |
+| Cancel | none: a scan ends only by saving it | `POST /map/scan/cancel`: saves, then deletes it with `/water_map_manager/map_service` `delete_map` (message `{"mapName", "floors"}` as JSON), but only a map this API started under a new name and not the map in use; else it stays (`deleted: false`) |
+
+Other calls of the page, not used: continue scan (`start ...&iscontinue=true`), auto scan (topic `/map_explore/ctrl`
+`on`, `off`, `jump`), loop closure range (`set_loop_closure_range?value=`), view distance (topic
+`set_map_view_distance`; the page saves only at the full 150 m), `list_exist_hotels`, `list_status`, `list_all_status`.
+The 9001 page's map list comes from `/water_map_manager/map_service` `get_local_map_list`.
+
+Rules in lumi-wave: a name has letters, digits and `_` (at most 36, the 9001 page's rule) and is not a map that exists;
+start is refused while the assistant runs or a task or drive runs (`robot_free`), save and cancel while a task runs;
+one scan at a time. While a scan this API started runs, `/map/switch` and `/map/position` answer 409
+(`/dev/shm/lumi_mapping.json`, checked with the base). After saving, the new map is in `/map/info` `maps`; switch to it
+(`/map/switch`) and set the position. Test: `tests/test_map_scan.py` (no robot).
+
+Not tried live yet (2026-11-17): what `start` and `stop` do to the base's services and its current map, how long `stop`
+takes, whether `joy_control` drives while scanning, and the `delete_map` message format.
