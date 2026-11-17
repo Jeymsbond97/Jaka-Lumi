@@ -1,6 +1,7 @@
 """Self-check of the dashboard's hand controls (api/server.py robot_free): refused while a task, a skill, following,
 a wave or a drive runs; allowed when idle or paused, Patrol on or off; STOP always works. Fake state, no robot:
 python tests/test_robot_free.py"""
+import time
 import json
 import tempfile
 from pathlib import Path
@@ -92,14 +93,24 @@ calls = []
 server.jogger.stop = lambda: calls.append("jog")
 server._route.stop = lambda: calls.append("route")
 server._fetch_stop = lambda: calls.append("fetch")
-server.assistant_stop = lambda: {"stopped": []}
+server.assistant_stop = lambda **k: {"stopped": []}
 server.send_to_assistant = lambda *a, **k: calls.append(a[0])
 server.agv.cancel = lambda: calls.append("agv")
 server.skills.cancel = lambda: calls.append("arm")
+server.arm.stop = lambda: calls.append("arm_stop")               # STOP stops the arm meanwhile (in a thread)
 server.stop_all()
 server.task_stop()
 server.jog_stop()
 server.arm_stop()
-assert {"jog", "route", "fetch", "agv", "arm", "fetch_stop"} <= set(calls), calls
+assert {"jog", "route", "fetch", "agv", "arm", "arm_stop", "fetch_stop"} <= set(calls), calls
 assert len(held) == 7, held                         # the jogs that were allowed reached the (fake) jogger
+
+# STOP answers within STOP_ARM_WAIT_S even when the arm is off (each arm stop waited ~14 s, 2026-11-17); the base first
+order = []
+server.agv.cancel = lambda: order.append("agv")
+server.skills.cancel = server.arm.stop = lambda: (order.append("arm"), time.sleep(4))
+t0 = time.time()
+r = server.stop_all()
+assert time.time() - t0 < server.STOP_ARM_WAIT_S + 1.5, time.time() - t0
+assert order[0] == "agv" and "error" in r["arm"], (order, r)
 print("robot_free: ok")

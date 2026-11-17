@@ -31,7 +31,7 @@ lumi.urllib.request.urlopen = real_open
 server.MODES_FILE.write_text(json.dumps({"greeter": True, "patrol": False, "wave_greet": True, "welcome": True}))
 server.jogger.stop = server._route.stop = lambda: None
 server.part = lambda fn, *a, **k: None
-server.assistant_stop = lambda: {"stopped": []}
+server.assistant_stop = lambda **k: {"stopped": []}
 server.stop_all()
 assert server.read_modes() == {"greeter": True, "patrol": False, "wave_greet": False, "welcome": False}, server.read_modes()
 assert not server.any_on({**server.read_modes(), "greeter": False})
@@ -116,7 +116,7 @@ g._swing = real_swing
 server.MODES_FILE.write_text(json.dumps({"greeter": False, "patrol": False, "wave_greet": False, "welcome": False}))
 poses, stopped = iter(["wave_start", "wave_start", "look"]), []
 server.arm_route.where = lambda: next(poses, "look")
-server.assistant_stop = lambda: stopped.append(time.time()) or {"stopped": []}
+server.assistant_stop = lambda **k: stopped.append(time.time()) or {"stopped": []}
 server.stop_when_lowered(wait_s=2.0, every=0.01)
 assert len(stopped) == 1, stopped
 server.arm_route.where = lambda: "wave_start"       # never comes down: stopped all the same after the wait

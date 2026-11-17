@@ -456,7 +456,7 @@ def assistant_start(body: StartBody):
 
 
 @app.post("/assistant/stop", tags=["assistant"], summary="Stop lumi.py and the base")
-def assistant_stop():
+def assistant_stop(arm_too=True):
     pids = assistant_pids()
     for pid in pids:
         os.kill(pid, signal.SIGINT)                  # lumi.py exits at once on Ctrl+C
@@ -464,7 +464,8 @@ def assistant_stop():
     for pid in assistant_pids():
         os.kill(pid, signal.SIGKILL)
     part(agv.cancel)                                 # a patrol drive would otherwise go on to its marker
-    part(arm.stop)
+    if arm_too:
+        part(arm.stop)
     return {"stopped": pids}
 
 
@@ -640,14 +641,28 @@ def volume_set(body: VolumeBody):
     mouth.set_volume(body.percent)
     return {"percent": mouth.volume()}
 
+
+# An arm that is off or unreachable takes ~14 s per stop (no route to host, 2026-11-17): STOP then answered after
+# ~30 s and the app showed "no answer". The base stops first; the arm is stopped meanwhile and waited for this long.
+STOP_ARM_WAIT_S = 2.0
+_stop_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="stop")
+
+
 @app.post("/stop", tags=["status"], summary="STOP everything: base drive, arm program and the assistant")
 def stop_all():
+    part(agv.cancel)                                 # the base first, at once
     _waving_off()                                    # first: the supervisor must not bring lumi.py back to wave
     jogger.stop()
     _route.stop()
     task = part(_fetch_stop)                         # first, so the runner starts nothing new
-    stopped = assistant_stop()
-    return {"assistant": stopped["stopped"], "agv": part(agv.cancel), "arm": part(skills.cancel), "task": task}
+    arm_parts = [_stop_pool.submit(part, skills.cancel)]
+    stopped = assistant_stop(arm_too=False)
+    arm_parts.append(_stop_pool.submit(part, arm.stop))   # after lumi.py is gone, as before
+    base = part(agv.cancel)                          # again: nothing started a drive meanwhile
+    done, _ = wait(arm_parts, timeout=STOP_ARM_WAIT_S)
+    arm_reply = (arm_parts[0].result() if arm_parts[0] in done
+                 else {"error": f"no reply within {STOP_ARM_WAIT_S:g} s; still being stopped"})
+    return {"assistant": stopped["stopped"], "agv": base, "arm": arm_reply, "task": task}
 
 
 def _charging():
