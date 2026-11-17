@@ -766,6 +766,18 @@ def jog_stop():
     return {"ok": True}
 
 
+def _forbidden_lines(floor):
+    """The map's no-go lines drawn in the base's web page (forbidden_manager): [{name, points [[x, y], ...]}] on
+    this floor, in map metres. Empty when the base does not answer: the map still shows."""
+    try:
+        values = rosbridge.call_service("/forbidden_manager/action_service", {"cmd": "list_lines", "message": ""})
+        lines = json.loads(values.get("message") or "{}") if values.get("success") else {}
+    except Exception:
+        return []
+    return [{"name": n, "points": l["points"]} for n, l in sorted(lines.items())
+            if l.get("floor", 1) == floor and len(l.get("points") or []) >= 2]
+
+
 @app.get("/map/info", tags=["map"], summary="Current map, its geometry, the markers with poses and all maps")
 def map_info():
     cur = agv.request("/api/map/get_current_map")["results"]
@@ -775,6 +787,7 @@ def map_info():
                 "theta": 2 * math.atan2(m["pose"]["orientation"]["z"], m["pose"]["orientation"]["w"])}
                for n, m in marks.items() if m.get("floor", 1) == cur["floor"]]
     return {"map_name": cur["map_name"], "floor": cur["floor"], **cur.get("info", {}), "markers": markers,
+            "lines": _forbidden_lines(cur["floor"]),
             "main_dock": agv.dock_marker(),          # "home"; further docks (dock2) keep their names
             "maps": [{"name": n, "floors": f} for n, f in sorted(maps.items())]}
 

@@ -1,6 +1,6 @@
 """Read one message of a ROS topic from the AGV base's rosbridge (WebSocket, ws://192.168.10.10:9090; its own web
-pages use it). Only what the Lumi app's position correction needs: the lidar scan. A small WebSocket client of our
-own (no extra package): one connection per read, subscribe, the first message, unsubscribe, close."""
+pages use it). Only what the Lumi app needs: the lidar scan for position correction and the map's no-go lines. A
+small WebSocket client of our own (no extra package): one connection per read or service call, then close."""
 import base64
 import json
 import os
@@ -44,9 +44,10 @@ def read_message(sock, buf):
             return json.loads(data), buf
 
 
-def read_once(topic, timeout=3.0):
-    """The next message of `topic` (rosbridge's {"op": "publish", "msg": ...}); raises OSError when there is none."""
-    with socket.create_connection((HOST, PORT), timeout=timeout) as s:
+def _connect(timeout):
+    """An open WebSocket to rosbridge and the bytes read past its handshake."""
+    s = socket.create_connection((HOST, PORT), timeout=timeout)
+    try:
         key = base64.b64encode(os.urandom(16)).decode()
         s.sendall((f"GET / HTTP/1.1\r\nHost: {HOST}:{PORT}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                    f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
@@ -58,10 +59,33 @@ def read_once(topic, timeout=3.0):
             head += chunk
         if b" 101 " not in head.split(b"\r\n", 1)[0]:
             raise ConnectionError(f"rosbridge refused: {head.split(b'\\r\\n', 1)[0]!r}")
-        buf = head.split(b"\r\n\r\n", 1)[1]
+        return s, head.split(b"\r\n\r\n", 1)[1]
+    except BaseException:
+        s.close()
+        raise
+
+
+def read_once(topic, timeout=3.0):
+    """The next message of `topic` (rosbridge's {"op": "publish", "msg": ...}); raises OSError when there is none."""
+    s, buf = _connect(timeout)
+    with s:
         s.sendall(client_frame(json.dumps({"op": "subscribe", "topic": topic, "queue_length": 1}).encode()))
         while True:
             msg, buf = read_message(s, buf)
             if msg.get("op") == "publish" and msg.get("topic", topic) == topic:
                 s.sendall(client_frame(json.dumps({"op": "unsubscribe", "topic": topic}).encode()))
                 return msg
+
+
+def call_service(service, args, timeout=3.0):
+    """Call a ROS service of the base and return its values; raises OSError or RuntimeError when it fails."""
+    s, buf = _connect(timeout)
+    with s:
+        s.sendall(client_frame(json.dumps({"op": "call_service", "id": "lumi", "service": service,
+                                           "args": args}).encode()))
+        while True:
+            msg, buf = read_message(s, buf)
+            if msg.get("op") == "service_response":
+                if not msg.get("result", False):
+                    raise RuntimeError(f"{service} failed: {msg.get('values')}")
+                return msg.get("values") or {}
