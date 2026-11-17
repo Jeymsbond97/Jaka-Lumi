@@ -4,6 +4,11 @@ import no_robot                                     # noqa: F401  any connection
 from fastapi import HTTPException
 
 from api import server
+import tempfile, pathlib
+server.MARKER_TIMES = pathlib.Path(tempfile.mkdtemp()) / "marker_times.json"   # not the real file
+server._map_dates = lambda: {}
+dated = []
+server._mark_time = lambda name, when: dated.append((name, when is not None))   # the date book is test_map_info's
 
 sent = []
 server.agv.request = lambda cmd, timeout=3.0: sent.append(cmd) or {"status": "OK", "results": {}}
@@ -23,6 +28,7 @@ def refused(fn, *a, code=409):
 # where Lumi stands, and at a tapped pose (an existing name is moved there)
 server.marker_save(server.MarkerBody(name="door_1"))
 assert sent == ["/api/markers/insert?name=door_1&type=0&num=1", "refresh"], sent
+assert dated == [("door_1", True)], dated                        # dated, so the app lists it first
 sent.clear()
 server.marker_save(server.MarkerBody(name="p11", x=1.5, y=-2.25, theta=0.5))
 assert sent == ["/api/markers/insert_by_pose?name=p11&x=1.5&y=-2.25&theta=0.5&type=0", "refresh"], sent
@@ -58,23 +64,35 @@ assert refused(server.map_position, server.PointBody(x=0, y=0))
 assert sent == []
 
 
-# the map picture in the app's dark look: unknown almost black, free space dark, walls light (same size)
+# the map picture in the app's dark look: unknown almost black, free space dark, walls light (same size). The base's
+# clean ui_map.png (three colours, BGR) when it has one; else its raw grid map.png (205 unknown, 255 free, 0 walls)
 import cv2                                           # noqa: E402
 import numpy as np                                   # noqa: E402
-pic = np.full((4, 6), 205, np.uint8)                 # unknown
-pic[1, 1:5] = 255                                    # free
-pic[2, 2] = 0                                        # a wall
-png = cv2.imencode(".png", pic)[1].tobytes()
+ui = np.full((4, 6, 3), 250, np.uint8)               # unknown
+ui[1, 1:5] = (253, 241, 234)                         # free
+ui[2, 2] = (194, 177, 161)                           # outline
+grid = np.full((4, 6), 205, np.uint8)
+grid[1, 1:5] = 255
+grid[2, 2] = 0
+pngs = {"ui_map.png": cv2.imencode(".png", ui)[1].tobytes(), "map.png": cv2.imencode(".png", grid)[1].tobytes()}
+
+
+def fake_open(url, timeout=10):
+    name = url.rsplit("/", 1)[1]
+    if name not in pngs:
+        raise OSError("404")
+    return type("R", (), {"read": lambda s: pngs[name], "__enter__": lambda s: s, "__exit__": lambda s, *a: False})()
+
+
 server.agv.request = lambda cmd, timeout=3.0: {"results": {"map_name": "m", "floor": 1}}
-server.urllib.request.urlopen = lambda url, timeout=10: type("R", (), {"read": lambda s: png, "__enter__": lambda s: s,
-                                                                    "__exit__": lambda s, *a: False})()
-out = cv2.imdecode(np.frombuffer(server.map_image(dark=True).body, np.uint8), cv2.IMREAD_COLOR)
-assert out.shape == (4, 6, 3), out.shape
-assert tuple(out[0, 0]) == server.DARK_UNKNOWN[::-1] and tuple(out[1, 1]) == server.DARK_FREE[::-1], (out[0, 0], out[1, 1])
-assert tuple(out[2, 2]) == server.DARK_WALL[::-1], out[2, 2]
-assert server.map_image().body == png                # as the base draws it, unless asked
-
-
+server.urllib.request.urlopen = fake_open
+for _ in range(2):                                   # with ui_map.png, then without it
+    out = cv2.imdecode(np.frombuffer(server.map_image(dark=True).body, np.uint8), cv2.IMREAD_COLOR)
+    assert out.shape == (4, 6, 3), out.shape
+    assert tuple(out[0, 0]) == server.DARK_UNKNOWN[::-1] and tuple(out[1, 1]) == server.DARK_FREE[::-1], (out[0, 0], out[1, 1])
+    assert tuple(out[2, 2]) == server.DARK_WALL[::-1], out[2, 2]
+    pngs.pop("ui_map.png", None)
+assert server.map_image().body == pngs["map.png"]       # as the base draws it, unless asked
 # Lumi stands at a marker: the base takes its pose from it (after a map switch, the quickest way)
 sent.clear()
 server.agv.request = lambda cmd, timeout=3.0: sent.append(cmd) or {"status": "OK", "results": {}}

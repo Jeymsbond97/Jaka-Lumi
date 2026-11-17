@@ -6,6 +6,9 @@ import time
 
 import no_robot                                     # noqa: F401  any connection to the robot fails the test
 from api import server
+import tempfile, pathlib
+server.MARKER_TIMES = pathlib.Path(tempfile.mkdtemp()) / "marker_times.json"   # not the real file
+server._map_dates = lambda: {}
 from robot import agv
 
 MARKS = {"home_dock": {"key": 11, "num": 1, "floor": 1, "pose": {"position": {"x": 0, "y": 0},
@@ -48,4 +51,14 @@ assert agv.known_markers(fresh=True) == ["home", "p13"]             # a name not
 agv._known["t"] = time.time() - agv.MARKERS_FRESH_S - 1
 del MARKS["p13"]
 assert agv.known_markers() == ["home"]                              # and within MARKERS_FRESH_S anyway
+# newest first: markers by when this API saved them (undated ones after, in the base's order), maps by folder date
+server.MARKER_TIMES.write_text(json.dumps({"office/1/p13": 200, "office/1/z9": 100}))
+MARKS.update({n: {"key": 0, "floor": 1, "pose": {"position": {"x": 0, "y": 0}, "orientation": {"z": 0, "w": 1}}}
+              for n in ("p13", "z9", "a1")})
+assert names(server.map_info()) == ["p13", "z9", "home_dock", "a1"], names(server.map_info())
+server._map_dates = lambda: {"old": "2026-01-01 00:00", "office": "2026-11-17 09:00"}
+real_request = agv.request
+agv.request = server.agv.request = lambda cmd, timeout=3.0: ({"results": {"office": [1], "old": [1], "nodate": [1]}}
+                                                             if cmd == "/api/map/list" else real_request(cmd, timeout))
+assert [m["name"] for m in server.map_info()["maps"]] == ["office", "old", "nodate"], server.map_info()["maps"]
 print("map info ok")

@@ -834,6 +834,53 @@ def line_delete(body: MarkerName):
     return {"ok": True}
 
 
+# The base keeps no dates for markers (query_list is by name): the app's markers are dated here when saved, so the app
+# lists the newest first. Maps: the base's map folders on :9001 carry their dates (nginx index).
+MARKER_TIMES = ROOT / "data" / "marker_times.json"     # {"<map>/<floor>/<name>": unix time}
+MAP_DATE = re.compile(r'href="([^"/]+)/">[^<]*</a>\s+(\d\d-\w{3}-\d{4} \d\d:\d\d)')
+
+
+def _marker_times():
+    try:
+        return json.loads(MARKER_TIMES.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _mark_time(name, when):
+    """Note when a marker of the current map was saved (`when` None: it was deleted); never fails the call."""
+    try:
+        cur = agv.request("/api/map/get_current_map")["results"]
+        key = f"{cur['map_name']}/{cur['floor']}/{name}"
+        times = _marker_times()
+        if when is None:
+            times.pop(key, None)
+        else:
+            times[key] = when
+        tmp = MARKER_TIMES.with_suffix(".tmp")
+        tmp.write_text(json.dumps(times))
+        os.replace(tmp, MARKER_TIMES)
+    except Exception:
+        pass
+
+
+def _map_dates():
+    """{map name: "YYYY-MM-DD HH:MM"} from the base's map folders; {} when the base does not answer."""
+    import datetime
+    try:
+        with urllib.request.urlopen(f"{AGV_WEB}/maps/", timeout=3) as r:
+            page = r.read().decode(errors="replace")
+    except Exception:
+        return {}
+    out = {}
+    for name, when in MAP_DATE.findall(page):
+        try:
+            out[urllib.request.unquote(name)] = datetime.datetime.strptime(when, "%d-%b-%Y %H:%M").strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            pass
+    return out
+
+
 @app.get("/map/info", tags=["map"], summary="Current map, its geometry, the markers with poses and all maps")
 def map_info():
     cur = agv.request("/api/map/get_current_map")["results"]
@@ -842,10 +889,15 @@ def map_info():
     markers = [{"name": n, "type": m.get("key"), "x": m["pose"]["position"]["x"], "y": m["pose"]["position"]["y"],
                 "theta": 2 * math.atan2(m["pose"]["orientation"]["z"], m["pose"]["orientation"]["w"])}
                for n, m in marks.items() if m.get("floor", 1) == cur["floor"]]
+    times = _marker_times()
+    when = lambda n: times.get(f"{cur['map_name']}/{cur['floor']}/{n}", 0)
+    markers.sort(key=lambda m: -when(m["name"]))               # the newest first; undated ones keep the base's order
+    dates = _map_dates()
     return {"map_name": cur["map_name"], "floor": cur["floor"], **cur.get("info", {}), "markers": markers,
             "lines": _forbidden_lines(cur["floor"]),
             "main_dock": agv.dock_marker(),          # "home"; further docks (dock2) keep their names
-            "maps": [{"name": n, "floors": f} for n, f in sorted(maps.items())]}
+            "maps": [{"name": n, "floors": f}            # the newest first (folder date), then by name
+                     for n, f in sorted(sorted(maps.items()), key=lambda nf: dates.get(nf[0], ""), reverse=True)]}
 
 
 DARK_UNKNOWN, DARK_FREE, DARK_WALL = (10, 11, 13), (22, 26, 31), (232, 232, 232)   # RGB, the Lumi app's look
@@ -863,14 +915,36 @@ def _dark(png):
     return cv2.imencode(".png", out)[1].tobytes()
 
 
+# The base's own page draws ui_map.png: clean outlines of the free space (BGR 250 unknown, 253/241/234 free, 194/177/161
+# outline), where map.png is the raw lidar grid (spotty, thick walls when zoomed; the owner asked for the clean one).
+UI_COLOURS = ((250, 250, 250), (253, 241, 234), (194, 177, 161))     # BGR: unknown, free, outline
+
+
+def _dark_ui(png):
+    """The base's ui_map.png in the app's dark look, same size: each pixel by the nearest of its three colours."""
+    import cv2
+    import numpy as np
+    g = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR).astype(np.int32)
+    d = np.stack([((g - np.array(c)) ** 2).sum(axis=2) for c in UI_COLOURS])
+    look = np.array([DARK_UNKNOWN[::-1], DARK_FREE[::-1], DARK_WALL[::-1]], np.uint8)
+    return cv2.imencode(".png", look[d.argmin(axis=0)])[1].tobytes()
+
+
 @app.get("/map/image", tags=["map"], summary="Map picture (PNG) from the base; default the current map")
 def map_image(map_name: str | None = None, floor: int | None = None, dark: bool = False):
     if map_name is None:
         cur = agv.request("/api/map/get_current_map")["results"]
         map_name, floor = cur["map_name"], cur["floor"]
-    url = f"{AGV_WEB}/maps/{urllib.request.quote(map_name)}/{floor or 1}/map.png"
+    folder = f"{AGV_WEB}/maps/{urllib.request.quote(map_name)}/{floor or 1}"
+    if dark:                                         # the app: the clean picture, the raw grid when a map has none
+        try:
+            with urllib.request.urlopen(f"{folder}/ui_map.png", timeout=10) as r:
+                png = r.read()
+            return Response(_dark_ui(png), media_type="image/png", headers={"Cache-Control": "max-age=60"})
+        except Exception:
+            pass
     try:
-        with urllib.request.urlopen(url, timeout=10) as r:
+        with urllib.request.urlopen(f"{folder}/map.png", timeout=10) as r:
             png = r.read()
         return Response(_dark(png) if dark else png, media_type="image/png", headers={"Cache-Control": "max-age=60"})
     except Exception as e:
@@ -903,6 +977,7 @@ def marker_save(body: MarkerBody):
     else:
         r = agv.request(f"/api/markers/insert_by_pose?name={name}&x={body.x}&y={body.y}&theta={body.theta}&{kind}")
     agv.known_markers(fresh=True)                # drives to it work at once
+    _mark_time(name, time.time())
     return {"ok": True, "reply": r}
 
 
@@ -921,6 +996,7 @@ def marker_delete(body: MarkerName):
     name = _marker_name(body.name)
     r = agv.request(f"/api/markers/delete?name={name}")
     agv.known_markers(fresh=True)
+    _mark_time(name, None)
     return {"ok": True, "reply": r}
 
 
