@@ -900,7 +900,7 @@ def map_info():
                      for n, f in sorted(sorted(maps.items()), key=lambda nf: dates.get(nf[0], ""), reverse=True)]}
 
 
-DARK_UNKNOWN, DARK_FREE, DARK_WALL = (10, 11, 13), (22, 26, 31), (232, 232, 232)   # RGB, the Lumi app's look
+DARK_UNKNOWN, DARK_FREE, DARK_WALL = (10, 11, 13), (52, 58, 66), (232, 232, 232)   # RGB, the Lumi app look; free clearly lighter than unknown, like :9001
 
 
 def _dark(png):
@@ -915,34 +915,14 @@ def _dark(png):
     return cv2.imencode(".png", out)[1].tobytes()
 
 
-# The base's own page draws ui_map.png: clean outlines of the free space (BGR 250 unknown, 253/241/234 free, 194/177/161
-# outline), where map.png is the raw lidar grid (spotty, thick walls when zoomed; the owner asked for the clean one).
-UI_COLOURS = ((250, 250, 250), (253, 241, 234), (194, 177, 161))     # BGR: unknown, free, outline
-
-
-def _dark_ui(png):
-    """The base's ui_map.png in the app's dark look, same size: each pixel by the nearest of its three colours."""
-    import cv2
-    import numpy as np
-    g = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR).astype(np.int32)
-    d = np.stack([((g - np.array(c)) ** 2).sum(axis=2) for c in UI_COLOURS])
-    look = np.array([DARK_UNKNOWN[::-1], DARK_FREE[::-1], DARK_WALL[::-1]], np.uint8)
-    return cv2.imencode(".png", look[d.argmin(axis=0)])[1].tobytes()
-
-
 @app.get("/map/image", tags=["map"], summary="Map picture (PNG) from the base; default the current map")
 def map_image(map_name: str | None = None, floor: int | None = None, dark: bool = False):
     if map_name is None:
         cur = agv.request("/api/map/get_current_map")["results"]
         map_name, floor = cur["map_name"], cur["floor"]
     folder = f"{AGV_WEB}/maps/{urllib.request.quote(map_name)}/{floor or 1}"
-    if dark:                                         # the app: the clean picture, the raw grid when a map has none
-        try:
-            with urllib.request.urlopen(f"{folder}/ui_map.png", timeout=10) as r:
-                png = r.read()
-            return Response(_dark_ui(png), media_type="image/png", headers={"Cache-Control": "max-age=60"})
-        except Exception:
-            pass
+    # the app draws the raw lidar grid map.png like the base's own page (:9001): free space as the sensor saw it,
+    # walls and small obstacles as scanned, unknown left plain (owner, 2026-11-18; ui_map.png's clean outline is gone)
     try:
         with urllib.request.urlopen(f"{folder}/map.png", timeout=10) as r:
             png = r.read()
