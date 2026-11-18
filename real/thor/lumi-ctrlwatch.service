@@ -1,0 +1,15 @@
+# Logs when the arm/body controller 192.168.10.90 drops off the robot LAN or comes back
+# (logs/controller_watch.log). Install (once):
+#   cp ~/Dev/lumi-wave/lumi-ctrlwatch.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now lumi-ctrlwatch
+[Unit]
+Description=Lumi controller (192.168.10.90) watch
+
+[Service]
+WorkingDirectory=/home/cutshion/Dev/lumi-wave
+ExecStart=/usr/bin/python3 tools/controller_watch.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
