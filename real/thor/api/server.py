@@ -10,6 +10,7 @@ While the assistant (lumi.py) is running it owns the robot: motion and speech en
 import json
 import math
 import os
+import random
 import re
 import signal
 import subprocess
@@ -123,6 +124,8 @@ def running_now():
         return "skill"
     if _route.thread and _route.thread.is_alive():
         return "route"
+    if _sing["thread"] and _sing["thread"].is_alive():
+        return "song"
     if _waving.is_set():
         return "wave"
     if wave_greet.busy():
@@ -282,6 +285,57 @@ def agv_plan():
     pts = [[round(p["pose"]["position"]["x"], 3), round(p["pose"]["position"]["y"], 3)] for p in poses]
     step = max(1, len(pts) // 200)
     return {"points": pts[::step] + (pts[-1:] if pts and (len(pts) - 1) % step else [])}
+
+
+# ---------- songs (the Lumi app's Commands, 2026-11-18) ----------
+class SingBody(BaseModel):
+    id: str | None = Field(None, description="a song id from GET /songs; empty = any of them")
+
+
+_sing = {"thread": None, "stop": threading.Event(), "id": None}
+
+
+@app.get("/songs", tags=["voice"], summary="The songs Lumi sings: id and title (English, Korean)")
+def songs_list():
+    from audio import sing
+    return {"songs": [{"id": k, "title": s.get("title") or k, "title_ko": s.get("title_ko") or s.get("title") or k}
+                      for k, s in sing.songs().items()],
+            "singing": _sing["id"] if _sing["thread"] and _sing["thread"].is_alive() else None}
+
+
+@app.post("/sing", tags=["voice"], summary="Sing a song with head moves; returns at once (STOP or /sing/stop ends it)")
+def sing_start(body: SingBody):
+    from audio import sing
+    all_songs = sing.songs()
+    if body.id is not None and body.id not in all_songs:
+        raise HTTPException(404, f"no song {body.id}; songs: {list(all_songs)}")
+    if assistant_pids():                              # it owns the speaker and the head: it sings, as if it heard it
+        title = all_songs[body.id]["title"] if body.id else None
+        send_to_assistant("heard", text=f"sing {title}" if title else "sing a song")
+        return {"ok": True, "by": "assistant"}
+    robot_free(manual=True)                           # not while a task, a wave or a drive runs
+    if _sing["thread"] and _sing["thread"].is_alive():
+        raise HTTPException(409, "Already singing.")
+    song = body.id or random.choice(list(all_songs))
+    stop = _sing["stop"] = threading.Event()
+
+    def run():
+        try:
+            with _voice_lock:
+                sing.sing(song, abort=stop.is_set)
+        finally:
+            _sing["id"] = None
+
+    _sing["id"] = song
+    _sing["thread"] = threading.Thread(target=run, daemon=True)
+    _sing["thread"].start()
+    return {"ok": True, "by": "api", "id": song}
+
+
+@app.post("/sing/stop", tags=["voice"], summary="Stop the song (music, voice and head)")
+def sing_stop():
+    _sing["stop"].set()
+    return {"ok": True}
 
 
 # ---------- status ----------
@@ -713,6 +767,7 @@ def stop_all():
     _waving_off()                                    # first: the supervisor must not bring lumi.py back to wave
     jogger.stop()
     _route.stop()
+    _sing["stop"].set()                              # a song from /sing
     task = part(_fetch_stop)                         # first, so the runner starts nothing new
     arm_parts = [_stop_pool.submit(part, skills.cancel)]
     stopped = assistant_stop(arm_too=False)
