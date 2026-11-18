@@ -1381,6 +1381,16 @@ def go_point(body: PointBody):
     return {"ok": True}
 
 
+@app.get("/arm/joints", tags=["arm"], summary="Joints (deg) only: one controller read (~10 ms), for a live 3D arm "
+                                             "(the Lumi app asks it 5 times a second)")
+def arm_joints():
+    try:
+        d = arm.cmd("get_data")
+    except (ConnectionError, OSError) as e:
+        raise HTTPException(502, f"arm controller: {e}")
+    return {"joints": [round(v, 2) for v in d.get("joint_actual_position", [])]}
+
+
 @app.get("/arm/state", tags=["arm"], summary="Joints (deg), TCP (mm, deg), power, enable, program")
 def arm_state():
     d = arm.cmd("get_data")
