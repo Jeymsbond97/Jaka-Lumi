@@ -726,6 +726,18 @@ def camera_latest(name: str):
         raise HTTPException(404, "no picture yet")
 
 
+@app.get("/camera/{name}/hd.jpg", tags=["cameras"],
+         summary="Latest picture at the camera's own size (1280 x 720) with person boxes (the Lumi app's Drive)")
+def camera_hd(name: str):
+    name = _camera_name(name)
+    camview.want(name)                                   # full speed while someone watches
+    camview.ensure_running()
+    try:
+        return Response(camview.picture_hd(name), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+    except FileNotFoundError:
+        raise HTTPException(404, "no picture yet")
+
+
 @app.get("/camera/{name}.jpg", tags=["cameras"], summary="Latest picture of one camera")
 def camera_snapshot(name: str):
     name = _camera_name(name)

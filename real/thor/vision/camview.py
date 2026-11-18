@@ -160,27 +160,55 @@ def _bgr(hex_color):
     return b, g, r
 
 
+def _draw(img, people, scale, k=1.0):
+    """Person boxes and their distance labels on `img` (boxes are in camera pixels, x `scale` to img); `k` makes
+    lines and words bigger on a bigger picture (1 = the 640 px dashboard picture)."""
+    s = settings()
+    box_color, thick = _bgr(s["box_color"]), max(1, min(6, int(s["thickness"])))
+    line, font, pad = max(1, round(thick * k)), 0.5 * k, max(1, round(k))
+    for p in people:
+        x1, y1, x2, y2 = (int(v * scale) for v in p["box"])
+        col = FOCUS_COLOR if p.get("focus") or p.get("near") else box_color
+        if s["boxes"]:
+            cv2.rectangle(img, (x1, y1), (x2, y2), col, line + (pad if col == FOCUS_COLOR else 0))
+        if s["labels"]:
+            text = ("TALKING  " if p.get("focus") else "") + f"{p['distance_m']} m  {p['angle_deg']:+.0f} deg"
+            (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font, pad)
+            ty = max(th + 6 * pad, y1)
+            cv2.rectangle(img, (x1, ty - th - 6 * pad), (x1 + tw + 6 * pad, ty), col, -1)
+            cv2.putText(img, text, (x1 + 3 * pad, ty - 4 * pad), cv2.FONT_HERSHEY_SIMPLEX, font, (20, 20, 20), pad,
+                        cv2.LINE_AA)
+
+
+def picture_hd(name, quality=85):
+    """The camera's newest frame at its own size (1280 x 720) with the person boxes, for a big picture (the Lumi
+    app's Drive): the dashboard picture is only 640 px. Without people in view the camera's own JPEG as it is."""
+    jpeg = raw_path(name).read_bytes()
+    try:
+        d = json.loads(det_path(name).read_text())
+        people = d["people"] if time.time() - d["time"] < 1.0 else []
+        width = d["width"]
+    except (FileNotFoundError, ValueError, KeyError):
+        people, width = [], 0
+    if not people or not width:
+        return jpeg
+    img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        return jpeg
+    _draw(img, people, img.shape[1] / width, img.shape[1] / VIEW_WIDTH)
+    ok, out = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, quality])
+    return out.tobytes() if ok else jpeg
+
+
 def publish(name, color, people=(), source="camview.py"):
     """Picture with person boxes for the dashboard (called by PersonDetector.read for every frame)."""
     now = time.time()
     if now - _last.get(name, 0) < 1 / PUBLISH_HZ:
         return
     _last[name] = now
-    s = settings()
     scale = VIEW_WIDTH / color.shape[1]
     img = cv2.resize(color, (VIEW_WIDTH, int(color.shape[0] * scale)))
-    box_color, thick = _bgr(s["box_color"]), max(1, min(6, int(s["thickness"])))
-    for p in people:
-        x1, y1, x2, y2 = (int(v * scale) for v in p["box"])
-        col = FOCUS_COLOR if p.get("focus") or p.get("near") else box_color
-        if s["boxes"]:
-            cv2.rectangle(img, (x1, y1), (x2, y2), col, thick + (1 if col == FOCUS_COLOR else 0))
-        if s["labels"]:
-            text = ("TALKING  " if p.get("focus") else "") + f"{p['distance_m']} m  {p['angle_deg']:+.0f} deg"
-            (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-            ty = max(th + 6, y1)
-            cv2.rectangle(img, (x1, ty - th - 6), (x1 + tw + 6, ty), col, -1)
-            cv2.putText(img, text, (x1 + 3, ty - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 20, 20), 1, cv2.LINE_AA)
+    _draw(img, people, scale)
     ok, jpg = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 75])
     if not ok:
         return
