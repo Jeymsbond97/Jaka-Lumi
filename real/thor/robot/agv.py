@@ -34,7 +34,10 @@ NOTICES_KEEP = 50
 
 
 def set_max_speed(linear, angular):
-    """Cap navigation and joy_control at `linear` m/s, `angular` rad/s (/api/set_params, 0.1-1.0 / 0.5-3.5)."""
+    """Cap navigation and joy_control at `linear` m/s, `angular` rad/s (/api/set_params, 0.1-1.0 / 0.5-3.5), never
+    above the base's own ceiling (robot/base_settings.py, the Lumi app's Map SETTINGS)."""
+    from robot import base_settings
+    linear, angular = base_settings.capped(linear, angular)
     return request(f"/api/set_params?max_speed_linear={linear:g}&max_speed_angular={angular:g}")
 
 

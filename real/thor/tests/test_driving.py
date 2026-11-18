@@ -105,6 +105,9 @@ assert driving.say_move("back", 0.01, True) == "Okay, moving back 1 centimetre."
 tmp = Path(tempfile.mkdtemp())
 fetch.STATE_FILE = tmp / "lumi_task.json"                                    # never the real /dev/shm file
 sent = []
+from robot import base_settings                                  # the base's speed ceiling (Map SETTINGS): none here
+real_ceiling = base_settings.ceiling
+base_settings.ceiling = lambda: None
 real_request = fetch.agv.request
 fetch.agv.request = lambda cmd, timeout=3.0: sent.append(cmd) or {}
 f = 1.0
@@ -223,6 +226,13 @@ assert base["x"] > clear_at["x"] and joy[-1][1].endswith(STOP), (base, clear_at)
 fetch.agv.clearance = lambda x, y: 5.0
 fetch.line_hits = real_line_hits
 fetch.agv.request, skills.moved = real_request, real_moved
+
+# the base's ceiling cuts Lumi's own forward speed, never raises it, leaves the turn (a missing one leaves both)
+base_settings.ceiling = lambda: 0.3
+assert base_settings.capped(0.5, 1.0) == (0.3, 1.0) and base_settings.capped(0.2, 0.1) == (0.2, 0.1)
+base_settings.ceiling = lambda: None
+assert base_settings.capped(0.5, 0.3) == (0.5, 0.3)
+base_settings.ceiling = real_ceiling
 
 # a task (a move by voice) ends a follow that runs first: two joy_control senders must never fight
 from tasks import follow

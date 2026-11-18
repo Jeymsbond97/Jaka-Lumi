@@ -287,6 +287,36 @@ def agv_plan():
     return {"points": pts[::step] + (pts[-1:] if pts and (len(pts) - 1) % step else [])}
 
 
+# ---------- the base's settings (the Lumi app's Map SETTINGS, 2026-11-18) ----------
+class BaseSettingBody(BaseModel):
+    name: str = Field(examples=["max_speed_linear"], description="max_speed_linear, max_speed_angular, pose_tolerance "
+                                                                 "or theta_tolerance")
+    value: float = Field(description="m/s, rad/s, m or rad; cut to the range the base page allows")
+
+
+@app.get("/agv/settings", tags=["base"], summary="Four of the base page's configuration settings: values now and ranges")
+def agv_settings():
+    from robot import base_settings
+    try:
+        now, limits = base_settings.read(), base_settings.ranges()
+    except (OSError, RuntimeError, ValueError) as e:
+        raise HTTPException(502, f"base settings not available: {e}")
+    return {"settings": [{"name": n, "value": now[n], "min": s[1], "max": s[2], "step": s[3], "default": s[4]}
+                         for n, s in limits.items()]}
+
+
+@app.post("/agv/settings", tags=["base"], summary="Save one base setting, as the base page's configuration saves it")
+def agv_settings_set(body: BaseSettingBody):
+    from robot import base_settings
+    if body.name not in base_settings.SETTINGS:
+        raise HTTPException(400, f"unknown setting {body.name}")
+    try:
+        saved = base_settings.write(body.name, body.value)
+    except (OSError, RuntimeError, ValueError) as e:
+        raise HTTPException(502, f"base did not save it: {e}")
+    return {"ok": True, "name": body.name, "value": saved}
+
+
 # ---------- songs (the Lumi app's Commands, 2026-11-18) ----------
 class SingBody(BaseModel):
     id: str | None = Field(None, description="a song id from GET /songs; empty = any of them")
