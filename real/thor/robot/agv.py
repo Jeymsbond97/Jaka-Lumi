@@ -183,6 +183,12 @@ def cancel():
     return request("/api/move/cancel").get("status")
 
 
+def estop(on):
+    """Soft E-stop (the base page's soft E-stop): on, the base halts where it is (motors free) and its move waits;
+    off, the same move goes on. Separate from the hardware button; neither releases the other."""
+    return request(f"/api/estop?flag={'true' if on else 'false'}")
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "go":
         print(go(sys.argv[2]))

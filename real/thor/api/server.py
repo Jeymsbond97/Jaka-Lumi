@@ -226,13 +226,72 @@ class StartBody(BaseModel):
     no_arm: bool = False
 
 
+# ---------- E-STOP, base sensors, planned path (the Lumi app's Map, 2026-11-18) ----------
+class EstopBody(BaseModel):
+    on: bool = Field(description="true: halt where it is (motors free), the drive waits; false: the same drive goes on")
+
+
+@app.post("/agv/estop", tags=["base"], summary="E-STOP: pause the base where it is (on) and go on with the same drive (off)")
+def agv_estop(body: EstopBody):
+    r = agv.estop(body.on)
+    if r.get("status") != "OK":
+        raise HTTPException(502, f"AGV refused: {r.get('error_message') or r.get('status')}")
+    return {"ok": True, "on": body.on}
+
+
+ULTRA, ULTRA_EX, IR = ("/water_uavcan_master/rx_in_ultrasonic", "/water_uavcan_master/rx_in_ultrasonic_ex",
+                       "/water_uavcan_master/rx_in_ir_v2")
+
+
+def _ranges(msg, first=None):
+    """A Float64MultiArray of the base (label "ultrasonic_ l1 m r1": a prefix, then sensor names; data in that
+    order, as the base page reads it) as {name: m}; 0 / under 1 mm = nothing in range -> None."""
+    dims = (msg.get("layout") or {}).get("dim") or [{}]
+    names = (dims[0].get("label") or "").split()[1:]
+    data = msg.get("data") or []
+    out = {}
+    for i, n in enumerate(names[:first] if first else names):
+        if "_" in n or i >= len(data):
+            continue
+        v = data[i]
+        out[n] = round(v, 3) if v and v > 0.001 else None
+    return out
+
+
+@app.get("/agv/sensors", tags=["base"], summary="Speed, ultrasonic and infrared ranges of the base (the base page's "
+                                                 "ultrasonic / infrared)")
+def agv_sensors():
+    try:
+        got = rosbridge.read_many(["/robot_status", ULTRA, ULTRA_EX, IR], timeout=0.8)
+    except OSError as e:
+        raise HTTPException(502, f"base sensors not available: {e}")
+    vel = (got.get("/robot_status") or {}).get("velocity") or {}
+    return {"linear": (vel.get("linear") or {}).get("x"), "angular": (vel.get("angular") or {}).get("z"),
+            "ultrasonic": {**_ranges(got.get(ULTRA) or {}), **_ranges(got.get(ULTRA_EX) or {})},
+            "infrared": _ranges(got.get(IR) or {}, 8)}
+
+
+@app.get("/agv/plan", tags=["base"], summary="The path the base plans to its goal now (the base page's global path); "
+                                              "empty when it is not driving")
+def agv_plan():
+    try:
+        got = rosbridge.read_many(["/move_base/NavfnROS/plan"], timeout=1.2)
+    except OSError as e:
+        raise HTTPException(502, f"plan not available: {e}")
+    poses = (got.get("/move_base/NavfnROS/plan") or {}).get("poses") or []
+    pts = [[round(p["pose"]["position"]["x"], 3), round(p["pose"]["position"]["y"], 3)] for p in poses]
+    step = max(1, len(pts) // 200)
+    return {"points": pts[::step] + (pts[-1:] if pts and (len(pts) - 1) % step else [])}
+
+
 # ---------- status ----------
 @app.get("/status", tags=["status"], summary="Battery, position, base / head / arm state, assistant")
 def status():
     def base():
         s = agv.status()
         return {k: s.get(k) for k in ("power_percent", "charge_state", "current_pose", "move_status", "move_target",
-                                       "running_status", "error_code", "estop_state", "is_paused")}
+                                       "running_status", "error_code", "estop_state", "is_paused",
+                                       "soft_estop_state", "hard_estop_state")}
 
     def body():
         j = head.joints()
