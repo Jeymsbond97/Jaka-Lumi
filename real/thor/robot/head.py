@@ -46,17 +46,17 @@ def _call(path, body=None, timeout=2):
         return json.loads(r.read())
 
 
-def moveto(pos, vel=VEL, acc=ACC, timeout=30):
+def moveto(pos, vel=VEL, acc=ACC, timeout=30, settle=True):
     """Move all four body joints (the waist from the front); every value is clamped into AXIS_LIMITS. Blocks until the
     motion ends (and while another thread's moveto runs). None, nothing sent, when other threads own the body
-    (`owners`)."""
+    (`owners`). `settle` False: skip the wait for the body to stand still (the caller's own move just returned)."""
     if owners and threading.current_thread() not in owners:
         return None                                        # ponytail: skipped silently, the owner turns it back
     pos = [max(lo, min(hi, float(p))) for p, (lo, hi) in zip(pos, AXIS_LIMITS)]
     with _one:
         end = time.time() + timeout
         joints = _call("status")
-        while time.time() < end:                           # another process's move still runs: a moveto sent meanwhile
+        while settle and time.time() < end:                           # another process's move still runs: a moveto sent meanwhile
             time.sleep(STILL_S)                            # is dropped and its call never answers (checked 2026-10-30:
             before, joints = joints, _call("status")       # 20 s timeout, no motion). "vel" reads 0 while moving, so
             if all(abs(a["pos"] - b["pos"]) < 0.05 for a, b in zip(before, joints)):   # the positions tell
