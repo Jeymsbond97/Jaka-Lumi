@@ -168,11 +168,11 @@ waver["w"] = W(5.0)
 run(200.0, 200.0)
 assert done == ["up route"] + ["swing"] * g.GREET_SWINGS, done                     # the head looks there already (within HEAD_MIN_DEG)
 
-# the switch is turned off with the hand up: down at once
+# the switch is turned off with the hand up: the waist and head to rest, the arm stays where it is (owner, 2026-11-19)
 switch["on"] = False
 done.clear()
 run(200.5, 200.5)
-assert done[:2] == ["waist +0 look None", "down normal"], done
+assert done[:2] == ["waist +0 look None", "head +0 rest"] and not any(d.startswith("down") for d in done), done
 
 # the arm stops (STOP, a person too close) during a swing: switched off, nothing moves after it
 fresh()

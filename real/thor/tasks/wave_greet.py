@@ -53,6 +53,10 @@ WAIST_FOLLOW_DEG = 20.0      # deg the waving person may move off the waist's fr
 FOLLOW_EVERY_S = 3.0         # ... at most this often (between swings)
 WAIST_PARTS = (1.0, 0.75, 0.5, 0.25)   # a blocked waist turn is tried again this much of the way (beside a wall)
 HEAD_MIN_DEG = 8.0           # deg the person may move off the head's direction before the head follows
+HOME_CHECK_S = 1.0           # s between two looks at an arm left away from wave_start with Wave on
+RETURN_AFTER_S = 15.0        # s the arm stands still (no jog, no pose) before it goes back to wave_start
+RETRY_HOME_S = 60.0          # s before a refused way back is tried again
+STILL_DEG = 0.5              # deg; any joint moving more than this between two looks is not standing still
 DOWN_SPEED = "normal"        # motion.JOINT_SPEED of the way down (owner: 2x the first "slow")
 SWING_SPEED = "swing"        # motion.JOINT_SPEED of the swings, 60 deg/s at 4x the usual acceleration (owner: faster;
                              # wave.SWING_SPEED of an asked wave is "quick")
@@ -643,7 +647,7 @@ def _rest_waist():
         _busy.clear()
 
 
-def _down(waist=None, arm_to=None, speed=None):
+def _down(waist=None, arm_to=None, speed=None, lower=True):
     """Waist to its rest (`waist` deg from the front, else _rest()) first, the way it came with the hand up (in `look`
     the arm sticks out further and the same turn back can be blocked), then the arm slowly down (_rest_arm) and the
     head to rest."""
@@ -655,10 +659,11 @@ def _down(waist=None, arm_to=None, speed=None):
         fetch._stop.clear()
         _st["waist_out"] = not fetch._waist_to(_rest() if waist is None else waist, in_place=True)
         at = arm_route.where()
-        if at in arm_route.WAVE_POSES:
+        lowered = lower and at in arm_route.WAVE_POSES
+        if lowered:
             arm_route.move(arm_route.plan(arm_to or _rest_arm()), speed or DOWN_SPEED)
         _turn_head(0.0, head.HEAD_REST_PITCH)
-        log("arm down" if at in arm_route.WAVE_POSES or at in (_rest_arm(), arm_to) else f"arm left where it is ({at or 'between poses'})")
+        log("arm down" if lowered or (lower and at in (_rest_arm(), arm_to)) else f"arm left where it is ({at or 'between poses'})")
     finally:
         _busy.clear()
 
@@ -666,7 +671,7 @@ def _down(waist=None, arm_to=None, speed=None):
 _st = {"up": False, "last_wave": 0.0, "lang": 0, "next_joke": 0.0, "free": False, "free_at": 0.0, "refused_until": 0.0,
        "waist_out": False, "follow_at": 0.0, "swing_at": 0.0,
        "swing_end": 0.0, "idle_at": 0.0, "held": False, "held_at": 0.0, "owed": 0, "people_wave": 0.0, "any_wave": 0.0,
-       "raise_at": 0.0}   # held: the hand kept up on the charger
+       "raise_at": 0.0, "home_at": 0.0, "home_j": None, "home_still": 0.0}   # held: the hand kept up on the charger
                                                                           # (_idle_wave)                     # swing_end: when the swings sent so far should be done                    # waist_out: the way back to the front was blocked, tried again later
 
 
@@ -675,7 +680,7 @@ def step(now):
     st = _st
     if not _on():
         if st["up"]:
-            _down()
+            _down(lower=False)           # owner 2026-11-19: switched off (or an API restart), the arm stays where it is
         st["up"] = st["held"] = False
         return
     if now - st["free_at"] > FREE_EVERY_S:
@@ -684,6 +689,9 @@ def step(now):
         st["up"] = st["held"] = False
         _busy.clear()
         return
+    if not st["up"] and now - st["home_at"] >= HOME_CHECK_S:
+        st["home_at"] = now
+        _back_to_start(now)
     w = _waver()
     new = bool(w) and now - st["last_wave"] > NEW_WAVE_S
     if new:
@@ -742,6 +750,41 @@ def step(now):
     elif now - st["last_wave"] > HOLD_S:           # nobody waves: the hand stays up (owner), the waist to its rest
         _rest_waist()
         st["held"], st["idle_at"], st["held_at"] = True, now - IDLE_WAVE_EVERY_S, 0.0   # swings due at once
+
+
+def _back_to_start(now):
+    """Wave on, the robot free, the hand not up: an empty arm left anywhere else (after a task, a pose, a jog) goes
+    back up to wave.START once it has stood still RETURN_AFTER_S, along the checked pose graph (owner, 2026-11-19:
+    with Wave on the arm waits in wave_start; never at rest unless asked)."""
+    from tasks import fetch
+    try:                                 # a read that fails only puts the next look off, never the greeting
+        if fetch.state().get("holding") or fetch._busy():
+            return
+        j = motion.joints()
+    except Exception:
+        return
+    if not any(j):                       # a switched-off arm reads all 0
+        return
+    last = _st["home_j"]
+    if last is None or max(abs(a - b) for a, b in zip(j, last)) > STILL_DEG:
+        _st["home_j"], _st["home_still"] = j, now
+        return
+    if now - _st["home_still"] < RETURN_AFTER_S:
+        return
+    if arm_route.where(j) in (wave.START, wave.SWING):
+        _st.update(up=True, held=True, held_at=now)
+        return
+    log(f"Wave on: the arm back to {wave.START}")
+    _busy.set()
+    try:
+        arm_route.goto(wave.START, speed=DOWN_SPEED)
+        _st.update(up=True, held=True, held_at=now)
+    except Exception as e:
+        log(f"arm not back to {wave.START}: {e.args[0] if e.args else e!r}")
+        _st["home_still"] = now + RETRY_HOME_S - RETURN_AFTER_S   # tried again after RETRY_HOME_S, not every check
+    finally:
+        _busy.clear()
+        _st["home_j"] = None
 
 
 def _stopped(e):

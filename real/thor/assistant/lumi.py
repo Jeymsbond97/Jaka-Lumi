@@ -284,12 +284,15 @@ def waist_home_rest(why):
             if arm_route.where() in arm_route.WAVE_POSES:
                 wave_greet._quiet(10.0)               # the hand up already: the waist turns with it up, its swings
                                                       # ended first
-            else:                                     # on the charger the hand rests up in wave_start, with or
-                if not (fetch._at_pose(arm_route.HOME) or fetch._at_pose(arm_route.rest_pose())):   # without
-                    log(f"  arm and waist stay ({why}): my arm is out")                            # Welcome
-                    return False                                                                    # (owner,
-                arm_route.move(arm_route.plan(wave_mod.START), HOME_ARM_SPEED)                    # 2026-11-16)
-                log(f"  arm up to {wave_mod.START} at home ({why})")
+            else:                                     # on the charger the hand rests up in wave_start, only with
+                if not (fetch._at_pose(arm_route.HOME) or fetch._at_pose(arm_route.rest_pose())):   # Wave on; Wave
+                    log(f"  arm and waist stay ({why}): my arm is out")                            # off: the arm
+                    return False                                                                    # stays (owner,
+                if wave_greet._on and wave_greet._on():                                            # 2026-11-19)
+                    arm_route.move(arm_route.plan(wave_mod.START), HOME_ARM_SPEED)
+                    log(f"  arm up to {wave_mod.START} at home ({why})")
+                else:
+                    log(f"  arm stays ({why}): Wave is off")
             if fetch._waist_to(HOME_WAIST_DEG, in_place=True):
                 log(f"  waist to its rest at home, {HOME_WAIST_DEG:+.0f} deg ({why})")
                 return True
