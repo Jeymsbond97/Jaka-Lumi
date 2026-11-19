@@ -180,7 +180,7 @@ def _draw(img, people, scale, k=1.0):
                         cv2.LINE_AA)
 
 
-def picture_hd(name, quality=85):
+def picture_hd(name, quality=92):   # 92: drawn boxes mean a second JPEG pass; 85 smeared fine detail
     """The camera's newest frame at its own size (1280 x 720) with the person boxes, for a big picture (the Lumi
     app's Drive): the dashboard picture is only 640 px. Without people in view the camera's own JPEG as it is."""
     jpeg = raw_path(name).read_bytes()
