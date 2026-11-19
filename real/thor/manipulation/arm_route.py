@@ -448,6 +448,22 @@ def goto(target, holding=False, leaf=False, speed=None):
     return [n for n, _ in seq]
 
 
+def goto_saved(name, holding=False):
+    """To a pose saved from the app (motion.saved_poses): along the graph to the graph pose nearest it, then one
+    checked joint move into it (an arm away from the graph joins it first, as goto). Returns the poses passed."""
+    target = motion.saved_poses()[name]
+    now = skills._joints()
+    if _deg(now, target) <= EXACT_DEG:
+        return []
+    nodes = graph(holding)
+    anchor = min(nodes, key=lambda n: _deg(target, nodes[n]))
+    seq = plan(anchor, holding, now=now)
+    seq = seq + [(name, check_moves(seq[-1][1] if seq else now, [target], holding)[0])]
+    log(f"arm route to {name} (saved, from {anchor}): {' -> '.join(n for n, _ in seq)}, checked")
+    move(seq, None, holding)
+    return [n for n, _ in seq]
+
+
 def start_program(name):
     """Start a Cobo π program, only from `look`. It ends wherever it was taught to end: the next move joins the graph
     from there (or is refused). RouteError to refuse."""

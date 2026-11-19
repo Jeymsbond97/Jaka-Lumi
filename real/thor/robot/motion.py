@@ -50,7 +50,46 @@ BLIND_S = 3.0                                        # s without a valid state r
 SETTLE_S = 0.3                                       # s the arm stands at a pose before the next move (estimate;
                                                      # going straight on shook the whole robot, 2026-10-21)
 
+SPEED_FILE = ROOT / "data" / "arm_speed.json"        # the owner's arm speed % (the app's slider), kept over restarts
+SAVED_FILE = ROOT / "data" / "arm_saved_poses.json"  # poses saved from the app; never part of the pose graph
+SPEED_RANGE = (10, 150)                              # % of every speed above
+JOINT_MAX_DEG_S = 60.0                               # deg/s: the Cobo π joint speed limit; route and swing run at it
+LINEAR_MAX_MM_S = 150.0                              # mm/s: the most a straight move runs at any %
+SAVED_NAME_MAX = 24
+
 _stopped = threading.Event()                         # set by stop(): a waiting move gives up
+_speed = None                                        # cached SPEED_FILE
+
+
+def speed_percent():
+    """The owner's arm speed, % of JOINT_SPEED / LINEAR_SPEED (100: as tuned)."""
+    global _speed
+    if _speed is None:
+        try:
+            _speed = float(json.loads(SPEED_FILE.read_text())["percent"])
+        except (OSError, ValueError, KeyError, TypeError):
+            _speed = 100.0
+    return _speed
+
+
+def set_speed_percent(percent):
+    """Set and keep the arm speed %; ValueError outside SPEED_RANGE."""
+    global _speed
+    lo, hi = SPEED_RANGE
+    if not lo <= percent <= hi:
+        raise ValueError(f"speed: {lo} to {hi} %")
+    _speed = float(round(percent))
+    SPEED_FILE.write_text(json.dumps({"percent": _speed}))
+    return _speed
+
+
+def joint_deg_s(speed):
+    """deg/s of a named joint speed at the owner's %, never past the controller's limit."""
+    return min(JOINT_MAX_DEG_S, JOINT_SPEED[speed] * speed_percent() / 100)
+
+
+def linear_mm_s(speed):
+    return min(LINEAR_MAX_MM_S, LINEAR_SPEED[speed] * speed_percent() / 100)
 
 
 class MotionError(RuntimeError):
@@ -91,6 +130,32 @@ def teach(name):
     taught[name] = j
     POSES_FILE.write_text(json.dumps(taught, indent=1))
     return j
+
+
+def saved_poses():
+    """{name: joints} of the poses saved from the app."""
+    try:
+        return json.loads(SAVED_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_pose(name):
+    """Save the current joints as the app pose `name` (never a taught pose's name)."""
+    if name in poses():
+        raise MotionError(f"{name} is one of Lumi's own poses. Choose another name.")
+    check(j := [round(v, 2) for v in joints()])
+    saved = saved_poses()
+    saved[name] = j
+    SAVED_FILE.write_text(json.dumps(saved, indent=1))
+    return j
+
+
+def delete_pose(name):
+    """Delete the app pose `name`; KeyError when there is none."""
+    saved = saved_poses()
+    del saved[name]
+    SAVED_FILE.write_text(json.dumps(saved, indent=1))
 
 
 def check(target):
@@ -192,7 +257,7 @@ def move_path(moves, wait=True, queued=False):
     for k, (t, speed, deg) in enumerate(seq):
         if k and not queued and _stopped.wait(SETTLE_S):
             raise MotionError("stopped")
-        deg_s = JOINT_SPEED[speed]
+        deg_s = joint_deg_s(speed)
         r = arm.cmd("joint_move", relFlag=0, jointPosition=list(t), speed=deg_s, accel=deg_s * SPEED_ACCEL_FACTOR.get(speed, JOINT_ACCEL_FACTOR))
         if _stopped.is_set():               # STOP pressed while sending: stop again, after this move
             stop()
@@ -220,7 +285,7 @@ def go(name, speed="slow", wait=True):
     return move_joints(p[name], speed, wait)
 
 
-def move_linear(target=None, delta=None, speed="slow", wait=True, path_checked=False):
+def move_linear(target=None, delta=None, speed="slow", wait=True, path_checked=False, mm_s=None):
     """Straight TCP move to `target` [x, y, z mm, rx, ry, rz deg] or by `delta` (dx, dy, dz mm), base frame.
     The end pose is checked with the controller's IK first. `path_checked`: the caller checked the whole line in
     small steps (fetch._line_rows), so a big J1 / J4 / J6 turn over it is a real one, not another IK branch."""
@@ -240,7 +305,7 @@ def move_linear(target=None, delta=None, speed="slow", wait=True, path_checked=F
         if abs(end_j[i] - now_j[i]) > MAX_FLIP:
             raise MotionError(f"J{i + 1} would turn {end_j[i] - now_j[i]:+.0f} deg - refused")
     _ready()
-    mm_s = LINEAR_SPEED[speed]
+    mm_s = linear_mm_s(speed) if mm_s is None else mm_s
     dist = sum((a - b) ** 2 for a, b in zip(target[:3], now_p[:3])) ** 0.5
     _stopped.clear()
     r = arm.cmd("moveL", relFlag=0, cartPosition=list(target), speed=mm_s, accel=mm_s * ACCEL_FACTOR)

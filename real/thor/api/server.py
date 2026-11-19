@@ -882,7 +882,8 @@ AGV_WEB = "http://192.168.10.10:9001"
 
 
 class JogBody(BaseModel):
-    axis: str = Field(examples=["head_yaw"], description="base_drive, base_turn, lift, waist, head_yaw, head_pitch, j1..j6")
+    axis: str = Field(examples=["head_yaw"], description="base_drive, base_turn, lift, waist, head_yaw, head_pitch, j1..j6, "
+                                                     "tcp_x, tcp_y, tcp_z (the hand in a straight line, arm base frame)")
     direction: int = Field(1, description="+1 or -1")
     speed: float = Field(0.5, ge=0.05, le=1.0, description="0..1 of the axis' top speed")
 
@@ -1457,9 +1458,48 @@ def _motion(fn, *args, **kw):
         raise HTTPException(409, str(e))
 
 
-@app.get("/arm/poses", tags=["arm"], summary="The taught poses of the pose graph (deg)")
+class SpeedBody(BaseModel):
+    percent: float = Field(examples=[80], description="% of every arm speed as tuned (100)")
+
+
+def _speed_reply():
+    lo, hi = motion.SPEED_RANGE
+    return {"percent": motion.speed_percent(), "min": lo, "max": hi}
+
+
+@app.get("/arm/speed", tags=["arm"], summary="The arm speed %: every arm move (poses, wave, picks, jog) runs at it")
+def arm_speed():
+    return _speed_reply()
+
+
+@app.post("/arm/speed", tags=["arm"], summary="Set the arm speed % (kept over restarts)")
+def arm_speed_set(body: SpeedBody):
+    try:
+        motion.set_speed_percent(body.percent)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _speed_reply()
+
+
+@app.get("/arm/poses", tags=["arm"], summary="The poses the arm can go to (deg): the pose graph's and the saved ones")
 def arm_poses():
-    return arm_route.graph()
+    return {**arm_route.graph(), **motion.saved_poses()}
+
+
+@app.get("/arm/poses/saved", tags=["arm"], summary="Only the poses saved from the app (deg)")
+def arm_poses_saved():
+    return motion.saved_poses()
+
+
+@app.delete("/arm/poses/{name}", tags=["arm"], summary="Delete a pose saved from the app")
+def arm_pose_delete(name: str):
+    if name in motion.poses():
+        raise HTTPException(409, f"{name} is one of Lumi's own poses")
+    try:
+        motion.delete_pose(name)
+    except KeyError:
+        raise HTTPException(404, f"no saved pose {name}")
+    return {"ok": True}
 
 
 @app.post("/arm/pose", tags=["arm"], summary="Go to a named pose along the pose graph (every joint move checked first; "
@@ -1467,12 +1507,16 @@ def arm_poses():
 def arm_pose(body: PoseBody):
     if body.speed not in motion.JOINT_SPEED:
         raise HTTPException(400, f"speed: {', '.join(motion.JOINT_SPEED)}")
-    if body.name not in arm_route.graph():
+    saved = body.name in motion.saved_poses()
+    if body.name not in arm_route.graph() and not saved:
         raise HTTPException(404, f"no pose {body.name}")
     robot_free(manual=True)
     _posing.set()
     try:
-        return {"ok": True, "route": arm_route.goto(body.name, gripper.state()["holding"], speed=body.speed),
+        holding = gripper.state()["holding"]
+        route = (arm_route.goto_saved(body.name, holding) if saved
+                 else arm_route.goto(body.name, holding, speed=body.speed))
+        return {"ok": True, "route": route,
                 "joints": motion.joints()}
     except arm_route.RouteError as e:
         raise HTTPException(409, e.args[0])
@@ -1489,9 +1533,17 @@ def arm_line(body: LineBody):
     return _motion(motion.move_linear, delta=[body.dx, body.dy, body.dz], speed=body.speed)
 
 
-@app.post("/arm/teach", tags=["arm"], summary="Save the arm's current joints as a named pose")
+@app.post("/arm/teach", tags=["arm"], summary="Save the arm's current joints as a new pose (not one of Lumi's own)")
 def arm_teach(body: NameBody):
-    return _motion(motion.teach, body.name)
+    name = body.name.strip()
+    if not re.fullmatch(rf"[A-Za-z0-9_-]{{1,{motion.SAVED_NAME_MAX}}}", name):
+        raise HTTPException(400, f"name: 1 to {motion.SAVED_NAME_MAX} letters, digits, _ or -")
+    if name in motion.poses():
+        raise HTTPException(409, f"{name} is one of Lumi's own poses. Choose another name.")
+    try:
+        return {"ok": True, "name": name, "joints": motion.save_pose(name)}
+    except motion.MotionError as e:
+        raise HTTPException(409, str(e))
 
 
 @app.get("/objects", tags=["objects"],
