@@ -15,6 +15,10 @@ The arm's speeds follow the owner's arm speed % (motion.speed_percent, the app's
 import threading
 import time
 
+
+def log(*a):
+    print(time.strftime("%H:%M:%S"), "jog:", *a, flush=True)
+
 from robot import agv
 from robot import arm
 from robot import head
@@ -35,6 +39,7 @@ ARM_SEG_S, ARM_SEG_DEG = 2.0, 30.0   # one arm-joint move: at most this long and
 TCP_SPEED = 40.0             # mm/s at speed 1 and arm speed 100 %
 TCP_SEG_S, TCP_SEG_MM = 2.0, 60.0    # one hand move: at most this long and this far
 TCP_TRY_MM = (1.0, 0.5, 0.25, 0.1)   # x the planned length, tried in turn when IK refuses the longer one
+ARM_RETRY_S = 1.0            # s a hold keeps trying while the controller has closed its connection (~0.5 s drops)
 NEXT_EARLY_S = 0.1           # s before a move should end that the next one of a long hold is sent
 BASE_V = 0.3                 # m/s at speed 100 %
 BASE_W = 0.6                 # rad/s at speed 100 %
@@ -150,10 +155,12 @@ class Jogger:
                 time.sleep(0.3)
 
     def _halt_arm(self):
+        log("arm hold ended: stop")
         try:
             arm.cmd("stop_program")
         except Exception as e:
             self.last_error = f"arm stop: {e}"
+            log(f"arm stop failed: {e!r}")
 
     def _start_arm(self, axis, direction, speed):
         """Send one move of a hold; returns when it should end (time), None when it cannot go on (a limit)."""
@@ -183,6 +190,19 @@ class Jogger:
                 err = e
         raise err
 
+    def _start_arm_retry(self, *want):
+        """_start_arm, tried again while the controller has its connection closed (ARM_RETRY_S at most): usually the drop
+        came before a move went out, or (rarely) one went out without a reply: then a second one is queued behind
+        it, at most one more segment, and the release's stop_program empties the queue either way."""
+        end = time.time() + ARM_RETRY_S
+        while True:
+            try:
+                return self._start_arm(*want)
+            except (ConnectionError, OSError):
+                if time.time() > end or not self._active(HAND_AXES):
+                    raise
+                time.sleep(0.15)
+
     def _run_arm(self):
         moving, ends = None, 0.0              # (axis, direction, speed) of the move running now
         try:
@@ -200,16 +220,19 @@ class Jogger:
                     return
                 if moving is None or time.time() >= ends - NEXT_EARLY_S:
                     try:
-                        end = self._start_arm(*want)
+                        end = self._start_arm_retry(*want)
                     except Exception as e:
                         self.last_error = f"{want[0]}: {e}"
+                        log(f"{want[0]} {want[1]:+d} refused: {e!r}")
                         moving = None
                         time.sleep(0.3)
                         continue
                     if end is None:           # at the joint's limit: nothing sent
+                        log(f"{want[0]} {want[1]:+d}: at its limit")
                         moving = None
                         time.sleep(0.1)
                         continue
+                    log(f"{want[0]} {want[1]:+d} speed {want[2]:.2f}: move sent, {end - time.time():.1f} s")
                     moving, ends = want, end
                 time.sleep(0.03)
         finally:
