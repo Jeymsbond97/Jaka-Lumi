@@ -528,13 +528,35 @@ def body_move(body: BodyBody):
                                              (round(p, 2) for p in head.status())))}
 
 
+def _wave_hello():
+    """One line of wave_lines.ASKED in English or Korean (picked at random, as Wave greet does), said in the background
+    once the hand is up; skipped when Lumi is already speaking."""
+    from tasks import wave_lines
+    line = random.choice(wave_lines.ASKED)[random.randrange(2)]
+
+    def run():
+        if not _voice_lock.acquire(blocking=False):
+            return
+        try:
+            from audio import mouth
+            mouth.say(line)
+        except Exception as e:
+            print(f"wave hello: say failed: {e!r}", flush=True)
+        finally:
+            _voice_lock.release()
+    _bg(run)
+
+
 @app.post("/arm/wave", tags=["arm"], summary="Wave, checked first (manipulation/wave.py): look -> wave_out -> "
-                                            "wave_start, the swings, stays at wave_start")
+                                            "wave_start, the swings, stays at wave_start; with Greeter or "
+                                            "Patrol on Lumi says hello (EN or KO) as the hand comes up")
 def arm_wave():
     robot_free(manual=True)
+    m = read_modes()
+    talk = m["greeter"] or m["patrol"]          # owner 2026-11-20: a hello out loud only with Greeter or Patrol on
     _waving.set()
     try:
-        wave.wave()
+        wave.wave(on_up=_wave_hello if talk else None)
     except wave.WaveError as e:
         raise HTTPException(409, e.args[0])
     except motion.MotionError as e:

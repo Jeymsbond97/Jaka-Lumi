@@ -1,5 +1,6 @@
 """What Lumi says while it waves back at someone (tasks/wave_greet.py), (English, Korean). One language per wave,
-picked at random: a passer-by's language is not known. The lines fit a hello and a goodbye alike."""
+picked at random: a passer-by's language is not known. The lines fit a hello and a goodbye alike.
+ASKED is for the WAVE button (api/server.py /arm/wave), said only with Greeter or Patrol on."""
 
 # the first wave of someone new: Lumi introduces itself (once, until they leave the view)
 INTRO = [
@@ -71,4 +72,23 @@ LONG = [
     ("Okay, you are officially the best waver today.", "공식적으로 오늘 최고의 인사왕이세요."),
     ("Even my battery is waving goodbye now.", "이제 제 배터리도 손 흔들고 있어요."),
     ("Alright, alright! Hello, hello, hello!", "알았어요, 알았어요! 안녕, 안녕, 안녕하세요!"),
+]
+
+# the WAVE button in the app (api/server.py /arm/wave): nobody waved first, Lumi just says hello to whoever is there
+ASKED = [
+    ("Hello everyone!", "여러분, 안녕하세요!"),
+    ("Hi! I'm Lumi. Nice to see you!", "안녕하세요! 루미예요. 반가워요!"),
+    ("Hello there! Have a great day!", "안녕하세요! 좋은 하루 보내세요!"),
+    ("Hi hi! Lumi says hello!", "안녕, 안녕! 루미가 인사해요!"),
+    ("Hello! Welcome to Cutshion!", "안녕하세요! 컷션에 오신 걸 환영해요!"),
+    ("Hi! A big wave from Lumi!", "안녕하세요! 루미가 크게 손 흔들어요!"),
+    ("Hello, friends! How are you today?", "친구들, 안녕하세요! 오늘 기분 어때요?"),
+    ("Hi there! Sending you a friendly hello!", "안녕하세요! 반갑게 인사 드려요!"),
+    ("Hello! It's a good day to say hi!", "안녕하세요! 인사하기 좋은 날이에요!"),
+    ("Hi! I'm waving just for you!", "안녕하세요! 여러분을 위해 손 흔들어요!"),
+    ("Hello! Lumi is here and happy to see you!", "안녕하세요! 루미가 여기 있어요, 만나서 기뻐요!"),
+    ("Hey! Smile, Lumi is waving!", "안녕하세요! 웃어요, 루미가 손 흔들고 있어요!"),
+    ("Hi! Thanks for stopping by!", "안녕하세요! 들러 주셔서 고마워요!"),
+    ("Hello! Wishing you a wonderful day!", "안녕하세요! 멋진 하루 되세요!"),
+    ("Hi everyone! Lumi at your service!", "여러분 안녕하세요! 무엇이든 도와드릴게요!"),
 ]
