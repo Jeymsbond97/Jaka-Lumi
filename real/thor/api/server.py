@@ -158,9 +158,25 @@ def robot_free(manual=False):
         raise HTTPException(409, "The assistant (lumi.py) is running and owns the robot. POST /assistant/stop first.")
 
 
+TAIL_BLOCK = 64 * 1024     # bytes read at a time from a log's end
+
+
 def tail(path, n):
+    """The last n lines of a log, read from its end in blocks: lumi.log is close to 1 GB and reading it whole took
+    about 6 s a call (2026-11-23, the app's TALK reads it every few seconds)."""
     try:
-        return path.read_text(errors="replace").splitlines()[-n:]
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            pos = f.tell()
+            data = b""
+            while pos > 0 and data.count(b"\n") <= n:
+                step = min(TAIL_BLOCK, pos)
+                pos -= step
+                f.seek(pos)
+                data = f.read(step) + data
+            if pos > 0:                                    # the first line read may be cut: drop it
+                data = data.split(b"\n", 1)[1] if b"\n" in data else b""
+        return data.decode(errors="replace").splitlines()[-n:] if n > 0 else []
     except FileNotFoundError:
         return []
 
