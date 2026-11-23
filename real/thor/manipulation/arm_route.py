@@ -80,7 +80,9 @@ FLIP_STEPS = 4                       # joint moves turning a turned-over wrist b
 HOLD_MM = 0.5                        # mm; flip: the grasp point is held where it was this closely at each step
 HOLD_STEPS = 20                      # ... Newton steps on J1-J3 at most (offline, the live stuck pose: 7)
 PATH_POINTS = 21                     # points checked (kine_forward) on every joint move
-HEAD_CLEAR_MM = 250.0                # mm the gripper keeps from the head's turning centre. Estimate: the head camera
+HEAD_CLEAR_MM = 245.0                # mm the gripper keeps from the head's turning centre (was 250: the taught
+                                     # wave_start -> wave_out passes 249.6 and the arm could not leave wave_start,
+                                     # owner 2026-11-23). Estimate: the head camera
                                      # is 102 mm from it, the head's size is not measured. `look` keeps 327 mm
 LINK_HEAD_CLEAR_MM = 220.0           # mm every arm link keeps from the head's turning centre. Estimate below the taught
                                      # graph's least (267 mm at `wave`, live); the head's size is not measured
