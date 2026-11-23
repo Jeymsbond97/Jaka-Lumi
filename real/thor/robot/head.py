@@ -27,9 +27,10 @@ ENABLE_TIMEOUT_S = 10.0          # s for reset / enable: the controller answers 
 # Lumi searches by driving and turning. Back to 250 mm (the body API allows 300) when the longer cable is in.
 LIFT_MAX_MM = 0.0
 # The controller's waist reading when the torso faces the base's front (the torso camera and the logo over the base's
-# middle): owner by eye 2026-11-13; at the controller's 0 the torso stood about 20 deg to the left. Every waist angle
-# outside this file is from the front (+ left), so 0 is the front everywhere; only _call's raw values are not.
-WAIST_FRONT_DEG = -20.4
+# middle): owner by eye 2026-11-13 (-20.4); again 2026-11-23 after the controller was off for two days: at -20.4 the
+# torso stood about 8 deg left, facing the front it read raw -28.1 (status waist -7.71). Every waist angle outside this
+# file is from the front (+ left), so 0 is the front everywhere; only _call's raw values are not.
+WAIST_FRONT_DEG = -28.1
 # [lift mm, waist, head yaw, head pitch] limits of the body API (docs/03: waist -140..140 on the controller), the lift
 # held to LIFT_MAX_MM, the waist from the front. The controller drops a whole moveto when any value is outside, and its
 # own encoders read a little past the ends (pitch -5.003 at the bottom stop).
