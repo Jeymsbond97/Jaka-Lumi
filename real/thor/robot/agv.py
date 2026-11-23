@@ -113,11 +113,14 @@ def _move(command):
 
 
 def dock_marker():
-    """Name of the main charging-dock marker on the current map ("home"): of the type-11 markers the one with the
-    lowest dock number (num); None when there is none. Further docks keep their own names (dock2, ...)."""
+    """Name of the main charging-dock marker on the current map ("home", what Go charge drives to): the type-11
+    marker named Home (any case) when there is one, else the one with the lowest dock number (num), so a new map's
+    first charger marker is Go charge at once; None when there is none. Further docks keep their own names (dock2,
+    charge, ...) and are never Go charge while a Home exists (owner, 2026-11-23)."""
     docks = [(m.get("num", 1), name) for name, m in (request("/api/markers/query_list").get("results") or {}).items()
              if m.get("key") == 11]
-    return min(docks)[1] if docks else None
+    named = [name for _, name in docks if name.lower() == "home"]
+    return named[0] if named else (min(docks)[1] if docks else None)
 
 
 def marker_xy(name):
