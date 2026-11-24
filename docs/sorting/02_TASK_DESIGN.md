@@ -69,8 +69,8 @@ SORT pressed
 
 ## 3. One policy episode
 
-The policy starts with the hand above the plate (the `look` pose or a fixed "ready above plate" pose, chosen in
-phase 2) and the gripper open. It is given:
+The policy starts with the hand above the plate (the `look` pose or a fixed "ready above plate" pose, chosen when
+the scene is built) and the gripper open. It is given:
 
 - the ball's position (from the camera, refreshed while the ball is visible);
 - the target box's position (from the layout file).
@@ -106,4 +106,4 @@ These are deliberate limits for version 1. Each can be lifted later ([04](04_RL.
 
 All in English and Korean, like every other skill: "Sorting the balls.", "Red ball to the red box.", "I couldn't
 pick up the blue ball.", "All sorted.". The app's texts live in `src/lib/i18n.tsx` (Lumi app rules); the robot's
-lines live with the skill. Exact wording is set in phase 6 ([06](06_INTEGRATION.md)).
+lines live with the skill. The exact wording is in the skill's code ([06](06_INTEGRATION.md)).

@@ -64,8 +64,7 @@ The policy only proposes. Every step passes these before anything moves:
 
 A refused step ends the episode as "unsafe" and is logged; the run does not continue around it.
 
-Before the first real trial the collision sensitivity should be raised from the loose defaults (ROADMAP item,
-10_GRIPPER.md:119): owner's decision.
+Before the first real trial the collision sensitivity should be raised from the loose defaults (10_GRIPPER.md:119): owner's decision.
 
 ---
 
@@ -79,7 +78,7 @@ Before the first real trial the collision sensitivity should be raised from the 
 | 4 Full plate | 4 balls, 2 colours, 20 plates | ≥ 70 % fully sorted, none dropped outside |
 | 5 Conditions | step 3 again with blinds open / closed and a moved table (± 2 cm) | within 10 points of step 3 |
 
-Each trial is filmed from a fixed phone position and logged ([08](08_EXPERIMENT_LOG.md)). Every failure gets a
+Each trial is filmed from a fixed phone position and logged. Every failure gets a
 cause from a fixed list: missed grasp, slipped, dropped in carry, hit box rim, wrong box, perception (no or wrong
 reading), unsafe stop, timeout, other.
 

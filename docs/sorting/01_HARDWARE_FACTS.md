@@ -1,8 +1,7 @@
 # 01 Hardware facts for sorting
 
 Every number the simulation or the policy depends on, with where it comes from. "M" is this repository, "T" is
-`~/Dev/lumi-wave` on the Thor. Anything marked **to measure** must be measured before the phase that needs it
-([07_PLAN.md](07_PLAN.md)); a guess used meanwhile is written as a guess in the code.
+`~/Dev/lumi-wave` on the Thor. Anything marked **to measure** is not known yet; until it is measured, the code uses a guess and says so.
 
 ---
 
@@ -24,7 +23,7 @@ Every number the simulation or the policy depends on, with where it comes from. 
 | Other port quirks | replies sometimes belong to another command; `stop_program` may close without reply; no `motion_abort` | 04_ARM.md:319-326 |
 | Kinematics | fitted offline, match the controller within 0.2 mm / 0.05° (`data/arm_kinematics.json`) | T robot/kinematics.py:6-7 |
 | Servo mode | `servo_j` / `servo_p`, period = step_num × 8 ms; filters none / joint LPF / joint NLF / Cartesian NLF / MMF. Documented as supported on controller 1.7, **not yet on 3.2**. Not used by any code. `jkrc` on the Thor is x86-only | 04_ARM.md:35, 86, 109-114, 211-238; 08_NVIDIA_THOR.md:92 |
-| **To measure** | controller version; whether servo mode is accepted over the JSON port; command-to-motion latency; tracking lag at 5–20 Hz targets; how a short `moveL` (10–30 mm) behaves when sent every 0.2–0.5 s | Phase 1 |
+| **To measure** | controller version; whether servo mode is accepted over the JSON port; command-to-motion latency; tracking lag at 5–20 Hz targets; how a short `moveL` (10–30 mm) behaves when sent every 0.2–0.5 s | on the robot |
 
 ### Mount and frames
 
@@ -56,7 +55,7 @@ For sorting the lift, waist and base stay still during a trial: the scene is fix
 | Fitted | `FITTED = False` today (gripper off the flange since 2026-11-10) | T robot/gripper.py:22 |
 | Current fingers (C-hooks) | gap open / closed: tips 100 / 73, belly 102 / 77, neck 57 / 30, shank 66 / 39 mm; hold 6–9 cm objects only | T robot/gripper.py:33; manipulation/skills.py:152 |
 | Grasp point today | (106.4, −86.5, 230.5) mm in the flange frame, 137 mm off the flange axis | 10_GRIPPER.md:33 |
-| **New straight fingers: to measure** | tip gap open and closed (mm); finger length and width; grasp point in the flange frame (free-drive the tips onto a ball, read the flange pose, as done for the C-hooks); finger mass; material and friction against the ball; AI_1 reading closed on a ball and closed on nothing | Phase 0 |
+| **New straight fingers: to measure** | tip gap open and closed (mm); finger length and width; grasp point in the flange frame (free-drive the tips onto a ball, read the flange pose, as done for the C-hooks); finger mass; material and friction against the ball; AI_1 reading closed on a ball and closed on nothing | on the robot |
 
 The 26 mm stroke decides the ball: open gap must clear the ball by ≥ 8 mm on each side for camera error, and
 the closed gap must be smaller than the ball. Example: open 58 mm, closed 32 mm suits a 40–45 mm ball.
@@ -77,7 +76,7 @@ the closed gap must be smaller than the ball. Example: open 58 mm, closed 32 mm 
 | Colour | HSV; S ≥ 50 and V ≥ 60 kept; under 25 % kept → white / black / grey by V; else hue histogram (red wraps), argmax. Bounds red < 8, orange < 20, yellow < 33, green < 85, blue < 130, purple < 155, pink < 170 | T vision/objects.py:62-101 |
 | Steady check | 8 frames 0.2 s apart, seen in ≥ 5, within 20 mm of the median | T manipulation/skills.py:89-93 |
 | Position error | target ±1 cm; widths read ~8 mm small; shiny objects jump up to 17 mm | 15_PICK_AND_PLACE.md §9, 180, 274 |
-| **To measure** | detection rate of the chosen balls as `sports ball` on the plate and in the hand; colour reading for each ball colour under office light; position error on a ball at 5 plate positions (ruler); latency from a ball moving to `position_mm` changing | Phase 1 |
+| **To measure** | detection rate of the chosen balls as `sports ball` on the plate and in the hand; colour reading for each ball colour under office light; position error on a ball at 5 plate positions (ruler); latency from a ball moving to `position_mm` changing | on the robot |
 
 The camera cannot see a ball inside the closed fingers reliably, and the arm hides the plate while it is above it.
 The policy must not depend on a fresh ball position after the grasp ([04](04_RL.md) §2).
@@ -98,7 +97,7 @@ The policy must not depend on a fresh ball position after the grasp ([04](04_RL.
 | Isaac Sim | not supported on Jetson Thor (needs RT cores) | docs.isaacsim.omniverse.nvidia.com 5.1 requirements; DesignSpark Thor article |
 
 The Thor's driver (580.00) is below the documented minimum and Jetson is not listed: training on the Thor is a
-spike to try, not the plan ([07_PLAN.md](07_PLAN.md) phase 3).
+thing to try; the other place is a cloud x86 machine with an RTX GPU.
 
 ---
 

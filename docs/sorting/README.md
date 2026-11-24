@@ -20,8 +20,6 @@ the red box, blue ball to the blue box, arm back to rest.
 | 04 | [Reinforcement learning](04_RL.md) | Observations, actions, rewards, resets, curriculum, randomisation, PPO, teacher and student |
 | 05 | [Sim to real](05_SIM_TO_REAL.md) | System identification, sim-to-sim check, running the policy on the Thor, safety envelope, real tests |
 | 06 | [Integration](06_INTEGRATION.md) | The robot skill (`/skills/sort`), its state, the app's SORT button, STOP |
-| 07 | [Plan](07_PLAN.md) | Phases, tasks, deliverables and the check that closes each phase |
-| 08 | [Experiment log](08_EXPERIMENT_LOG.md) | How runs are named and recorded; metrics; the results table; what goes into the portfolio |
 
 ---
 
@@ -79,18 +77,6 @@ The real success rates are what the project is judged by. Simulation numbers alo
 
 ---
 
-## Open questions
-
-| Question | Blocks | Owner of the answer |
-|---|---|---|
-| New fingers: open and closed gap at the tips, finger length, material, mass | Gripper model, grasp reward | Owner (measuring) |
-| Balls: diameter, mass, colours available, how hard | Scene, colour test | Owner (measuring) |
-| Arm controller version; does it accept `servo_j` / `servo_p` | Control mode A or B ([04](04_RL.md) §3) | Phase 1 test |
-| Does Isaac Lab 3.0 (Newton, no Isaac Sim) train on the Thor | Where training runs | Phase 3 spike |
-| Box size and placement on the table | Scene | Owner |
-
----
-
 ## Where the code will live
 
 | What | Where |
@@ -99,4 +85,4 @@ The real success rates are what the project is judged by. Simulation numbers alo
 | MuJoCo twin of the sorting scene | `sim/sorting/` (new; reuses `sim/lumi.xml`) |
 | Robot skill and policy runtime | `real/thor/manipulation/sort.py`, `real/thor/policies/sort/` (deployed to `~/Dev/lumi-wave` on the Thor) |
 | App button | Lumi app, COMMANDS → ARM & OBJECTS |
-| Run records and plots | `rl/sorting/runs/` (large files kept off git) and [08_EXPERIMENT_LOG.md](08_EXPERIMENT_LOG.md) |
+| Run records and plots | `rl/sorting/runs/` (large files kept off git) |

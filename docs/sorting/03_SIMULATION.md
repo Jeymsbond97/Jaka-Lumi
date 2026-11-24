@@ -11,7 +11,7 @@ on one engine's quirks. Both are built from the same robot description and the s
 |---|---|---|
 | Role | training (PPO, thousands of parallel scenes) | sim-to-sim check, debugging, quick visual runs on the Mac |
 | Version | Isaac Lab 3.0, Newton physics on NVIDIA Warp (default install, Isaac Sim not required for headless training) | MuJoCo ≥ 3.14 (`sim/requirements.txt`) |
-| Runs on | NVIDIA GPU, Linux: cloud x86 RTX machine, or the Thor if the phase 3 spike works | Mac (CPU) and the Thor |
+| Runs on | NVIDIA GPU, Linux: cloud x86 RTX machine, or the Thor if Isaac Lab runs there | Mac (CPU) and the Thor |
 | Robot from | URDF `sim/lumi_description/jaka_lumi.urdf` (arm chain only) + gripper model | `sim/lumi.xml` (already built from the same URDF) |
 | Code | `rl/sorting/` | `sim/sorting/` |
 
@@ -26,7 +26,7 @@ do not move.
 | Part | How | Check |
 |---|---|---|
 | Arm links and joints | URDF geometry and masses; joint limits with the code's 5° margin | joint angles from the fitted kinematics (`data/arm_kinematics.json`) give the same hand pose in sim within 1 mm at 20 random poses |
-| Arm control | joint position targets with stiff gains: the policy's hand move goes through IK to joint targets, like on the robot | step responses match the measured ones (phase 1 data): lag and overshoot |
+| Arm control | joint position targets with stiff gains: the policy's hand move goes through IK to joint targets, like on the robot | step responses match the measured ones (measured on the robot): lag and overshoot |
 | Speed limits | 60 °/s per joint cap, linear speed cap of the trial speed; acceleration as measured | same cap numbers as `robot/motion.py` |
 | Gripper body | box with the Zimmer's outer size and 0.54 kg + fingers | from 10_GRIPPER.md |
 | Fingers | two straight boxes, the new fingers' length and width, friction from the material | open and closed tip gap equal the measured ones within 0.5 mm |
@@ -42,8 +42,8 @@ Both simulators need the Zimmer with the new fingers instead. Steps:
 1. Measure the new fingers ([01](01_HARDWARE_FACTS.md) §2).
 2. Write the gripper as its own small URDF / MJCF (`zimmer_gep2013_straight`), attached at the flange with the
    measured offset.
-3. Isaac Lab imports URDF through its asset importer; check in the phase 2 spike whether the Newton-only install
-   imports URDF directly or needs a USD made once on a machine with Isaac Sim. Keep the generated file in the repo.
+3. Isaac Lab imports URDF through its asset importer. If the Newton-only install cannot import URDF directly, a USD
+   is made once on a machine with Isaac Sim and the generated file is kept in the repo.
 
 ---
 
@@ -85,7 +85,7 @@ A rendered camera image is not needed for version 1. It comes in only with the v
 | Setting | Start value | Note |
 |---|---|---|
 | Physics step | 2 ms (MuJoCo now uses 2 ms) | small balls need small steps; check that a held ball does not jitter |
-| Policy step | matches the real control rate chosen in phase 1 (mode A 10–20 Hz, mode B 2–4 Hz) | [04](04_RL.md) §3 |
+| Policy step | matches the real control rate measured on the robot (mode A 10–20 Hz, mode B 2–4 Hz) | [04](04_RL.md) §3 |
 | Contacts | elliptic friction cones, soft contact on the ball | tune until grasp, roll and drop look like the real ball in a filmed test |
 | Gravity compensation | on for the arm (as in `sim/lumi.xml`) | the real controller compensates |
 
@@ -93,8 +93,7 @@ A rendered camera image is not needed for version 1. It comes in only with the v
 
 ## 6. Matching the real robot
 
-These numbers in the simulation are replaced by measured ones in phase 1, and the measurement goes into
-[08_EXPERIMENT_LOG.md](08_EXPERIMENT_LOG.md):
+These numbers in the simulation come from measurements on the robot ([05](05_SIM_TO_REAL.md) §1):
 
 - arm step response (lag, overshoot, settle time) at the trial speed, for each control mode;
 - gripper stroke time and AI_1 on a held ball;
