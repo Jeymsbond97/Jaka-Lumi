@@ -18,5 +18,6 @@ Reference for connecting to, operating and developing on the JAKA Lumi. Start wi
 | 11 | [Safety](11_SAFETY.md) | Before any motion |
 | 12 | [Sources and downloads](12_SOURCES.md) | Where each fact came from; download links |
 | — | [Tuning](TUNING.md) | Speeds, distances, thresholds with their file |
+| — | [Colour sorting (RL)](sorting/README.md) | The colour sorting project: RL in Isaac Lab, MuJoCo check, sim-to-real on the Thor |
 
 Company-internal notes (access, vendor manuals, screenshots) are in `docs/private/`, which is kept off git.
