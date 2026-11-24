@@ -56,5 +56,8 @@ Korean), drives where it is told and fetches objects by voice.
    fingers); `MAX_WIDTH` 92 vs 88 (measure the hooks' neck); collision limits in Cobo π before work near people;
    weigh the tool for the payload; glass door no-go line; hand-over sensing (AI_1 can't feel a pull).
 10. **Conversation**: memory of earlier days, Konglish, very short orders, "again / more".
+12. **Colour sorting (RL)**: SORT button; balls from a plate into the box of their colour, motion trained with RL in
+    Isaac Lab, checked in MuJoCo, run on the Thor. Plan and phases in [sorting/07_PLAN.md](sorting/07_PLAN.md); next:
+    phase 0 measurements (new straight fingers, balls) and phase 2 MuJoCo scene with guessed numbers meanwhile.
 11. **Code**: dashboard drives (`api/server.py`) bring the waist to 0 first; tests stop writing into `logs/lumi.log`;
     fix `tests/interrupt_check.py` (its fake Lumi has no `patrol`).
