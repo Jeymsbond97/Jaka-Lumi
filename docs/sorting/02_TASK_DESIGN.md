@@ -18,19 +18,22 @@ All positions in the arm controller's base frame (x across Lumi's front, y forwa
 
 | Item | Value | Why |
 |---|---|---|
-| Lift, waist, base | lift **0** (lowest), waist at the front, base parked; only the arm moves | at lift 75 mm (the cups' pick height) the arm cannot hold its fingers straight down at a ball's centre on the table; at lift 0 the table is 75 mm nearer and it can (reach map, `sim/sorting`) |
-| Table | top at −328 mm (−403 mm at lift 75 mm, measured) | 01 §1 |
-| Tray | wooden tray 28 × 19 × 2.5 cm (outer), centre (150, 550) mm, long side across | inside the area the hand reaches with its fingers straight down: x 0 … 500 mm, y 300 … 650 mm. The cups' pick centre (−100, 580) is outside it |
-| Balls | foam golf practice balls, 42.5 mm, 8 g, red and yellow, 6 in the tray, 90 mm apart across and 75 mm forward | the hand reaches the table with its jaws turned about 45°: the fingers need room on the diagonals too |
-| Boxes | two open boxes 26 × 18 × 8 cm without lids, short side facing the tray, 5 cm from it: centres (−130, 550) and (430, 550) mm | the drop point 45 mm above the rim is reachable over both; 5 cm leaves room for a finger beside an edge ball |
+| Lift, waist, base | lift 0 (lowest), waist at the front, base parked; only the arm moves | the table is nearest the hand and the torso camera sees nearest to Lumi |
+| Table | the owner's 75 cm table; top about −258 mm (arm base taken as 1.008 m above the floor at lift 0, from the cups' table at −403 mm at lift 75; to be measured by touching the table) | on the 68 cm table the part the torso camera sees and the part the hand reaches overlap in a strip only ~10 cm deep |
+| Tray | wooden tray 28 × 19 × 2.5 cm (outer), centre (30, 470) mm, long side across | the torso camera sees the table from y ≈ 400 mm on; the hand reaches with its fingers straight down up to y ≈ 500 mm and tilted up to 45° further out |
+| Balls | foam golf practice balls, 42.5 mm, 8 g, red and yellow, 6 in the tray, 90 mm apart across and 75 mm forward | room for the fingers beside each ball |
+| Boxes | two open boxes 26 × 18 × 8 cm without lids, short side facing the tray, 5 cm from it: centres (−250, 470) and (310, 470) mm | the ball may be dropped with the hand pointing any way (owner): over both boxes the arm reaches easily |
 | Light | normal office light; trials also with the blinds open and closed | — |
 
 The box positions are fixed and written in `data/sort_layout.json` on the Thor. A later version can find the boxes
 with the camera.
 
-**Torso camera:** with this layout the tray sits at the bottom right edge of the torso camera's picture (computed from
-its calibration: the front right corner is just outside it), and the arm covers the tray while it works over it.
-The head camera, pitched down, sees the whole tray from above; which camera finds the balls is decided on the robot.
+**Hand at the ball:** fingers as straight down as the arm allows there, at most 45° from vertical. The owner's
+free-drive recording (2026-11-25, fingers within 9° of vertical 90 % of the time) covered x −26 … 35 cm, y 32 … 56 cm
+at 13 … 24 cm below the arm base without the arm getting stuck, which matches the simulated reach.
+
+**Cameras:** the torso camera finds the balls. The head camera cannot: at its lowest pitch (−5°) it looks only ~8°
+below the horizontal and sees no part of the table within 80 cm of Lumi.
 
 ### The balls' colours
 
