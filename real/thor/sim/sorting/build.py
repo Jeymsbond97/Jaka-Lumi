@@ -50,26 +50,30 @@ APP_MOUNT_R = np.array([[0, 1, 0], [0, 0, -1], [-1, 0, 0]], float)   # model arm
 APP_MOUNT_T = np.array([30.4, -0.4, 0.1]) / 1000.0
 GLTF_FROM_URDF = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], float)   # a URDF (z up) vector in glTF axes (y up)
 
-# ---------- gripper (gripper frame G: origin at the flange face, z along the flange's z away from the arm, x the way
-# the fingers run out, y the way the jaws move), metres ----------
+# ---------- gripper (gripper frame G: origin at the flange's centre, z along the flange's axis away from the arm, x
+# the way the Zimmer body hangs off the flange (across the axis), y the way the jaws move), metres. As on the robot
+# (owner's photos 2026-11-25): the adapter plate sits on the flange face, the Zimmer body hangs from it across the
+# flange's axis, and the fingers run out ALONG the flange's axis from below the body ----------
 GRIP_YAW_DEG = -43.3      # x_G in the flange frame: the old C-hooks' grasp point lay this way (tcp_offset_flange
-                          # 85.6, -80.6 mm in grasp_teach.json); the new fingers sit on the same mount blocks. A GUESS
-                          # until the grasp point is taught with a ball
-ADAPTER = (0.040, 0.035, 0.004)                 # half sizes; the plate on the flange
-BODY = (0.032, 0.030, 0.046)                    # Zimmer GEP2013 body, half sizes; its lower face 100 mm from the flange
-BODY_Z = 0.008 + BODY[2]
-JAW_STROKE = 0.013                              # per jaw (datasheet; measured 61 open / 35 closed inner gap)
-GAP_CLOSED = 0.035                              # inner gap between the gripping faces, closed (owner's tape)
-FINGER_T = 0.0075                               # finger thickness across the gripping direction, pad included
-PAD_T = 0.003                                   # the rubber pad's share of it (guess)
-ARM_X = (-0.035, 0.145)                         # the finger arm along x_G: back edge of the mount plate to the tip
-ARM_Z = (0.155, 0.170)                          # the arm's top and lower edge below the flange face (photos)
-PAD_X = (0.095, 0.145)                          # the pads at the tip end, ~50 mm
-PLATE_Z = (0.100, ARM_Z[0])                     # the vertical mount plate from the Zimmer body down to the arm
-BLOCK = (0.020, 0.030)                          # steel mount block: half length along x_G, height below the body
-TCP = (0.5 * sum(PAD_X), 0.0, 0.5 * sum(ARM_Z))  # grasp point: between the pad centres (to be taught)
-GRIP_FORCE = 90.0                               # N, switch level 1
-FINGER_MASS = 0.06                              # kg per finger, a guess (to weigh)
+                          # 85.6, -80.6, 175 mm: 117 mm across the axis, 175 mm along it). A GUESS until the grasp
+                          # point is taught with a ball
+FLANGE_TO_TOP = 0.032     # the adapter's top edge this far across the axis on the other side (the flange's radius)
+ADAPTER_T = 0.008         # adapter plate thickness along the axis
+BODY_LEN = 0.100          # adapter top edge to the Zimmer's lower face, across the axis (owner's tape)
+BODY_DEPTH = 0.070        # Zimmer body along the axis, adapter included (owner's tape)
+BODY_HALF_Y = 0.032       # half its width along the jaws
+JAW_STROKE = 0.013        # per jaw (datasheet; measured 61 open / 35 closed inner gap)
+GAP_CLOSED = 0.035        # inner gap between the gripping faces, closed (owner's tape)
+FINGER_T = 0.0075         # finger thickness along the jaws, pad included
+PAD_T = 0.003             # the rubber pad's share of it (guess)
+ARM_X = (0.123, 0.138)    # the finger arm across the axis: top and lower edge (lower edge 170 mm below the adapter top)
+ARM_Z = (0.000, 0.180)    # the finger arm along the axis: from the mount plate's back edge to the tip (~180 mm)
+PAD_Z = (0.130, 0.180)    # the pads at the tip end, ~50 mm
+BLOCK_X = (BODY_LEN - FLANGE_TO_TOP, BODY_LEN - FLANGE_TO_TOP + 0.030)   # steel mount blocks below the body
+BLOCK_Z = (0.015, 0.065)
+TCP = (0.5 * sum(ARM_X), 0.0, 0.5 * sum(PAD_Z))   # grasp point: between the pad centres (to be taught)
+GRIP_FORCE = 90.0         # N, switch level 1
+FINGER_MASS = 0.06        # kg per finger, a guess (to weigh)
 
 # ---------- scene (controller frame, m) ----------
 TABLE_Z = -0.403 - (LIFT_M - 0.075)             # table top: -403 mm at lift 75 mm (tasks/fetch.py); the arm rises with the lift
@@ -225,28 +229,25 @@ def open_box(prefix, centre, out, wall, floor, rgba):
 
 def gripper_xml():
     G = rot("z", math.radians(GRIP_YAW_DEG))
-    L = []
-    L.append(f'<body name="gripper" quat="{fmt(mj_quat(G), 8)}">')
-    L.append(f'  <inertial pos="0 0 {BODY_Z:.4f}" mass="0.6" diaginertia="0.0012 0.0012 0.0008"/>')
-    L.append(f'  <geom class="grip" type="box" pos="0 0 {ADAPTER[2]:.4f}" size="{fmt(ADAPTER)}" material="alu"/>')
-    L.append(f'  <geom class="grip" type="box" pos="0 0 {BODY_Z:.4f}" size="{fmt(BODY)}" material="zimmer"/>')
-    L.append(f'  <site name="tcp" pos="{fmt(TCP)}" size="0.004" rgba="0 1 0 1" group="4"/>')
+    box = lambda x0, x1, y0, y1, z0, z1: (f'pos="{(x0 + x1) / 2:.4f} {(y0 + y1) / 2:.4f} {(z0 + z1) / 2:.4f}" '
+                                          f'size="{abs(x1 - x0) / 2:.4f} {abs(y1 - y0) / 2:.4f} {abs(z1 - z0) / 2:.4f}"')
+    top, bottom = -FLANGE_TO_TOP, BODY_LEN - FLANGE_TO_TOP
+    L = [f'<body name="gripper" quat="{fmt(mj_quat(G), 8)}">',
+         f'  <inertial pos="{(top + bottom) / 2:.4f} 0 {BODY_DEPTH / 2:.4f}" mass="0.6" diaginertia="0.0012 0.0012 0.0008"/>',
+         f'  <geom class="grip" type="box" {box(top, bottom, -0.036, 0.036, 0, ADAPTER_T)} material="alu"/>',
+         f'  <geom class="grip" type="box" {box(top, bottom, -BODY_HALF_Y, BODY_HALF_Y, ADAPTER_T, BODY_DEPTH)} material="zimmer"/>',
+         f'  <site name="tcp" pos="{fmt(TCP)}" size="0.004" rgba="0 1 0 1" group="4"/>']
     for side, s in (("l", +1), ("r", -1)):
-        y_in = s * GAP_CLOSED / 2                       # gripping face, closed
+        y_in = GAP_CLOSED / 2                           # gripping face, closed
+        ys = lambda a, b: (s * a, s * b)
         L.append(f'  <body name="jaw_{side}">')
-        L.append(f'    <inertial pos="0.05 {s * 0.02:.3f} 0.14" mass="{FINGER_MASS + 0.04:.3f}" diaginertia="2e-4 2e-4 1e-4"/>')
+        L.append(f'    <inertial pos="{TCP[0]:.3f} {s * 0.02:.3f} 0.09" mass="{FINGER_MASS + 0.04:.3f}" diaginertia="2e-4 2e-4 1e-4"/>')
         L.append(f'    <joint name="jaw_{side}" type="slide" axis="0 {s} 0" range="0 {JAW_STROKE}" damping="20" armature="0.05"/>')
-        bz0, bz1 = 2 * BODY[2] + 0.008, 2 * BODY[2] + 0.008 + BLOCK[1]
-        L.append(f'    <geom class="grip" type="box" pos="0 {s * (abs(y_in) - 0.0) / 2:.4f} {(bz0 + bz1) / 2:.4f}" '
-                 f'size="{BLOCK[0]} {abs(y_in) / 2 - 0.0002:.4f} {BLOCK[1] / 2}" material="steel"/>')
-        yc = s * (abs(y_in) + PAD_T + (FINGER_T - PAD_T) / 2)
-        L.append(f'    <geom class="grip" type="box" pos="{(ARM_X[0] + 0.0) / 2:.4f} {yc:.4f} {(PLATE_Z[0] + PLATE_Z[1]) / 2:.4f}" '
-                 f'size="{abs(ARM_X[0]) / 2 + 0.01:.4f} {(FINGER_T - PAD_T) / 2:.4f} {(PLATE_Z[1] - PLATE_Z[0]) / 2:.4f}" material="finger"/>')
-        L.append(f'    <geom name="arm_{side}" class="grip" type="box" pos="{sum(ARM_X) / 2:.4f} {yc:.4f} {sum(ARM_Z) / 2:.4f}" '
-                 f'size="{(ARM_X[1] - ARM_X[0]) / 2:.4f} {(FINGER_T - PAD_T) / 2:.4f} {(ARM_Z[1] - ARM_Z[0]) / 2:.4f}" material="finger"/>')
-        yp = s * (abs(y_in) + PAD_T / 2)
-        L.append(f'    <geom name="pad_{side}" class="pad" type="box" pos="{sum(PAD_X) / 2:.4f} {yp:.4f} {sum(ARM_Z) / 2:.4f}" '
-                 f'size="{(PAD_X[1] - PAD_X[0]) / 2:.4f} {PAD_T / 2:.4f} {(ARM_Z[1] - ARM_Z[0]) / 2:.4f}" material="pad"/>')
+        L.append(f'    <geom class="grip" type="box" {box(*BLOCK_X, *ys(0.0002, y_in), *BLOCK_Z)} material="steel"/>')
+        yf = ys(y_in + PAD_T, y_in + FINGER_T)
+        L.append(f'    <geom class="grip" type="box" {box(bottom, ARM_X[0], *yf, 0.0, BLOCK_Z[1])} material="finger"/>')
+        L.append(f'    <geom name="arm_{side}" class="grip" type="box" {box(*ARM_X, *yf, *ARM_Z)} material="finger"/>')
+        L.append(f'    <geom name="pad_{side}" class="pad" type="box" {box(*ARM_X, *ys(y_in, y_in + PAD_T), *PAD_Z)} material="pad"/>')
         L.append('  </body>')
     L.append('</body>')
     return L
