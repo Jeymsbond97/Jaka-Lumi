@@ -77,12 +77,14 @@ The real success rates are what the project is judged by. Simulation numbers alo
 
 ---
 
-## Where the code will live
+## Where the code lives
+
+Everything is in lumi-wave on the Thor (`~/Dev/lumi-wave`), the project the Lumi app talks to.
 
 | What | Where |
 |---|---|
-| Training environment, configs, export scripts | `rl/sorting/` in this repository (new) |
-| MuJoCo twin of the sorting scene | `sim/sorting/` (new; reuses `sim/lumi.xml`) |
-| Robot skill and policy runtime | `real/thor/manipulation/sort.py`, `real/thor/policies/sort/` (deployed to `~/Dev/lumi-wave` on the Thor) |
+| Training environment, configs, export scripts | `rl/sorting/` (new) |
+| MuJoCo sorting scene | `sim/sorting/`, run with `.venv-sim` (`MUJOCO_GL=egl` for pictures) |
+| Robot skill and policy runtime | `manipulation/sort.py`, `policies/sort/` |
 | App button | Lumi app, COMMANDS → ARM & OBJECTS |
 | Run records and plots | `rl/sorting/runs/` (large files kept off git) |

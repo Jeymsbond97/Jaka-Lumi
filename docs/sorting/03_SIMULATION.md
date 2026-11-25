@@ -5,6 +5,17 @@ on one engine's quirks. Both are built from the same robot description and the s
 
 ---
 
+## 0. What exists (MuJoCo, `sim/sorting/`)
+
+| File | Contents |
+|---|---|
+| `build.py` | writes `sorting.xml`: the scene in the arm controller's base frame (m, z up). Arm joints from the fitted kinematics (`data/arm_kinematics.json`), so a joint's qpos is the controller's angle; JAKA's MiniCobo meshes placed with the Lumi app's link chain (within 1.3 mm of the fitted links); torso, lift, head and base from the vendor URDF at lift 0; the torso camera from its hand-eye calibration; the Zimmer with the straight fingers (jaws coupled, 13 mm stroke, 90 N); table, tray, two boxes, six balls |
+| `check.py` | the simulated flange against the controller's own flange pose in the 60 calibration samples: **median 0.02 mm, max 0.03 mm, 0.008°**; pictures from three cameras |
+| `scripted_demo.py` | a scripted sort (inverse kinematics and waypoints, no learning): **6 of 6 balls in their boxes, 51 s** (about 8.5 s a ball at the robot's normal joint speed). The baseline the learned policy is compared with |
+
+Still guesses in the model: the fingers' direction around the flange and the grasp point (to be taught with a
+ball), the finger mass, joint motor gains, the box positions on the real table.
+
 ## 1. Engines
 
 | | Isaac Lab | MuJoCo |

@@ -55,7 +55,7 @@ STOP on every screen already stops skills; no new stop path.
 ## 3. Deploy steps
 
 1. Export the student policy (`rl/sorting/export.py`) → `policy.onnx`, `config.json`, `obs.py`, run id.
-2. Copy to `real/thor/policies/sort/` in this repository, commit, sync to the Thor (`tools/thor_sync/sync.sh`).
+2. Put them in `policies/sort/` in lumi-wave on the Thor and commit there.
 3. Run `tests/test_sort.py` on the Thor.
 4. Restart lumi-api only when the base is not driving (`GET /status` → `base.move_status`).
 5. Dry run ([05](05_SIM_TO_REAL.md) §5 step 1) with the owner at the robot.
