@@ -252,6 +252,14 @@ def finish(sim, results, video):
         for f in sim.frames:
             w.write(f[:, :, ::-1])
         w.release()
+        # OpenCV writes MPEG-4 part 2, which QuickTime plays in jerks: H.264 where ffmpeg is there (the Mac; not the Thor)
+        import shutil
+        import subprocess
+        if shutil.which("ffmpeg"):
+            tmp = out.with_suffix(".h264.mp4")
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(out), "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                            "-crf", "20", "-movflags", "+faststart", str(tmp)], check=True)
+            tmp.replace(out)
         print(f"video: {out.relative_to(build.REPO)}")
 
 
