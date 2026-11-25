@@ -1,0 +1,379 @@
+"""Build the colour sorting scene (sorting.xml): Lumi's arm with the Zimmer gripper and its straight fingers, the
+torso and head it must keep clear of, the table, the tray of balls and the two boxes.
+
+Everything is placed in the arm controller's base frame (Cobo pi, the frame of moveL and kine_forward), in metres,
+z up, Lumi's front along +y. That is the frame the robot's own code and its calibrations use, so poses, camera
+readings and taught points carry over without conversion.
+
+- Arm joints: the fitted kinematics (data/arm_kinematics.json, robot/kinematics.py): each joint's frame
+  and zero corrected to the controller's own answers (0.2 mm). A joint's qpos is the controller's angle in radians.
+- Arm meshes: JAKA's MiniCobo STEP (sim/sorting/assets/minicobo, the same files the Lumi app draws), placed with the
+  app's link chain (Lumi-app src/lib/armFrame.ts, fitted to the controller within ~1 mm).
+- Torso, lift, head, base: the vendor URDF meshes, placed from the arm through the URDF chain at the sorting pose
+  (lift LIFT_M, waist WAIST_RAD, head straight).
+- Torso camera: the hand-eye calibration (data/camera_extrinsics.json), fovy from the factory intrinsics.
+- Gripper and fingers: measured by the owner 2026-11-25 (docs/gripper, docs/10_GRIPPER.md); lengths read from photos
+  are +-5 mm and the fingers' direction around the flange is a guess (see GRIP_YAW_DEG) until the grasp point is
+  taught on the robot.
+
+    .venv-sim/bin/python sim/sorting/build.py      # writes sim/sorting/sorting.xml
+"""
+import json
+import math
+import re
+from pathlib import Path
+
+import mujoco
+import numpy as np
+
+HERE = Path(__file__).resolve().parent
+SIM = HERE.parent
+REPO = SIM.parent
+KIN_FILE = REPO / "data/arm_kinematics.json"
+CAM_FILE = REPO / "data/camera_extrinsics.json"
+OUT = HERE / "sorting.xml"
+
+# ---------- the robot's pose during sorting ----------
+LIFT_M = 0.0            # the lift at its lowest: at the proven picks' 75 mm the arm cannot hold its fingers straight
+                        # down at a ball's centre on the table (sim/sorting/scripted_demo.py probe, 2026-11-25)
+WAIST_RAD = 0.0         # waist at the front; only turns the base under the table here (approximate)
+HEAD_PITCH_RAD = 0.0    # head straight
+
+# ---------- the app's arm chain (Lumi-app src/lib/armFrame.ts): glTF axes, each link turns about its y ----------
+APP_CHAIN = [((0, 0, 0), (0, 0, 0, 1)),
+             ((0, 0.156, 0.0165), (0.5, 0.5, 0.5, 0.5)),
+             ((0.21, -0.029, 0), (0, 0, 0, 1)),
+             ((0.1303, 0.0185, 0), (-0.5, -0.5, -0.5, 0.5)),
+             ((0, 0.0802, -0.0187), (0.5, -0.5, -0.5, 0.5)),
+             ((-0.1233, 0.01805, 0), (0.5, -0.5, 0.5, 0.5))]
+APP_MOUNT_R = np.array([[0, 1, 0], [0, 0, -1], [-1, 0, 0]], float)   # model arm frame -> controller frame
+APP_MOUNT_T = np.array([30.4, -0.4, 0.1]) / 1000.0
+GLTF_FROM_URDF = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], float)   # a URDF (z up) vector in glTF axes (y up)
+
+# ---------- gripper (gripper frame G: origin at the flange face, z along the flange's z away from the arm, x the way
+# the fingers run out, y the way the jaws move), metres ----------
+GRIP_YAW_DEG = -43.3      # x_G in the flange frame: the old C-hooks' grasp point lay this way (tcp_offset_flange
+                          # 85.6, -80.6 mm in grasp_teach.json); the new fingers sit on the same mount blocks. A GUESS
+                          # until the grasp point is taught with a ball
+ADAPTER = (0.040, 0.035, 0.004)                 # half sizes; the plate on the flange
+BODY = (0.032, 0.030, 0.046)                    # Zimmer GEP2013 body, half sizes; its lower face 100 mm from the flange
+BODY_Z = 0.008 + BODY[2]
+JAW_STROKE = 0.013                              # per jaw (datasheet; measured 61 open / 35 closed inner gap)
+GAP_CLOSED = 0.035                              # inner gap between the gripping faces, closed (owner's tape)
+FINGER_T = 0.0075                               # finger thickness across the gripping direction, pad included
+PAD_T = 0.003                                   # the rubber pad's share of it (guess)
+ARM_X = (-0.035, 0.145)                         # the finger arm along x_G: back edge of the mount plate to the tip
+ARM_Z = (0.155, 0.170)                          # the arm's top and lower edge below the flange face (photos)
+PAD_X = (0.095, 0.145)                          # the pads at the tip end, ~50 mm
+PLATE_Z = (0.100, ARM_Z[0])                     # the vertical mount plate from the Zimmer body down to the arm
+BLOCK = (0.020, 0.030)                          # steel mount block: half length along x_G, height below the body
+TCP = (0.5 * sum(PAD_X), 0.0, 0.5 * sum(ARM_Z))  # grasp point: between the pad centres (to be taught)
+GRIP_FORCE = 90.0                               # N, switch level 1
+FINGER_MASS = 0.06                              # kg per finger, a guess (to weigh)
+
+# ---------- scene (controller frame, m) ----------
+TABLE_Z = -0.403 - (LIFT_M - 0.075)             # table top: -403 mm at lift 75 mm (tasks/fetch.py); the arm rises with the lift
+FLOOR_Z = -1.051 - (LIFT_M - 0.075)             # under the wheels (URDF chain): a 0.65 m table
+TRAY_C = (0.150, 0.550)                         # tray centre: where the hand reaches the table with its fingers straight
+                                                # down (x 0..0.50, y 0.30..0.65 at lift 0; reach map 2026-11-25), not
+                                                # the cups' pick centre (-0.10, 0.58)
+TRAY_OUT = (0.280, 0.190, 0.025)                # outer size; long side across Lumi's front
+TRAY_WALL, TRAY_FLOOR = 0.005, 0.004
+BOX_OUT = (0.180, 0.260, 0.080)                 # S_Half box without its lid, short side facing the tray
+BOX_WALL = 0.003
+BOX_GAP = 0.050                                 # between the tray and each box: room for the fingers
+BALL_R, BALL_MASS = 0.02125, 0.008              # foam golf practice ball 42.5 mm, 8 g
+BALL_GRID = (0.090, 0.075)                      # ball spacing along x and y: the hand reaches the table with its jaws
+                                                # turned about 45 deg, so the fingers need room on the diagonals too
+COLOURS = {"red": "0.86 0.12 0.12 1", "yellow": "0.97 0.80 0.10 1"}
+BOXES = {"red": -1, "yellow": +1}               # which side of the tray (along x) each colour's box stands
+
+
+def quat_mat(q):
+    x, y, z, w = q
+    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                     [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                     [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+
+
+def rot(axis, a):
+    c, s = math.cos(a), math.sin(a)
+    if axis == "y":
+        return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+
+def hmat(R, t):
+    T = np.eye(4)
+    T[:3, :3], T[:3, 3] = R, t
+    return T
+
+
+def mj_quat(R):
+    q = np.zeros(4)
+    mujoco.mju_mat2Quat(q, np.asarray(R, float).flatten())
+    return q
+
+
+def fmt(v, n=6):
+    return " ".join(f"{x:.{n}f}".rstrip("0").rstrip(".") if abs(x) > 1e-12 else "0" for x in v)
+
+
+def pose_attr(T):
+    return f'pos="{fmt(T[:3, 3])}" quat="{fmt(mj_quat(T[:3, :3]), 8)}"'
+
+
+# ---------- arm ----------
+def fitted():
+    d = json.loads(KIN_FILE.read_text())
+    mm = lambda A: hmat(np.array(A)[:3, :3], np.array(A)[:3, 3] / 1000.0)
+    return mm(d["base"]), [mm(F) for F in d["joints"]], d["offsets_rad"]
+
+
+def fit_chain(q, model):
+    """Each link's frame in the controller frame (m) after its joint, as robot/kinematics.py chain()."""
+    base, frames, offsets = model
+    T, out = base, []
+    for F, a, off in zip(frames, q, offsets):
+        T = T @ F @ hmat(rot("z", a + off), np.zeros(3))
+        out.append(T)
+    return out
+
+
+def app_chain(q):
+    """Each link's frame in the controller frame (m) as the app draws it, in URDF link axes (the STL's own)."""
+    R, p, out = np.eye(3), np.zeros(3), []
+    for (t, qq), a in zip(APP_CHAIN, q):
+        p = p + R @ np.array(t)
+        R = R @ quat_mat(qq) @ rot("y", a)
+        out.append(hmat(APP_MOUNT_R @ R @ GLTF_FROM_URDF, APP_MOUNT_R @ p + APP_MOUNT_T))
+    return out
+
+
+def mesh_offsets(model):
+    """Each MiniCobo mesh's place in its fitted link body: constant, averaged over random poses; worst spread kept."""
+    rng = np.random.default_rng(0)
+    rows = []
+    for _ in range(40):
+        q = rng.uniform(-math.pi, math.pi, 6)
+        rows.append([np.linalg.inv(f) @ a for f, a in zip(fit_chain(q, model), app_chain(q))])
+    out, spread = [], []
+    for i in range(6):
+        Ms = np.array([r[i] for r in rows])
+        t = Ms[:, :3, 3].mean(axis=0)
+        U, _, Vt = np.linalg.svd(Ms[:, :3, :3].mean(axis=0))
+        out.append(hmat(U @ Vt, t))
+        spread.append(1000 * np.linalg.norm(Ms[:, :3, 3] - t, axis=1).max())
+    return out, spread
+
+
+# ---------- torso from the old full model ----------
+def torso():
+    """{body: 4x4 in link_2's frame} of base_link, link_1 ... link_4 at the sorting pose, and their geoms."""
+    m = mujoco.MjModel.from_xml_path(str(SIM / "lumi.xml"))
+    d = mujoco.MjData(m)
+    for name, v in (("l_1", LIFT_M), ("l_2", WAIST_RAD), ("l_3", 0.0), ("l_4", HEAD_PITCH_RAD)):
+        d.qpos[m.jnt_qposadr[m.joint(name).id]] = v
+    mujoco.mj_kinematics(m, d)
+    W = lambda b: hmat(d.xmat[m.body(b).id].reshape(3, 3), d.xpos[m.body(b).id])
+    inv2 = np.linalg.inv(W("link_2"))
+    names = ["base_link", "wheel_l", "wheel_r", "link_1", "link_2", "link_3", "link_4"]
+    meshfile = dict(re.findall(r'<mesh name="(\w+)" file="([\w.]+\.STL)"', (SIM / "lumi.xml").read_text()))
+    geoms = []
+    for b in names:
+        Tb = inv2 @ W(b)
+        bid = m.body(b).id
+        for g in range(m.ngeom):
+            if m.geom_bodyid[g] != bid:
+                continue
+            Tg = Tb @ hmat(quat_mat(np.roll(m.geom_quat[g], -1)), m.geom_pos[g])
+            if m.geom_type[g] == mujoco.mjtGeom.mjGEOM_MESH:
+                mesh = m.mesh(m.geom_dataid[g]).name
+                if mesh in meshfile:
+                    # the file is in the body's frame: MuJoCo's own recentring (in geom_pos) must not be kept
+                    geoms.append(("mesh", mesh, Tb, None, "black" if "wheel" in b else "white"))
+            elif m.geom_group[g] == 3 and m.geom_type[g] in (mujoco.mjtGeom.mjGEOM_BOX, mujoco.mjtGeom.mjGEOM_CYLINDER):
+                geoms.append(("box" if m.geom_type[g] == mujoco.mjtGeom.mjGEOM_BOX else "cylinder", None, Tg,
+                              m.geom_size[g].copy(), None))
+    return geoms, meshfile
+
+
+def link2_in_controller(model):
+    """link_2's frame in the controller frame: the fit's base is link_2 moved to joint_l_a1's origin (-0.104, 0, 0.069)."""
+    base = model[0]
+    return base @ hmat(np.eye(3), np.array([0.104, 0.0, -0.069]))
+
+
+# ---------- writing ----------
+def box_geom(name, c, half, rgba, extra=""):
+    return f'<geom name="{name}" type="box" pos="{fmt(c)}" size="{fmt(half)}" rgba="{rgba}" {extra}/>'
+
+
+def open_box(prefix, centre, out, wall, floor, rgba):
+    """An open box: floor and four walls (centre: x, y of the middle, z of the bottom)."""
+    x, y, z = centre
+    sx, sy, sz = (v / 2 for v in out)
+    g = [box_geom(f"{prefix}_floor", (x, y, z + floor / 2), (sx, sy, floor / 2), rgba)]
+    h = (sz - floor / 2)
+    zc = z + floor + h - floor / 2
+    g += [box_geom(f"{prefix}_wall_x0", (x - sx + wall / 2, y, zc), (wall / 2, sy, h), rgba),
+          box_geom(f"{prefix}_wall_x1", (x + sx - wall / 2, y, zc), (wall / 2, sy, h), rgba),
+          box_geom(f"{prefix}_wall_y0", (x, y - sy + wall / 2, zc), (sx, wall / 2, h), rgba),
+          box_geom(f"{prefix}_wall_y1", (x, y + sy - wall / 2, zc), (sx, wall / 2, h), rgba)]
+    return g
+
+
+def gripper_xml():
+    G = rot("z", math.radians(GRIP_YAW_DEG))
+    L = []
+    L.append(f'<body name="gripper" quat="{fmt(mj_quat(G), 8)}">')
+    L.append(f'  <inertial pos="0 0 {BODY_Z:.4f}" mass="0.6" diaginertia="0.0012 0.0012 0.0008"/>')
+    L.append(f'  <geom class="grip" type="box" pos="0 0 {ADAPTER[2]:.4f}" size="{fmt(ADAPTER)}" material="alu"/>')
+    L.append(f'  <geom class="grip" type="box" pos="0 0 {BODY_Z:.4f}" size="{fmt(BODY)}" material="zimmer"/>')
+    L.append(f'  <site name="tcp" pos="{fmt(TCP)}" size="0.004" rgba="0 1 0 1" group="4"/>')
+    for side, s in (("l", +1), ("r", -1)):
+        y_in = s * GAP_CLOSED / 2                       # gripping face, closed
+        L.append(f'  <body name="jaw_{side}">')
+        L.append(f'    <inertial pos="0.05 {s * 0.02:.3f} 0.14" mass="{FINGER_MASS + 0.04:.3f}" diaginertia="2e-4 2e-4 1e-4"/>')
+        L.append(f'    <joint name="jaw_{side}" type="slide" axis="0 {s} 0" range="0 {JAW_STROKE}" damping="20" armature="0.05"/>')
+        bz0, bz1 = 2 * BODY[2] + 0.008, 2 * BODY[2] + 0.008 + BLOCK[1]
+        L.append(f'    <geom class="grip" type="box" pos="0 {s * (abs(y_in) - 0.0) / 2:.4f} {(bz0 + bz1) / 2:.4f}" '
+                 f'size="{BLOCK[0]} {abs(y_in) / 2 - 0.0002:.4f} {BLOCK[1] / 2}" material="steel"/>')
+        yc = s * (abs(y_in) + PAD_T + (FINGER_T - PAD_T) / 2)
+        L.append(f'    <geom class="grip" type="box" pos="{(ARM_X[0] + 0.0) / 2:.4f} {yc:.4f} {(PLATE_Z[0] + PLATE_Z[1]) / 2:.4f}" '
+                 f'size="{abs(ARM_X[0]) / 2 + 0.01:.4f} {(FINGER_T - PAD_T) / 2:.4f} {(PLATE_Z[1] - PLATE_Z[0]) / 2:.4f}" material="finger"/>')
+        L.append(f'    <geom name="arm_{side}" class="grip" type="box" pos="{sum(ARM_X) / 2:.4f} {yc:.4f} {sum(ARM_Z) / 2:.4f}" '
+                 f'size="{(ARM_X[1] - ARM_X[0]) / 2:.4f} {(FINGER_T - PAD_T) / 2:.4f} {(ARM_Z[1] - ARM_Z[0]) / 2:.4f}" material="finger"/>')
+        yp = s * (abs(y_in) + PAD_T / 2)
+        L.append(f'    <geom name="pad_{side}" class="pad" type="box" pos="{sum(PAD_X) / 2:.4f} {yp:.4f} {sum(ARM_Z) / 2:.4f}" '
+                 f'size="{(PAD_X[1] - PAD_X[0]) / 2:.4f} {PAD_T / 2:.4f} {(ARM_Z[1] - ARM_Z[0]) / 2:.4f}" material="pad"/>')
+        L.append('  </body>')
+    L.append('</body>')
+    return L
+
+
+def build():
+    model = fitted()
+    offsets, spread = mesh_offsets(model)
+    base, frames, joint_offsets = model
+    tgeoms, meshfile = torso()
+    T2 = link2_in_controller(model)
+    cam = json.loads(CAM_FILE.read_text())
+    Tc = np.array(cam["T_base_cam"])
+    cam_R, cam_t = Tc[:3, :3], Tc[:3, 3] / 1000.0
+    fovy = 2 * math.degrees(math.atan(360.0 / 608.4))       # 1280x720, fy 608.4 (06_CAMERAS_AND_VISION.md)
+    limits = [360, 125, 130, 360, 120, 360]                 # deg, controller joint limits (01_HARDWARE.md)
+
+    x = []
+    x.append('<mujoco model="lumi_sorting">')
+    x.append('  <!-- generated by sim/sorting/build.py: edit that file, not this one -->')
+    x.append('  <compiler angle="radian" autolimits="true"/>')
+    x.append('  <option timestep="0.002" integrator="implicitfast" cone="elliptic" impratio="10"/>')
+    x.append('  <visual><global offwidth="1280" offheight="960"/><quality shadowsize="4096"/></visual>')
+    x.append('  <asset>')
+    for i in range(1, 7):
+        x.append(f'    <mesh name="mc_a{i}" file="assets/minicobo/link_a{i}.stl"/>')
+    for name in sorted({g[1] for g in tgeoms if g[0] == "mesh"}):
+        x.append(f'    <mesh name="{name}" file="../lumi_description/meshes/{meshfile[name]}"/>')
+    x.append('    <texture name="grid" type="2d" builtin="checker" rgb1="0.82 0.82 0.80" rgb2="0.76 0.76 0.74" width="512" height="512"/>')
+    x.append('    <material name="floor" texture="grid" texrepeat="8 8"/>')
+    for name, rgba in (("white", "0.92 0.93 0.94 1"), ("black", "0.08 0.08 0.09 1"), ("alu", "0.75 0.76 0.78 1"),
+                       ("zimmer", "0.10 0.10 0.11 1"), ("steel", "0.70 0.70 0.72 1"), ("finger", "0.12 0.12 0.13 1"),
+                       ("pad", "0.05 0.05 0.05 1"), ("table", "0.55 0.56 0.58 1"), ("tray", "0.36 0.22 0.15 1"),
+                       ("box", "0.94 0.94 0.92 1")):
+        x.append(f'    <material name="{name}" rgba="{rgba}"/>')
+    x.append('  </asset>')
+    x.append('  <default>')
+    x.append('    <default class="visual"><geom type="mesh" contype="0" conaffinity="0" group="2" density="0"/></default>')
+    # the torso and head only for clearance checks in code (as on the robot), not as physical obstacles: the arm's
+    # first link sits inside the column's collision cylinder
+    x.append('    <default class="body_col"><geom group="3" density="0" contype="0" conaffinity="0" rgba="0.9 0.4 0.4 0.3"/></default>')
+    x.append('    <default class="grip"><geom group="1" density="0" friction="0.8 0.01 0.001"/></default>')
+    x.append('    <default class="pad"><geom group="1" density="0" friction="1.6 0.02 0.002" condim="4" solref="0.004 1" priority="1"/></default>')
+    x.append('    <default class="arm_big"><position kp="1500" dampratio="1" forcerange="-60 60"/></default>')
+    x.append('    <default class="arm_small"><position kp="400" dampratio="1" forcerange="-20 20"/></default>')
+    x.append('  </default>')
+    x.append('  <worldbody>')
+    x.append('    <light pos="0 0.5 1.6" dir="0 0 -1" diffuse="0.8 0.8 0.8" castshadow="true"/>')
+    x.append('    <light pos="-1 -1 1.2" dir="1 1 -1" diffuse="0.35 0.35 0.35"/>')
+    floor_z = FLOOR_Z
+    x.append(f'    <geom name="floor" type="plane" pos="0 0 {floor_z:.3f}" size="3 3 0.05" material="floor"/>')
+    x.append(f'    <camera name="torso_cam" pos="{fmt(cam_t)}" xyaxes="{fmt(cam_R[:, 0])} {fmt(-cam_R[:, 1])}" fovy="{fovy:.2f}"/>')
+    x.append('    <camera name="overview" pos="0.55 1.35 0.25" xyaxes="-0.92 0.39 0 -0.15 -0.36 0.92" fovy="50"/>')
+    x.append('    <camera name="top" pos="-0.10 0.58 0.55" xyaxes="1 0 0 0 1 0" fovy="70"/>')
+
+    # torso, lift, head and base, fixed at the sorting pose
+    x.append(f'    <body name="torso" {pose_attr(T2)}>')
+    for i, (kind, mesh, Tg, size, mat) in enumerate(tgeoms):
+        if kind == "mesh":
+            x.append(f'      <geom class="visual" mesh="{mesh}" {pose_attr(Tg)} material="{mat}"/>')
+        else:
+            x.append(f'      <geom class="body_col" type="{kind}" {pose_attr(Tg)} size="{fmt(size[:3 if kind == "box" else 2])}"/>')
+    x.append('    </body>')
+
+    # arm: fitted joint frames, MiniCobo meshes
+    x.append(f'    <body name="arm_base" {pose_attr(base)}>')
+    ind = "      "
+    for i in range(6):
+        F = frames[i] @ hmat(rot("z", joint_offsets[i]), np.zeros(3))   # the zero offset is part of the body frame
+        x.append(f'{ind}<body name="a{i + 1}" {pose_attr(F)} gravcomp="1">')
+        x.append(f'{ind}  <inertial pos="0 0 0.05" mass="{[1.35, 1.6, 1.1, 0.7, 0.7, 0.3][i]}" diaginertia="0.005 0.005 0.002"/>')
+        lim = math.radians(limits[i])
+        x.append(f'{ind}  <joint name="j{i + 1}" axis="0 0 1" range="{-lim:.4f} {lim:.4f}" armature="0.1" damping="2"/>')
+        x.append(f'{ind}  <geom class="visual" mesh="mc_a{i + 1}" {pose_attr(offsets[i])} material="white"/>')
+        x.append(f'{ind}  <geom group="3" type="mesh" mesh="mc_a{i + 1}" {pose_attr(offsets[i])} density="0" rgba="0.4 0.6 0.9 0.3"/>')
+        ind += "  "
+    x.append(f'{ind}<site name="flange" size="0.005" group="4"/>')
+    x += [ind + l for l in gripper_xml()]
+    for i in range(6):
+        ind = ind[:-2]
+        x.append(f'{ind}</body>')
+    x.append('    </body>')
+
+    # table, tray, boxes, balls
+    tc = (TRAY_C[0], TRAY_C[1] + 0.05)
+    x.append(f'    <geom name="table" type="box" pos="{tc[0]:.3f} {tc[1]:.3f} {TABLE_Z - 0.015:.4f}" size="0.60 0.35 0.015" material="table"/>')
+    for sx in (-0.55, 0.55):
+        for sy in (-0.30, 0.30):
+            x.append(f'    <geom type="box" pos="{tc[0] + sx:.3f} {tc[1] + sy:.3f} {(TABLE_Z - 0.03 + floor_z) / 2:.4f}" '
+                     f'size="0.02 0.02 {(TABLE_Z - 0.03 - floor_z) / 2:.4f}" material="table" contype="0" conaffinity="0"/>')
+    x += ["    " + g for g in open_box("tray", (*TRAY_C, TABLE_Z), TRAY_OUT, TRAY_WALL, TRAY_FLOOR, '0.36 0.22 0.15 1')]
+    for colour, side in BOXES.items():
+        bx = TRAY_C[0] + side * (TRAY_OUT[0] / 2 + BOX_GAP + BOX_OUT[0] / 2)
+        x += ["    " + g for g in open_box(f"box_{colour}", (bx, TRAY_C[1], TABLE_Z), BOX_OUT, BOX_WALL, BOX_WALL,
+                                            '0.94 0.94 0.92 1')]
+        x.append(f'    <geom name="label_{colour}" type="box" pos="{bx:.4f} {TRAY_C[1] - BOX_OUT[1] / 2 - 0.001:.4f} '
+                 f'{TABLE_Z + BOX_OUT[2] * 0.6:.4f}" size="0.04 0.0008 0.015" rgba="{COLOURS[colour]}" contype="0" conaffinity="0"/>')
+    i = 0
+    for row in (-0.5, 0.5):
+        for col in (-1, 0, 1):
+            colour = ("red", "yellow")[(col + 1 + (row > 0)) % 2]   # a checkerboard: three of each
+            bx = TRAY_C[0] + col * BALL_GRID[0]
+            by = TRAY_C[1] + row * BALL_GRID[1]
+            x.append(f'    <body name="ball_{i}" pos="{bx:.4f} {by:.4f} {TABLE_Z + TRAY_FLOOR + BALL_R + 0.001:.4f}">')
+            x.append('      <freejoint/>')
+            x.append(f'      <geom name="ball_{i}" type="sphere" size="{BALL_R}" mass="{BALL_MASS}" rgba="{COLOURS[colour]}" '
+                     f'friction="1.0 0.01 0.001" condim="4" solref="0.006 1"/>')
+            x.append('    </body>')
+            i += 1
+    x.append('  </worldbody>')
+
+    x.append('  <equality><joint joint1="jaw_r" joint2="jaw_l" polycoef="0 1 0 0 0"/></equality>')
+    # the arm's own links and the gripper never touch each other here (the real arm's limits keep them apart)
+    parts = [f"a{i}" for i in range(1, 7)] + ["gripper", "jaw_l", "jaw_r"]
+    pairs = [(a, b) for k, a in enumerate(parts) for b in parts[k + 1:]]
+    x.append('  <contact>' + "".join(f'<exclude body1="{a}" body2="{b}"/>' for a, b in pairs) + '</contact>')
+    x.append('  <actuator>')
+    for i in range(6):
+        x.append(f'    <position name="j{i + 1}" class="{"arm_big" if i < 3 else "arm_small"}" joint="j{i + 1}" '
+                 f'ctrlrange="{-math.radians(limits[i]):.4f} {math.radians(limits[i]):.4f}"/>')
+    x.append(f'    <position name="gripper" joint="jaw_l" kp="4000" dampratio="1" forcerange="{-GRIP_FORCE} {GRIP_FORCE}" ctrlrange="0 {JAW_STROKE}"/>')
+    x.append('  </actuator>')
+    x.append('</mujoco>')
+    OUT.write_text("\n".join(x) + "\n")
+    print(f"wrote {OUT.relative_to(REPO)}")
+    print("mesh placement spread over 40 poses (mm):", " ".join(f"a{i + 1} {s:.2f}" for i, s in enumerate(spread)))
+
+
+if __name__ == "__main__":
+    build()
