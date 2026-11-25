@@ -9,7 +9,7 @@ A Zimmer electric parallel gripper is mounted on the arm flange. It is driven by
 | Part | Description |
 |---|---|
 | Gripper | **Zimmer GEP2013IO-05-B**: electric 2-jaw parallel gripper, digital I/O version. GEP2013 family datasheet: **13 mm stroke per jaw**, **gripping force 90–360 N** in four levels, **mass about 0.54 kg** without fingers. Rotary switch "Funct" 1–4 selects the force level (4 = 360 N); set to **1**. Green LED = powered |
-| Fingers | Long stainless-steel fingers with curved tips on L-shaped brackets, for cups and glasses. Fingertips about 265 mm from the flange face; the fingers sit beside the flange axis, not on it (about 8 cm off, estimate) |
+| Fingers | Since 2026-11-25: black 3D-printed straight fingers with rubber pads on the steel mount blocks, inner gap 61 mm open / 35 mm closed, 7.5 mm thick, for 42.5 mm balls ([gripper/README.md](gripper/README.md)). Before: white C-hooks for cups (same file), and first long stainless-steel fingers with curved tips, fingertips about 265 mm from the flange face, beside the flange axis (about 8 cm off, estimate) |
 | Finger sensor | **MISUMI** optical (photoelectric) sensor, yellow/black housing, on the side of one finger mount. It sees what is **below the gripper**, not an object between the fingers. The red light is its emitter and is always on; the indicator LED on its back is red when something is in front of it, blue when nothing is |
 | Cable | Gripper and sensor are wired to the arm's M8 tool connector (TIO), see [04_ARM.md §8](04_ARM.md#8-tool-io-connector-m8-8-pin-tio-v3) |
 

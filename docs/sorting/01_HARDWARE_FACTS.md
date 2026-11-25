@@ -53,12 +53,12 @@ For sorting the lift, waist and base stay still during a trial: the scene is fix
 | Timing | a stroke ~1 s; code waits 1.5 s | T robot/gripper.py:6-7 |
 | Behaviour | a close cannot be stopped half way; no touch sensing; a held object shows only in AI_1 | T robot/gripper.py:6-12; 10_GRIPPER.md:61 |
 | Fitted | `FITTED = False` today (gripper off the flange since 2026-11-10) | T robot/gripper.py:22 |
-| Current fingers (C-hooks) | gap open / closed: tips 100 / 73, belly 102 / 77, neck 57 / 30, shank 66 / 39 mm; hold 6–9 cm objects only | T robot/gripper.py:33; manipulation/skills.py:152 |
-| Grasp point today | (106.4, −86.5, 230.5) mm in the flange frame, 137 mm off the flange axis | 10_GRIPPER.md:33 |
-| **New straight fingers: to measure** | tip gap open and closed (mm); finger length and width; grasp point in the flange frame (free-drive the tips onto a ball, read the flange pose, as done for the C-hooks); finger mass; material and friction against the ball; AI_1 reading closed on a ball and closed on nothing | on the robot |
+| Fingers (since 2026-11-25) | straight printed fingers with rubber pads on the steel mount blocks: inner gap 61 mm open / 35 mm closed, outer 76 / 50 mm, 7.5 mm thick; flange to arm lower edge ~170 mm, arms ~180 mm long, pads ~50 mm at the tips (photo readings ±5 mm) | docs/gripper/README.md, owner's measurements |
+| Previous fingers (C-hooks) | gap open / closed: tips 100 / 73, belly 102 / 77, neck 57 / 30, shank 66 / 39 mm; hold 6–9 cm objects only | T robot/gripper.py:33; manipulation/skills.py:152 |
+| **To measure** | grasp point in the flange frame (free-drive onto a ball at the pad centres, read the flange pose); finger mass; AI_1 closed on a ball and on nothing | on the robot |
 
-The 26 mm stroke decides the ball: open gap must clear the ball by ≥ 8 mm on each side for camera error, and
-the closed gap must be smaller than the ball. Example: open 58 mm, closed 32 mm suits a 40–45 mm ball.
+The 26 mm stroke decides the ball. With these fingers the 42.5 mm foam golf ball gets 9.25 mm clearance on each
+side when open (enough for the camera's ~1 cm error) and is squeezed 7.5 mm when closed.
 
 ---
 
