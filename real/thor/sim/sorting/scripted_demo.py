@@ -3,8 +3,8 @@ It shows the scene can be solved with this arm, gripper and layout before any le
 
 For each ball, nearest to the tray's front edge first: above it, straight down until the grasp point (between the
 pad centres) is at the ball's centre, close (a full 1 s stroke, as the Zimmer does), lift, over the box of its
-colour, open, back up. The hand points its fingers straight down; the jaws close along x, the way the balls are
-spaced widest.
+colour, open, back up. The fingers point as straight down as the arm allows there (up to MAX_TILT_DEG); over the
+box the hand may point any way, the ball only has to fall in.
 
     .venv-sim/bin/python sim/sorting/scripted_demo.py           # result in the terminal
     .venv-sim/bin/python sim/sorting/scripted_demo.py --video   # also media/sorting_scripted.mp4
@@ -26,6 +26,8 @@ SPEED = 0.15            # m/s of the grasp point on straight moves
 STROKE_S = 1.0          # the Zimmer's full stroke
 FPS = 30
 JOINT_RAD_S = math.radians(50)   # the robot's normal joint speed (robot/motion.py JOINT_SPEED)
+MAX_TILT_DEG = 45       # the fingers may lean this far from straight down at a ball (owner, 2026-11-25); the drop
+                        # into a box takes any hand direction
 
 
 class Sim:
@@ -51,14 +53,12 @@ class Sim:
         d.qpos[self.qadr] = q
         mujoco.mj_kinematics(self.m, d)
         R = d.site_xmat[self.tcp].reshape(3, 3)
-        er = 0.5 * sum(np.cross(R[:, k], Rd[:, k]) for k in range(3))
+        er = 0.5 * sum(np.cross(R[:, k], Rd[:, k]) for k in range(3)) if Rd is not None else np.zeros(3)
         return np.concatenate([target - d.site_xpos[self.tcp], 0.1 * er])    # 0.1 m per radian
 
-    def _solve(self, target, seed, psi):
+    def _solve(self, target, seed, Rd):
+        """Joint angles near `seed` putting the grasp point at `target` with the hand frame `Rd` (None: any)."""
         m, d = self.m, self.ik
-        x = np.array([0, 0, -1.0])
-        y = np.array([math.cos(psi), math.sin(psi), 0.0])
-        Rd = np.column_stack([x, y, np.cross(x, y)])
         q = np.array(seed, float)
         e = self._err(q, target, Rd)
         for _ in range(300):
@@ -67,7 +67,7 @@ class Sim:
             mujoco.mj_comPos(m, d)
             jp, jr = np.zeros((3, m.nv)), np.zeros((3, m.nv))
             mujoco.mj_jacSite(m, d, jp, jr, self.tcp)
-            J = np.vstack([jp[:, self.dadr], 0.1 * jr[:, self.dadr]])
+            J = np.vstack([jp[:, self.dadr], (0.1 if Rd is not None else 0.0) * jr[:, self.dadr]])
             dq = J.T @ np.linalg.solve(J @ J.T + 1e-6 * np.eye(6), e)
             step = 1.0
             while step > 1e-3:                                   # take the step only if it helps
@@ -82,40 +82,43 @@ class Sim:
             self._err(q, target, Rd)
         return None
 
-    def solve(self, target, seed, psi=None, restarts=True):
-        """(joint angles, hand turn) putting the grasp point at `target` with the fingers straight down. `psi`: the
-        jaws' direction about the vertical; None tries every 15 deg from the hand's present turn outwards."""
-        d = self.ik
-        d.qpos[self.qadr] = seed
-        mujoco.mj_kinematics(self.m, d)
-        y = d.site_xmat[self.tcp].reshape(3, 3)[:, 1]
-        now = math.atan2(y[1], y[0])
-        tries = [psi] if psi is not None else [now + math.radians(k * s) for k in range(0, 181, 15) for s in (1, -1)][1:]
+    @staticmethod
+    def hand(tilt, az, psi):
+        """Hand frame: the fingers (z) tilted `tilt` from straight down towards the direction `az` (both rad), the jaws
+        (y) as near the horizontal direction `psi` as that allows."""
+        z = np.array([math.sin(tilt) * math.cos(az), math.sin(tilt) * math.sin(az), -math.cos(tilt)])
+        y = np.array([math.cos(psi), math.sin(psi), 0.0])
+        y = y - z * (y @ z)
+        if np.linalg.norm(y) < 1e-3:
+            return None
+        y /= np.linalg.norm(y)
+        return np.column_stack([np.cross(y, z), y, z])
+
+    def solve(self, target, seed, Rd=None, restarts=True):
+        """Joint angles for `target` with the hand frame `Rd` (None: any direction), nearest the seed first."""
         rng = np.random.default_rng(0)
-        seeds = [np.array(seed)] + ([rng.uniform(self.lim[:, 0] / 2, self.lim[:, 1] / 2) for _ in range(6)] if restarts else [])
-        for s in seeds:                       # the nearest solution first; other arm postures only when it has none
-            for p in tries:
-                q = self._solve(target, s, p)
-                if q is not None:
-                    return q, p
+        for s in [np.array(seed)] + ([rng.uniform(self.lim[:, 0] / 2, self.lim[:, 1] / 2) for _ in range(6)] if restarts else []):
+            q = self._solve(target, s, Rd)
+            if q is not None:
+                return q
         raise RuntimeError(f"no IK solution for {np.round(target * 1000)} mm")
 
     def approach(self, b, seed):
-        """(grasp, above, turn): one hand turn that reaches both the ball and the point ABOVE it, nearest the seed."""
-        self.ik.qpos[self.qadr] = seed
-        mujoco.mj_kinematics(self.m, self.ik)
-        y = self.ik.site_xmat[self.tcp].reshape(3, 3)[:, 1]
-        now = math.atan2(y[1], y[0])
+        """(grasp, above, hand frame): the straightest-down hand (tilted up to MAX_TILT_DEG) that reaches both the ball
+        and the point ABOVE it, nearest the seed."""
         rng = np.random.default_rng(1)
-        for s in [np.array(seed)] + [rng.uniform(self.lim[:, 0] / 2, self.lim[:, 1] / 2) for _ in range(6)]:
-            for k in range(0, 181, 15):
-                for sign in (1, -1):
-                    p = now + sign * math.radians(k)
-                    qg = self._solve(b, s, p)
-                    qa = self._solve(b + [0, 0, ABOVE], qg, p) if qg is not None else None
-                    if qa is not None:
-                        return qg, qa, p
-        raise RuntimeError(f"cannot reach the ball at {np.round(b * 1000)} mm with the fingers down")
+        for tilt in range(0, MAX_TILT_DEG + 1, 15):
+            for s in [np.array(seed)] + [rng.uniform(self.lim[:, 0] / 2, self.lim[:, 1] / 2) for _ in range(4)]:
+                for az in (range(0, 360, 45) if tilt else [0]):
+                    for psi in range(0, 180, 30):
+                        Rd = self.hand(math.radians(tilt), math.radians(az), math.radians(psi))
+                        if Rd is None:
+                            continue
+                        qg = self._solve(b, s, Rd)
+                        qa = self._solve(b + [0, 0, ABOVE], qg, Rd) if qg is not None else None
+                        if qa is not None:
+                            return qg, qa, Rd
+        raise RuntimeError(f"cannot reach the ball at {np.round(b * 1000)} mm with the fingers within {MAX_TILT_DEG} deg")
 
     # ---------- moving ----------
     def step(self, n=1):
@@ -140,22 +143,16 @@ class Sim:
         if settle:
             self.step(int(0.15 / self.m.opt.timestep))
 
-    def line(self, target, q_seed, psi):
-        """Straight move of the grasp point (down to a ball, up from it), solved every 5 mm, the hand's turn kept."""
+    def line(self, target, q_seed, Rd):
+        """Straight move of the grasp point (down to a ball, up from it), solved every 5 mm, the hand frame kept."""
         start = self.d.site_xpos[self.tcp].copy()
         n = max(1, int(np.linalg.norm(target - start) / 0.005))
         q = q_seed
         for k in range(1, n + 1):
-            q, _ = self.solve(start + (target - start) * k / n, q, psi, restarts=False)
+            q = self.solve(start + (target - start) * k / n, q, Rd, restarts=False)
             self.drive(q, 0.005 / SPEED, settle=False)
         self.step(int(0.15 / self.m.opt.timestep))
         return q
-
-    def joint_move(self, target, q_seed):
-        """To a pose by a joint move (the controller's joint_move), as fast as JOINT_RAD_S allows."""
-        q, psi = self.solve(target, q_seed)
-        self.drive(q, max(0.3, np.abs(q - q_seed).max() / JOINT_RAD_S))
-        return q, psi
 
     def gripper(self, open_):
         a0 = self.d.ctrl[self.grip]
@@ -198,8 +195,9 @@ def main():
     d.ctrl[sim.grip] = build.JAW_STROKE
     # the owner's taught grasp (data/grasp_teach.json): fingers down at a cup on this table
     seed = np.radians([-297.606897, -78.356094, -28.782753, -143.133593, 40.177249, -277.868113])
-    home = np.array([*build.TRAY_C, CARRY_Z])
-    q, _ = sim.solve(home, seed)
+    centre = np.array([*build.TRAY_C, build.TABLE_Z + build.TRAY_FLOOR + build.BALL_R])
+    _, q, _ = sim.approach(centre, seed)                 # home: above the tray's centre, fingers down
+    home = centre + [0, 0, ABOVE]
     d.qpos[sim.qadr] = q
     d.ctrl[:6] = q
     mujoco.mj_forward(m, d)
@@ -224,15 +222,16 @@ def run(sim, balls, results, q, home):
             print(f"ball {i} ({colour}): KNOCKED out of the tray, at ({b[0] * 1000:.0f}, {b[1] * 1000:.0f}, {b[2] * 1000:.0f}) mm")
             continue
         # the hand's turn is chosen at the grasp (the tightest place to reach), then kept on the way down and up
-        q_grasp, q_above, psi = sim.approach(b, home_q)
+        q_grasp, q_above, Rd = sim.approach(b, home_q)
         sim.drive(q_above, max(0.3, np.abs(q_above - q).max() / JOINT_RAD_S))
-        q = sim.line(b, q_above, psi)
+        q = sim.line(b, q_above, Rd)
         sim.gripper(open_=False)
-        q = sim.line(np.array([b[0], b[1], CARRY_Z]), q, psi)
+        q = sim.line(b + [0, 0, ABOVE], q, Rd)               # straight up as it came down, then any way to the box
         c = box_centre(colour)
-        q_box, _ = sim.solve(np.array([c[0], c[1], CARRY_Z]), q, restarts=False)
-        sim.drive(q_box, max(0.3, np.abs(q_box - q).max() / JOINT_RAD_S))
-        q = q_box
+        # to the box on a straight line at carrying height, the hand free to turn: a joint move from down at the
+        # tray swung the fingers through the tray's rim and lost the ball (2026-11-25)
+        q = sim.line(np.array([b[0], b[1], max(CARRY_Z, b[2] + ABOVE)]), q, None)
+        q = sim.line(np.array([c[0], c[1], CARRY_Z]), q, None)
         sim.gripper(open_=True)
         sim.step(int(0.6 / m.opt.timestep))
         p = d.xpos[m.body(f"ball_{i}").id]
