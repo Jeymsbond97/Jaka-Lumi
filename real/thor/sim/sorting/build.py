@@ -34,8 +34,8 @@ CAM_FILE = REPO / "data/camera_extrinsics.json"
 OUT = HERE / "sorting.xml"
 
 # ---------- the robot's pose during sorting ----------
-LIFT_M = 0.0            # the lift at its lowest: at the proven picks' 75 mm the arm cannot hold its fingers straight
-                        # down at a ball's centre on the table (sim/sorting/scripted_demo.py probe, 2026-11-25)
+LIFT_M = 0.0            # the lift at its lowest (as the owner keeps it, 2026-11-25): the table is nearest the hand and
+                        # the torso camera sees nearest to Lumi
 WAIST_RAD = 0.0         # waist at the front; only turns the base under the table here (approximate)
 HEAD_PITCH_RAD = 0.0    # head straight
 
@@ -76,11 +76,17 @@ GRIP_FORCE = 90.0         # N, switch level 1
 FINGER_MASS = 0.06        # kg per finger, a guess (to weigh)
 
 # ---------- scene (controller frame, m) ----------
-TABLE_Z = -0.403 - (LIFT_M - 0.075)             # table top: -403 mm at lift 75 mm (tasks/fetch.py); the arm rises with the lift
-FLOOR_Z = -1.051 - (LIFT_M - 0.075)             # under the wheels (URDF chain): a 0.65 m table
-TRAY_C = (0.150, 0.550)                         # tray centre: where the hand reaches the table with its fingers straight
-                                                # down (x 0..0.50, y 0.30..0.65 at lift 0; reach map 2026-11-25), not
-                                                # the cups' pick centre (-0.10, 0.58)
+TABLE_HEIGHT = 0.75                             # the owner's 75 cm table (the 68 cm one leaves too little that the torso
+                                                # camera sees and the hand reaches)
+ARM_BASE_AT_LIFT0 = 1.008                       # arm base above the floor at lift 0: the cups' table, -403 mm at lift 75
+                                                # (tasks/fetch.py), taken as the owner's 68 cm one. TO MEASURE: touch the
+                                                # 75 cm table with the finger tips and read the flange
+FLOOR_Z = -(ARM_BASE_AT_LIFT0 + LIFT_M)
+TABLE_Z = FLOOR_Z + TABLE_HEIGHT
+TRAY_C = (0.030, 0.470)                         # tray centre: the torso camera sees it (y >= ~0.40 on this table) and
+                                                # the hand reaches it with the fingers straight down up to y 0.50, tilted
+                                                # up to 45 deg further out (reach maps and the owner's free-drive
+                                                # recording, 2026-11-25)
 TRAY_OUT = (0.280, 0.190, 0.025)                # outer size; long side across Lumi's front
 TRAY_WALL, TRAY_FLOOR = 0.005, 0.004
 BOX_OUT = (0.180, 0.260, 0.080)                 # S_Half box without its lid, short side facing the tray
