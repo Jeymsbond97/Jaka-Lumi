@@ -69,3 +69,5 @@ tests/blind/r14/
 data/bank_build.lock
 data/bank_check_queries.npz
 tests/data/waves/
+.venv-sim
+sim/sorting/media/*.mp4
