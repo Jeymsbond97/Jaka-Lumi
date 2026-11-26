@@ -101,7 +101,7 @@
     <camera name="torso_cam" pos="-0.257663 0.013721 -0.041359" xyaxes="0.999523 -0.02739 -0.014242 0.014152 -0.003442 0.999894" fovy="61.23"/>
     <camera name="overview" pos="0.55 1.35 0.25" xyaxes="-0.92 0.39 0 -0.15 -0.36 0.92" fovy="50"/>
     <camera name="top" pos="-0.10 0.58 0.55" xyaxes="1 0 0 0 1 0" fovy="70"/>
-    <body name="torso" pos="-0.07587 -0.019453 -0.053978" quat="-0.04149432 -0.00522993 0.05028068 0.99785907">
+    <body name="torso" pos="-0.0736 -0.000401 -0.0689" quat="-0.00000367 0.00000212 0 1">
       <geom class="visual" mesh="app0_base_link_Lamp" pos="0 0 -0.6395" quat="1 0 0 0" material="app0_base_link_Lamp"/>
       <geom class="visual" mesh="app1_base_link_Logo" pos="0 0 -0.6395" quat="1 0 0 0" material="app1_base_link_Logo"/>
       <geom class="visual" mesh="app2_base_link_Matte" pos="0 0 -0.6395" quat="1 0 0 0" material="app2_base_link_Matte"/>

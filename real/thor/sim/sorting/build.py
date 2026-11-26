@@ -213,9 +213,17 @@ def torso():
 
 
 def link2_in_controller(model):
-    """link_2's frame in the controller frame: the fit's base is link_2 moved to joint_l_a1's origin (-0.104, 0, 0.069)."""
-    base = model[0]
-    return base @ hmat(np.eye(3), np.array([0.104, 0.0, -0.069]))
+    """link_2's frame in the controller frame, the way the Lumi app joins the arm to the column: the arm's first link
+    (at joint 1 = 0) where the app's chain puts it, and link_2 behind it by the URDF's joint_l_a1 origin. The fitted
+    base frame carries a ~6 deg tilt that belongs to the arm's zero angles, not to the mount: placing the column from it
+    left the column leaning against the shoulder (owner, 2026-11-26)."""
+    m = mujoco.MjModel.from_xml_path(str(SIM / "lumi.xml"))
+    d = mujoco.MjData(m)
+    mujoco.mj_kinematics(m, d)
+    W = lambda b: hmat(d.xmat[m.body(b).id].reshape(3, 3), d.xpos[m.body(b).id])
+    a1_in_2 = np.linalg.inv(W("link_2")) @ W("link_a1")           # joint_l_a1's origin, at zero angle
+    a1_in_ctrl = app_chain([0.0] * 6)[0]
+    return a1_in_ctrl @ np.linalg.inv(a1_in_2)
 
 
 # ---------- writing ----------
