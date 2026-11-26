@@ -1683,9 +1683,20 @@ def skill_place(body: PlaceBody):
     return _run_skill("place", skills.put_down, body.back)
 
 
+@app.post("/skills/sort", tags=["skills"], summary="Sort the balls on the tray into the box of their colour "
+          "(docs/sorting); returns at once, watch /skills/state")
+def skill_sort():
+    from manipulation import sort
+    return _run_skill("sort", sort.run)
+
+
 @app.get("/skills/state", tags=["skills"], summary="The last skill: running / done / refused / stopped, reason, log")
 def skill_state():
-    return {**_skill["state"], "log": list(skills.LOG)[-12:]}
+    out = {**_skill["state"], "log": list(skills.LOG)[-12:]}
+    if out.get("skill") == "sort":                  # how far the sorting is: done, failed, left, current ball
+        from manipulation import sort
+        out["sort"] = dict(sort.state)
+    return out
 
 
 # ---------- fetch tasks: bring an object from one place to another (tasks/fetch.py, docs/16) ----------
