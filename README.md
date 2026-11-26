@@ -49,6 +49,29 @@ All models run locally on the Thor (whisper.cpp on the GPU, Ollama `gemma4:e4b`,
 
 Start with [docs/00_START_HERE.md](docs/00_START_HERE.md) for the robot, or [docs/SIMULATION.md](docs/SIMULATION.md) for the simulation.
 
+## Colour sorting
+
+Press **SORT** in the Lumi app and Lumi sorts the balls on its tray by colour: it picks them up one at a time and
+drops each red ball into the red box and each yellow ball into the yellow box. The torso camera finds the balls and
+reads their colour; the arm with its Zimmer gripper does the rest.
+
+![Lumi sorting balls by colour in simulation](real/thor/sim/sorting/media/sorting_demo.gif)
+
+The video is the MuJoCo simulation of the task ([`real/thor/sim/sorting/`](real/thor/sim/sorting/)), played at twice
+the speed. It is built from this robot's own calibration, not from a generic model: the arm's joints come from the
+kinematics fitted to the arm controller (the simulated flange matches the controller within 0.03 mm over 60 measured
+poses), the torso camera from its hand-eye calibration, and the gripper, tray, balls and boxes from measured sizes.
+Here a scripted controller (inverse kinematics and waypoints) sorts all six balls in 51 s of robot time; the motion for
+the real robot is learned with reinforcement learning in Isaac Lab and checked in this simulation before it runs on
+the Thor.
+
+| | |
+|---|---|
+| ![Front](real/thor/sim/sorting/media/readme_front.png) | ![From the left](real/thor/sim/sorting/media/readme_left.png) |
+| ![From the right](real/thor/sim/sorting/media/readme_right.png) | ![From above](real/thor/sim/sorting/media/readme_top.png) |
+
+How it works: [docs/sorting](docs/sorting/README.md).
+
 ## Simulation
 
 | Pick and place | Waving at a person | Head camera |
