@@ -71,3 +71,4 @@ data/bank_check_queries.npz
 tests/data/waves/
 .venv-sim
 sim/sorting/media/*.mp4
+sim/sorting/assets/app_cache/
