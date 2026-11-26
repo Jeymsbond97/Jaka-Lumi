@@ -76,19 +76,27 @@
     <material name="floor" texture="grid" texrepeat="8 8"/>
     <material name="white" rgba="0.92 0.93 0.94 1"/>
     <material name="black" rgba="0.08 0.08 0.09 1"/>
-    <material name="alu" rgba="0.75 0.76 0.78 1"/>
-    <material name="zimmer" rgba="0.10 0.10 0.11 1"/>
-    <material name="steel" rgba="0.70 0.70 0.72 1"/>
-    <material name="finger" rgba="0.12 0.12 0.13 1"/>
+    <material name="alu" rgba="0.80 0.81 0.83 1" specular="0.8" shininess="0.7"/>
+    <material name="zimmer" rgba="0.07 0.07 0.08 1"/>
+    <material name="steel" rgba="0.74 0.75 0.77 1" specular="1" shininess="0.9"/>
+    <material name="finger" rgba="0.09 0.09 0.10 1"/>
     <material name="pad" rgba="0.05 0.05 0.05 1"/>
     <material name="table" rgba="0.55 0.56 0.58 1"/>
     <material name="tray" rgba="0.36 0.22 0.15 1"/>
     <material name="box" rgba="0.94 0.94 0.92 1"/>
+    <material name="screw" rgba="0.55 0.56 0.58 1" specular="0.9" shininess="0.9"/>
+    <material name="seam" rgba="0.02 0.02 0.02 1" specular="0.1" shininess="0.1"/>
+    <material name="cover" rgba="0.86 0.87 0.88 1" specular="0.3" shininess="0.4"/>
+    <material name="label" rgba="0.93 0.90 0.86 1" specular="0.1" shininess="0.2"/>
+    <material name="zlogo" rgba="0.10 0.35 0.75 1" specular="0.1" shininess="0.2"/>
+    <material name="slot" rgba="0.62 0.63 0.65 1" specular="0.6" shininess="0.6"/>
+    <material name="pad_rib" rgba="0.16 0.16 0.17 1" specular="0.05" shininess="0.1"/>
   </asset>
   <default>
     <default class="visual"><geom type="mesh" contype="0" conaffinity="0" group="2" density="0"/></default>
     <default class="body_col"><geom group="3" density="0" contype="0" conaffinity="0" rgba="0.9 0.4 0.4 0.3"/></default>
     <default class="grip"><geom group="1" density="0" friction="0.8 0.01 0.001"/></default>
+    <default class="gvis"><geom contype="0" conaffinity="0" group="2" density="0"/></default>
     <default class="pad"><geom group="1" density="0" friction="1.6 0.02 0.002" condim="4" solref="0.004 1" priority="1"/></default>
     <default class="arm_big"><position kp="1500" dampratio="1" forcerange="-60 60"/></default>
     <default class="arm_small"><position kp="400" dampratio="1" forcerange="-20 20"/></default>
@@ -164,6 +172,14 @@
                     <geom class="grip" type="box" pos="0.0180 0.0000 0.0040" size="0.0500 0.0360 0.0040" material="alu"/>
                     <geom class="grip" type="box" pos="0.0180 0.0000 0.0390" size="0.0500 0.0320 0.0310" material="zimmer"/>
                     <site name="tcp" pos="0.1305 0 0.155" size="0.004" rgba="0 1 0 1" group="4"/>
+                    <geom class="gvis" type="box" pos="0.0180 0.0000 0.0005" size="0.0520 0.0370 0.0010" material="alu"/>
+                    <geom class="gvis" type="cylinder" pos="-0.0200 -0.0160 0.0040" quat="0.7071068 0 0.7071068 0" size="0.0035 0.0006" material="screw"/>
+                    <geom class="gvis" type="cylinder" pos="-0.0200 0.0160 0.0040" quat="0.7071068 0 0.7071068 0" size="0.0035 0.0006" material="screw"/>
+                    <geom class="gvis" type="box" pos="0.0380 0.0000 0.0392" size="0.0012 0.0324 0.0312" material="seam"/>
+                    <geom class="gvis" type="box" pos="0.0030 0.0333 0.0645" size="0.0310 0.0013 0.0055" material="cover"/>
+                    <geom class="gvis" type="box" pos="0.0530 0.0160 0.0703" size="0.0110 0.0120 0.0003" material="label"/>
+                    <geom class="gvis" type="box" pos="0.0510 0.0220 0.0708" size="0.0030 0.0040 0.0001" material="zlogo"/>
+                    <geom class="gvis" type="box" pos="0.0695 0.0000 0.0380" size="0.0025 0.0100 0.0260" material="slot"/>
                     <body name="jaw_l">
                       <inertial pos="0.131 0.020 0.09" mass="0.100" diaginertia="2e-4 2e-4 1e-4"/>
                       <joint name="jaw_l" type="slide" axis="0 1 0" range="0 0.013" damping="20" armature="0.05"/>
@@ -171,6 +187,17 @@
                       <geom class="grip" type="box" pos="0.0955 0.0227 0.0325" size="0.0275 0.0023 0.0325" material="finger"/>
                       <geom name="arm_l" class="grip" type="box" pos="0.1305 0.0227 0.0900" size="0.0075 0.0023 0.0900" material="finger"/>
                       <geom name="pad_l" class="pad" type="box" pos="0.1305 0.0190 0.1550" size="0.0075 0.0015 0.0250" material="pad"/>
+                      <geom class="gvis" type="box" pos="0.0830 0.0089 0.0785" size="0.0150 0.0087 0.0165" material="steel"/>
+                      <geom class="gvis" type="cylinder" pos="0.1305 0.0227 0.1800" quat="0.7071068 0.7071068 0 0" size="0.0075 0.0022" material="finger"/>
+                      <geom class="gvis" type="cylinder" pos="0.0800 0.0256 0.0530" quat="0.7071068 0.7071068 0 0" size="0.0035 0.0008" material="screw"/>
+                      <geom class="gvis" type="box" pos="0.1305 0.0173 0.1350" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 0.0173 0.1410" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 0.0173 0.1470" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 0.0173 0.1530" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 0.0173 0.1590" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 0.0173 0.1650" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 0.0173 0.1710" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 0.0173 0.1770" size="0.0065 0.0002 0.0010" material="pad_rib"/>
                     </body>
                     <body name="jaw_r">
                       <inertial pos="0.131 -0.020 0.09" mass="0.100" diaginertia="2e-4 2e-4 1e-4"/>
@@ -179,6 +206,17 @@
                       <geom class="grip" type="box" pos="0.0955 -0.0227 0.0325" size="0.0275 0.0023 0.0325" material="finger"/>
                       <geom name="arm_r" class="grip" type="box" pos="0.1305 -0.0227 0.0900" size="0.0075 0.0023 0.0900" material="finger"/>
                       <geom name="pad_r" class="pad" type="box" pos="0.1305 -0.0190 0.1550" size="0.0075 0.0015 0.0250" material="pad"/>
+                      <geom class="gvis" type="box" pos="0.0830 -0.0089 0.0785" size="0.0150 0.0087 0.0165" material="steel"/>
+                      <geom class="gvis" type="cylinder" pos="0.1305 -0.0227 0.1800" quat="0.7071068 0.7071068 0 0" size="0.0075 0.0022" material="finger"/>
+                      <geom class="gvis" type="cylinder" pos="0.0800 -0.0256 0.0530" quat="0.7071068 0.7071068 0 0" size="0.0035 0.0008" material="screw"/>
+                      <geom class="gvis" type="box" pos="0.1305 -0.0173 0.1350" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 -0.0173 0.1410" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 -0.0173 0.1470" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 -0.0173 0.1530" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 -0.0173 0.1590" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 -0.0173 0.1650" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 -0.0173 0.1710" size="0.0065 0.0002 0.0010" material="pad_rib"/>
+                      <geom class="gvis" type="box" pos="0.1305 -0.0173 0.1770" size="0.0065 0.0002 0.0010" material="pad_rib"/>
                     </body>
                   </body>
                 </body>

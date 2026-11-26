@@ -255,6 +255,17 @@ def gripper_xml():
          f'  <geom class="grip" type="box" {box(top, bottom, -0.036, 0.036, 0, ADAPTER_T)} material="alu"/>',
          f'  <geom class="grip" type="box" {box(top, bottom, -BODY_HALF_Y, BODY_HALF_Y, ADAPTER_T, BODY_DEPTH)} material="zimmer"/>',
          f'  <site name="tcp" pos="{fmt(TCP)}" size="0.004" rgba="0 1 0 1" group="4"/>']
+    # looks only (owner's photos 2026-11-25): the aluminium adapter's chamfered rim and two screws, the Zimmer's two
+    # housings with the seam between them, its white side cover, the label, the cable plug and the jaw guides
+    mid = top + 0.070                                   # the seam between the motor housing and the jaw housing
+    L += [f'  <geom class="gvis" type="box" {box(top - 0.002, bottom + 0.002, -0.037, 0.037, -0.0005, 0.0015)} material="alu"/>',
+          *[f'  <geom class="gvis" type="cylinder" pos="{top + 0.012:.4f} {y:.4f} {ADAPTER_T / 2:.4f}" quat="0.7071068 0 0.7071068 0" '
+            f'size="0.0035 0.0006" material="screw"/>' for y in (-0.016, 0.016)],
+          f'  <geom class="gvis" type="box" {box(mid - 0.0012, mid + 0.0012, -BODY_HALF_Y - 0.0004, BODY_HALF_Y + 0.0004, ADAPTER_T, BODY_DEPTH + 0.0004)} material="seam"/>',
+          f'  <geom class="gvis" type="box" {box(top + 0.004, mid - 0.004, BODY_HALF_Y, BODY_HALF_Y + 0.0025, BODY_DEPTH - 0.011, BODY_DEPTH)} material="cover"/>',
+          f'  <geom class="gvis" type="box" {box(mid + 0.004, bottom - 0.004, 0.004, BODY_HALF_Y - 0.004, BODY_DEPTH, BODY_DEPTH + 0.0006)} material="label"/>',
+          f'  <geom class="gvis" type="box" {box(mid + 0.010, mid + 0.016, 0.018, 0.026, BODY_DEPTH + 0.0006, BODY_DEPTH + 0.0009)} material="zlogo"/>',
+          f'  <geom class="gvis" type="box" {box(bottom - 0.001, bottom + 0.004, -0.010, 0.010, 0.012, BODY_DEPTH - 0.006)} material="slot"/>']
     for side, s in (("l", +1), ("r", -1)):
         y_in = GAP_CLOSED / 2                           # gripping face, closed
         ys = lambda a, b: (s * a, s * b)
@@ -266,6 +277,14 @@ def gripper_xml():
         L.append(f'    <geom class="grip" type="box" {box(bottom, ARM_X[0], *yf, 0.0, BLOCK_Z[1])} material="finger"/>')
         L.append(f'    <geom name="arm_{side}" class="grip" type="box" {box(*ARM_X, *yf, *ARM_Z)} material="finger"/>')
         L.append(f'    <geom name="pad_{side}" class="pad" type="box" {box(*ARM_X, *ys(y_in, y_in + PAD_T), *PAD_Z)} material="pad"/>')
+        yc = s * (y_in + (PAD_T + FINGER_T) / 2)
+        L += [f'    <geom class="gvis" type="box" {box(BLOCK_X[0], BLOCK_X[1], *ys(0.0002, y_in), BLOCK_Z[1] - 0.003, BLOCK_Z[1] + 0.030)} material="steel"/>',
+              f'    <geom class="gvis" type="cylinder" pos="{sum(ARM_X) / 2:.4f} {yc:.4f} {ARM_Z[1]:.4f}" quat="0.7071068 0.7071068 0 0" '
+              f'size="{(ARM_X[1] - ARM_X[0]) / 2:.4f} {(FINGER_T - PAD_T) / 2:.4f}" material="finger"/>',
+              f'    <geom class="gvis" type="cylinder" pos="{bottom + 0.012:.4f} {s * (y_in + FINGER_T + 0.0006):.4f} {BLOCK_Z[1] - 0.012:.4f}" quat="0.7071068 0.7071068 0 0" '
+              f'size="0.0035 0.0008" material="screw"/>',
+              *[f'    <geom class="gvis" type="box" {box(ARM_X[0] + 0.001, ARM_X[1] - 0.001, *ys(y_in - 0.0004, y_in), z, z + 0.002)} material="pad_rib"/>'
+                for z in [PAD_Z[0] + 0.004 + 0.006 * k for k in range(8)]]]
         L.append('  </body>')
     L.append('</body>')
     return L
@@ -309,11 +328,18 @@ def build():
     x.append('    <texture name="sky" type="skybox" builtin="gradient" rgb1="0.93 0.93 0.92" rgb2="0.78 0.79 0.80" width="512" height="512"/>')
     x.append('    <texture name="grid" type="2d" builtin="checker" rgb1="0.82 0.82 0.80" rgb2="0.76 0.76 0.74" width="512" height="512"/>')
     x.append('    <material name="floor" texture="grid" texrepeat="8 8"/>')
-    for name, rgba in (("white", "0.92 0.93 0.94 1"), ("black", "0.08 0.08 0.09 1"), ("alu", "0.75 0.76 0.78 1"),
-                       ("zimmer", "0.10 0.10 0.11 1"), ("steel", "0.70 0.70 0.72 1"), ("finger", "0.12 0.12 0.13 1"),
+    for name, rgba in (("white", "0.92 0.93 0.94 1"), ("black", "0.08 0.08 0.09 1"), ("alu", "0.80 0.81 0.83 1"),
+                       ("zimmer", "0.07 0.07 0.08 1"), ("steel", "0.74 0.75 0.77 1"), ("finger", "0.09 0.09 0.10 1"),
                        ("pad", "0.05 0.05 0.05 1"), ("table", "0.55 0.56 0.58 1"), ("tray", "0.36 0.22 0.15 1"),
                        ("box", "0.94 0.94 0.92 1")):
-        x.append(f'    <material name="{name}" rgba="{rgba}"/>')
+        shiny = {"alu": ' specular="0.8" shininess="0.7"', "steel": ' specular="1" shininess="0.9"'}.get(name, "")
+        x.append(f'    <material name="{name}" rgba="{rgba}"{shiny}/>')
+    # the gripper's finishes (owner's photos): brushed aluminium, shiny steel, matte black print, a light label
+    for name, rgba, spec, shine in (("screw", "0.55 0.56 0.58 1", 0.9, 0.9), ("seam", "0.02 0.02 0.02 1", 0.1, 0.1),
+                                    ("cover", "0.86 0.87 0.88 1", 0.3, 0.4), ("label", "0.93 0.90 0.86 1", 0.1, 0.2),
+                                    ("zlogo", "0.10 0.35 0.75 1", 0.1, 0.2), ("slot", "0.62 0.63 0.65 1", 0.6, 0.6),
+                                    ("pad_rib", "0.16 0.16 0.17 1", 0.05, 0.1)):
+        x.append(f'    <material name="{name}" rgba="{rgba}" specular="{spec}" shininess="{shine}"/>')
     x.append('  </asset>')
     x.append('  <default>')
     x.append('    <default class="visual"><geom type="mesh" contype="0" conaffinity="0" group="2" density="0"/></default>')
@@ -321,6 +347,7 @@ def build():
     # first link sits inside the column's collision cylinder
     x.append('    <default class="body_col"><geom group="3" density="0" contype="0" conaffinity="0" rgba="0.9 0.4 0.4 0.3"/></default>')
     x.append('    <default class="grip"><geom group="1" density="0" friction="0.8 0.01 0.001"/></default>')
+    x.append('    <default class="gvis"><geom contype="0" conaffinity="0" group="2" density="0"/></default>')
     x.append('    <default class="pad"><geom group="1" density="0" friction="1.6 0.02 0.002" condim="4" solref="0.004 1" priority="1"/></default>')
     x.append('    <default class="arm_big"><position kp="1500" dampratio="1" forcerange="-60 60"/></default>')
     x.append('    <default class="arm_small"><position kp="400" dampratio="1" forcerange="-20 20"/></default>')
