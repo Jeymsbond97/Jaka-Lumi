@@ -70,6 +70,31 @@ collision-checked poses.
 
 ---
 
+## Colour sorting
+
+Press **SORT** in the Lumi app and Lumi sorts the balls on its tray by colour: it picks them up one at a time and
+drops each red ball into the red box and each yellow ball into the yellow box. The torso camera finds the balls and
+reads their colour; the arm with its Zimmer gripper does the rest.
+
+![Lumi sorting balls by colour in simulation](sim/sorting/media/sorting_demo.gif)
+
+The video is the MuJoCo simulation of the task (`sim/sorting/`), played at twice the speed. It is built from this
+robot's own calibration, not from a generic model: the arm's joints come from the kinematics fitted to the arm
+controller (the simulated flange matches the controller within 0.03 mm over 60 measured poses), the torso camera from
+its hand-eye calibration, and the gripper, tray, balls and boxes from measured sizes. Here a scripted controller
+(inverse kinematics and waypoints) sorts all six balls in 51 s of robot time; the motion for the real robot is learned
+with reinforcement learning in Isaac Lab and checked in this simulation before it runs on the Thor.
+
+| | |
+|---|---|
+| ![Front](sim/sorting/media/readme_front.png) | ![From the left](sim/sorting/media/readme_left.png) |
+| ![From the right](sim/sorting/media/readme_right.png) | ![From above](sim/sorting/media/readme_top.png) |
+
+Run it: `.venv-sim/bin/python sim/sorting/scripted_demo.py --video` (pictures on the Thor need `MUJOCO_GL=egl`).
+How it works: [docs/sorting](../../docs/sorting/README.md).
+
+---
+
 ## Architecture
 
 ![Architecture](../../docs/images/arch_en.png)
@@ -113,6 +138,7 @@ vision/         Camera service, detection, measurement, calibration
 robot/          Device drivers and verified motion
 manipulation/   Grasping, placing, hand-over, arm motion planning
 tasks/          Complete jobs: fetch, missions, following
+sim/            Simulation (MuJoCo): the colour sorting scene
 tests/          Self-checks and evaluation sets
 data/           Calibration and taught values
 knowledge/      Knowledge base
@@ -186,7 +212,7 @@ Models and calibration: [docs/08_NVIDIA_THOR.md](../../docs/08_NVIDIA_THOR.md). 
 [Start here](../../docs/00_START_HERE.md) · [Hardware](../../docs/01_HARDWARE.md) · [Network](../../docs/02_NETWORK_AND_ACCESS.md) ·
 [Body](../../docs/03_BODY_LIFT_WAIST_HEAD.md) · [Arm](../../docs/04_ARM.md) · [Base](../../docs/05_AGV_BASE.md) ·
 [Cameras](../../docs/06_CAMERAS_AND_VISION.md) · [Audio](../../docs/07_VOICE_AND_AUDIO.md) · [Thor](../../docs/08_NVIDIA_THOR.md) ·
-[Gripper](../../docs/10_GRIPPER.md) · [Safety](../../docs/11_SAFETY.md) · [Tuning](../../docs/TUNING.md) · [Sources](../../docs/12_SOURCES.md)
+[Gripper](../../docs/10_GRIPPER.md) · [Colour sorting](../../docs/sorting/README.md) · [Safety](../../docs/11_SAFETY.md) · [Tuning](../../docs/TUNING.md) · [Sources](../../docs/12_SOURCES.md)
 
 ---
 ---
@@ -260,6 +286,29 @@ Lumi는 쿳션이 개발한 **JAKA Lumi** 모바일 매니퓰레이터용 소프
 
 ---
 
+## 색깔 분류
+
+Lumi 앱에서 **SORT**를 누르면 Lumi가 쟁반 위의 공을 색깔별로 나눕니다. 공을 하나씩 집어 빨간 공은 빨간 상자에,
+노란 공은 노란 상자에 넣습니다. 몸통 카메라가 공을 찾아 색을 읽고, Zimmer 그리퍼를 단 팔이 옮깁니다.
+
+![시뮬레이션에서 공을 색깔별로 나누는 Lumi](sim/sorting/media/sorting_demo.gif)
+
+영상은 이 작업의 MuJoCo 시뮬레이션(`sim/sorting/`)이며 2배 속도입니다. 일반 모델이 아니라 이 로봇의 보정값으로
+만들었습니다. 팔 관절은 팔 컨트롤러에 맞춘 기구학을 쓰고(측정한 60개 자세에서 시뮬레이션의 플랜지가 컨트롤러와
+0.03 mm 이내로 일치), 몸통 카메라는 핸드-아이 보정값을, 그리퍼·쟁반·공·상자는 실측 크기를 씁니다. 여기서는
+스크립트 제어(역기구학과 경유점)가 공 6개를 로봇 시간 51초에 모두 분류합니다. 실제 로봇의 동작은 Isaac Lab에서
+강화학습으로 학습하고, 이 시뮬레이션에서 확인한 뒤 Thor에서 실행합니다.
+
+| | |
+|---|---|
+| ![정면](sim/sorting/media/readme_front.png) | ![왼쪽](sim/sorting/media/readme_left.png) |
+| ![오른쪽](sim/sorting/media/readme_right.png) | ![위](sim/sorting/media/readme_top.png) |
+
+실행: `.venv-sim/bin/python sim/sorting/scripted_demo.py --video` (Thor에서 이미지를 만들려면 `MUJOCO_GL=egl`).
+동작 원리: [docs/sorting](../../docs/sorting/README.md).
+
+---
+
 ## 아키텍처
 
 ![아키텍처](../../docs/images/arch_ko.png)
@@ -303,6 +352,7 @@ vision/         카메라 서비스, 감지, 측정, 보정
 robot/          장치 드라이버와 검증된 동작
 manipulation/   집기, 놓기, 건네기, 팔 동작 계획
 tasks/          전체 작업: 가져오기, 미션, 따라가기
+sim/            시뮬레이션(MuJoCo): 색깔 분류 장면
 tests/          자체 검사와 평가 세트
 data/           보정값과 교시값
 knowledge/      지식 베이스
@@ -376,4 +426,4 @@ systemctl --user restart lumi-api                                             # 
 [시작하기](../../docs/00_START_HERE.md) · [하드웨어](../../docs/01_HARDWARE.md) · [네트워크](../../docs/02_NETWORK_AND_ACCESS.md) ·
 [바디](../../docs/03_BODY_LIFT_WAIST_HEAD.md) · [팔](../../docs/04_ARM.md) · [베이스](../../docs/05_AGV_BASE.md) ·
 [카메라](../../docs/06_CAMERAS_AND_VISION.md) · [오디오](../../docs/07_VOICE_AND_AUDIO.md) · [Thor](../../docs/08_NVIDIA_THOR.md) ·
-[그리퍼](../../docs/10_GRIPPER.md) · [안전](../../docs/11_SAFETY.md) · [튜닝](../../docs/TUNING.md) · [출처](../../docs/12_SOURCES.md)
+[그리퍼](../../docs/10_GRIPPER.md) · [색깔 분류](../../docs/sorting/README.md) · [안전](../../docs/11_SAFETY.md) · [튜닝](../../docs/TUNING.md) · [출처](../../docs/12_SOURCES.md)
