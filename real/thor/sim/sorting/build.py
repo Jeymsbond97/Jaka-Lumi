@@ -97,6 +97,9 @@ BOX_OUT = (0.180, 0.260, 0.080)                 # S_Half box without its lid, sh
 BOX_WALL = 0.003
 BOX_GAP = 0.050                                 # between the tray and each box: room for the fingers
 BALL_R, BALL_MASS = 0.02125, 0.008              # foam golf practice ball 42.5 mm, 8 g
+BALL_ROLL = 0.002                               # rolling friction (m): nudged at 0.2 m/s the ball rolls ~16 mm and
+                                                # stops, as in Newton (~21 mm); without it it crept on for seconds
+                                                # (to measure: roll one down a known slope)
 BALL_GRID = (0.090, 0.075)                      # ball spacing along x and y: the hand reaches the table with its jaws
                                                 # turned about 45 deg, so the fingers need room on the diagonals too
 COLOURS = {"red": "0.86 0.12 0.12 1", "yellow": "0.97 0.80 0.10 1"}
@@ -227,7 +230,12 @@ def link2_in_controller(model):
 
 
 # ---------- writing ----------
-def box_geom(name, c, half, rgba, extra=""):
+# Wood is hard: with MuJoCo's default soft contact a ball pressed from above by the fingers sank through the 4 mm
+# tray floor (seen in the policy check, 2026-11-27); the tray, the boxes and the table get stiff contacts
+HARD = 'solref="0.002 1" solimp="0.95 0.99 0.001"'
+
+
+def box_geom(name, c, half, rgba, extra=HARD):
     return f'<geom name="{name}" type="box" pos="{fmt(c)}" size="{fmt(half)}" rgba="{rgba}" {extra}/>'
 
 
@@ -397,7 +405,7 @@ def build():
 
     # table, tray, boxes, balls
     tc = (TRAY_C[0], TRAY_C[1] + 0.05)
-    x.append(f'    <geom name="table" type="box" pos="{tc[0]:.3f} {tc[1]:.3f} {TABLE_Z - 0.015:.4f}" size="0.60 0.35 0.015" material="table"/>')
+    x.append(f'    <geom name="table" type="box" pos="{tc[0]:.3f} {tc[1]:.3f} {TABLE_Z - 0.015:.4f}" size="0.60 0.35 0.015" material="table" {HARD}/>')
     for sx in (-0.55, 0.55):
         for sy in (-0.30, 0.30):
             x.append(f'    <geom type="box" pos="{tc[0] + sx:.3f} {tc[1] + sy:.3f} {(TABLE_Z - 0.03 + floor_z) / 2:.4f}" '
@@ -418,7 +426,7 @@ def build():
             x.append(f'    <body name="ball_{i}" pos="{bx:.4f} {by:.4f} {TABLE_Z + TRAY_FLOOR + BALL_R + 0.001:.4f}">')
             x.append('      <freejoint/>')
             x.append(f'      <geom name="ball_{i}" type="sphere" size="{BALL_R}" mass="{BALL_MASS}" rgba="{COLOURS[colour]}" '
-                     f'friction="1.0 0.01 0.001" condim="4" solref="0.006 1"/>')
+                     f'friction="1.0 0.01 {BALL_ROLL}" condim="6" solref="0.006 1"/>')
             x.append('    </body>')
             i += 1
     x.append('  </worldbody>')
