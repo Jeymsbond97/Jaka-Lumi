@@ -72,3 +72,8 @@ tests/data/waves/
 .venv-sim
 sim/sorting/media/*.mp4
 sim/sorting/assets/app_cache/
+
+# Isaac Lab sorting: generated robot files and recorded clips
+rl/sorting/assets/
+rl/sorting/media/
+rl/sorting/policies/
