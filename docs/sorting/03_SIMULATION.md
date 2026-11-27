@@ -13,6 +13,24 @@ on one engine's quirks. Both are built from the same robot description and the s
 | `app_look.py` | the look: the Lumi app's own 3D model (`assets/lumi_app.glb`, the uncompressed export of Lumi-app `tools/lumi-model`) cut into one mesh per link and colour, in that link's frame: white shell, black trim and visor, red bands, green shoulder ring, JAKA lettering, the cutshion logo, the cameras and the base lamp. The meshes are made once into `assets/app_cache/` (not in git) and need `trimesh` and `pillow` (`requirements.txt`) |
 | `check.py` | the simulated flange against the controller's own flange pose in the 60 calibration samples: **median 0.02 mm, max 0.03 mm, 0.008°**; pictures from three cameras |
 | `scripted_demo.py` | a scripted sort (inverse kinematics and waypoints, no learning): the fingers as straight down as reachable (at most 45°) at each ball, straight up, then a straight line at carrying height to the box and a drop with the hand any way: **6 of 6 balls in their boxes, 51 s** (about 8.5 s a ball at the robot's normal joint speed). The baseline the learned policy is compared with |
+| `policy_play.py` | the sim-to-sim check: a policy trained in Isaac Lab (its ONNX and JSON from `rl/sorting/export_policy.py`) run in this scene with exactly its training observations, the same IK and the binary Zimmer; one ball, the easiest, per episode in any of the layouts, or `--sort-all` (six balls one after another, `--video`). The student version adds the same camera model and its memory. Prints the success with its 95 % interval, by layout and by ball count |
+
+### Isaac Lab (`rl/sorting/`, run in the Isaac Lab environment on the Thor)
+
+| File | Contents |
+|---|---|
+| `scene_from_mjcf.py` | reads the MuJoCo scene: the robot alone as MJCF (with visual copies of the Zimmer's and fingers' collision boxes) converted once to USD by Isaac Lab's MJCF importer; every fixed box of the table, tray and boxes; the balls |
+| `sort_env_cfg.py` | the task's configuration: the scene (robot, table, tray, boxes, six balls: three red, three yellow), Newton physics with the MuJoCo-Warp solver at 200 Hz, the policy at 10 Hz, actuator gains, reward weights, curriculum |
+| `sort_env.py` | the task: observations, the grasp-point action through a damped least squares IK (grasp point first, the fingers as straight down as the arm allows, any way while the ball is held), the binary Zimmer stroke, rewards, success and drop, the ball layouts and stage at each reset, the easiest ball and the hand's turn as `manipulation/sort.py` chooses them |
+| `layouts.py` | where the balls lie: scattered, row, heap, touching pairs, spread (GPU, all environments at once) |
+| `check.py` | a scripted controller on the same observations, to check that the task can be done before training; `--record` writes a clip |
+| `export_policy.py` | a checkpoint as ONNX (with its observation normaliser) and a JSON of everything needed to use it elsewhere: observation layout, step size, IK weights, start pose, scene numbers, the camera model for the student |
+| `train.py` | PPO training with rsl_rl (`agents/rsl_rl_ppo_cfg.py`); TensorBoard curves and checkpoints under `logs/rsl_rl/lumi_sort/` |
+| `record_policy.py`, `record_milestones.sh`, `tb_export.py` | clips of a checkpoint (one table close up or a grid of scenes), recorded at set iterations while training runs, and the curves as a figure and CSV |
+
+The balls roll with a little rolling resistance (a ball pushed at 0.2 m/s rolls ~16 mm and stops, close to Newton) and the
+tray, the boxes and the table have stiff contacts (wood): without them a nudged ball crept on for seconds and a ball
+pressed from above sank through the 4 mm tray floor.
 
 Still guesses in the model: the fingers' direction around the flange and the grasp point (to be taught with a
 ball), the finger mass, joint motor gains, the table's height in the arm frame (to be touched), the box positions on
@@ -24,7 +42,7 @@ the real table.
 |---|---|---|
 | Role | training (PPO, thousands of parallel scenes) | sim-to-sim check, debugging, quick visual runs on the Mac |
 | Version | Isaac Lab 3.0, Newton physics on NVIDIA Warp (default install, Isaac Sim not required for headless training) | MuJoCo ≥ 3.14 (`sim/requirements.txt`) |
-| Runs on | NVIDIA GPU, Linux: cloud x86 RTX machine, or the Thor if Isaac Lab runs there | Mac (CPU) and the Thor |
+| Runs on | the Jetson Thor's GPU (Isaac Lab in its own environment, `~/isaaclab-spike`) | Mac (CPU) and the Thor |
 | Robot from | URDF `sim/lumi_description/jaka_lumi.urdf` (arm chain only) + gripper model | `sim/lumi.xml` (already built from the same URDF) |
 | Code | `rl/sorting/` | `sim/sorting/` |
 
@@ -70,14 +88,15 @@ Both simulators need the Zimmer with the new fingers instead. Steps:
 | Boxes | thin-walled open boxes at the layout positions | position ±15 mm, wall height ±5 mm |
 | Obstacles | column, head, lift link as fixed bodies | none |
 
-One ball is "the" ball of the episode; 0–8 other balls lie on the tray with it, in one of these layouts, chosen at
+One ball is "the" ball of the episode; 0–5 other balls lie on the tray with it (the six balls are three red and three
+yellow, as the real ones), in one of these layouts, chosen at
 random each episode:
 
 | Layout | How it is made |
 |---|---|
 | Scattered | balls dropped from 5–15 cm at random points over the tray and left to roll to rest, as when they are tipped in |
 | Row | 2–6 balls touching in a straight or bent line, any direction |
-| Heap | 3–7 balls packed together, the target anywhere in it (middle or edge) |
+| Heap | 3–6 balls packed together, the target anywhere in it (middle or edge) |
 | Touching pairs | the target touching one or two balls |
 | Spread | balls apart with room between them |
 
