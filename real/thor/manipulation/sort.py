@@ -15,7 +15,12 @@ What it needs on the robot, both written once with the owner at the robot:
     python manipulation/sort.py plan       # dry run: balls seen, their boxes, every waypoint with IK joints; nothing moves
     python manipulation/sort.py teach      # the ball grasp (free drive), see above
     python manipulation/sort.py layout     # the tray and boxes (free drive), see above
-    python manipulation/sort.py run        # sort everything on the tray (the API's POST /skills/sort does this)
+    python manipulation/sort.py run        # sort until STOP (the API's POST /skills/sort does this)
+
+A run goes on until STOP: it sorts every ball on the tray, then keeps watching it from `look` and sorts each ball put
+there later, however the balls lie (in a row, in a heap, touching). The ball with free room for both fingers goes
+first; the fingers come down clear of the other balls where there is room, and beside a touching ball (pushing it
+aside, never onto it) where there is not.
 
 Ctrl+C, skills.cancel() (STOP in the API) or any motion error stops the arm; the gripper keeps its state.
 """
@@ -44,10 +49,19 @@ YAWS = (0, 30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180)   # deg; the ta
 MAX_TILT_DEG = 45.0                 # deg; the fingers may lean this far from the taught (straight down) grasp at a ball
 TILTS = (0.0, 15.0, 30.0, 45.0)     # ... tried in this order, each towards 8 directions
 MAX_FAILS = 3                       # balls missed or dropped in a row: stop
-MAX_BALLS = 12                      # a run never picks more than this (a ball seen again and again is not looped on)
+TRIES_PER_BALL = 2                  # a ball missed this often is left where it lies until it is moved
+SAME_BALL_MM = 30.0                 # a ball seen within this of a left one is that ball
 TRAY_MARGIN_MM = 10.0               # a ball counts as on the tray within its outline grown by this
+WAIT_S = 1.0                        # with nothing to sort, look at the tray again this often
+# The fingers around a ball (docs/sorting/01): pads 61 mm apart open, fingers 7.5 mm thick and 15 mm wide, so a
+# finger's middle stands this far from the grasp point along the jaws, and a disc this wide covers it from above
+FINGER_OUT_MM = 30.5 + 7.5 / 2
+FINGER_R_MM = 8.5
+CLEAR_MM = 3.0                      # a finger this far from every other ball: it comes down clear
+ONTO_MM = 12.0                      # a finger nearer than this to another ball's middle would land on it: not allowed
 
-state = {"done": 0, "failed": 0, "left": None, "current": None}   # shown by /skills/state while sorting
+state = {"done": 0, "failed": 0, "left": None, "current": None, "waiting": False, "stopped": False}
+# shown by /skills/state while sorting
 
 
 # ---------- what was taught ----------
@@ -82,6 +96,43 @@ def flange_at(p, R):
     return [float(v) for v in f] + skills.rpy_of(R)
 
 
+def jaws():
+    """Unit vector along which the jaws open, in the flange frame: square to the flange axis and to the taught grasp
+    point's side offset (the fingers hang off the Zimmer to one side of the flange, docs/sorting/01)."""
+    _, offset = grasp()
+    side = np.array([offset[0], offset[1], 0.0])
+    j = np.cross([0.0, 0.0, 1.0], side)
+    return j / np.linalg.norm(j)
+
+
+def clearance(ball, R, others):
+    """How far (mm) the nearer finger stays from the nearest other ball, seen from above, with the hand `R` at `ball`;
+    None when a finger would land on another ball. Large with no other ball about."""
+    u = (R @ jaws())[:2] * FINGER_OUT_MM                 # seen from above; a leaning hand brings the fingers in
+    c = np.array([ball["x"], ball["y"]])
+    worst = 1e9
+    for o in others:
+        q = np.array([o["x"], o["y"]])
+        for f in (c + u, c - u):
+            d = np.linalg.norm(f - q)
+            if d < ONTO_MM:
+                return None
+            worst = min(worst, d - BALL_R_MM - FINGER_R_MM)
+    return worst
+
+
+def room(ball, others):
+    """The most room (mm) the straight-down hand finds for the fingers at `ball`, over all its turns; None when every
+    turn would land a finger on another ball."""
+    R0, _ = grasp()
+    best = None
+    for yaw in YAWS:
+        c = clearance(ball, _rot("z", yaw) @ R0, others)
+        if c is not None and (best is None or c > best):
+            best = c
+    return best
+
+
 def hands(max_tilt=MAX_TILT_DEG):
     """Flange orientations for a ball: the taught one (fingers straight down) turned about the vertical, then leaning
     up to `max_tilt` deg towards 8 directions. Straightest first."""
@@ -102,8 +153,10 @@ def on_tray(o, lay):
 
 
 def balls(lay, seen=None):
-    """Steady balls on the tray, nearest the arm first: [{x, y, z (centre), colour, box}]; box None for a colour that
-    has no box."""
+    """Steady balls on the tray, easiest first: [{x, y, z (centre), colour, box, room}]; box None for a colour that
+    has no box; room as `room()` (None: a finger would land on a neighbour at every turn). A ball with room for both
+    fingers (CLEAR_MM) comes before one that needs a neighbour pushed aside: free balls nearest the arm first, hemmed-in
+ones with the most room first."""
     seen = skills.look() if seen is None else seen
     out = []
     for o in seen:
@@ -113,18 +166,39 @@ def balls(lay, seen=None):
             continue
         out.append({"x": o["x"], "y": o["y"], "z": o["top_mm"] - BALL_R_MM, "colour": o["colour"],
                     "box": lay["colours"].get(o["colour"])})
-    return sorted(out, key=lambda b: np.hypot(b["x"], b["y"]))
+    for b in out:
+        b["room"] = room(b, [o for o in out if o is not b])
+
+    def ease(b):
+        d = np.hypot(b["x"], b["y"])
+        if b["room"] is None:
+            return (2, 0.0, d)
+        if b["room"] >= CLEAR_MM:
+            return (0, 0.0, d)                              # free: nearest first
+        return (1, -round(b["room"]), d)                    # hemmed in: the most room first
+    return sorted(out, key=ease)
 
 
 # ---------- planning ----------
-def plan_ball(ball, lay, start):
+def grasp_hands(ball, others):
+    """The hands to try at `ball`: those with both fingers clear of `others` first, then those that push a touching
+    ball aside; straightest first within each; never one that lands a finger on another ball."""
+    clear, push = [], []
+    for R in hands():
+        c = clearance(ball, R, others)
+        if c is not None:
+            (clear if c >= CLEAR_MM else push).append(R)
+    return clear + push
+
+
+def plan_ball(ball, lay, start, others=()):
     """Waypoints and joints for one ball: [(name, flange pose)], the joints at "above" (a joint move from `start`).
-    Above the ball, straight down to it, straight back up (one hand orientation), then the drop over its box (any
-    orientation the arm reaches). None when nothing passes the checks."""
+    Above the ball, straight down to it, straight back up (one hand orientation, fingers kept off the `others`),
+    then the drop over its box (any orientation the arm reaches). None when nothing passes the checks."""
     box = lay["boxes"][ball["box"]]
     p = np.array([ball["x"], ball["y"], ball["z"]])
     drop = np.array([box["centre"][0], box["centre"][1], box["rim_mm"] + DROP_ABOVE_RIM_MM])
-    for R in hands():
+    for R in grasp_hands(ball, others):
         g = flange_at(p, R)
         a = skills.up(g, ABOVE_MM)
         for ja in skills.above_joints(a, start):
@@ -170,30 +244,58 @@ def _sort_one(ball, plan):
         raise skills.SkillError("My hand did not open.")
 
 
-def run():
-    """Sort every steady ball on the tray. Returns {done, failed}; refuses before anything moves when the tray, the
-    boxes or the ball grasp are not set up, or no ball is seen."""
-    skills._cancel.clear()
-    lay = layout()
-    grasp()
-    state.update(done=0, failed=0, left=None, current=None)
-    skills._prepare()                                       # open, back out of a stopped pick, home (look)
+def _wait():
+    """Nothing to sort now: stay at `look` and look again in WAIT_S, or end at once on STOP."""
+    if skills._cancel.wait(WAIT_S):
+        skills._go_on()
+
+
+def _left(b, passed):
+    """A ball missed TRIES_PER_BALL times stays where it lies: True when `b` is one of those (`passed`: [x, y, tries])."""
+    return any(np.hypot(b["x"] - x, b["y"] - y) < SAME_BALL_MM and n >= TRIES_PER_BALL for x, y, n in passed)
+
+
+def _missed(b, passed):
+    for p in passed:
+        if np.hypot(b["x"] - p[0], b["y"] - p[1]) < SAME_BALL_MM:
+            p[2] += 1
+            return
+    passed.append([b["x"], b["y"], 1])
+
+
+def _loop(lay):
     fails = 0
-    for _ in range(MAX_BALLS):
+    passed = []                                             # balls missed: [x, y, tries]
+    said = set()                                            # what was already said while waiting, said once each
+    while True:
         skills._go_on()
         seen = balls(lay)
-        sortable = [b for b in seen if b["box"]]
+        on_tray = [(b["x"], b["y"]) for b in seen]
+        passed[:] = [p for p in passed if any(np.hypot(p[0] - x, p[1] - y) < SAME_BALL_MM for x, y in on_tray)]
+        sortable = [b for b in seen if b["box"] and not _left(b, passed)]
         state["left"] = len(sortable)
         for b in seen:
-            if not b["box"]:
+            if not b["box"] and ("colour", b["colour"]) not in said:
+                said.add(("colour", b["colour"]))
                 skills.log(f"a {b['colour']} ball: no box for that colour, left on the tray")
-        if not sortable:
-            break
         start = skills._joints()
-        ball, plan = next(((b, p) for b in sortable for p in [plan_ball(b, lay, start)] if p), (None, None))
+        ball, plan = None, None
+        for b in sortable:
+            p = plan_ball(b, lay, start, [o for o in seen if o is not b])
+            if p:
+                ball, plan = b, p
+                break
         if ball is None:
-            raise skills.SkillError("I can't reach the balls that are left safely.")
-        state["current"] = {"colour": ball["colour"], "box": ball["box"]}
+            if sortable and "reach" not in said:
+                said.add("reach")
+                skills.log("I can't reach the balls that are left safely; waiting for them to be moved")
+            if not state["waiting"]:
+                skills.log(f"sorted {state['done']} so far; waiting for balls")
+            state.update(waiting=True, current=None)
+            _wait()
+            continue
+        said.clear()
+        state.update(waiting=False, current={"colour": ball["colour"], "box": ball["box"]})
         try:
             skills._guarded(_sort_one, ball, plan)
             state["done"] += 1
@@ -203,15 +305,33 @@ def run():
                 raise
             state["failed"] += 1
             fails += 1
+            _missed(ball, passed)
             skills.log(f"{e.args[0]} ({fails} in a row)")
             if fails >= MAX_FAILS:
                 raise skills.SkillError(f"I missed {fails} balls in a row, so I stopped.")
+        state["current"] = None
         skills._back_home()
-    state.update(current=None, left=0)
-    if state["done"] == 0 and state["failed"] == 0:
-        raise skills.SkillError("I don't see any balls on the tray.")
-    skills.log(f"sorted {state['done']}, missed {state['failed']}")
-    return {"done": state["done"], "failed": state["failed"]}
+
+
+def run():
+    """Sort the balls on the tray until STOP: every steady ball now and every ball put there later. Returns {done,
+    failed, stopped} once stopped; refuses before anything moves when the tray, the boxes or the ball grasp are not
+    set up; ends with an error after MAX_FAILS misses in a row."""
+    skills._cancel.clear()
+    lay = layout()
+    grasp()
+    state.update(done=0, failed=0, left=None, current=None, waiting=False, stopped=False)
+    try:
+        skills._prepare()                                   # open, back out of a stopped pick, home (look)
+        _loop(lay)
+    except (skills.SkillError, motion.MotionError) as e:
+        if not skills._cancel.is_set():                     # not STOP: a refusal or a fault ends the run with it
+            raise
+        if isinstance(e, skills.SkillError) and e.args and e.args[0] != "Stopped.":
+            raise
+    state.update(current=None, waiting=False, stopped=True)
+    skills.log(f"stopped: sorted {state['done']}, missed {state['failed']}")
+    return {"done": state["done"], "failed": state["failed"], "stopped": True}
 
 
 # ---------- teaching (owner at the robot, free drive) ----------
@@ -261,8 +381,9 @@ def dry_run():
     seen = balls(lay)
     print(f"{len(seen)} balls on the tray")
     for b in seen:
-        p = plan_ball(b, lay, start) if b["box"] else None
-        print(f"  {b['colour']} at ({b['x']:.0f}, {b['y']:.0f}, {b['z']:.0f}) -> {b['box'] or 'no box'}: "
+        p = plan_ball(b, lay, start, [o for o in seen if o is not b]) if b["box"] else None
+        room_ = "no room" if b["room"] is None else f"room {b['room']:.0f} mm"
+        print(f"  {b['colour']} at ({b['x']:.0f}, {b['y']:.0f}, {b['z']:.0f}) {room_} -> {b['box'] or 'no box'}: "
               + ("reachable" if p else "NOT reachable" if b["box"] else "left"))
         for name, pose in (p[0] if p else []):
             print(f"     {name:6s} flange ({pose[0]:.0f}, {pose[1]:.0f}, {pose[2]:.0f})")
