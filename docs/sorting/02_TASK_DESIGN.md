@@ -46,27 +46,47 @@ below the horizontal and sees no part of the table within 80 cm of Lumi.
 
 ## 2. One SORT run
 
+SORT runs until STOP. It sorts the balls on the tray, then keeps watching the tray and sorts every ball put there
+later, however many and however they lie. STOP ends it; balls put on the tray after STOP stay there until SORT is
+pressed again.
+
 ```
 SORT pressed
   │
   ├─ check: arm enabled, gripper fitted, hand empty, no other skill running, layout loaded
   ├─ arm to `look` (existing pose route)
   │
-  └─ loop:
-       ├─ look: steady balls on the plate (existing find(): 5 of 8 frames, 20 mm spread)
-       ├─ none left → arm to rest pose, status done (balls sorted: n)
-       ├─ pick the nearest steady ball; box = COLOUR_TO_BOX[colour]; unknown colour → skip it, say so
+  └─ loop until STOP:
+       ├─ look: steady balls on the tray (existing find(): 5 of 8 frames, 20 mm spread)
+       ├─ none to sort → stay at `look`, status "waiting for balls", look again every second
+       ├─ pick the easiest ball (below); box = COLOUR_TO_BOX[colour]; unknown colour → leave it, say so once
        ├─ run the policy episode (below) with goal (ball position, box position)
-       ├─ check: gripper open, DI_1 / AI_1 show the hand empty, ball gone from the plate
-       ├─ failure (missed grasp, dropped, timeout) → open, back to `look`, count it, try the next ball
+       ├─ check: gripper open, DI_1 / AI_1 show the hand empty, ball gone from the tray
+       ├─ failure (missed grasp, dropped, timeout) → open, back to `look`, count it, go on
+       ├─ a ball missed twice → left where it lies until it is moved
        └─ three failures in a row → stop, status failed with the reason
 ```
+
+### The easiest ball, and balls that touch
+
+The balls may lie anywhere on the tray: in rows, in a heap, touching, wherever they rolled to. For every ball the
+code works out how much room the two fingers have beside it at each turn of the hand, seen from above (the open
+fingers' middles 34 mm either side of the ball's centre across the jaws, each finger 15 mm wide):
+
+| Case | Order | Hand |
+|---|---|---|
+| Room for both fingers (≥ 3 mm from every other ball at some turn) | first, nearest the arm first | turned so both fingers come down clear |
+| Touching balls all round (every turn puts a finger against a neighbour) | after the free balls, the one with the most room first | turned for the most room; the finger comes down beside the neighbour and pushes it aside (the balls roll) |
+| A finger would land on top of another ball | that turn is never used | |
+
+A ball pushed aside is found again at the next look. The same rule chooses the hand's turn for the learned policy
+(§3).
 
 | Part | Learned or code | Why |
 |---|---|---|
 | Finding balls, reading colour | existing vision code | already works to ~1 cm; colour is a rule |
 | Choosing the box | code (`COLOUR_TO_BOX`) | a lookup; learning it adds nothing |
-| Order of balls | code: nearest first | keeps the arm's path short and predictable |
+| Order of balls, hand turn | code: free balls nearest first, then hemmed-in balls with the most room first (§2) | a ball with room for the fingers is the surest pick; the rest open up as balls leave |
 | Reach, grasp, lift, carry, release | **policy** | the motor skill; this is the RL part |
 | Moving to `look` and to rest | existing pose route | already checked for head clearance |
 | Success and failure checks | code | uses the gripper signals and the camera after the episode |
@@ -100,9 +120,9 @@ the policy.
 
 - It does not choose the ball or the box.
 - It does not move the lift, waist, head or base.
-- It does not turn the hand: the fingers point down and the yaw is fixed (a ball looks the same from any side).
-- It does not handle a ball stuck between two others; a ball the camera does not see steadily is left for the
-  next look.
+- It does not choose the hand's turn: the code turns the fingers to where there is room beside the ball (§2) and
+  the turn stays fixed for the episode; the fingers point down.
+- A ball the camera does not see steadily (still rolling, hidden) is left for the next look.
 
 These are deliberate limits for version 1. Each can be lifted later ([04](04_RL.md) §9).
 

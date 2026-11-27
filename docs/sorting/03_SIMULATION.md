@@ -66,12 +66,24 @@ Both simulators need the Zimmer with the new fingers instead. Steps:
 |---|---|---|
 | Table | box, top at the measured height | height ±10 mm, friction 0.4–1.0 |
 | Plate | shallow dish mesh or a flat disc with a low rim | position ±30 mm, rim height ±3 mm |
-| Ball | sphere, measured diameter and mass, rubber-like contact | diameter ±1.5 mm, mass ±20 %, friction 0.6–1.2, restitution 0.1–0.5, start position anywhere on the plate |
+| Ball | sphere, measured diameter and mass, rubber-like contact | diameter ±1.5 mm, mass ±20 %, friction 0.6–1.2, restitution 0.1–0.5, position: see the layouts below |
 | Boxes | thin-walled open boxes at the layout positions | position ±15 mm, wall height ±5 mm |
 | Obstacles | column, head, lift link as fixed bodies | none |
 
-One ball is "the" ball of the episode; 0–3 other balls lie on the plate as obstacles so the policy learns not to
-knock them off.
+One ball is "the" ball of the episode; 0–8 other balls lie on the tray with it, in one of these layouts, chosen at
+random each episode:
+
+| Layout | How it is made |
+|---|---|
+| Scattered | balls dropped from 5–15 cm at random points over the tray and left to roll to rest, as when they are tipped in |
+| Row | 2–6 balls touching in a straight or bent line, any direction |
+| Heap | 3–7 balls packed together, the target anywhere in it (middle or edge) |
+| Touching pairs | the target touching one or two balls |
+| Spread | balls apart with room between them |
+
+The target is the ball the run would take next (the easiest one, [02](02_TASK_DESIGN.md) §2), and the hand's turn is
+chosen by the same rule, so training sees exactly the cases the robot meets. Pushing a neighbour aside is allowed;
+pushing one off the tray is not.
 
 ---
 

@@ -46,7 +46,7 @@ The real success rates are what the project is judged by. Simulation numbers alo
         ▼
  lumi-api (Thor) ── skill thread ── manipulation/sort.py
         │                              │
-        │   vision (existing)          │  for each ball, nearest first:
+        │   vision (existing)          │  until STOP, easiest ball first:
         │   YOLOv8s "sports ball"      │    target box = colour rule
         │   + colour_name + depth  ───►│    policy loop (ONNX, CPU)
         │   → ball position, colour    │      obs → action (Δ hand position, open / close)

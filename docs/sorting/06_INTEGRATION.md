@@ -8,8 +8,8 @@ How sorting is started, watched and stopped, using the same skill machinery as M
 
 | Endpoint | Body | Answer |
 |---|---|---|
-| `POST /skills/sort` | `{}` (version 1: everything on the plate) | 200 started; 409 another skill runs; 400 with the reason when a check fails |
-| `GET /skills/state` | — | existing: `status` (running / done / refused / stopped / failed), `reason`, `took_s`, last log lines; sorting adds `sort: {done, left, failed, current: {colour, box}}` |
+| `POST /skills/sort` | `{}` | 200 started: sorts until STOP, also the balls put on the tray later; 409 another skill runs; 400 with the reason when a check fails |
+| `GET /skills/state` | — | existing: `status` (running / done / refused / stopped / failed), `reason`, `took_s`, last log lines; sorting adds `sort: {done, left, failed, current: {colour, box}, waiting, stopped}`; after STOP the status is `done` with `stopped` true |
 | `GET /sort/layout`, `POST /sort/layout` | box positions, plate centre | read and set `data/sort_layout.json` (later: from the app) |
 
 Checks before starting (reason words in English and Korean, like the other skills):
@@ -43,7 +43,7 @@ version 1.
 |---|---|
 | SORT tile in COMMANDS → ARM & OBJECTS, needs arm on and hand empty | `src/app/(robot)/commands.tsx` (`TILES.arm`), icon in `src/ui/CommandIcon.tsx` |
 | Request `POST /skills/sort`, marked as a skill so the status line follows `/skills/state` | `src/lib/commands.ts` (`sortRequest`) |
-| Status line: "Sorting: 2 of 4", then "Done", or the robot's reason | existing skill status handling; counts from `sort` in `/skills/state` |
+| Status line: "Sorting the red ball. Sorted 2", "Sorted 5. Waiting for balls on the tray", after STOP "Stopped. Sorted 6", or the robot's reason | `sortLine` in `src/lib/commands.ts`, from `sort` in `/skills/state` |
 | Texts in English and Korean | `src/lib/i18n.tsx` (`cmdSort`, `cmdSortHint`, `cmdAskSort`, counts) |
 | Asks first (it moves the arm) | `ConfirmDialog`, like Move object |
 | Docs | `docs/COMMANDS.md` row for Sort |
